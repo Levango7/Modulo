@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, inject, onBeforeUnmount, onMounted, ref } from 'vue'
-import { LayoutGrid, Moon, Redo2, SlidersHorizontal, Sun, Undo2, Wand2 } from 'lucide-vue-next'
+import { LayoutGrid, LayoutTemplate, Moon, Redo2, SlidersHorizontal, Sparkles, Sun, Undo2 } from 'lucide-vue-next'
 import * as E from './engine'
 import type { LayoutStore } from './vue/store'
 import { CARD_COMPONENTS } from './vue/cardRegistry'
@@ -31,12 +31,37 @@ onMounted(() => {
     if (el) stageW.value = el.clientWidth
   })
   if (stageEl.value) ro.observe(stageEl.value)
+  window.addEventListener('keydown', onGlobalKey)
+})
+onBeforeUnmount(() => {
+  ro?.disconnect()
+  window.removeEventListener('keydown', onGlobalKey)
 })
 onBeforeUnmount(() => ro?.disconnect())
 
 function toggleTheme() {
   theme.value = theme.value === 'dark' ? 'light' : 'dark'
   document.documentElement.dataset.theme = theme.value
+}
+
+const isEditable = (el: EventTarget | null): boolean => {
+  const n = el as HTMLElement | null
+  if (!n?.tagName) return false
+  return n.tagName === 'INPUT' || n.tagName === 'TEXTAREA' || n.isContentEditable
+}
+
+/** 撤销/重做是全局能力：整理、推荐布局这类动作也可能在工作台上做，不能只在编辑器里可撤销 */
+function onGlobalKey(e: KeyboardEvent) {
+  if (isEditable(e.target)) return
+  const k = e.key.toLowerCase()
+  if ((e.ctrlKey || e.metaKey) && k === 'z') {
+    e.preventDefault()
+    if (e.shiftKey) store.redo()
+    else store.undo()
+  } else if ((e.ctrlKey || e.metaKey) && k === 'y') {
+    e.preventDefault()
+    store.redo()
+  }
 }
 </script>
 
@@ -60,7 +85,8 @@ function toggleTheme() {
         <button :disabled="!store.canRedo.value" title="重做 (Ctrl+Shift+Z)" @click="store.redo()">
           <Redo2 :size="14" />
         </button>
-        <button class="wide" @click="store.restoreStarter()"><Wand2 :size="14" /> 推荐布局</button>
+        <button class="wide" title="聚拢空洞（可撤销）" @click="store.tidy()"><Sparkles :size="14" /> 整理</button>
+        <button class="wide" @click="store.restoreStarter()"><LayoutTemplate :size="14" /> 推荐布局</button>
         <button class="wide" @click="toggleTheme">
           <Moon v-if="theme === 'light'" :size="14" /><Sun v-else :size="14" /> {{ theme === 'dark' ? '亮色' : '暗色' }}
         </button>

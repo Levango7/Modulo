@@ -86,6 +86,8 @@ export function createLayoutStore(opts: { registry: E.ModuleRegistry; storage?: 
     toggleLock: (id: string) => apply(E.toggleLock(doc.value, id)),
     setTitle: (id: string, title: string | null) => apply(E.setItemTitle(doc.value, id, title)),
     clear: () => apply(E.clearLayout(doc.value)),
+    /** 按需整理：聚拢空洞，一步可撤销；锁定项不参与 */
+    tidy: () => apply(E.tidyLayout(doc.value)),
     restoreStarter: () => apply(starterDoc(reg)),
     undo: () => {
       hist.value = E.undo(hist.value)

@@ -263,15 +263,6 @@ function onKeydown(e: KeyboardEvent) {
     e.preventDefault()
     sel.value = new Set(items.value.map((p) => p.id))
   }
-  if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z') {
-    e.preventDefault()
-    if (e.shiftKey) store.redo()
-    else store.undo()
-  }
-  if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'y') {
-    e.preventDefault()
-    store.redo()
-  }
   if ((e.key === 'Delete' || e.key === 'Backspace') && selCount.value > 1) {
     e.preventDefault()
     store.removeMany([...sel.value])

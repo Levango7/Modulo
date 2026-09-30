@@ -138,6 +138,29 @@ it.skipIf(skip)('框选 → 成组拖拽 → Ctrl+Z 整体回退', async () => {
   await page.close()
 })
 
+it.skipIf(skip)('整理：聚拢空洞且不报错，可一步撤销', async () => {
+  const page = await freshPage(1440, 900)
+  const errs: string[] = []
+  page.on('pageerror', (e: unknown) => errs.push(String(e)))
+  /** 行轨是 1fr 会撑满视口，像素高度测不出聚拢效果，改数行轨数量 */
+  const rowCount = () =>
+    page.evaluate(() => getComputedStyle(document.querySelector('.grid')!).gridTemplateRows.split(' ').length)
+  const before = await rowCount()
+  await page.evaluate(() => {
+    ;[...document.querySelectorAll('button')].find((e) => (e.textContent || '').trim() === '整理')?.click()
+  })
+  await new Promise((r) => setTimeout(r, 400))
+  const after = await rowCount()
+  expect(after).toBeLessThan(before)
+  await page.keyboard.down('Control')
+  await page.keyboard.press('KeyZ')
+  await page.keyboard.up('Control')
+  await new Promise((r) => setTimeout(r, 400))
+  expect(await rowCount()).toBe(before)
+  expect(errs).toEqual([])
+  await page.close()
+})
+
 it.skipIf(skip)('窄屏编辑器自动切堆叠模式，不给出挤成一团的画布', async () => {
   const page = await freshPage(390, 844)
   await enterEditor(page)
