@@ -1,22 +1,22 @@
 <script setup lang="ts">
-import { computed, inject, onBeforeUnmount, onMounted, ref } from 'vue'
-import { LayoutGrid, LayoutTemplate, Maximize2, Moon, Palette, Redo2, SlidersHorizontal, Sparkles, Sun, Undo2 } from 'lucide-vue-next'
+import { computed, inject, onBeforeUnmount, onMounted, provide, ref } from 'vue'
+import { LayoutGrid, LayoutTemplate, Maximize2, Redo2, Settings, SlidersHorizontal, Sparkles, Undo2 } from 'lucide-vue-next'
 import * as E from './engine'
 import type { LayoutStore } from './vue/store'
 import { CARD_COMPONENTS } from './vue/cardRegistry'
+import { useAppearance } from './vue/useAppearance'
 import GridLayout from './vue/components/GridLayout.vue'
 import CanvasEditor from './vue/components/CanvasEditor.vue'
 import StackEditor from './vue/components/StackEditor.vue'
+import SettingsPanel from './vue/components/SettingsPanel.vue'
 
 const store = inject<LayoutStore>('store')!
 const reg = store.reg
+const appearance = useAppearance()
+provide('appearance', appearance)
 
 const view = ref<'workbench' | 'edit'>('workbench')
-const theme = ref<'light' | 'dark'>('light')
-const SKINS = ['aurora', 'ink', 'candy'] as const
-const SKIN_LABEL: Record<string, string> = { aurora: '柔光', ink: '墨纸', candy: '亮彩' }
-const skin = ref<string>(localStorage.getItem('modulo.skin') ?? 'ink')
-const shellEl = ref<HTMLElement | null>(null)
+const settingsOpen = ref(false)
 const stageEl = ref<HTMLElement | null>(null)
 const stageW = ref(1200)
 
@@ -28,8 +28,6 @@ const mode = computed(() => E.editorMode(stageW.value))
 
 let ro: ResizeObserver | null = null
 onMounted(() => {
-  document.documentElement.dataset.theme = theme.value
-  document.documentElement.dataset.skin = skin.value
   ro = new ResizeObserver(() => {
     const el = stageEl.value
     if (el) stageW.value = el.clientWidth
@@ -41,19 +39,6 @@ onBeforeUnmount(() => {
   ro?.disconnect()
   window.removeEventListener('keydown', onGlobalKey)
 })
-onBeforeUnmount(() => ro?.disconnect())
-
-function toggleTheme() {
-  theme.value = theme.value === 'dark' ? 'light' : 'dark'
-  document.documentElement.dataset.theme = theme.value
-}
-
-function cycleSkin() {
-  const i = (SKINS.indexOf(skin.value as (typeof SKINS)[number]) + 1) % SKINS.length
-  skin.value = SKINS[i]
-  document.documentElement.dataset.skin = skin.value
-  localStorage.setItem('modulo.skin', skin.value)
-}
 
 const isEditable = (el: EventTarget | null): boolean => {
   const n = el as HTMLElement | null
@@ -63,6 +48,10 @@ const isEditable = (el: EventTarget | null): boolean => {
 
 /** 撤销/重做是全局能力：整理、推荐布局这类动作也可能在工作台上做，不能只在编辑器里可撤销 */
 function onGlobalKey(e: KeyboardEvent) {
+  if (e.key === 'Escape' && settingsOpen.value) {
+    settingsOpen.value = false
+    return
+  }
   if (isEditable(e.target)) return
   const k = e.key.toLowerCase()
   if ((e.ctrlKey || e.metaKey) && k === 'z') {
@@ -77,7 +66,7 @@ function onGlobalKey(e: KeyboardEvent) {
 </script>
 
 <template>
-  <div ref="shellEl" class="shell">
+  <div class="shell">
     <header class="bar">
       <span class="brand"><i class="mark" />Modulo</span>
       <nav class="seg">
@@ -99,10 +88,7 @@ function onGlobalKey(e: KeyboardEvent) {
         <button class="wide" title="聚拢空洞（可撤销）" @click="store.tidy()"><Sparkles :size="14" /> 整理</button>
         <button class="wide" title="按原比例把每行铺满（可撤销）" @click="store.spread()"><Maximize2 :size="14" /> 撑满</button>
         <button class="wide" @click="store.restoreStarter()"><LayoutTemplate :size="14" /> 推荐布局</button>
-        <button class="wide" @click="cycleSkin()" title="切换视觉方向"><Palette :size="14" /> {{ SKIN_LABEL[skin] }}</button>
-        <button class="wide" @click="toggleTheme">
-          <Moon v-if="theme === 'light'" :size="14" /><Sun v-else :size="14" /> {{ theme === 'dark' ? '亮色' : '暗色' }}
-        </button>
+        <button class="wide" title="外观设置" @click="settingsOpen = true"><Settings :size="14" /> 外观</button>
       </div>
     </header>
 
@@ -122,6 +108,8 @@ function onGlobalKey(e: KeyboardEvent) {
       </CanvasEditor>
       <StackEditor v-else />
     </main>
+
+    <SettingsPanel v-if="settingsOpen" @close="settingsOpen = false" />
   </div>
 </template>
 

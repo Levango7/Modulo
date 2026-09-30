@@ -191,6 +191,57 @@ it.skipIf(skip)('撑满：首行带铺满整行宽度，可一步撤销', async 
   await page.close()
 })
 
+it.skipIf(skip)('外观设置页：换皮肤会持久化，换强调色会写进 --accent，Esc 可关', async () => {
+  const page = await freshPage(1440, 900)
+  const errs: string[] = []
+  page.on('pageerror', (e: unknown) => errs.push(String(e)))
+  const skinAttr = () => page.evaluate(() => document.documentElement.dataset.skin)
+  const clickText = (t: string) =>
+    page.evaluate((label) => {
+      const el = [...document.querySelectorAll('button')].find((e) => (e.textContent || '').trim() === label)
+      el?.click()
+      return !!el
+    }, t)
+
+  expect(await skinAttr()).toBe('ink')
+  expect(await clickText('外观')).toBe(true)
+  await new Promise((r) => setTimeout(r, 300))
+  expect(await page.evaluate(() => !!document.querySelector('[role=dialog]'))).toBe(true)
+
+  expect(
+    await page.evaluate(() => {
+      const el = document.querySelector<HTMLElement>('[data-skin-option=candy]')
+      el?.click()
+      return !!el
+    }),
+  ).toBe(true)
+  await new Promise((r) => setTimeout(r, 200))
+  expect(await skinAttr()).toBe('candy')
+
+  await page.evaluate(() => {
+    ;[...document.querySelectorAll<HTMLElement>('.swatch')].find((e) => e.getAttribute('title') === '靛蓝')?.click()
+  })
+  await new Promise((r) => setTimeout(r, 200))
+  expect(
+    await page.evaluate(() => getComputedStyle(document.documentElement).getPropertyValue('--accent').trim()),
+  ).toBe('#5b5bf5')
+
+  await page.reload({ waitUntil: 'networkidle2' })
+  await new Promise((r) => setTimeout(r, 400))
+  expect(await skinAttr()).toBe('candy')
+  expect(
+    await page.evaluate(() => getComputedStyle(document.documentElement).getPropertyValue('--accent').trim()),
+  ).toBe('#5b5bf5')
+
+  await clickText('外观')
+  await new Promise((r) => setTimeout(r, 200))
+  await page.keyboard.press('Escape')
+  await new Promise((r) => setTimeout(r, 200))
+  expect(await page.evaluate(() => !!document.querySelector('[role=dialog]'))).toBe(false)
+  expect(errs).toEqual([])
+  await page.close()
+})
+
 it.skipIf(skip)('窄屏编辑器自动切堆叠模式，不给出挤成一团的画布', async () => {
   const page = await freshPage(390, 844)
   await enterEditor(page)
