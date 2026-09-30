@@ -273,6 +273,39 @@ it.skipIf(skip)('键盘补完：空格选入、移动后焦点不丢、删除后
   await page.close()
 })
 
+it.skipIf(skip)('设置面板焦点陷阱：Tab 不跑出去，关闭后焦点回到触发按钮', async () => {
+  const page = await freshPage(1440, 900)
+  const errs: string[] = []
+  page.on('pageerror', (e: unknown) => errs.push(String(e)))
+  const inDialog = () => page.evaluate(() => !!document.activeElement?.closest('[role=dialog]'))
+  const activeRole = () => page.evaluate(() => document.activeElement?.getAttribute('role') ?? null)
+
+  // 必须用真实点击：程序化 .click() 不会把焦点给按钮，陷阱记录的"上一个焦点"就还是 body
+  await page.click('button[title="外观设置"]')
+  await new Promise((r) => setTimeout(r, 300))
+  expect(await activeRole()).toBe('dialog')
+
+  for (let i = 0; i < 14; i++) {
+    await page.keyboard.press('Tab')
+    expect(await inDialog(), `第 ${i + 1} 次 Tab 后焦点跑出面板`).toBe(true)
+  }
+  for (let i = 0; i < 4; i++) {
+    await page.keyboard.down('Shift')
+    await page.keyboard.press('Tab')
+    await page.keyboard.up('Shift')
+    expect(await inDialog(), `第 ${i + 1} 次 Shift+Tab 后焦点跑出面板`).toBe(true)
+  }
+
+  await page.keyboard.press('Escape')
+  await new Promise((r) => setTimeout(r, 300))
+  expect(await page.evaluate(() => !!document.querySelector('[role=dialog]'))).toBe(false)
+  expect(
+    await page.evaluate(() => (document.activeElement?.textContent || '').trim()),
+  ).toBe('外观')
+  expect(errs).toEqual([])
+  await page.close()
+})
+
 it.skipIf(skip)('窄屏编辑器自动切堆叠模式，不给出挤成一团的画布', async () => {
   const page = await freshPage(390, 844)
   await enterEditor(page)

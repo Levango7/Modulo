@@ -1,17 +1,20 @@
 <script setup lang="ts">
-import { inject } from 'vue'
+import { inject, ref } from 'vue'
 import { Check, X } from 'lucide-vue-next'
 import { ACCENTS, MODES, SKINS } from '../appearance'
+import { useFocusTrap } from '../useFocusTrap'
 import type { AppearanceApi } from '../useAppearance'
 
 defineEmits<{ (e: 'close'): void }>()
 const appearance = inject<AppearanceApi>('appearance')!
 const a = appearance.state
+const panelEl = ref<HTMLElement | null>(null)
+useFocusTrap(panelEl)
 </script>
 
 <template>
   <div class="scrim" @click.self="$emit('close')">
-    <div class="panel" role="dialog" aria-modal="true" aria-label="设置">
+    <div ref="panelEl" class="panel" role="dialog" aria-modal="true" aria-label="设置" tabindex="-1">
       <header class="head">
         <h2>外观</h2>
         <button class="x" title="关闭 (Esc)" @click="$emit('close')"><X :size="16" /></button>
