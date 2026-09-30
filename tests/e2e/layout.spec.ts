@@ -242,6 +242,37 @@ it.skipIf(skip)('外观设置页：换皮肤会持久化，换强调色会写进
   await page.close()
 })
 
+it.skipIf(skip)('键盘补完：空格选入、移动后焦点不丢、删除后焦点落到最近卡片', async () => {
+  const page = await freshPage(1440, 900)
+  const errs: string[] = []
+  page.on('pageerror', (e: unknown) => errs.push(String(e)))
+  await enterEditor(page)
+  const label = () => page.evaluate(() => document.activeElement?.getAttribute('aria-label')?.slice(0, 2) ?? null)
+  const selectedCount = () => page.evaluate(() => document.querySelectorAll('.cell.selected').length)
+
+  await page.evaluate(() => document.querySelector<HTMLElement>('.cell')?.focus())
+  expect(await label()).toBeTruthy()
+  await page.keyboard.press('Space')
+  await new Promise((r) => setTimeout(r, 250))
+  expect(await selectedCount()).toBe(1)
+  await page.keyboard.press('Space')
+  await new Promise((r) => setTimeout(r, 250))
+  expect(await selectedCount()).toBe(0)
+
+  const focused = await label()
+  await page.keyboard.press('ArrowRight')
+  await new Promise((r) => setTimeout(r, 250))
+  expect(await label()).toBe(focused)
+
+  const cellsBefore = await page.evaluate(() => document.querySelectorAll('.cell').length)
+  await page.keyboard.press('Delete')
+  await new Promise((r) => setTimeout(r, 350))
+  expect(await page.evaluate(() => document.querySelectorAll('.cell').length)).toBe(cellsBefore - 1)
+  expect(await page.evaluate(() => document.activeElement?.classList.contains('cell'))).toBe(true)
+  expect(errs).toEqual([])
+  await page.close()
+})
+
 it.skipIf(skip)('窄屏编辑器自动切堆叠模式，不给出挤成一团的画布', async () => {
   const page = await freshPage(390, 844)
   await enterEditor(page)

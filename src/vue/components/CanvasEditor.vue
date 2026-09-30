@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, inject, onBeforeUnmount, onMounted, ref } from 'vue'
+import { computed, inject, nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
 import * as E from '../../engine'
 import { Lock, LockOpen, Shuffle, X, LayoutGrid, Trash2 } from 'lucide-vue-next'
 import type { LayoutStore } from '../store'
@@ -103,13 +103,17 @@ function stopListening() {
   window.removeEventListener('pointerup', onUp)
 }
 
+function toggleSelect(id: string) {
+  const next = new Set(sel.value)
+  if (next.has(id)) next.delete(id)
+  else next.add(id)
+  sel.value = next
+}
+
 function startMove(p: E.Placement, e: PointerEvent) {
   if (p.locked) return
-  const additive = e.shiftKey || e.ctrlKey || e.metaKey
-  if (additive) {
-    const next = new Set(sel.value)
-    next.has(p.id) ? next.delete(p.id) : next.add(p.id)
-    sel.value = next
+  if (e.shiftKey || e.ctrlKey || e.metaKey) {
+    toggleSelect(p.id)
     return
   }
   if (!sel.value.has(p.id)) sel.value = new Set([p.id])
@@ -241,6 +245,40 @@ function cellStyle(p: E.Placement) {
   return { gridColumn: `${p.x + 1} / span ${p.w}`, gridRow: `${p.y + 1} / span ${p.h}` }
 }
 
+/* ---- 焦点跟随：删除/移动后焦点不能丢进 body，聚焦的格子要滚进视口 ---- */
+const cellEls = new Map<string, HTMLElement>()
+function setCellRef(id: string, el: unknown) {
+  if (el) cellEls.set(id, el as HTMLElement)
+  else cellEls.delete(id)
+}
+function focusCell(id: string) {
+  nextTick(() => {
+    const el = cellEls.get(id)
+    if (!el) return
+    el.focus()
+    el.scrollIntoView({ block: 'nearest', inline: 'nearest' })
+  })
+}
+function focusNearest(candidates: E.Placement[], from: E.Rect) {
+  if (!candidates.length) return
+  const cx = from.x + from.w / 2
+  const cy = from.y + from.h / 2
+  const dist = (p: E.Placement) => Math.hypot(p.x + p.w / 2 - cx, p.y + p.h / 2 - cy)
+  focusCell([...candidates].sort((a, b) => dist(a) - dist(b))[0].id)
+}
+function removeCell(p: E.Placement) {
+  const rest = items.value.filter((q) => q.id !== p.id)
+  store.remove(p.id)
+  focusNearest(rest, p)
+}
+function removeSelectedAndRefocus() {
+  const anchor = items.value.find((q) => q.id === [...sel.value][0])
+  const rest = items.value.filter((q) => !sel.value.has(q.id))
+  store.removeMany([...sel.value])
+  clearSel()
+  if (anchor) focusNearest(rest, anchor)
+}
+
 function clearSel() {
   sel.value = new Set()
 }
@@ -265,8 +303,7 @@ function onKeydown(e: KeyboardEvent) {
   }
   if ((e.key === 'Delete' || e.key === 'Backspace') && selCount.value > 1) {
     e.preventDefault()
-    store.removeMany([...sel.value])
-    sel.value = new Set()
+    removeSelectedAndRefocus()
   }
 }
 
@@ -286,9 +323,14 @@ function onCellKeydown(p: E.Placement, e: KeyboardEvent) {
     else store.move(p.id, p.x + step[0], p.y + step[1])
     return
   }
+  if (e.key === ' ') {
+    e.preventDefault()
+    toggleSelect(p.id)
+    return
+  }
   if (e.key === 'Enter') store.cycleVariant(p.id)
   else if (e.key === 'l' || e.key === 'L') store.toggleLock(p.id)
-  else if (e.key === 'Delete' || e.key === 'Backspace') store.remove(p.id)
+  else if (e.key === 'Delete' || e.key === 'Backspace') removeCell(p)
   else return
   e.preventDefault()
 }
@@ -327,11 +369,12 @@ function onCellKeydown(p: E.Placement, e: KeyboardEvent) {
           :key="p.id"
           class="cell"
           :data-module="p.id"
+          :ref="(el: unknown) => setCellRef(p.id, el)"
           :class="{ locked: p.locked, selected: isSelected(p.id) }"
           :style="cellStyle(p)"
           tabindex="0"
           role="group"
-          :aria-label="`${titleOf(p)}，${p.w} 乘 ${p.h} 格。方向键移动，Shift 加方向键缩放，回车切换形态，Delete 移回模块库`"
+          :aria-label="`${titleOf(p)}，${p.w} 乘 ${p.h} 格。方向键移动，Shift 加方向键缩放，空格切换选入，回车切换形态，Delete 移回模块库`"
           @pointerdown="startMove(p, $event)"
           @keydown="onCellKeydown(p, $event)"
         >
@@ -389,7 +432,7 @@ function onCellKeydown(p: E.Placement, e: KeyboardEvent) {
 
       <div class="foot">
         <p class="hint">
-          方向键移动 · Shift+方向键缩放 · Enter 切形态 · Delete 移回库 · L 锁定 · Shift+点选/空白框选 · Ctrl+A 全选 · Esc 取消
+          方向键移动 · Shift+方向键缩放 · 空格选入 · Enter 切形态 · Delete 移回库 · L 锁定 · Shift+点选/空白框选 · Ctrl+A 全选 · Esc 取消
         </p>
         <div v-if="selCount > 1" class="batch">
           <span>已选 {{ selCount }} 个</span>
