@@ -90,6 +90,8 @@ export function createLayoutStore(opts: { registry: E.ModuleRegistry; storage?: 
     tidy: () => apply(E.tidyLayout(doc.value)),
     /** 撑满：先聚拢再把每个行带按原比例铺满整行 */
     spread: () => apply(E.spreadLayout(doc.value)),
+    /** 按内容收紧高度：只变矮不变高，且不低于形态最小尺寸 */
+    fitToContent: (wanted: Record<string, number>) => apply(E.fitHeights(doc.value, reg, wanted)),
     restoreStarter: () => apply(starterDoc(reg)),
     undo: () => {
       hist.value = E.undo(hist.value)

@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, inject, onBeforeUnmount, onMounted, provide, ref } from 'vue'
-import { LayoutGrid, LayoutTemplate, Maximize2, Redo2, Settings, SlidersHorizontal, Sparkles, Undo2 } from 'lucide-vue-next'
+import { LayoutGrid, LayoutTemplate, Maximize2, Minimize2, Redo2, Settings, SlidersHorizontal, Sparkles, Undo2 } from 'lucide-vue-next'
+import { measureWantedRows } from './vue/useDensity'
 import * as E from './engine'
 import type { LayoutStore } from './vue/store'
 import { CARD_COMPONENTS } from './vue/cardRegistry'
@@ -42,6 +43,10 @@ onBeforeUnmount(() => {
   ro?.disconnect()
   window.removeEventListener('keydown', onGlobalKey)
 })
+
+function fitContent() {
+  store.fitToContent(measureWantedRows(stageEl.value?.querySelector<HTMLElement>('.grid') ?? null))
+}
 
 const isEditable = (el: EventTarget | null): boolean => {
   const n = el as HTMLElement | null
@@ -89,6 +94,7 @@ function onGlobalKey(e: KeyboardEvent) {
           <Redo2 :size="14" />
         </button>
         <button class="wide" title="聚拢空洞（可撤销）" @click="store.tidy()"><Sparkles :size="14" /> 整理</button>
+        <button v-if="view === 'workbench'" class="wide" title="按内容收紧卡片高度（可撤销）" @click="fitContent()"><Minimize2 :size="14" /> 收紧</button>
         <button class="wide" title="按原比例把每行铺满（可撤销）" @click="store.spread()"><Maximize2 :size="14" /> 撑满</button>
         <button class="wide" @click="store.restoreStarter()"><LayoutTemplate :size="14" /> 推荐布局</button>
         <button class="wide" title="外观设置" @click="settingsOpen = true"><Settings :size="14" /> 外观</button>

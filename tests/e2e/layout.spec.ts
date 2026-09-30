@@ -384,6 +384,41 @@ it.skipIf(skip)('版面方案：另存为 → 改版面 → 应用旧方案可�
   await page.close()
 })
 
+it.skipIf(skip)('收紧：按内容降低过高的卡片且不裁切内容，可一步撤销', async () => {
+  const page = await freshPage(1440, 900)
+  const errs: string[] = []
+  page.on('pageerror', (e: unknown) => errs.push(String(e)))
+  const probe = () =>
+    page.evaluate(() => {
+      const cell = document.querySelector<HTMLElement>('.grid .cell[data-module="todo"]')!
+      const body = cell.querySelector<HTMLElement>('.card-body')!
+      const span = Number(/span\s+(\d+)/i.exec(cell.style.gridRow)?.[1] ?? 0)
+      const kids = [...body.children] as HTMLElement[]
+      const rects = kids.map((k) => k.getBoundingClientRect())
+      const need = rects.length ? Math.max(...rects.map((r) => r.bottom)) - Math.min(...rects.map((r) => r.top)) : 0
+      return { span, overflow: Math.round(body.scrollHeight - body.clientHeight), need: Math.round(need) }
+    })
+
+  const before = await probe()
+  expect(before.span).toBeGreaterThanOrEqual(5)
+  await page.evaluate(() => {
+    ;[...document.querySelectorAll<HTMLElement>('button')].find((e) => (e.textContent || '').trim() === '收紧')?.click()
+  })
+  await new Promise((r) => setTimeout(r, 400))
+  const after = await probe()
+  expect(after.span).toBeLessThan(before.span)
+  expect(after.overflow).toBeLessThanOrEqual(2)
+  expect(after.need).toBeGreaterThan(0)
+
+  await page.keyboard.down('Control')
+  await page.keyboard.press('KeyZ')
+  await page.keyboard.up('Control')
+  await new Promise((r) => setTimeout(r, 400))
+  expect((await probe()).span).toBe(before.span)
+  expect(errs).toEqual([])
+  await page.close()
+})
+
 it.skipIf(skip)('窄屏编辑器自动切堆叠模式，不给出挤成一团的画布', async () => {
   const page = await freshPage(390, 844)
   await enterEditor(page)
