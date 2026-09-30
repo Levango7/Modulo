@@ -3,6 +3,7 @@ import { inject, ref } from 'vue'
 import { Check, X } from 'lucide-vue-next'
 import { ACCENTS, MODES, SKINS } from '../appearance'
 import { useFocusTrap } from '../useFocusTrap'
+import { isDesktop, type ShellApi } from '../useShell'
 import type { AppearanceApi } from '../useAppearance'
 import type { SchemesApi } from '../useSchemes'
 import type { Scheme } from '../../engine'
@@ -11,6 +12,7 @@ defineEmits<{ (e: 'close'): void }>()
 const appearance = inject<AppearanceApi>('appearance')!
 const a = appearance.state
 const schemes = inject<SchemesApi>('schemes')!
+const shell = inject<ShellApi>('shell')!
 const panelEl = ref<HTMLElement | null>(null)
 useFocusTrap(panelEl)
 
@@ -33,6 +35,9 @@ function commitRename() {
 function when(ts: number): string {
   if (!ts) return '未知时间'
   return new Date(ts).toLocaleString('zh-CN', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' })
+}
+function onHideChange(e: Event) {
+  shell.setHideOnClose((e.target as HTMLInputElement).checked)
 }
 </script>
 
@@ -82,12 +87,29 @@ function when(ts: number): string {
             :title="c.label"
             :data-active="a.accent === c.id"
             :data-auto="c.value === 'auto'"
+            :style="c.value === 'auto' ? undefined : { background: c.value }"
             @click="appearance.set({ accent: c.value })"
           >
             <Check v-if="a.accent === c.id" :size="12" />
           </button>
         </div>
         <p class="hint">「跟随皮肤」= 每套方向用它自己的强调色；选具体颜色则会覆盖皮肤默认值。</p>
+      </section>
+
+      <section v-if="isDesktop">
+        <h3>桌面</h3>
+        <label class="switch">
+          <input type="checkbox" :checked="shell.hideOnClose.value" @change="onHideChange" />
+          <span>点关闭时收进托盘，而不是直接退出</span>
+        </label>
+        <ul v-if="shell.shortcuts.value.length" class="keys">
+          <li v-for="k in shell.shortcuts.value" :key="k.keys">
+            <kbd>{{ k.keys }}</kbd>
+            <span>{{ k.label }}</span>
+            <em v-if="!k.registered" class="warn">注册失败，多半被别的程序占用了</em>
+          </li>
+        </ul>
+        <p class="hint">快捷键是系统级的，窗口不在前台也能用。注册失败只影响那一条，其余功能照常。</p>
       </section>
 
       <section>
@@ -207,7 +229,7 @@ section h3 {
   border: 1px solid var(--border-strong);
 }
 .dot[data-s='ink'] {
-  background: linear-gradient(135deg, #fff 50%, #1f6feb 50%);
+  background: linear-gradient(135deg, #fff 50%, #c93c16 50%);
 }
 .dot[data-s='aurora'] {
   background: linear-gradient(135deg, #eceff6, #ffb8d0);
@@ -251,19 +273,15 @@ section h3 {
   display: grid;
   place-items: center;
   color: #fff;
-  background: currentColor;
+  background: var(--border-strong);
 }
-.swatch:nth-child(1) {
-  color: transparent;
+.swatch svg {
+  /* 底色就是用户选的强调色，浅色板上白勾没有描边会看不见 */
+  filter: drop-shadow(0 0 1px rgba(0, 0, 0, 0.55));
+}
+.swatch[data-auto='true'] {
   background: conic-gradient(#f43f5e, #f59e0b, #22c55e, #3b82f6, #8b5cf6, #f43f5e);
 }
-.swatch:nth-child(2) { color: #5b5bf5; }
-.swatch:nth-child(3) { color: #0ea5e9; }
-.swatch:nth-child(4) { color: #0d9488; }
-.swatch:nth-child(5) { color: #16a34a; }
-.swatch:nth-child(6) { color: #d97706; }
-.swatch:nth-child(7) { color: #e11d48; }
-.swatch:nth-child(8) { color: #7c3aed; }
 .swatch[data-active='true'] {
   outline: 2px solid var(--text-1);
   outline-offset: 2px;
@@ -272,6 +290,40 @@ section h3 {
   margin: var(--space-3) 0 0;
   font-size: 12px;
   color: var(--text-3);
+}
+.switch {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: 13px;
+}
+.keys {
+  list-style: none;
+  margin: var(--space-3) 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  font-size: 12px;
+}
+.keys li {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+.keys kbd {
+  font-family: ui-monospace, 'Cascadia Mono', Consolas, monospace;
+  padding: 1px 6px;
+  border: 1px solid var(--border-strong);
+  border-bottom-width: 2px;
+  border-radius: var(--radius-sm);
+  background: var(--bg-card-soft);
+  white-space: nowrap;
+}
+.keys .warn {
+  margin-left: auto;
+  font-style: normal;
+  color: var(--c-amber);
 }
 .row {
   display: flex;

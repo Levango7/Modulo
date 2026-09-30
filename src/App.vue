@@ -7,10 +7,13 @@ import type { LayoutStore } from './vue/store'
 import { CARD_COMPONENTS } from './vue/cardRegistry'
 import { useAppearance } from './vue/useAppearance'
 import { useSchemes } from './vue/useSchemes'
+import { isDesktop, useShell } from './vue/useShell'
 import GridLayout from './vue/components/GridLayout.vue'
 import CanvasEditor from './vue/components/CanvasEditor.vue'
 import StackEditor from './vue/components/StackEditor.vue'
 import SettingsPanel from './vue/components/SettingsPanel.vue'
+import TitleBar from './vue/components/TitleBar.vue'
+import BrandMark from './vue/components/BrandMark.vue'
 
 const store = inject<LayoutStore>('store')!
 const reg = store.reg
@@ -18,6 +21,7 @@ const appearance = useAppearance()
 provide('appearance', appearance)
 const schemes = useSchemes(store)
 provide('schemes', schemes)
+provide('shell', useShell())
 
 const view = ref<'workbench' | 'edit'>('workbench')
 const settingsOpen = ref(false)
@@ -80,21 +84,11 @@ function onGlobalKey(e: KeyboardEvent) {
 </script>
 
 <template>
-  <div class="shell">
+  <div class="app">
+    <TitleBar v-if="isDesktop" />
+    <div class="shell">
     <header class="bar">
-      <span class="brand">
-        <svg class="mark" viewBox="0 0 1024 1024" aria-hidden="true">
-          <g class="mark-leg">
-            <rect x="160" y="190" width="120" height="196" rx="40"/><rect x="160" y="414" width="120" height="196" rx="40"/><rect x="160" y="638" width="120" height="196" rx="40"/>
-            <rect x="744" y="190" width="120" height="196" rx="40"/><rect x="744" y="414" width="120" height="196" rx="40"/><rect x="744" y="638" width="120" height="196" rx="40"/>
-          </g>
-          <g class="mark-v">
-            <rect x="306" y="190" width="120" height="196" rx="40"/><rect x="598" y="190" width="120" height="196" rx="40"/>
-            <rect x="452" y="414" width="120" height="196" rx="40"/>
-          </g>
-        </svg>
-        Modulo
-      </span>
+      <span class="brand"><BrandMark :size="20" />Modulo</span>
       <nav class="seg">
         <button :data-active="view === 'workbench'" @click="view = 'workbench'">
           <LayoutGrid :size="14" /> 工作台
@@ -138,16 +132,23 @@ function onGlobalKey(e: KeyboardEvent) {
       </CanvasEditor>
       <StackEditor v-else />
     </main>
+    </div>
 
     <SettingsPanel v-if="settingsOpen" @close="settingsOpen = false" />
   </div>
 </template>
 
 <style scoped>
-.shell {
+.app {
   display: flex;
   flex-direction: column;
   height: 100%;
+}
+.shell {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
   padding: var(--space-4);
   gap: var(--space-4);
 }
@@ -164,17 +165,6 @@ function onGlobalKey(e: KeyboardEvent) {
   font-weight: 700;
   letter-spacing: 0.04em;
   font-size: 15px;
-}
-.brand .mark {
-  width: 20px;
-  height: 20px;
-  flex: none;
-}
-.brand .mark-leg {
-  fill: var(--text-1);
-}
-.brand .mark-v {
-  fill: var(--accent);
 }
 .seg,
 .tools {

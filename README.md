@@ -9,13 +9,14 @@ npm ci
 npm run dev            # 浏览器预览 http://localhost:1430
 npm run verify         # 类型检查 + 单测 + 构建 + 真浏览器 E2E
 npm run tauri:dev      # 桌面窗口（需 Rust 工具链，见下）
+npm run desktop:probe  # 桌面壳真机自检：自己起窗口、走完 17 项检查再关掉
 ```
 
 Windows 上若用 **MSYS2 的 GNU 工具链**（本机情况：`rustc` host 为 `x86_64-pc-windows-gnu`，`gcc`/`windres` 在 MSYS2 里而不在 PATH），构建前需要把它注入到该次命令的 PATH：
 
 ```bash
 export PATH="/d/msys64/mingw64/bin:$PATH"
-npm run tauri:build
+npm run tauri:build -- --no-bundle   # 只出 exe；去掉 --no-bundle 会去下载 NSIS 打安装包
 ```
 
 `tauri-build` 在 GNU 目标上要 `windres` 打资源，缺它会报找不到资源编译器 —— 这是环境 PATH 问题，不是代码问题。
@@ -31,6 +32,7 @@ npm run tauri:build
 | 版面工具 | 整理（聚拢空洞）、撑满（按行铺满）、收紧（按内容实测降高） |
 | 多版面 | 命名方案册 + 布局/方案两套 JSON 导入导出，导入前逐条校验 |
 | 三套外观 | 墨纸 / 柔光 / 亮彩，纯令牌层切换，含模块身份色与强调色 |
+| 桌面壳 | 无边框自制标题栏、托盘、系统级快捷键；能力清单刻意不含 `allow-create` / `allow-destroy`，运行期不建窗 |
 
 ## 结构
 
@@ -47,6 +49,7 @@ docs/ARCHITECTURE.md   设计定稿与决策记录（含被测试逼出来的修
 
 CI（`.github/workflows/ci.yml`）跑四步：类型检查 → 单测与属性测试 → 构建 → E2E。
 投影算法有四条不变量，用随机版面 × 7 档列数各 200 例做属性断言：只读、幂等、无重叠、尺寸充分。
+桌面壳另有一条 `npm run desktop:probe`：给 WebView2 开远调端口，用 CDP 点真实的 DOM 按钮，再从 Win32 侧读窗口状态（图标态/工作区/样式位），不模拟鼠标所以不会抢走指针。17 项，截图落在 `evidence/desktop/`。
 
 ## 许可
 

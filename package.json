@@ -13,6 +13,7 @@
     "tauri:dev": "tauri dev",
     "tauri:build": "tauri build",
     "verify": "npm run typecheck && npm run test && npm run build && npm run test:e2e",
+    "desktop:probe": "node scripts/desktop-probe.mjs",
     "typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p tsconfig.e2e.json"
   },
   "devDependencies": {

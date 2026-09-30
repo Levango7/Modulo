@@ -1,7 +1,13 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "主窗口：只需要 core 默认能力，暂不申请文件、shell、通知权限",
+  "description": "主窗口：无边框标题栏要用的窗口动作。刻意不给 allow-create / allow-destroy —— 运行时创建销毁窗口是 x-hub 里代价最高的 WebView2 坑，用权限层把它堵死，而不是靠约定。",
   "windows": ["main"],
-  "permissions": ["core:default"]
+  "permissions": [
+    "core:default",
+    "core:window:allow-minimize",
+    "core:window:allow-toggle-maximize",
+    "core:window:allow-close",
+    "core:window:allow-start-dragging"
+  ]
 }
