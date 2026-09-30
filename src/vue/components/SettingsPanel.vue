@@ -4,12 +4,36 @@ import { Check, X } from 'lucide-vue-next'
 import { ACCENTS, MODES, SKINS } from '../appearance'
 import { useFocusTrap } from '../useFocusTrap'
 import type { AppearanceApi } from '../useAppearance'
+import type { SchemesApi } from '../useSchemes'
+import type { Scheme } from '../../engine'
 
 defineEmits<{ (e: 'close'): void }>()
 const appearance = inject<AppearanceApi>('appearance')!
 const a = appearance.state
+const schemes = inject<SchemesApi>('schemes')!
 const panelEl = ref<HTMLElement | null>(null)
 useFocusTrap(panelEl)
+
+const draftName = ref('')
+const editing = ref<string | null>(null)
+const editingName = ref('')
+
+function save() {
+  schemes.saveAs(draftName.value)
+  draftName.value = ''
+}
+function startRename(s: Scheme) {
+  editing.value = s.id
+  editingName.value = s.name
+}
+function commitRename() {
+  if (editing.value) schemes.rename(editing.value, editingName.value)
+  editing.value = null
+}
+function when(ts: number): string {
+  if (!ts) return '未知时间'
+  return new Date(ts).toLocaleString('zh-CN', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' })
+}
 </script>
 
 <template>
@@ -64,6 +88,45 @@ useFocusTrap(panelEl)
           </button>
         </div>
         <p class="hint">「跟随皮肤」= 每套方向用它自己的强调色；选具体颜色则会覆盖皮肤默认值。</p>
+      </section>
+
+      <section>
+        <h3>版面方案</h3>
+        <div class="row">
+          <input v-model="draftName" placeholder="方案名称" maxlength="32" @keydown.enter="save" />
+          <button @click="save">另存为</button>
+          <button :disabled="!schemes.active.value" @click="schemes.overwrite()">覆盖当前</button>
+        </div>
+        <ul class="schemes">
+          <li v-for="s in schemes.book.value.schemes" :key="s.id" :data-active="s.id === schemes.book.value.activeId">
+            <template v-if="editing === s.id">
+              <input v-model="editingName" maxlength="32" @keydown.enter="commitRename" @keydown.esc="editing = null" />
+              <button @click="commitRename">存</button>
+            </template>
+            <strong v-else>{{ s.name }}</strong>
+            <span class="muted meta">{{ when(s.updatedAt) }} · {{ s.doc.items.length }} 个模块</span>
+            <span class="ops">
+              <button v-if="s.id !== schemes.book.value.activeId" @click="schemes.activate(s.id)">应用</button>
+              <button @click="startRename(s)">改名</button>
+              <button @click="schemes.remove(s.id)">删除</button>
+            </span>
+          </li>
+        </ul>
+        <p v-if="!schemes.book.value.schemes.length" class="muted hint">还没有保存过方案：把版面排好后，在上面起个名字点「另存为」。</p>
+      </section>
+
+      <section>
+        <h3>导入导出</h3>
+        <div class="row wrap">
+          <button @click="schemes.exportCurrent()">导出当前布局</button>
+          <button @click="schemes.importCurrent()">导入布局</button>
+          <button @click="schemes.exportAll()">导出全部方案</button>
+          <button @click="schemes.importBook()">导入方案（合并）</button>
+        </div>
+        <ul v-if="schemes.notices.value.length" class="notices">
+          <li v-for="(n, i) in schemes.notices.value" :key="i">{{ n }}</li>
+        </ul>
+        <p class="hint">导入会先做校验：未知模块被剔除、尺寸钳到形态最小值、重叠自动让位，坏数据回退空布局并在这里说明。</p>
       </section>
     </div>
   </div>
@@ -209,5 +272,62 @@ section h3 {
   margin: var(--space-3) 0 0;
   font-size: 12px;
   color: var(--text-3);
+}
+.row {
+  display: flex;
+  gap: var(--space-2);
+  align-items: center;
+}
+.row input {
+  flex: 1;
+  min-width: 0;
+}
+.row.wrap {
+  flex-wrap: wrap;
+}
+.schemes {
+  list-style: none;
+  margin: var(--space-3) 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+.schemes li {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-md);
+  background: var(--bg-card-soft);
+}
+.schemes li[data-active='true'] {
+  border-color: var(--brand-500);
+}
+.schemes strong {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 40%;
+}
+.meta {
+  font-size: 11px;
+  margin-right: auto;
+  white-space: nowrap;
+}
+.ops {
+  display: flex;
+  gap: var(--space-1);
+}
+.ops button {
+  font-size: 12px;
+  padding: 2px 8px;
+}
+.notices {
+  margin: var(--space-3) 0 0;
+  padding-left: 1.2em;
+  font-size: 12px;
+  color: var(--c-amber);
 }
 </style>

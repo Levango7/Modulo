@@ -306,6 +306,84 @@ it.skipIf(skip)('设置面板焦点陷阱：Tab 不跑出去，关闭后焦点�
   await page.close()
 })
 
+it.skipIf(skip)('版面方案：另存为 → 改版面 → 应用旧方案可回到原坐标，改名与删除生效', async () => {
+  const page = await freshPage(1440, 900)
+  const errs: string[] = []
+  page.on('pageerror', (e: unknown) => errs.push(String(e)))
+  const snap = () =>
+    page.evaluate(() =>
+      [...document.querySelectorAll('.grid .cell')]
+        .map((c) => {
+          const s = getComputedStyle(c)
+          return `${c.getAttribute('aria-label')?.slice(0, 2)}@${s.gridColumnStart}/${s.gridRowStart}`
+        })
+        .sort()
+        .join(' '),
+    )
+  const press = (label: string) =>
+    page.evaluate((text) => {
+      const el = [...document.querySelectorAll<HTMLElement>('button')].find((e) => (e.textContent || '').trim() === text)
+      el?.click()
+      return !!el
+    }, label)
+
+  await page.click('button[title="外观设置"]')
+  await new Promise((r) => setTimeout(r, 300))
+  await page.type('input[placeholder="方案名称"]', '方案甲')
+  expect(await press('另存为')).toBe(true)
+  await new Promise((r) => setTimeout(r, 300))
+  expect(await page.evaluate(() => (localStorage.getItem('modulo.schemes.v1') || '').includes('方案甲'))).toBe(true)
+
+  const original = await snap()
+  await page.keyboard.press('Escape')
+  await new Promise((r) => setTimeout(r, 200))
+  await press('撑满')
+  await new Promise((r) => setTimeout(r, 400))
+  expect(await snap()).not.toBe(original)
+
+  await page.click('button[title="外观设置"]')
+  await new Promise((r) => setTimeout(r, 300))
+  await page.type('input[placeholder="方案名称"]', '方案乙')
+  await press('另存为')
+  await new Promise((r) => setTimeout(r, 300))
+  expect(await page.evaluate(() => document.querySelectorAll('.schemes li').length)).toBe(2)
+
+  const applied = await page.evaluate(() => {
+    const li = [...document.querySelectorAll('.schemes li')].find((l) => l.textContent?.includes('方案甲'))
+    const btn = [...li!.querySelectorAll<HTMLElement>('button')].find((b) => (b.textContent || '').trim() === '应用')
+    btn?.click()
+    return !!btn
+  })
+  expect(applied).toBe(true)
+  await new Promise((r) => setTimeout(r, 400))
+  expect(await snap()).toBe(original)
+
+  const renamed = await page.evaluate(() => {
+    const li = [...document.querySelectorAll('.schemes li')].find((l) => l.textContent?.includes('方案乙'))
+    ;[...li!.querySelectorAll<HTMLElement>('button')].find((b) => (b.textContent || '').trim() === '改名')?.click()
+    return true
+  })
+  expect(renamed).toBe(true)
+  await new Promise((r) => setTimeout(r, 200))
+  await page.evaluate(() => {
+    const input = document.querySelector<HTMLInputElement>('.schemes li input')!
+    input.value = '改过的名字'
+    input.dispatchEvent(new Event('input', { bubbles: true }))
+  })
+  await press('存')
+  await new Promise((r) => setTimeout(r, 300))
+  expect(await page.evaluate(() => !![...document.querySelectorAll('.schemes li')].find((l) => l.textContent?.includes('改过的名字')))).toBe(true)
+
+  await page.evaluate(() => {
+    const li = [...document.querySelectorAll('.schemes li')][0]
+    ;[...li.querySelectorAll<HTMLElement>('button')].find((b) => (b.textContent || '').trim() === '删除')?.click()
+  })
+  await new Promise((r) => setTimeout(r, 300))
+  expect(await page.evaluate(() => document.querySelectorAll('.schemes li').length)).toBe(1)
+  expect(errs).toEqual([])
+  await page.close()
+})
+
 it.skipIf(skip)('窄屏编辑器自动切堆叠模式，不给出挤成一团的画布', async () => {
   const page = await freshPage(390, 844)
   await enterEditor(page)

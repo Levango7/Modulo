@@ -5,6 +5,7 @@ import * as E from './engine'
 import type { LayoutStore } from './vue/store'
 import { CARD_COMPONENTS } from './vue/cardRegistry'
 import { useAppearance } from './vue/useAppearance'
+import { useSchemes } from './vue/useSchemes'
 import GridLayout from './vue/components/GridLayout.vue'
 import CanvasEditor from './vue/components/CanvasEditor.vue'
 import StackEditor from './vue/components/StackEditor.vue'
@@ -14,6 +15,8 @@ const store = inject<LayoutStore>('store')!
 const reg = store.reg
 const appearance = useAppearance()
 provide('appearance', appearance)
+const schemes = useSchemes(store)
+provide('schemes', schemes)
 
 const view = ref<'workbench' | 'edit'>('workbench')
 const settingsOpen = ref(false)

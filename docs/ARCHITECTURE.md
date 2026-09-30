@@ -364,10 +364,18 @@ cardData (便签文本/待办/笔记)     → key: card:<moduleId>
 
 一个测试自身的坑值得记：**程序化 `el.click()` 不会把焦点移给按钮**，所以陷阱记录的"上一个焦点"仍是 `body`，"关闭后归还焦点"这条断言必然假失败 —— 这类断言必须用真实指针点击（`page.click(selector)`）。
 
-### 11.9 下一步
+### 11.9 版面方案与导入导出（2026-10-01）
 
-1. 多套命名版面 + 导入导出 UI（引擎 `serialize` 已就绪，缺界面）。
-2. 卡片内容密度：待办这类卡在高分辨率下内部留白偏多，需要按行数自适应高度。
-3. 桌面壳（第二轮）：Tauri 2 打包，引擎层零改动；届时优先避开 x-hub 那批 WebView2 建窗坑。
+引擎层 `src/engine/schemes.ts` 是纯函数方案册：`createScheme / renameScheme / updateScheme / removeScheme / parseBook / mergeBooks / bookToJson`，上限 24 套、名称 trim+截断到 32、重名自动加序号。`parseBook` 对**每一条**方案跑 `sanitizeItems`（未知模块剔除、尺寸钳到形态最小值、重叠让位），空方案丢弃并留 warning，`activeId` 指向不存在的方案时归空；`mergeBooks` 保证导入不覆盖用户已有方案（id 与名称各自加后缀）。10 条单测覆盖。
+
+胶水层：`useSchemes.ts`（状态 + `localStorage['modulo.schemes.v1']`）、`fileIo.ts`（Blob 下载 / `<input type=file>` 读取，桌面壳阶段只换这一个文件）。设置面板新增「版面方案」（另存为 / 覆盖当前 / 应用 / 改名 / 删除，活动项高亮且不给「应用」）与「导入导出」（当前布局、全部方案各双向），校验产生的 warning 就地列在面板里，不靠一闪而过的提示。
+
+应用方案走 `store.importJson` → 因此**可撤销**：E2E 验证了"另存为 → 撑满改版 → 应用旧方案 → 坐标逐字回到原样"。
+
+### 11.10 下一步
+
+1. 卡片内容密度：待办这类卡在高分辨率下内部留白偏多，需要按行数自适应高度。
+2. 桌面壳（第二轮）：Tauri 2 打包，引擎层零改动；届时优先避开 x-hub 那批 WebView2 建窗坑。
+3. 方案册 UI 的缺口：暂无"新建空白方案"与拖拽排序，够用再说。
 
 开发中由测试与取证逼出的三处修正已并入正文：§3.2 的单位口径（逻辑列 vs 物理列）、`findFreeSpot` 在空版面/整列占满时丢失请求 y 的缺陷（回退位改为 `max(maxRow, start)`）、投影取整由 `round` 改 `ceil`（4 列档实测会开出空洞）。
