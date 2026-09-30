@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, inject, onBeforeUnmount, onMounted, provide, ref } from 'vue'
-import { LayoutGrid, LayoutTemplate, Maximize2, Minimize2, Redo2, Settings, SlidersHorizontal, Sparkles, Undo2 } from 'lucide-vue-next'
+import { LayoutGrid, LayoutTemplate, Maximize2, Minimize2, Redo2, Settings, SlidersHorizontal, Sparkles, Undo2, Wand2 } from 'lucide-vue-next'
 import { measureWantedRows } from './vue/useDensity'
 import * as E from './engine'
 import type { LayoutStore } from './vue/store'
@@ -46,6 +46,12 @@ onBeforeUnmount(() => {
 
 function fitContent() {
   store.fitToContent(measureWantedRows(stageEl.value?.querySelector<HTMLElement>('.grid') ?? null))
+}
+
+/** 组合动作：先按内容收紧、再聚拢空行。仍是两步历史，撤销可以分别退回 */
+function compact() {
+  fitContent()
+  store.tidy()
 }
 
 const isEditable = (el: EventTarget | null): boolean => {
@@ -94,6 +100,9 @@ function onGlobalKey(e: KeyboardEvent) {
           <Redo2 :size="14" />
         </button>
         <button class="wide" title="聚拢空洞（可撤销）" @click="store.tidy()"><Sparkles :size="14" /> 整理</button>
+        <button v-if="view === 'workbench'" class="wide" title="收紧 + 整理，一步铺紧（可分步撤销）" @click="compact()">
+          <Wand2 :size="14" /> 紧凑
+        </button>
         <button v-if="view === 'workbench'" class="wide" title="按内容收紧卡片高度（可撤销）" @click="fitContent()"><Minimize2 :size="14" /> 收紧</button>
         <button class="wide" title="按原比例把每行铺满（可撤销）" @click="store.spread()"><Maximize2 :size="14" /> 撑满</button>
         <button class="wide" @click="store.restoreStarter()"><LayoutTemplate :size="14" /> 推荐布局</button>
