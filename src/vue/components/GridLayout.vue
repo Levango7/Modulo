@@ -6,7 +6,7 @@ import type { PhysicalRect } from '../../engine/projection'
 const props = defineProps<{
   rects: PhysicalRect[]
   cols: number
-  rowMin: number
+  rowPx: number
   gap: number
 }>()
 
@@ -20,7 +20,7 @@ const rows = computed(() => props.rects.reduce((m, r) => Math.max(m, r.y + r.h),
     class="grid"
     :style="{
       gridTemplateColumns: `repeat(${cols}, minmax(0, 1fr))`,
-      gridTemplateRows: `repeat(${rows}, minmax(${rowMin}px, 1fr))`,
+      gridTemplateRows: `repeat(${rows}, ${rowPx}px)`,
       gap: `${gap}px`,
     }"
   >
@@ -40,8 +40,7 @@ const rows = computed(() => props.rects.reduce((m, r) => Math.max(m, r.y + r.h),
 .grid {
   display: grid;
   position: relative;
-  height: 100%;
-  min-height: 0;
+  align-content: start;
 }
 /* container-type: size 是卡片用 cqw/cqh 连续缩放的前提 */
 .cell {

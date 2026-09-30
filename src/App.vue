@@ -25,7 +25,7 @@ const stageEl = ref<HTMLElement | null>(null)
 const stageW = ref(1200)
 
 const cols = computed(() => E.physicalCols(stageW.value))
-const rowMin = computed(() => E.rowMinHeight(stageW.value))
+const rowPx = computed(() => E.rowHeight(stageW.value))
 const gap = 16
 const projection = computed(() => E.project(store.doc.value, reg, cols.value))
 const mode = computed(() => E.editorMode(stageW.value))
@@ -106,7 +106,7 @@ function onGlobalKey(e: KeyboardEvent) {
         <p v-if="projection.collapsed.length" class="collapsed muted">
           当前宽度放不下：{{ projection.collapsed.map((c) => c.id).join('、') }}
         </p>
-        <GridLayout :rects="projection.rects" :cols="cols" :row-min="rowMin" :gap="gap" />
+        <GridLayout :rects="projection.rects" :cols="cols" :row-px="rowPx" :gap="gap" />
         <p v-if="!projection.rects.length" class="empty muted">版面是空的，去「布局编辑」拖几张卡进来。</p>
       </template>
 
@@ -212,6 +212,9 @@ function onGlobalKey(e: KeyboardEvent) {
   position: relative;
   display: flex;
   flex-direction: column;
+  /* 固定行高模型：版面超出视口时由这里承接滚动，不再拉伸行去填满屏幕 */
+  overflow-y: auto;
+  padding-right: var(--space-1);
 }
 .collapsed {
   margin: 0 0 var(--space-2);

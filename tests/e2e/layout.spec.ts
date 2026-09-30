@@ -82,6 +82,27 @@ it.skipIf(skip)('三档视口：不溢出、不裁字、列数符合断点表', 
     expect(m.hScroll, `${c.w}px 横向溢出`).toBe(false)
     expect(m.clipped, `${c.w}px 文字被裁`).toBe(0)
     expect(m.minFont, `${c.w}px 最小字号`).toBeGreaterThanOrEqual(11)
+
+    /** 固定行高模型：行轨是 px，卡片高度 = span*rowPx + (span-1)*gap；不再被 1fr 拉伸 */
+    const rows = await page.evaluate(() => {
+      const grid = document.querySelector('.grid')!
+      const track = parseFloat(getComputedStyle(grid).gridTemplateRows.split(' ')[0])
+      const cells = [...document.querySelectorAll<HTMLElement>('.grid .cell')]
+      const spans = cells.map((el) => {
+        const span = Number(/span\s+(\d+)/i.exec(el.style.gridRow)?.[1] ?? 0)
+        return Math.abs(el.getBoundingClientRect().height - (span * track + (span - 1) * 16))
+      })
+      const stage = document.querySelector('.stage')!
+      return {
+        trackPx: track,
+        maxErr: Math.max(...spans),
+        scrollable: stage.scrollHeight > stage.clientHeight + 1,
+      }
+    })
+    expect(Number.isFinite(rows.trackPx), '行轨应为固定 px').toBe(true)
+    expect(rows.trackPx).toBeGreaterThanOrEqual(48)
+    expect(rows.maxErr, '卡片高度应等于 span 个固定行 + 间距').toBeLessThanOrEqual(1.5)
+    if (c.w === 390) expect(rows.scrollable, '窄屏内容超出时应由页面滚动承接').toBe(true)
     await page.close()
   }
 })
@@ -415,6 +436,20 @@ it.skipIf(skip)('收紧：按内容降低过高的卡片且不裁切内容，可
   await page.keyboard.up('Control')
   await new Promise((r) => setTimeout(r, 400))
   expect((await probe()).span).toBe(before.span)
+
+  /** 收紧只改 span、整理才把空行合掉：两个动作正交，组合起来才减少总行数 */
+  const rowCount = () =>
+    page.evaluate(() => getComputedStyle(document.querySelector('.grid')!).gridTemplateRows.split(' ').length)
+  const rowsBefore = await rowCount()
+  await page.evaluate(() => {
+    ;[...document.querySelectorAll<HTMLElement>('button')].find((e) => (e.textContent || '').trim() === '收紧')?.click()
+  })
+  await new Promise((r) => setTimeout(r, 300))
+  await page.evaluate(() => {
+    ;[...document.querySelectorAll<HTMLElement>('button')].find((e) => (e.textContent || '').trim() === '整理')?.click()
+  })
+  await new Promise((r) => setTimeout(r, 400))
+  expect(await rowCount()).toBeLessThan(rowsBefore)
   expect(errs).toEqual([])
   await page.close()
 })

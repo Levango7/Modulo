@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { editorMode, physicalCols, rowMinHeight, scaleFactor } from '../../src/engine/breakpoints'
+import { editorMode, physicalCols, rowHeight, scaleFactor } from '../../src/engine/breakpoints'
 
 describe('physicalCols', () => {
   it('按断点表取物理列数', () => {
@@ -19,9 +19,11 @@ describe('editorMode', () => {
   })
 })
 
-describe('rowMinHeight / scaleFactor', () => {
-  it('列数越少行高下限越小', () => {
-    expect(rowMinHeight(1440)).toBeGreaterThan(rowMinHeight(720))
+describe('rowHeight / scaleFactor', () => {
+  it('固定行高随列数收窄，且始终为正（不再用 1fr 拉伸）', () => {
+    expect(rowHeight(1440)).toBe(64)
+    expect(rowHeight(1440)).toBeGreaterThan(rowHeight(720))
+    expect(rowHeight(0)).toBeGreaterThan(0)
   })
   it('压缩因子 = 12 / N', () => {
     expect(scaleFactor(6)).toBe(2)
