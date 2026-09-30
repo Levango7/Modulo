@@ -390,4 +390,31 @@ cardData (便签文本/待办/笔记)     → key: card:<moduleId>
 2. 桌面壳（第二轮）：Tauri 2 打包，引擎层零改动；届时优先避开 x-hub 那批 WebView2 建窗坑。
 3. 方案册 UI 的缺口：暂无"新建空白方案"与拖拽排序，够用再说。
 
+---
+
+## 12. 桌面壳（第二轮，2026-10-01）
+
+Tauri 2 最小壳：`src-tauri/` 只声明一个主窗口（1280×800，最小 380×560，居中、可缩放），能力只申请 `core:default`，**不申请文件、shell、通知权限**。前端一行没改就能跑，因为壳只是把已有的 web 构建装进 WebView2。
+
+**构建与运行已实测**：`npx tauri build --no-bundle` 在注入 MSYS2 PATH 后 5m09s 完成，产物 `src-tauri/target/release/modulo.exe` **5.42 MB**；启动后窗口标题为 `Modulo`、进程稳定存活（验证完即关闭）。未打安装包（NSIS 需要联网下载打包工具，留到发布那一轮）。
+
+窗口最小尺寸刻意给到 380×560：x-hub 的 `minWidth: 1000` 让它的响应式断点变成死代码，我们把下限压到手机宽度，正是为了让 §3 的投影在桌面端真的被用到。
+
+### 12.1 本机环境配方（重要，否则会以为是代码坏了）
+
+- `rustc` host 为 `x86_64-pc-windows-gnu`（不是 msvc），且**没有装 VS Build Tools**。
+- GNU 工具链在 MSYS2 里但不在 PATH：`D:\msys64\mingw64\bin`（`gcc 16.1.0`、`windres 2.47`）。
+- `tauri-build` 在 GNU 目标上要 `windres` 打资源。因此构建前必须注入 PATH（**只对该次命令生效，不改系统配置**）：
+  ```bash
+  export PATH="/d/msys64/mingw64/bin:$PATH"
+  npm run tauri:build
+  ```
+- 另一个 PATH 陷阱：MSYS/git 自带一个 `link.exe`（创建硬链接的 coreutils 工具），它在 PATH 里会**遮蔽 MSVC 链接器**。本机因为走 GNU 工具链所以不受影响，但如果哪天切到 msvc target，必须先确认 `where link.exe` 的第一条不是 MSYS 那个。
+
+### 12.2 已知取舍
+
+- **数据仍在 WebView2 的 localStorage**（落在 `%APPDATA%\app.modulo\`）。够用且可持久，但不是可备份的独立文件；下一轮改成数据根目录下的 JSON + 备份导出。
+- **CSP 里放开了 `ws://localhost:1430`**，只为 dev 模式的 Vite HMR。生产构建带着这条属于多余授权，等接 Tauri 的自定义协议或改 `beforeBuildCommand` 时收紧。
+- 无边框自制标题栏、托盘、全局快捷键都还没做 —— 那是 x-hub 踩坑最密的地方（运行期建窗挂死、`skip_taskbar` 失效），刻意留到单独一轮，不和其他改动混在一起。
+
 开发中由测试与取证逼出的三处修正已并入正文：§3.2 的单位口径（逻辑列 vs 物理列）、`findFreeSpot` 在空版面/整列占满时丢失请求 y 的缺陷（回退位改为 `max(maxRow, start)`）、投影取整由 `round` 改 `ceil`（4 列档实测会开出空洞）。
