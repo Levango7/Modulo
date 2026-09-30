@@ -88,6 +88,8 @@ export function createLayoutStore(opts: { registry: E.ModuleRegistry; storage?: 
     clear: () => apply(E.clearLayout(doc.value)),
     /** 按需整理：聚拢空洞，一步可撤销；锁定项不参与 */
     tidy: () => apply(E.tidyLayout(doc.value)),
+    /** 撑满：先聚拢再把每个行带按原比例铺满整行 */
+    spread: () => apply(E.spreadLayout(doc.value)),
     restoreStarter: () => apply(starterDoc(reg)),
     undo: () => {
       hist.value = E.undo(hist.value)

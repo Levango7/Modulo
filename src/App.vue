@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, inject, onBeforeUnmount, onMounted, ref } from 'vue'
-import { LayoutGrid, LayoutTemplate, Moon, Palette, Redo2, SlidersHorizontal, Sparkles, Sun, Undo2 } from 'lucide-vue-next'
+import { LayoutGrid, LayoutTemplate, Maximize2, Moon, Palette, Redo2, SlidersHorizontal, Sparkles, Sun, Undo2 } from 'lucide-vue-next'
 import * as E from './engine'
 import type { LayoutStore } from './vue/store'
 import { CARD_COMPONENTS } from './vue/cardRegistry'
@@ -15,7 +15,7 @@ const view = ref<'workbench' | 'edit'>('workbench')
 const theme = ref<'light' | 'dark'>('light')
 const SKINS = ['aurora', 'ink', 'candy'] as const
 const SKIN_LABEL: Record<string, string> = { aurora: '柔光', ink: '墨纸', candy: '亮彩' }
-const skin = ref<string>(localStorage.getItem('modulo.skin') ?? 'aurora')
+const skin = ref<string>(localStorage.getItem('modulo.skin') ?? 'ink')
 const shellEl = ref<HTMLElement | null>(null)
 const stageEl = ref<HTMLElement | null>(null)
 const stageW = ref(1200)
@@ -97,6 +97,7 @@ function onGlobalKey(e: KeyboardEvent) {
           <Redo2 :size="14" />
         </button>
         <button class="wide" title="聚拢空洞（可撤销）" @click="store.tidy()"><Sparkles :size="14" /> 整理</button>
+        <button class="wide" title="按原比例把每行铺满（可撤销）" @click="store.spread()"><Maximize2 :size="14" /> 撑满</button>
         <button class="wide" @click="store.restoreStarter()"><LayoutTemplate :size="14" /> 推荐布局</button>
         <button class="wide" @click="cycleSkin()" title="切换视觉方向"><Palette :size="14" /> {{ SKIN_LABEL[skin] }}</button>
         <button class="wide" @click="toggleTheme">

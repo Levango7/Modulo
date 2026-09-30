@@ -161,6 +161,36 @@ it.skipIf(skip)('整理：聚拢空洞且不报错，可一步撤销', async () 
   await page.close()
 })
 
+it.skipIf(skip)('撑满：首行带铺满整行宽度，可一步撤销', async () => {
+  const page = await freshPage(1440, 900)
+  const errs: string[] = []
+  page.on('pageerror', (e: unknown) => errs.push(String(e)))
+  /** 首行带的覆盖宽度占比（不是右边缘 —— 空洞可能在中间） */
+  const bandCoverage = () =>
+    page.evaluate(() => {
+      const g = document.querySelector('.grid')!.getBoundingClientRect()
+      const cells = [...document.querySelectorAll('.grid .cell')].filter(
+        (c) => Math.abs(c.getBoundingClientRect().top - g.top) < 4,
+      )
+      const sum = cells.reduce((s, c) => s + c.getBoundingClientRect().width, 0)
+      return Math.round((sum / g.width) * 100) / 100
+    })
+  const before = await bandCoverage()
+  expect(before).toBeLessThan(0.8)
+  await page.evaluate(() => {
+    ;[...document.querySelectorAll('button')].find((e) => (e.textContent || '').trim() === '撑满')?.click()
+  })
+  await new Promise((r) => setTimeout(r, 400))
+  expect(await bandCoverage()).toBeGreaterThan(0.97)
+  await page.keyboard.down('Control')
+  await page.keyboard.press('KeyZ')
+  await page.keyboard.up('Control')
+  await new Promise((r) => setTimeout(r, 400))
+  expect(await bandCoverage()).toBe(before)
+  expect(errs).toEqual([])
+  await page.close()
+})
+
 it.skipIf(skip)('窄屏编辑器自动切堆叠模式，不给出挤成一团的画布', async () => {
   const page = await freshPage(390, 844)
   await enterEditor(page)
