@@ -1,0 +1,18 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "lib": ["ES2022"],
+    "strict": true,
+    "noImplicitOverride": true,
+    "noUnusedLocals": true,
+    "noFallthroughCasesInSwitch": true,
+    "verbatimModuleSyntax": true,
+    "skipLibCheck": true,
+    "noEmit": true,
+    "types": ["node", "vite/client"]
+  },
+  "include": ["src/**/*.ts", "tests/**/*.ts", "vitest.config.ts"],
+  "exclude": ["tests/e2e", "vitest.e2e.config.ts", "vitest.e2e.setup.ts"]
+}

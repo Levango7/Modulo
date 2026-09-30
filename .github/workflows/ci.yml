@@ -1,0 +1,28 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      CHROME_PATH: /usr/bin/google-chrome
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: 类型检查
+        run: npm run typecheck
+      - name: 引擎单测 + 投影属性测试
+        run: npx vitest run
+      - name: 构建
+        run: npm run build
+      # 与 x-hub 的反面教材相对：它写了 164 个 Rust 测试，但 CI 只跑 vue-tsc + cargo check，一个测试都不执行
+      - name: 浏览器交互 E2E（拖拽 / 框选 / 键盘 / 撤销 / 三档视口）
+        run: npm run test:e2e
