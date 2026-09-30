@@ -28,6 +28,7 @@ const rows = computed(() => props.rects.reduce((m, r) => Math.max(m, r.y + r.h),
       v-for="r in rects"
       :key="r.id"
       class="cell"
+      :data-module="r.id"
       :style="{ gridColumn: `${r.x + 1} / span ${r.w}`, gridRow: `${r.y + 1} / span ${r.h}` }"
     >
       <component :is="CARD_COMPONENTS[r.id]" :variant="r.variant" :module-id="r.id" />

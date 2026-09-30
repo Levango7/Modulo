@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, inject, onBeforeUnmount, onMounted, ref } from 'vue'
-import { LayoutGrid, LayoutTemplate, Moon, Redo2, SlidersHorizontal, Sparkles, Sun, Undo2 } from 'lucide-vue-next'
+import { LayoutGrid, LayoutTemplate, Moon, Palette, Redo2, SlidersHorizontal, Sparkles, Sun, Undo2 } from 'lucide-vue-next'
 import * as E from './engine'
 import type { LayoutStore } from './vue/store'
 import { CARD_COMPONENTS } from './vue/cardRegistry'
@@ -13,6 +13,9 @@ const reg = store.reg
 
 const view = ref<'workbench' | 'edit'>('workbench')
 const theme = ref<'light' | 'dark'>('light')
+const SKINS = ['aurora', 'ink', 'candy'] as const
+const SKIN_LABEL: Record<string, string> = { aurora: '柔光', ink: '墨纸', candy: '亮彩' }
+const skin = ref<string>(localStorage.getItem('modulo.skin') ?? 'aurora')
 const shellEl = ref<HTMLElement | null>(null)
 const stageEl = ref<HTMLElement | null>(null)
 const stageW = ref(1200)
@@ -26,6 +29,7 @@ const mode = computed(() => E.editorMode(stageW.value))
 let ro: ResizeObserver | null = null
 onMounted(() => {
   document.documentElement.dataset.theme = theme.value
+  document.documentElement.dataset.skin = skin.value
   ro = new ResizeObserver(() => {
     const el = stageEl.value
     if (el) stageW.value = el.clientWidth
@@ -42,6 +46,13 @@ onBeforeUnmount(() => ro?.disconnect())
 function toggleTheme() {
   theme.value = theme.value === 'dark' ? 'light' : 'dark'
   document.documentElement.dataset.theme = theme.value
+}
+
+function cycleSkin() {
+  const i = (SKINS.indexOf(skin.value as (typeof SKINS)[number]) + 1) % SKINS.length
+  skin.value = SKINS[i]
+  document.documentElement.dataset.skin = skin.value
+  localStorage.setItem('modulo.skin', skin.value)
 }
 
 const isEditable = (el: EventTarget | null): boolean => {
@@ -87,6 +98,7 @@ function onGlobalKey(e: KeyboardEvent) {
         </button>
         <button class="wide" title="聚拢空洞（可撤销）" @click="store.tidy()"><Sparkles :size="14" /> 整理</button>
         <button class="wide" @click="store.restoreStarter()"><LayoutTemplate :size="14" /> 推荐布局</button>
+        <button class="wide" @click="cycleSkin()" title="切换视觉方向"><Palette :size="14" /> {{ SKIN_LABEL[skin] }}</button>
         <button class="wide" @click="toggleTheme">
           <Moon v-if="theme === 'light'" :size="14" /><Sun v-else :size="14" /> {{ theme === 'dark' ? '亮色' : '暗色' }}
         </button>
@@ -171,6 +183,9 @@ function onGlobalKey(e: KeyboardEvent) {
 }
 .tools {
   margin-left: auto;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  row-gap: var(--space-1);
 }
 .tools button {
   border: 1px solid var(--border-strong);

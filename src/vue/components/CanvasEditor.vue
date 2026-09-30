@@ -326,6 +326,7 @@ function onCellKeydown(p: E.Placement, e: KeyboardEvent) {
           v-for="p in items"
           :key="p.id"
           class="cell"
+          :data-module="p.id"
           :class="{ locked: p.locked, selected: isSelected(p.id) }"
           :style="cellStyle(p)"
           tabindex="0"
