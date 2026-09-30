@@ -154,6 +154,11 @@ textarea {
   padding: var(--space-2);
 }
 
+/* 不给 accent-color 的话原生复选框会漏出系统蓝，ink 皮肤下就是一块不属于任何令牌的色 */
+input[type='checkbox'] {
+  accent-color: var(--brand-500);
+}
+
 .card {
   position: relative;
   display: flex;
@@ -219,7 +224,8 @@ textarea {
 
 /* ---- skin: ink 墨纸 —— 高对比、无渐变、小圆角、克制的单色强调 ---- */
 [data-skin='ink'] {
-  --accent: #1f6feb;
+  /* 朱砂而非蓝，跟图标同源；但比图标的 #E4572E 深一档，否则白底上只有 3.4:1 过不了正文对比度 */
+  --accent: #c93c16;
   --bg-page: #f7f7f5;
   --app-bg: var(--bg-page);
   --bg-card: #ffffff;
@@ -241,6 +247,7 @@ textarea {
   --shadow-hover: 0 2px 8px rgba(20, 20, 26, 0.1);
 }
 [data-skin='ink'][data-theme='dark'] {
+  --accent: #ff7a4d;
   --bg-page: #0e0f11;
   --bg-card: #17181b;
   --bg-card-solid: #17181b;

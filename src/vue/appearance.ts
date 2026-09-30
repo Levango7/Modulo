@@ -21,6 +21,7 @@ export const MODES: readonly { id: ThemeMode; label: string }[] = [
 export const ACCENT_AUTO = 'auto'
 export const ACCENTS: readonly { id: string; value: string; label: string }[] = [
   { id: ACCENT_AUTO, value: ACCENT_AUTO, label: '跟随皮肤' },
+  { id: 'vermilion', value: '#e4572e', label: '朱砂' },
   { id: 'indigo', value: '#5b5bf5', label: '靛蓝' },
   { id: 'sky', value: '#0ea5e9', label: '天蓝' },
   { id: 'teal', value: '#0d9488', label: '青绿' },

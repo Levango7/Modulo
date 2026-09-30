@@ -82,7 +82,19 @@ function onGlobalKey(e: KeyboardEvent) {
 <template>
   <div class="shell">
     <header class="bar">
-      <span class="brand"><i class="mark" />Modulo</span>
+      <span class="brand">
+        <svg class="mark" viewBox="0 0 1024 1024" aria-hidden="true">
+          <g class="mark-leg">
+            <rect x="160" y="190" width="120" height="196" rx="40"/><rect x="160" y="414" width="120" height="196" rx="40"/><rect x="160" y="638" width="120" height="196" rx="40"/>
+            <rect x="744" y="190" width="120" height="196" rx="40"/><rect x="744" y="414" width="120" height="196" rx="40"/><rect x="744" y="638" width="120" height="196" rx="40"/>
+          </g>
+          <g class="mark-v">
+            <rect x="306" y="190" width="120" height="196" rx="40"/><rect x="598" y="190" width="120" height="196" rx="40"/>
+            <rect x="452" y="414" width="120" height="196" rx="40"/>
+          </g>
+        </svg>
+        Modulo
+      </span>
       <nav class="seg">
         <button :data-active="view === 'workbench'" @click="view = 'workbench'">
           <LayoutGrid :size="14" /> 工作台
@@ -154,11 +166,15 @@ function onGlobalKey(e: KeyboardEvent) {
   font-size: 15px;
 }
 .brand .mark {
-  width: 12px;
-  height: 12px;
-  border-radius: 4px;
-  background: linear-gradient(135deg, var(--brand-500), color-mix(in oklab, var(--brand-500) 40%, #ff7ab6));
-  box-shadow: 0 0 0 3px var(--brand-glow);
+  width: 20px;
+  height: 20px;
+  flex: none;
+}
+.brand .mark-leg {
+  fill: var(--text-1);
+}
+.brand .mark-v {
+  fill: var(--accent);
 }
 .seg,
 .tools {
