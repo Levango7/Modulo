@@ -19,6 +19,7 @@ using System;
 using System.Runtime.InteropServices;
 public static class Win32 {
   [StructLayout(LayoutKind.Sequential)] public struct RECT { public int Left, Top, Right, Bottom; }
+  public delegate bool EnumProc(IntPtr h, IntPtr l);
   [DllImport("user32.dll")] public static extern bool GetWindowRect(IntPtr h, out RECT r);
   [DllImport("user32.dll")] public static extern bool PrintWindow(IntPtr h, IntPtr hdc, uint flags);
   [DllImport("user32.dll")] public static extern bool IsIconic(IntPtr h);
@@ -27,6 +28,27 @@ public static class Win32 {
   [DllImport("user32.dll")] public static extern int GetWindowLong(IntPtr h, int idx);
   [DllImport("user32.dll")] public static extern bool ShowWindow(IntPtr h, int cmd);
   [DllImport("user32.dll")] public static extern bool SetProcessDPIAware();
+  [DllImport("user32.dll")] public static extern bool EnumWindows(EnumProc cb, IntPtr l);
+  [DllImport("user32.dll")] public static extern uint GetWindowThreadProcessId(IntPtr h, out uint pid);
+
+  /// 取该进程面积最大的可见/图标态顶层窗口。.NET 的 MainWindowHandle 不可靠：
+  /// 窗口最小化时它会漂到一个 6×6 的辅助窗口上，重启瞬间也可能直接命中那个辅助窗口。
+  public static IntPtr FindLargestWindow(uint pid) {
+    IntPtr best = IntPtr.Zero;
+    long bestArea = 0;
+    EnumWindows((h, l) => {
+      uint p;
+      GetWindowThreadProcessId(h, out p);
+      if (p != pid) return true;
+      if (!IsWindowVisible(h) && !IsIconic(h)) return true;
+      RECT r;
+      if (!GetWindowRect(h, out r)) return true;
+      long a = Math.Abs((long)(r.Right - r.Left) * (long)(r.Bottom - r.Top));
+      if (a > bestArea) { bestArea = a; best = h; }
+      return true;
+    }, IntPtr.Zero);
+    return best;
+  }
 }
 '@
 Add-Type -TypeDefinition $native
@@ -38,9 +60,11 @@ $GWL_STYLE = -16
 $SW_RESTORE = 9
 
 function Find-MainWindow([string]$name) {
-  $p = Get-Process -Name $name -ErrorAction SilentlyContinue | Where-Object { $_.MainWindowHandle -ne 0 } | Select-Object -First 1
-  if ($p) { return $p.MainWindowHandle }
-  return [IntPtr]::Zero
+  $p = Get-Process -Name $name -ErrorAction SilentlyContinue | Select-Object -First 1
+  if (-not $p) { return [IntPtr]::Zero }
+  $h = [Win32]::FindLargestWindow([uint32]$p.Id)
+  if ($h -ne [IntPtr]::Zero) { return $h }
+  return $p.MainWindowHandle
 }
 
 function Save-Bmp([System.Drawing.Bitmap]$bmp, [string]$path) {
