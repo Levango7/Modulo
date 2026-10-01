@@ -20,7 +20,10 @@ onBeforeUnmount(() => unlisten?.())
 
 <template>
   <div class="titlebar">
-    <div class="tb-drag" data-tauri-drag-region @dblclick="win.toggleMaximize()">
+    <!-- deep：裸 data-tauri-drag-region 只在事件 target 恰好是本元素时生效，点 Logo/标题文字都不算。
+         双击最大化也不接管 —— Tauri 注入的 drag.js 已经在 mousedown(detail=2) 里做了，
+         自己再加一个 @dblclick 会与它各切一次，净效果是不最大化。 -->
+    <div class="tb-drag" data-tauri-drag-region="deep">
       <BrandMark :size="14" />
       <span class="tb-title">Modulo</span>
     </div>
