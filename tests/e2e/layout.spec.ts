@@ -485,6 +485,54 @@ it.skipIf(skip)('紧凑：一键等于收紧+整理，两步可分别撤销', as
   await page.close()
 })
 
+it.skipIf(skip)('推荐布局：只出确认框，取消不动版面，确认才替换且可一步撤销', async () => {
+  const page = await freshPage(1440, 900)
+  const errs: string[] = []
+  page.on('pageerror', (e: unknown) => errs.push(String(e)))
+  const press = (t: string) =>
+    page.evaluate((label) => {
+      ;[...document.querySelectorAll<HTMLElement>('button')].find((e) => (e.textContent || '').trim() === label)?.click()
+    }, t)
+  const dialogOpen = () => page.evaluate(() => !!document.querySelector('.confirm[role="dialog"]'))
+  const settle = () => new Promise((r) => setTimeout(r, 400))
+
+  const starter = await snapshot(page)
+
+  /** 先弄脏版面：编辑器里方向键移一格（比鼠标拖拽稳），回工作台才测得出「替换」到底有没有发生 */
+  await enterEditor(page)
+  await page.evaluate(() => document.querySelector<HTMLElement>('.cell')?.focus())
+  await page.keyboard.press('ArrowRight')
+  await settle()
+  await press('工作台')
+  await settle()
+  const dirty = await snapshot(page)
+  expect(dirty, '前置条件：版面应已被改脏').not.toBe(starter)
+
+  await press('推荐布局')
+  await settle()
+  expect(await dialogOpen(), '点按钮应先出确认框').toBe(true)
+  expect(await snapshot(page), '确认前版面不能被改动').toBe(dirty)
+
+  await press('取消')
+  await settle()
+  expect(await dialogOpen()).toBe(false)
+  expect(await snapshot(page), '取消后版面保持不动').toBe(dirty)
+
+  await press('推荐布局')
+  await press('载入推荐布局')
+  await settle()
+  expect(await dialogOpen(), '确认后弹层要收掉').toBe(false)
+  expect(await snapshot(page), '确认后才替换成推荐版面').toBe(starter)
+
+  await page.keyboard.down('Control')
+  await page.keyboard.press('KeyZ')
+  await page.keyboard.up('Control')
+  await settle()
+  expect(await snapshot(page), '替换可一步撤销').toBe(dirty)
+  expect(errs).toEqual([])
+  await page.close()
+})
+
 it.skipIf(skip)('窄屏编辑器自动切堆叠模式，不给出挤成一团的画布', async () => {
   const page = await freshPage(390, 844)
   await enterEditor(page)
