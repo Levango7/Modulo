@@ -333,7 +333,7 @@ MVP 先做 A1，A2 留一个 `projection.a2.test.ts` 做对照实验。不在没
 - `tests/e2e/layout.spec.ts` —— 5 条真浏览器断言（vitest + puppeteer-core 驱动系统 Chrome，CI 上走 `CHROME_PATH=/usr/bin/google-chrome`）：三档视口的列数/溢出/裁字/最小字号、编辑器可聚焦格 >0、方向键移动 + Ctrl+Z 回退、框选→成组拖拽→整体撤销、390px 自动堆叠模式、拖拽全程零 console 报错。
 - `vitest.e2e.setup.ts` 用 vite 的 `build()` + `preview({port:0})` 起随机端口，避免与本机其它 dev server 抢端口。
 - `npm run verify` = typecheck（`tsconfig.json` 严格无 DOM + `tsconfig.e2e.json` 带 DOM，分层：产品代码拿不到 `document`）→ 单测 → 构建 → E2E。`.github/workflows/ci.yml` 就按这四步跑。
-- 本地实测：103 单测 + 5 E2E 全绿，E2E 约 43s（含构建）。
+- 首批 CI 落地时的本地实测：103 单测 + 5 E2E 全绿，E2E 约 43s（含构建）；此后各轮持续增补，当前规模看 README。
 
 对照 §1 那条事实——x-hub 写了 164 个 Rust 测试但 CI 只跑 `vue-tsc + cargo check`，一个测试都不执行——这条 CI 是它的反面教材，不是可选项。
 
