@@ -25,11 +25,11 @@ export function createCardData(storage = browserStorage()) {
   const fallback: CardData = {
     sticky: '',
     todos: [
-      { id: 't1', text: '把投影不变量跑绿', done: true },
-      { id: 't2', text: '给卡片接容器查询', done: false },
-      { id: 't3', text: '窄屏堆叠编辑模式', done: false },
+      { id: 't1', text: '写下今天最重要的三件事', done: true },
+      { id: 't2', text: '回一封拖了三天的邮件', done: false },
+      { id: 't3', text: '把周报草稿发出去', done: false },
     ],
-    notes: [{ id: 'n1', title: 'Modulo 的第一条速记', body: '卡片宽度按容器缩放，不再压成碎片。', at: Date.now() }],
+    notes: [{ id: 'n1', title: '先扔进来的念头', body: '开会时冒出来的一句话，不整理也没关系，回头再收。', at: Date.now() }],
   }
   let initial = fallback
   try {
