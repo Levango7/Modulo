@@ -31,28 +31,34 @@ F:\Nexus\Modulo\
 │  │  ├─ fit.ts            fitState(p, variant) → below|mid|ideal|room
 │  │  ├─ spot.ts           findFreeSpot(items,w,h,x,y) 同列带向下找最近空位
 │  │  ├─ ops.ts            add/move/resize/setVariant/remove/setTitle/toggleLock —— 纯函数，返回新 doc
-│  │  ├─ history.ts        不可变 doc + 引用栈 + 合并策略
+│  │  ├─ history.ts        不可变 doc + 引用栈；mergeKey 合并窗口有单测但生产无调用方
 │  │  ├─ breakpoints.ts    容器宽 → 物理列数 N + 最小行高
 │  │  ├─ projection.ts     ★ project(doc, N) → 物理矩形集 + 收起清单
 │  │  ├─ downgrade.ts      投影后宽度不足时的形态自动降档 / 收起判定
+│  │  ├─ tidy.ts spread.ts fitHeight.ts   按需整理 / 撑满 / 按内容降高
+│  │  ├─ schemes.ts        方案册纯函数（上限 24、重名加序号、逐条清洗）
 │  │  ├─ validate.ts       盘上数据解析、钳制、重叠消解（不信任存储）
-│  │  └─ serialize.ts      JSON schema + schemaVersion 迁移
+│  │  ├─ serialize.ts      JSON schema；schemaVersion 偏高只告警并按 v1 读（**没有迁移器**）
+│  │  └─ index.ts          对外统一出口
 │  ├─ vue\                 唯一允许碰框架的适配层
 │  │  ├─ store.ts          模块级 shallowRef 单例（无 Pinia）
-│  │  ├─ useDrag.ts        指针拖拽/缩放（move 与 resize 语义不同，见 §4）
-│  │  ├─ useKeyboard.ts    roving tabindex + 方向键编排
-│  │  ├─ useFlip.ts        Web Animations API 让位动效
-│  │  └─ components\       GridLayout.vue / GridCell.vue / CanvasEditor.vue / StackEditor.vue
+│  │  ├─ cardData.ts cardRegistry.ts appearance.ts useAppearance.ts
+│  │  ├─ fileStorage.ts fileIo.ts useShell.ts useSchemes.ts
+│  │  ├─ useDensity.ts useFocusTrap.ts
+│  │  └─ components\       TitleBar · BrandMark · GridLayout · CanvasEditor · StackEditor · SettingsPanel
 │  ├─ app\                 视图装配：工作台 / 编辑器 / 设置 / 卡片
 │  │  └─ cards\            Clock / Sticky / Todo / Notes（全部接容器查询）
 │  ├─ tokens\              设计令牌（纯 CSS 变量，亮/暗两套）
-│  └─ persist\             IndexedDB + localStorage 兜底 + JSON 导入导出
 ├─ tests\
-│  ├─ engine\              单测（每个纯函数）
-│  ├─ property\            fast-check：投影不变量 I1–I4
-│  └─ e2e\                 Playwright：键盘全流程 / 拖拽 / 三档断点截图
+│  ├─ engine\              单测（14 个文件，每个纯函数）
+│  ├─ property\            fast-check：投影不变量 I1–I4 + 分区完整（共 5 条断言）
+│  ├─ vue\                 适配层单测（store / fileStorage / cardData / appearance）
+│  ├─ engine-purity.test.ts  逐文件守住「引擎零框架 / DOM 依赖」
+│  └─ e2e\                 puppeteer-core 驱动系统 Chrome：15 条真浏览器断言
 └─ docs\ARCHITECTURE.md
 ```
+
+> **2026-10-02 复核**：上面这棵树此前记的是设计时的**计划**结构，和落地的代码差了十几个名字 —— 没有 `useDrag.ts` / `useKeyboard.ts` / `useFlip.ts` / `GridCell.vue`，也没有 `src/persist/`（拖拽与键盘编排直接长在 `CanvasEditor.vue` 与 `App.vue` 里，没单独抽 composable；让位动效是 `GridLayout.vue` 的 `TransitionGroup`），E2E 用的是 puppeteer-core 而不是 Playwright。已按实际文件重写。
 
 **引擎纯度由一条测试守住**：`tests/engine-purity.test.ts` 扫 `src/engine/**/*.ts` 的 import，出现 `vue`、`@tauri`、`document`、`window` 即失败。不引 eslint 插件。
 
@@ -173,7 +179,7 @@ MVP 先做 A1，A2 留一个 `projection.a2.test.ts` 做对照实验。不在没
 - 无贪心压实：删掉中间一块不会整屏跳。
 
 ### 4.2 让位动效（x-hub 完全没有）
-`.cell` 用 FLIP：投影/移动导致其他格子位置变化时，`element.animate()` 播 160ms `transform` 过渡；`prefers-reduced-motion` 下直接跳位。
+`.cell` 有让位过渡：投影/移动导致其他格子位置变化时播一段 `transform` 过渡，`prefers-reduced-motion` 下直接跳位。**实现方式与当初的选型不同**：没有自写 Web Animations API 的 FLIP，而是 `GridLayout.vue` 用 Vue 的 `<TransitionGroup>`、动效本体是 `tokens.css` 的 `.cell-move`（`@media (prefers-reduced-motion: reduce)` 关掉）。效果等价，少了几十行手写的 measure-play-replay 代码。
 
 ### 4.3 键盘（x-hub 为 0 分）
 - 格子 roving tabindex，`Tab` 进出版面、`方向键` 在格子间跳焦点。
@@ -230,6 +236,8 @@ MVP 先做 A1，A2 留一个 `projection.a2.test.ts` 做对照实验。不在没
 | 不引 | reka-ui、Tailwind、Milkdown、任何网格库（gridstack / react-grid-layout） | 网格库只解决"不重叠+压实"，**不解决"内容装不装得下"**（形态 min/ideal 语义），而后者才是体验核心；且引库会把坐标系与压实策略锁死，而投影正是要动坐标系的部分 |
 | 桌面壳 | 第二轮再上 Tauri 2 | 引擎层零改动即可包；现在避开 WebView2 运行期建窗挂死那类最贵的坑 |
 
+> **2026-10-02 复核：这张表里有四行是"当时的选择"，不是"现在的实现"** —— ① 持久化没走 IndexedDB / idb-keyval，也没有"字段级补丁写"，实际是 `localStorage`（网页版）与 `%APPDATA%\app.modulo\data\` 下一 key 一文件的**整份 JSON**（桌面版，见 §7）；② E2E 用 puppeteer-core 驱动系统 Chrome，没引 Playwright；③ 让位动效是 Vue `TransitionGroup`，不是自写 WAAPI FLIP（见 §4.2）；④ 属性测试是 **7 档**列数 × 200 例、**5 条**断言（I1–I4 + 分区完整），不是"5 档 N × I1–I4"。保留原表是因为它记的是取舍理由，理由今天仍然成立 —— 但落地结果以 §10 为准。
+
 ---
 
 ## 7. 持久化
@@ -255,7 +263,7 @@ MVP 先做 A1，A2 留一个 `projection.a2.test.ts` 做对照实验。不在没
 - 读取一律过 `validate.ts` / `parseBook`：校验 id/整数坐标、按形态 min 钳制、标题 trim+截断、失效 variant 归一，再从上往下扫描逐项消解重叠（x-hub 这套"不信任盘上数据"的做法照抄思路、码重写）。
   - 卡片数据（待办 / 速记 / 便签）走同一套规矩，入口是 `sanitizeCardData`（`src/vue/cardData.ts`）。**这里原来是漏的**：加载只做 `{...fallback, ...JSON.parse(raw)}`，只兜住了语法错误，`todos: null` 会一路传到渲染期的 `todos.filter(...)` 才炸 —— 注释里"数据损坏不阻塞启动"当时并不成立。现在顶层不是对象整份回退、条目形状不对只丢那一条、`done` 只认真 `true`、id 撞号改唯一（`toggleTodo` 按 id 找，撞号会连坐）、文本与条目数各有上限（几百 MB 的坏文件不该冻住首屏）。12 条单测锁住，含 `__proto__` 键不漏进状态。
 - 导出/导入 = 单个 JSON（含 schemaVersion），导入走同一 validate。
-- 迁移：`migrations: Record<fromVersion, (doc)=>doc>`，当前只有 1→2 的占位接口，不写实现。
+- 迁移：**没有迁移器**。这里原来写的 `migrations: Record<fromVersion, (doc)=>doc>` 占位接口在代码里根本不存在。`serialize.ts` 实际只做一件事：`schemaVersion` 高于当前支持版本时告警并按 v1 读取。真要跨版本时再引入显式迁移表 —— 提前摆一个没人调用的接口，就是下一份"文档说有、代码没有"。
 
 ---
 
@@ -265,13 +273,15 @@ MVP 先做 A1，A2 留一个 `projection.a2.test.ts` 做对照实验。不在没
 
 **不做**：扩展系统、AI、剪贴板历史、账号、市场、自动更新、开机自启、托盘、全局快捷键、任何独立窗口。
 
-**验收判据（可测，不靠感觉）**
-1. 360 / 720 / 1440px 三档：无横向滚动、无碎片卡（任何可见卡宽 ≥ 其形态 minW 对应像素）、正文 ≥12px。
-2. 纯键盘完成"加卡→移动→缩放→切形态→撤销 5 步"。
-3. 13 格画布拖动实测帧率 ≥55fps（Performance API，不许估）。
-4. `tests/property` 随机 200 例布局 × 5 档 N，投影 I1–I4 全绿。
-5. 引擎单测分支覆盖 ≥90%。
-6. 与 x-hub 同数据、同视口并排截图对比（基线已存 `workspace/evidence/`）。
+**验收判据（可测，不靠感觉）—— 2026-10-02 逐条复核**
+1. ✅ 三档视口：无横向滚动、无碎片卡、最小字号达标。**但实际断言跑在 1440 / 720 / 390**，不是这里原写的 360 —— 见 `tests/e2e/layout.spec.ts` 第一条。
+2. ✅ 纯键盘可完成移动 / 缩放 / 切形态 / 选入 / 撤销 —— 由「编辑器键盘可达」「键盘补完」「方案册键盘排序」三条 E2E 覆盖。
+3. ❌ **未做**：13 格画布拖动帧率 ≥55fps。全仓没有任何 fps 断言，也没有 Performance API 采样。这条当初特意写成"不许估"，现在既没达成也没撤下 —— 挂着就像已达成。
+4. ✅ 属性测试全绿：随机 200 例 × **7 档**列数（原写 5 档）× **5 条**断言（I1–I4 + 分区完整）。
+5. ❌ **未做**：引擎分支覆盖 ≥90%。`vitest.config.ts` 里没有 coverage 配置，这个数字从来没被测过。
+6. ✅ 与 x-hub 同数据、同视口并排截图（见 §10.1）。
+
+> §9 第一条教训是「文档会烂 → 验收标准写成测试，不写成文档条目」。第 3、5 条就是那条教训的现场：两条判据停在纸面上。**要么补成测试，要么从验收里删掉**，不要留着冒充达成。
 
 ---
 
@@ -306,7 +316,9 @@ MVP 先做 A1，A2 留一个 `projection.a2.test.ts` 做对照实验。不在没
 
 遗留观感问题（已知、非阻塞）：窄列数下取整会让个别小卡（如 1 物理列的便签）右侧留出一段空档 —— 这是"宁可挤不可漏"的 ceil 策略换来的代价，属于 A1 方案的固有精度上限，A2 加权列带能否消掉待 §3.4 的对照实验。
 
-### 10.2 多选与真实交互实测（`evidence/interact.json`，脚本 `scripts/interact.mjs`）
+### 10.2 多选与真实交互实测（2026-10-01；脚本与产物都没入库）
+
+> 复核（2026-10-02）：标题里写的 `scripts/interact.mjs` 与 `evidence/interact.json` **都已不在仓库**（`evidence/` 在 `.gitignore` 里，脚本用完即删）。所以这一节的数字是一次性实测记录，**不可复算**；值得长期守住的部分已经转成 §10.3 的 E2E 断言。
 
 引擎新增 `moveMany`（成组平移：整组夹到列范围内 → 向下试位直到与组外不撞 → 试不出则拒绝）与 `removeMany`，各带单测；编辑器加上 Shift/ Ctrl 点选、空白处框选、批量锁定/移回库、Ctrl+A、Esc。用无头 Chrome 真点真拖的结果：
 
@@ -325,7 +337,7 @@ MVP 先做 A1，A2 留一个 `projection.a2.test.ts` 做对照实验。不在没
 
 另外去掉了一处观感缺陷：编辑器标签条与卡片自身表头重复显示同一个名字（"便签 / 便签"），改为卡片在编辑态走 `chromeless`，每格只保留一层头部。
 
-当前状态：101/101 测试、`tsc --noEmit` 干净、`vite build` 41.0 kB gzip、无 console 报错。
+当前状态（2026-10-02 复核）：**前端单测 171 条 + E2E 15 条 + Rust 单测 6 条**全绿，`tsc --noEmit` 干净，无 console 报错。`vite build` 41.0 kB gzip 是当时的数（卡片与令牌还在增补，要新数就重跑 `npm run build`）。
 
 ### 10.3 验证固化进 CI（2026-10-01）
 
@@ -351,7 +363,7 @@ MVP 先做 A1，A2 留一个 `projection.a2.test.ts` 做对照实验。不在没
 
 ### 10.5 视觉方向与撑满模式（2026-10-01）
 
-**三套 skin 做成正式预设**（用户裁决：都保留，默认 `ink`）：`aurora 柔光`（原状，最接近 x-hub）/ `ink 墨纸`（高对比、无渐变、小圆角、等宽数字）/ `candy 亮彩`（暖底饱和、20px 大圆角、厚实落影）。全部只覆盖令牌层，组件零改动；另加**模块身份色** `--mod`（按 `data-module` 给表头图标上色，跨 skin 复用）。选择存 `localStorage['modulo.skin']`，顶栏「外观」循环切换。同数据截图：`evidence/skin-{aurora,ink,candy}{,-editor}.png`。
+**三套 skin 做成正式预设**（用户裁决：都保留，默认 `ink`）：`aurora 柔光`（原状，最接近 x-hub）/ `ink 墨纸`（高对比、无渐变、小圆角、等宽数字）/ `candy 亮彩`（暖底饱和、20px 大圆角、厚实落影）。全部只覆盖令牌层，组件零改动；另加**模块身份色** `--mod`（按 `data-module` 给表头图标上色，跨 skin 复用）。选择当时存 `localStorage['modulo.skin']`，顶栏「外观」循环切换。**这条已被 §10.6 取代**：皮肤/明暗/强调色现在统一存 `modulo.appearance.v1`，「外观」按钮是打开设置面板，不再是循环切换（`modulo.skin` 这个键已从代码里删净）。同数据截图：`evidence/skin-{aurora,ink,candy}{,-editor}.png`。
 
 **撑满模式**（`src/engine/spread.ts`）：按**顶边 y 相同**的行分组（组内须两两横向不相交），按原比例放大到铺满 12 列。四条约束：只变宽不变窄（所以形态 `minW` 天然继续成立）、含锁定项的行跳过、放大后与组外卡片相撞则整行放弃、`spreadLayout = fillRows(tidyLayout(doc))`。效果见 `evidence/ink-default.png` → `ink-spread.png`：中部空洞消失。
 
@@ -382,7 +394,7 @@ MVP 先做 A1，A2 留一个 `projection.a2.test.ts` 做对照实验。不在没
 
 ### 10.9 版面方案与导入导出（2026-10-01）
 
-引擎层 `src/engine/schemes.ts` 是纯函数方案册：`createScheme / renameScheme / updateScheme / removeScheme / parseBook / mergeBooks / bookToJson`，上限 24 套、名称 trim+截断到 32、重名自动加序号。`parseBook` 对**每一条**方案跑 `sanitizeItems`（未知模块剔除、尺寸钳到形态最小值、重叠让位），空方案丢弃并留 warning，`activeId` 指向不存在的方案时归空；`mergeBooks` 保证导入不覆盖用户已有方案（id 与名称各自加后缀）。10 条单测覆盖。
+引擎层 `src/engine/schemes.ts` 是纯函数方案册：`createScheme / renameScheme / updateScheme / removeScheme / parseBook / mergeBooks / bookToJson`，上限 24 套、名称 trim+截断到 32、重名自动加序号。`parseBook` 对**每一条**方案跑 `sanitizeItems`（未知模块剔除、尺寸钳到形态最小值、重叠让位），空方案丢弃并留 warning，`activeId` 指向不存在的方案时归空；`mergeBooks` 保证导入不覆盖用户已有方案（id 与名称各自加后缀）。18 条单测覆盖（`tests/engine/schemes.test.ts`；这里原来写「10 条」，是空白方案与排序那批用例加进来之前的数）。
 
 胶水层：`useSchemes.ts`（状态 + `localStorage['modulo.schemes.v1']`）、`fileIo.ts`（Blob 下载 / `<input type=file>` 读取，桌面壳阶段只换这一个文件）。设置面板新增「版面方案」（另存为 / 覆盖当前 / 应用 / 改名 / 删除，活动项高亮且不给「应用」）与「导入导出」（当前布局、全部方案各双向），校验产生的 warning 就地列在面板里，不靠一闪而过的提示。
 
@@ -469,7 +481,7 @@ Tauri 2 最小壳：`src-tauri/` 只声明一个主窗口（1280×800，最小 3
 1. **裸 `data-tauri-drag-region` 只认「事件 target 恰好是带属性的那个元素」**（`el === composedPath[0]`）。标题栏里有点击价值的区域恰恰是子元素 —— Logo（SVG）和 "Modulo" 文字，用裸属性等于只有两侧空白能拖。改成 `="deep"` 后子树里除可点击元素（button/a/input…）外都算拖拽区。
 2. **双击最大化不要自己接**。`drag.js` 已经在第二次 `mousedown`（`detail === 2`）里 invoke 了 `internal_toggle_maximize`（该命令在 `core:window:default` 里，不用额外申请）。原先我又在 Vue 上挂了 `@dblclick="win.toggleMaximize()"` —— 真双击会切两次（原生一次、自己一次），净效果是**不最大化**。这是探针改用真 mousedown 事件后才暴露的：合成 `dblclick` 事件根本走不到原生那条路，测了等于没测。
 
-标题栏只在 `isDesktop` 为真时渲染 —— 网页版和 E2E 完全不受影响，`npm run verify` 的 14 条 E2E 仍然是原样通过的。
+标题栏只在 `isDesktop` 为真时渲染 —— 网页版和 E2E 完全不受影响，`npm run verify` 的 E2E（那一轮 14 条，现在 15 条）仍然是原样通过的。
 
 一个容易踩的布局坑：标题栏不能塞进 `.shell`，因为 `.shell` 有 16px 内边距，标题栏会浮在窗口中间。改成外面套一层 `.app`（flex column），`.shell` 从 `height: 100%` 换成 `flex: 1; min-height: 0`。
 
@@ -483,7 +495,7 @@ Tauri 2 最小壳：`src-tauri/` 只声明一个主窗口（1280×800，最小 3
 
 **权限收紧**：能力清单从只写 `core:default` 改成显式补四条（`allow-minimize / allow-toggle-maximize / allow-close / allow-start-dragging`）—— `core:window:default` 其实只有只读 getter，自制标题栏的按钮一个都不在里面。同时**刻意不给** `allow-create` / `allow-destroy`：x-hub 代价最高的那批 WebView2 bug 都在运行期建窗/销毁窗上，这里用权限层把它堵死，而不是靠口头约定。
 
-**真机自检（`npm run desktop:probe`，30/30）**：不模拟鼠标 —— `SetCursorPos` 会抢走用户真实的指针和焦点，点错地方赔不起。改成给 WebView2 开远调端口（`WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS=--remote-debugging-port`），用 CDP 在页面里点**真实的 DOM 按钮**，再从 Win32 侧读窗口状态，走的是同一条代码路径。已验证：无边框标题栏渲染且带拖拽区、三个按钮都能点、最小化真的进图标态（`rect` 变成 -32000 那个经典值）、最大化铺满工作区、再点回原尺寸、`WS_THICKFRAME` 样式位仍在（所以边缘可拉伸）、托盘图标直接可见没被收进溢出浮层、收进托盘开关两个方向都生效。
+**真机自检（`npm run desktop:probe`，那一轮 30/30；现已扩到 33 项，见 §11.4）**：不模拟鼠标 —— `SetCursorPos` 会抢走用户真实的指针和焦点，点错地方赔不起。改成给 WebView2 开远调端口（`WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS=--remote-debugging-port`），用 CDP 在页面里点**真实的 DOM 按钮**，再从 Win32 侧读窗口状态，走的是同一条代码路径。已验证：无边框标题栏渲染且带拖拽区、三个按钮都能点、最小化真的进图标态（`rect` 变成 -32000 那个经典值）、最大化铺满工作区、再点回原尺寸、`WS_THICKFRAME` 样式位仍在（所以边缘可拉伸）、托盘图标直接可见没被收进溢出浮层、收进托盘开关两个方向都生效。
 
 原先说「三件事自动化够不着」，现在只剩一件。**双击拖拽区最大化**改成派发真的 `mousedown(detail=2)`（走 drag.js 而不是自己的 dblclick），顺带把「标题文字、Logo 都算拖拽区」一并断言了。**`Alt+Shift+M` 在系统层面真的触发**则借 `WScript.Shell.SendKeys('%+m')`：SendInput 进的是系统输入队列，`RegisterHotKey` 能收到 —— 按两次、看窗口收起再回来，全程不碰物理键盘。剩下**拖标题栏移动窗口**仍需人手确认：`start_dragging` 会进 Windows 的原生模态拖动循环，合成鼠标事件撑不起这个循环。
 
