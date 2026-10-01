@@ -2,6 +2,8 @@ use std::sync::Mutex;
 
 use tauri::{AppHandle, Manager, WindowEvent};
 
+mod storage;
+
 /// 点关闭是「收进托盘」还是「直接退出」。默认退出 —— Windows 会把新出现的托盘图标
 /// 塞进溢出浮层，默认藏进去等于把用户关在门外。开关由前端持久化并在启动时推过来。
 #[derive(Default)]
@@ -136,7 +138,13 @@ pub fn run() {
   let mut builder = tauri::Builder::default()
     .manage(HideOnClose::default())
     .manage(Shortcuts::default())
-    .invoke_handler(tauri::generate_handler![set_hide_on_close, global_shortcuts])
+    .invoke_handler(tauri::generate_handler![
+      set_hide_on_close,
+      global_shortcuts,
+      storage::read_doc,
+      storage::write_doc,
+      storage::data_dir
+    ])
     .on_window_event(|window, event| {
       if let WindowEvent::CloseRequested { api, .. } = event {
         if *window.app_handle().state::<HideOnClose>().0.lock().unwrap() {

@@ -234,12 +234,25 @@ MVP 先做 A1，A2 留一个 `projection.a2.test.ts` 做对照实验。不在没
 
 ## 7. 持久化
 
-```
-LayoutDoc (schemaVersion:1)      → IndexedDB key: layout
-settings (主题/断点覆盖/字号)     → key: settings，字段级补丁写
-cardData (便签文本/待办/笔记)     → key: card:<moduleId>
-```
-- 读取一律过 `validate.ts`：校验 id/整数坐标、按形态 min 钳制、标题 trim+截断、失效 variant 归一，再从上往下扫描逐项消解重叠（x-hub 这套"不信任盘上数据"的做法照抄思路、码重写）。
+一个 key 一个存储单元，全部走同一个同步的 `StorageAdapter` 接口（`store.ts` 里定义），实现按宿主切换：
+
+| key | 内容 |
+|---|---|
+| `modulo.layout.v1` | 当前版面 `LayoutDoc`（`schemaVersion: 1`） |
+| `modulo.schemes.v1` | 命名方案册 |
+| `modulo.carddata.v1` | 便签文本 / 待办 / 速记 |
+| `modulo.appearance.v1` | 皮肤 × 明暗 × 强调色 |
+| `modulo.shell.v1` | 桌面壳开关（关闭是否收进托盘） |
+
+- **网页版**：`localStorage`。
+- **桌面壳**：`%APPDATA%\app.modulo\data\<key>.json`，一个 key 一个文件，整个目录拷走就是备份。由 `read_doc`/`write_doc` 两条命令实现（`src-tauri/src/storage.rs`）。
+  - **原子写**：先写同目录临时文件再 `rename`。直接截断写会在崩溃/断电时留下半份 JSON，而这个文件就是用户的全部版面。
+  - **同一个 key 的写强制排队**（`serialize()`）：两次并发写会共用同一个临时文件名，前一次还没 rename 就被后一次截断，落盘的可能是两份内容拼起来的半份。串行化做在 `createFileStorage` 内部，调用方忘不掉。
+  - **文件名走白名单**：只允许小写字母/数字/`.`/`_`/`-`，且不许以点开头或含连续点，再统一加 `.json`。挡掉 `/` `\` `:` 就出不了数据目录。这条是 Rust 侧单测锁的。
+  - **写失败会挂在界面上**（`storage.error` 顶出一条红框）。静默失败的存储迟早会变成"我明明存了"的数据丢失。
+  - 存储适配器是**同步**接口而写文件是异步的，所以启动时一次性 hydrate 成内存镜像，之后 `get` 读镜像、`set` 立刻异步写穿。**不做防抖**：拖拽只在 `pointerup` 提交一次，写频率就是用户动作频率。
+  - 首次启动会把桌面壳早期只存在 WebView2 localStorage 里的数据搬进文件；迁移单向，磁盘已有内容时以磁盘为准，避免旧 localStorage 覆盖新数据。
+- 读取一律过 `validate.ts` / `parseBook`：校验 id/整数坐标、按形态 min 钳制、标题 trim+截断、失效 variant 归一，再从上往下扫描逐项消解重叠（x-hub 这套"不信任盘上数据"的做法照抄思路、码重写）。
 - 导出/导入 = 单个 JSON（含 schemaVersion），导入走同一 validate。
 - 迁移：`migrations: Record<fromVersion, (doc)=>doc>`，当前只有 1→2 的占位接口，不写实现。
 
@@ -429,7 +442,7 @@ Tauri 2 最小壳：`src-tauri/` 只声明一个主窗口（1280×800，最小 3
 
 ### 12.2 已知取舍
 
-- **数据仍在 WebView2 的 localStorage**（落在 `%APPDATA%\app.modulo\`）。够用且可持久，但不是可备份的独立文件；下一轮改成数据根目录下的 JSON + 备份导出。
+- ~~数据仍在 WebView2 的 localStorage~~ → 桌面壳已改成 `%APPDATA%\app.modulo\data\` 下一个 key 一个 JSON（见 §7），设置页里会显示这个目录。网页版仍用 localStorage。
 - **CSP 里放开了 `ws://localhost:1430`**，只为 dev 模式的 Vite HMR。生产构建带着这条属于多余授权，等接 Tauri 的自定义协议或改 `beforeBuildCommand` 时收紧。
 - ~~无边框自制标题栏、托盘、全局快捷键都还没做~~ → 已做，见 §12.3。刻意单独一轮，不和其他改动混在一起 —— 那是 x-hub 踩坑最密的地方（运行期建窗挂死、`skip_taskbar` 失效）。
 

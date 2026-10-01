@@ -1,8 +1,9 @@
 <script setup lang="ts">
-import { inject, ref } from 'vue'
+import { inject, onMounted, ref } from 'vue'
 import { Check, X } from 'lucide-vue-next'
 import { ACCENTS, MODES, SKINS } from '../appearance'
 import { useFocusTrap } from '../useFocusTrap'
+import { dataDir as fetchDataDir } from '../fileStorage'
 import { isDesktop, type ShellApi } from '../useShell'
 import type { AppearanceApi } from '../useAppearance'
 import type { SchemesApi } from '../useSchemes'
@@ -15,6 +16,11 @@ const schemes = inject<SchemesApi>('schemes')!
 const shell = inject<ShellApi>('shell')!
 const panelEl = ref<HTMLElement | null>(null)
 useFocusTrap(panelEl)
+
+const dataDir = ref<string | null>(null)
+onMounted(async () => {
+  if (isDesktop) dataDir.value = await fetchDataDir()
+})
 
 const draftName = ref('')
 const editing = ref<string | null>(null)
@@ -110,6 +116,11 @@ function onHideChange(e: Event) {
           </li>
         </ul>
         <p class="hint">快捷键是系统级的，窗口不在前台也能用。注册失败只影响那一条，其余功能照常。</p>
+        <p v-if="dataDir" class="hint">
+          版面、方案册、卡片内容和这些设置都各自是一个 JSON 文件，放在
+          <code>{{ dataDir }}</code>
+          ，整个目录拷走就是备份。
+        </p>
       </section>
 
       <section>
@@ -290,6 +301,12 @@ section h3 {
   margin: var(--space-3) 0 0;
   font-size: 12px;
   color: var(--text-3);
+}
+.hint code {
+  font-family: ui-monospace, 'Cascadia Mono', Consolas, monospace;
+  font-size: 11px;
+  word-break: break-all;
+  color: var(--text-2);
 }
 .switch {
   display: flex;

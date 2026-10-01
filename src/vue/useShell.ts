@@ -1,5 +1,6 @@
 import { ref } from 'vue'
 import { invoke } from '@tauri-apps/api/core'
+import type { StorageAdapter } from './store'
 
 /** 只有 Tauri 注入过 __TAURI_INTERNALS__ 才算跑在桌面壳里；vite dev 和 E2E 的 Chrome 都不是。 */
 export const isDesktop = typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window
@@ -12,16 +13,8 @@ export interface ShortcutStatus {
 
 const KEY = 'modulo.shell.v1'
 
-function readHideOnClose(): boolean {
-  try {
-    return JSON.parse(localStorage.getItem(KEY) ?? '{}').hideOnClose === true
-  } catch {
-    return false
-  }
-}
-
-export function useShell() {
-  const hideOnClose = ref(readHideOnClose())
+export function useShell(storage: StorageAdapter) {
+  const hideOnClose = ref(read(storage))
   const shortcuts = ref<ShortcutStatus[]>([])
 
   function push(on: boolean): void {
@@ -30,7 +23,7 @@ export function useShell() {
 
   function setHideOnClose(on: boolean): void {
     hideOnClose.value = on
-    localStorage.setItem(KEY, JSON.stringify({ hideOnClose: on }))
+    storage.set(KEY, JSON.stringify({ hideOnClose: on }))
     push(on)
   }
 
@@ -45,6 +38,14 @@ export function useShell() {
   }
 
   return { hideOnClose, setHideOnClose, shortcuts }
+}
+
+function read(storage: StorageAdapter): boolean {
+  try {
+    return JSON.parse(storage.get(KEY) ?? '{}').hideOnClose === true
+  } catch {
+    return false
+  }
 }
 
 export type ShellApi = ReturnType<typeof useShell>

@@ -1,9 +1,10 @@
 <script setup lang="ts">
 import { computed, inject, onBeforeUnmount, onMounted, provide, ref } from 'vue'
-import { LayoutGrid, LayoutTemplate, Maximize2, Minimize2, Redo2, Settings, SlidersHorizontal, Sparkles, Undo2, Wand2 } from 'lucide-vue-next'
+import { LayoutGrid, LayoutTemplate, Maximize2, Minimize2, Redo2, Settings, SlidersHorizontal, Sparkles, TriangleAlert, Undo2, Wand2 } from 'lucide-vue-next'
 import { measureWantedRows } from './vue/useDensity'
 import * as E from './engine'
 import type { LayoutStore } from './vue/store'
+import type { PersistentStorage } from './vue/fileStorage'
 import { CARD_COMPONENTS } from './vue/cardRegistry'
 import { useAppearance } from './vue/useAppearance'
 import { useSchemes } from './vue/useSchemes'
@@ -15,13 +16,14 @@ import SettingsPanel from './vue/components/SettingsPanel.vue'
 import TitleBar from './vue/components/TitleBar.vue'
 import BrandMark from './vue/components/BrandMark.vue'
 
+const storage = inject<PersistentStorage>('storage')!
 const store = inject<LayoutStore>('store')!
 const reg = store.reg
-const appearance = useAppearance()
+const appearance = useAppearance(storage)
 provide('appearance', appearance)
-const schemes = useSchemes(store)
+const schemes = useSchemes(store, storage)
 provide('schemes', schemes)
-provide('shell', useShell())
+provide('shell', useShell(storage))
 
 const view = ref<'workbench' | 'edit'>('workbench')
 const settingsOpen = ref(false)
@@ -117,6 +119,9 @@ function onGlobalKey(e: KeyboardEvent) {
     </header>
 
     <main ref="stageEl" class="stage">
+      <p v-if="storage.error.value" class="storage-error" role="alert">
+        <TriangleAlert :size="14" /> {{ storage.error.value }}
+      </p>
       <template v-if="view === 'workbench'">
         <p v-if="projection.collapsed.length" class="collapsed muted">
           当前宽度放不下：{{ projection.collapsed.map((c) => c.id).join('、') }}
@@ -233,6 +238,18 @@ function onGlobalKey(e: KeyboardEvent) {
 }
 .collapsed {
   margin: 0 0 var(--space-2);
+  font-size: 12px;
+}
+.storage-error {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin: 0 0 var(--space-3);
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid color-mix(in oklab, var(--c-red) 45%, transparent);
+  border-radius: var(--radius-md);
+  background: color-mix(in oklab, var(--c-red) 10%, var(--bg-card));
+  color: var(--text-1);
   font-size: 12px;
 }
 .empty {

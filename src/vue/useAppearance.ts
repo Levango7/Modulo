@@ -1,11 +1,12 @@
 import { onScopeDispose, ref } from 'vue'
 import { accentColor, parseAppearance, resolveTheme, type Appearance } from './appearance'
+import type { StorageAdapter } from './store'
 
 const KEY = 'modulo.appearance.v1'
 
-export function useAppearance() {
+export function useAppearance(storage: StorageAdapter) {
   const mq = typeof window !== 'undefined' ? window.matchMedia?.('(prefers-color-scheme: dark)') : null
-  const state = ref<Appearance>(parseAppearance(typeof localStorage !== 'undefined' ? localStorage.getItem(KEY) : null))
+  const state = ref<Appearance>(parseAppearance(storage.get(KEY)))
 
   function apply(): void {
     const el = document.documentElement
@@ -14,7 +15,7 @@ export function useAppearance() {
     const c = accentColor(state.value.accent)
     if (c) el.style.setProperty('--accent', c)
     else el.style.removeProperty('--accent')
-    localStorage.setItem(KEY, JSON.stringify(state.value))
+    storage.set(KEY, JSON.stringify(state.value))
   }
 
   function set(patch: Partial<Appearance>): void {
