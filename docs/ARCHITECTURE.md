@@ -484,7 +484,7 @@ Tauri 2 最小壳：`src-tauri/` 只声明一个主窗口（1280×800，最小 3
 
 **小屏靠启动时夹一次，不靠第二套数字**：`fit_window()` 读主显示器的 `work_area()`（`Monitor::work_area`，tauri 2.12 才有），逐轴判断 —— 放得下（留 32px 边距）就一点不动，放不下才取该轴的 94%，下限是配置里的最小尺寸。1366×768 因此只压高度、不连宽度一起缩。判定抽成纯函数 `fit_size()`，三条单测锁住（放得下不动 / 只缩放不下的那轴 / 不低于最小尺寸）。尺寸一律按逻辑像素算，DPI 缩放负责翻译成物理尺寸，所以 4K@150% 不用另设一套数字。
 
-**打包**：`npx tauri build` 出 `Modulo_0.1.0_x64-setup.exe`（NSIS，1.75 MiB）。先前担心的「NSIS 工具链在本机下载不动」没有发生 —— 它走 github.com 的 release 直链（取不动的是 raw.githubusercontent 那一类），下载后还会校验哈希。
+**打包**：`npx tauri build` 出 `Modulo_0.1.0_x64-setup.exe`（NSIS，1 844 800 字节 = 1.76 MiB，`sha256 19e542a6b4dcb73b…`）。先前担心的「NSIS 工具链在本机下载不动」没有发生 —— 它走 github.com 的 release 直链（取不动的是 raw.githubusercontent 那一类），下载后还会校验哈希。
 
 **许可**：Apache-2.0（`LICENSE`），`Cargo.toml` 的 `license`、`package.json` 的 `license`、`tauri.conf.json` 的 `bundle.copyright` / `bundle.licenseFile` 四处一起对齐。选 Apache-2.0 而不是 MIT：带显式专利授权与商标条款，且与同目录的 OpsMesh 一致。
 
