@@ -1849,7 +1849,6 @@ name = "modulo"
 version = "0.1.0"
 dependencies = [
  "serde",
- "serde_json",
  "tauri",
  "tauri-build",
  "tauri-plugin-global-shortcut",
