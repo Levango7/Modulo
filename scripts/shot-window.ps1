@@ -2,6 +2,7 @@ param(
   [string]$Out = '',
   [string]$Process = 'modulo',
   [long]$Hwnd = 0,
+  [string]$SendKeys = '',
   [switch]$FullSession,
   [switch]$State,
   [switch]$Restore
@@ -73,6 +74,14 @@ function Save-Bmp([System.Drawing.Bitmap]$bmp, [string]$path) {
   if (-not (Test-Path $dir)) { New-Item -ItemType Directory -Path $dir | Out-Null }
   $bmp.Save($full, [System.Drawing.Imaging.ImageFormat]::Png)
   Write-Output "$full $($bmp.Width)x$($bmp.Height)"
+}
+
+# SendKeys 走 SendInput 进系统输入队列，RegisterHotKey 注册的热键能收到 —— 这是唯一能在
+# 不碰物理键盘的前提下验证「全局快捷键真的被 OS 投递」的办法（CDP 合成键只在页面里，到不了系统）。
+if ($SendKeys) {
+  $wsh = New-Object -ComObject WScript.Shell
+  $wsh.SendKeys($SendKeys)
+  exit 0
 }
 
 if ($FullSession) {

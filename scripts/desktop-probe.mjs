@@ -57,7 +57,12 @@ async function launch() {
     }
   }
   const browser = await puppeteer.connect({ browserURL: `http://127.0.0.1:${PORT}`, defaultViewport: null })
-  const page = (await browser.pages()).find((p) => /tauri\.localhost/.test(p.url()))
+  // 页面列表不紧跟 /json/list：重启那一轮曾随机挂在「连上了但找不到主页面」，所以这里要自己重试
+  let page = null
+  for (let i = 0; i < 40 && !page; i++) {
+    page = (await browser.pages()).find((p) => /tauri\.localhost/.test(p.url()))
+    if (!page) await sleep(250)
+  }
   if (!page) throw new Error('CDP 已连上但找不到主页面')
   // 趁窗口还是正常尺寸把句柄钉死，后面最小化/隐藏时再查就不可靠了
   if (!state().running) throw new Error('启动后找不到主窗口')
@@ -68,6 +73,16 @@ const stop = async ({ child, browser }) => {
   await browser?.disconnect().catch(() => {})
   if (child && child.exitCode === null) child.kill('SIGTERM')
   for (let i = 0; i < 20 && child.exitCode === null; i++) await sleep(150)
+  // 进程退出不等于调试端口立刻释放：不等干净的话下一次 launch 会连上前一个还没死透的端点，
+  // 拿到的页面列表是旧的 —— 重启检查就会随机报「找不到主页面」
+  for (let i = 0; i < 20; i++) {
+    try {
+      await fetch(`http://127.0.0.1:${PORT}/json/version`)
+      await sleep(250)
+    } catch {
+      break
+    }
+  }
   hwnd = 0
 }
 
@@ -148,6 +163,66 @@ try {
   // 无边框后还能不能拉伸：tao 只用 NCCALCSIZE 吃掉非客户区，不摘 WS_THICKFRAME(0x40000)，样式位应当还在
   const st = state().style
   check('窗口仍带 WS_THICKFRAME，边缘可拉伸', (st & 0x40000) !== 0, { style: `0x${st.toString(16)}` })
+
+  // ---- 双击拖拽区最大化：走 Tauri 注入的 drag.js（mousedown detail===2 → internal_toggle_maximize）----
+  // 单击拖动（detail=1）测不了：它会真的进 start_dragging 的原生模态循环，事件是合成的、循环等不到真按键抬起。
+  // 想退一步把 invoke 换成记录器也不行 —— __TAURI_INTERNALS__ 和它的 invoke 都是不可配置+不可写（Tauri 防页面篡改），
+  // 实测 TypeError: Cannot redefine property。好在判「点在哪算拖拽区」的 isDragRegion 与双击共用，
+  // 下面两条双击断言过了，就等于证明标题文字和 Logo 都落在拖拽区里 —— 拖动能不能真的移动窗口则留给人工确认。
+  // 不派 mousedown detail=1：那条会进 start_dragging 的原生模态拖动循环，合成事件撑不起来。
+  const mouseDown2 = (sel) =>
+    page.evaluate((s) => {
+      const el = document.querySelector(s)
+      if (!el) return false
+      el.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true, button: 0, detail: 2 }))
+      return true
+    }, sel)
+
+  check('标题文字上双击的 mousedown 派发成功', await mouseDown2('.tb-drag .tb-title'))
+  await sleep(1200)
+  const dblMax = state()
+  check(
+    '双击标题文字能最大化（拖拽区 deep 覆盖子元素）',
+    dblMax.rect && Math.abs(dblMax.rect.w - dblMax.work.w) <= 40,
+    { rect: dblMax.rect, work: dblMax.work },
+  )
+  check('双击 Logo（SVG）派发成功', await mouseDown2('.tb-drag svg'))
+  await sleep(1200)
+  const backFromDbl = state().rect
+  check(
+    '双击 Logo 切回原尺寸（SVG 虽不是 HTMLElement，也在 deep 拖拽区里）',
+    backFromDbl && Math.abs(backFromDbl.w - restored.w) < 40,
+    { restored, backFromDbl },
+  )
+
+  // 反向守卫：自己不要再接 dblclick —— 原生已经在第二次 mousedown 切过一次，再接一次会互相抵消
+  await page.evaluate(() =>
+    document.querySelector('.tb-drag').dispatchEvent(new MouseEvent('dblclick', { bubbles: true, cancelable: true })),
+  )
+  await sleep(900)
+  check('分派裸 dblclick 不改变窗口状态（没有第二处处理者）', Math.abs(state().rect.w - backFromDbl.w) < 40)
+
+  // ---- 全局快捷键：往系统输入队列真投一次 Alt+Shift+M，看窗口是否响应 ----
+  const regOk = Array.isArray(reg) && reg.length === 2 && reg.every((r) => r.registered)
+  if (regOk) {
+    const visBefore = state().visible
+    runPs(['-Out', 'x', '-SendKeys', '%+m'])
+    let hid = false
+    for (let i = 0; i < 12 && !hid; i++) {
+      await sleep(250)
+      hid = state().visible === false
+    }
+    check('Alt+Shift+M 经系统投递后窗口收起', visBefore === true && hid, { visBefore, hid })
+    runPs(['-Out', 'x', '-SendKeys', '%+m'])
+    let shown = false
+    for (let i = 0; i < 12 && !shown; i++) {
+      await sleep(250)
+      shown = state().visible === true
+    }
+    check('再按一次 Alt+Shift+M 窗口回来', shown)
+  } else {
+    console.log('SKIP  Alt+Shift+M 系统投递（注册未成功，先修上面的注册检查）')
+  }
 
   // ---- 数据落地：改一处 → 磁盘上真的有文件 → 重启后读回来 ----
   const dir = await page.evaluate(async () => await window.__TAURI_INTERNALS__.invoke('data_dir'))
