@@ -98,6 +98,21 @@ const clickIn = (page, sel) =>
     return true
   }, sel)
 
+/**
+ * 等窗口状态迁移落地，而不是固定 sleep 之后采一次。
+ * 窗口动作是异步跨进程调用，重建后的首次运行实测会慢过 1.2s（上一轮三条红就是这么来的）；
+ * 固定 sleep 会把「慢」误报成「坏」。waited 一并带出去，方便看真实延迟。
+ */
+const waitUntil = async (pred, { timeout = 8000, step = 150 } = {}) => {
+  const t0 = Date.now()
+  let s = state()
+  while (!pred(s) && Date.now() - t0 < timeout) {
+    await sleep(step)
+    s = state()
+  }
+  return { ok: pred(s), waited: Date.now() - t0, s }
+}
+
 rmSync(OUT, { recursive: true, force: true })
 mkdirSync(OUT, { recursive: true })
 
@@ -108,6 +123,23 @@ try {
 
   const s0 = state()
   check('窗口已启动且未最小化', s0.running && !s0.iconic && s0.visible, s0)
+
+  // ---- 启动尺寸：1280×800 是逻辑像素，DPI 换算后必须真的落在窗口上；工作区放不下时
+  // lib 侧 fit_window 会逐轴夹到该轴的 94%（下限 380×560），这里复刻同一条公式。
+  // rect/work 是物理像素：shot-window.ps1 开头调过 SetProcessDPIAware()。
+  // 容差取 40：GetWindowRect 含 Win10+ 那圈不可见调边框（150% 下实测 w+22 / h+13），
+  // 而 tao 保证的是「可见外框 = 逻辑尺寸 × dpr」。这条能抓住真正的错法 —— 若建窗按物理
+  // 像素走，150% 下会拿到 1280 物理（=853 逻辑），差 600 多像素，立刻红。夹取分支需要小屏
+  // 才触发，本机触发不了，那部分由 fit_size 的三条单测守着。
+  const dpr = await page.evaluate(() => window.devicePixelRatio)
+  const fit = (avail, want, min) => (want + 32 <= avail ? want : Math.max(avail * 0.94, min))
+  const wantW = Math.round(fit(s0.work.w / dpr, 1280, 380) * dpr)
+  const wantH = Math.round(fit(s0.work.h / dpr, 800, 560) * dpr)
+  check(
+    '启动尺寸 = 1280×800 逻辑档经 DPI 换算（放不下则按工作区夹取）',
+    !!s0.rect && Math.abs(s0.rect.w - wantW) <= 40 && Math.abs(s0.rect.h - wantH) <= 40,
+    { dpr, rect: s0.rect, work: s0.work, expect: { w: wantW, h: wantH } },
+  )
 
   const dom = await page.evaluate(() => ({
     tauri: '__TAURI_INTERNALS__' in window,
@@ -134,31 +166,25 @@ try {
   await page.screenshot({ path: `${OUT}/01-titlebar.png` })
 
   check('点得到最小化按钮', await clickIn(page, '.tb-btn[aria-label="最小化"]'))
-  await sleep(900)
-  const sMin = state()
-  check('窗口真的进入图标态', sMin.iconic === true, sMin)
+  const min = await waitUntil((s) => s.iconic === true)
+  check('窗口真的进入图标态', min.ok, { waitedMs: min.waited, ...min.s })
 
   runPs(['-Out', 'x', '-Restore', ...withHwnd()])
-  await sleep(900)
-  const sBack = state()
-  check('可从图标态还原', sBack.iconic === false && sBack.visible === true, sBack)
+  const back = await waitUntil((s) => s.iconic === false && s.visible === true)
+  check('可从图标态还原', back.ok, { waitedMs: back.waited, ...back.s })
 
   const before = state().rect
   check('点得到最大化按钮', await clickIn(page, '.tb-btn[aria-label="最大化"]'))
-  await sleep(1200)
-  const maxed = state()
-  check(
-    '最大化铺满工作区',
-    maxed.rect && Math.abs(maxed.rect.w - maxed.work.w) <= 40 && Math.abs(maxed.rect.h - maxed.work.h) <= 40 && maxed.rect.w > before.w,
-    { before, rect: maxed.rect, work: maxed.work },
-  )
+  const isMax = (s) => !!s.rect && Math.abs(s.rect.w - s.work.w) <= 40 && Math.abs(s.rect.h - s.work.h) <= 40 && s.rect.w > before.w
+  const maxed = await waitUntil(isMax)
+  check('最大化铺满工作区', maxed.ok, { waitedMs: maxed.waited, before, rect: maxed.s.rect, work: maxed.s.work })
   await page.screenshot({ path: `${OUT}/02-maximized.png` })
 
   check('按钮文案已切成还原', await page.evaluate(() => !!document.querySelector('.tb-btn[aria-label="还原"]')))
   await clickIn(page, '.tb-btn[aria-label="还原"]')
-  await sleep(1200)
-  const restored = state().rect
-  check('还原回到原尺寸', restored && Math.abs(restored.w - before.w) < 40, { before, restored })
+  const rest = await waitUntil((s) => !!s.rect && Math.abs(s.rect.w - before.w) < 40)
+  const restored = rest.s.rect
+  check('还原回到原尺寸', rest.ok, { waitedMs: rest.waited, before, restored })
 
   // 无边框后还能不能拉伸：tao 只用 NCCALCSIZE 吃掉非客户区，不摘 WS_THICKFRAME(0x40000)，样式位应当还在
   const st = state().style
@@ -179,28 +205,27 @@ try {
     }, sel)
 
   check('标题文字上双击的 mousedown 派发成功', await mouseDown2('.tb-drag .tb-title'))
-  await sleep(1200)
-  const dblMax = state()
-  check(
-    '双击标题文字能最大化（拖拽区 deep 覆盖子元素）',
-    dblMax.rect && Math.abs(dblMax.rect.w - dblMax.work.w) <= 40,
-    { rect: dblMax.rect, work: dblMax.work },
-  )
+  const dblMax = await waitUntil((s) => !!s.rect && Math.abs(s.rect.w - s.work.w) <= 40)
+  check('双击标题文字能最大化（拖拽区 deep 覆盖子元素）', dblMax.ok, {
+    waitedMs: dblMax.waited,
+    rect: dblMax.s.rect,
+    work: dblMax.s.work,
+  })
   check('双击 Logo（SVG）派发成功', await mouseDown2('.tb-drag svg'))
-  await sleep(1200)
-  const backFromDbl = state().rect
-  check(
-    '双击 Logo 切回原尺寸（SVG 虽不是 HTMLElement，也在 deep 拖拽区里）',
-    backFromDbl && Math.abs(backFromDbl.w - restored.w) < 40,
-    { restored, backFromDbl },
-  )
+  // 必须等这次切换真正落地再做下一条：迟到的还原会被反向守卫误读成「裸 dblclick 改变了状态」
+  const backFromDbl = await waitUntil((s) => !!s.rect && Math.abs(s.rect.w - restored.w) < 40)
+  check('双击 Logo 切回原尺寸（SVG 虽不是 HTMLElement，也在 deep 拖拽区里）', backFromDbl.ok, {
+    waitedMs: backFromDbl.waited,
+    restored,
+    rect: backFromDbl.s.rect,
+  })
 
   // 反向守卫：自己不要再接 dblclick —— 原生已经在第二次 mousedown 切过一次，再接一次会互相抵消
   await page.evaluate(() =>
     document.querySelector('.tb-drag').dispatchEvent(new MouseEvent('dblclick', { bubbles: true, cancelable: true })),
   )
   await sleep(900)
-  check('分派裸 dblclick 不改变窗口状态（没有第二处处理者）', Math.abs(state().rect.w - backFromDbl.w) < 40)
+  check('分派裸 dblclick 不改变窗口状态（没有第二处处理者）', Math.abs(state().rect.w - restored.w) < 40)
 
   // ---- 全局快捷键：往系统输入队列真投一次 Alt+Shift+M，看窗口是否响应 ----
   const regOk = Array.isArray(reg) && reg.length === 2 && reg.every((r) => r.registered)
@@ -264,13 +289,12 @@ try {
   check('开关能拨动', shellOn)
 
   await clickIn(app.page, '.tb-btn[aria-label="关闭"]')
-  await sleep(900)
-  const hidden = state()
-  check('拨开开关后点关闭是藏进托盘，进程不退出', hidden.running && hidden.visible === false && hidden.iconic === false, hidden)
+  const hidden = await waitUntil((s) => s.running && s.visible === false && s.iconic === false)
+  check('拨开开关后点关闭是藏进托盘，进程不退出', hidden.ok, { waitedMs: hidden.waited, ...hidden.s })
 
   runPs(['-Out', 'x', '-Restore', ...withHwnd()])
-  await sleep(900)
-  check('藏起来的窗口可以恢复', state().visible === true)
+  const shownAgain = await waitUntil((s) => s.visible === true)
+  check('藏起来的窗口可以恢复', shownAgain.ok, { waitedMs: shownAgain.waited, ...shownAgain.s })
 
   await clickIn(app.page, '.panel input[type="checkbox"]')
   await sleep(400)
