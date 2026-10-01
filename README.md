@@ -2,6 +2,16 @@
 
 自适应的自由编排工作台。**一份布局，从 1920 桌面到 390 窄屏都能编排、都能读、都能用键盘操作。**
 
+[![CI](https://github.com/Levango7/Modulo/actions/workflows/ci.yml/badge.svg)](https://github.com/Levango7/Modulo/actions/workflows/ci.yml)
+
+![工作台：点「撑满」后每个行带铺满 12 列](docs/assets/workbench-spread-1440.png)
+
+## 界面
+
+![布局编辑器：格子带适配徽标（正好铺满 / 紧凑可读），拖拽与键盘都能编排](docs/assets/editor-1440.png)
+
+![390 窄屏：投影自动降到 1 列并切堆叠模式，工具条按簇整体换行](docs/assets/workbench-390.png)
+
 ## 跑起来
 
 ```bash
