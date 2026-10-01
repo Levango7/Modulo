@@ -513,3 +513,70 @@ it.skipIf(skip)('拖拽与缩放全程无 console 报错', async () => {
   expect(errs).toEqual([])
   await page.close()
 })
+
+it.skipIf(skip)('方案册：新建空白可撤销，键盘与拖拽都能排序并跨重启保留', async () => {
+  const page = await freshPage(1440, 900)
+  const errs: string[] = []
+  page.on('pageerror', (e: unknown) => errs.push(String(e)))
+  const wait = (ms = 300) => new Promise((r) => setTimeout(r, ms))
+  const press = (label: string) =>
+    page.evaluate((text) => {
+      const el = [...document.querySelectorAll<HTMLElement>('button')].find((e) => (e.textContent || '').trim() === text)
+      el?.click()
+      return !!el
+    }, label)
+  const names = () =>
+    page.evaluate(() => [...document.querySelectorAll('.schemes li strong')].map((s) => s.textContent?.trim()))
+  const cellCount = () => page.evaluate(() => document.querySelectorAll('.grid .cell').length)
+
+  await page.click('button[title="外观设置"]')
+  await wait()
+  await page.type('input[placeholder="方案名称"]', '甲')
+  expect(await press('另存为')).toBe(true)
+  await wait()
+  await page.type('input[placeholder="方案名称"]', '从零')
+  expect(await press('新建空白')).toBe(true)
+  await wait(400)
+
+  expect(await names()).toEqual(['从零', '甲'])
+  expect(await cellCount()).toBe(0)
+  expect(await page.evaluate(() => !!document.querySelector('.stage .empty'))).toBe(true)
+
+  // 新建空白会顺手清空工作台，必须能一步退回来。
+  // 先关面板：焦点还在「方案名称」输入框里时 Ctrl+Z 会按设计让给原生文本编辑。
+  await page.keyboard.press('Escape')
+  await wait(200)
+  await page.keyboard.down('Control')
+  await page.keyboard.press('KeyZ')
+  await page.keyboard.up('Control')
+  await wait(400)
+  expect(await cellCount()).toBeGreaterThan(0)
+
+  await page.click('button[title="外观设置"]')
+  await wait()
+  await page.focus('.schemes li')
+  await page.keyboard.down('Alt')
+  await page.keyboard.press('ArrowDown')
+  await page.keyboard.up('Alt')
+  await wait(400)
+  expect(await names()).toEqual(['甲', '从零'])
+
+  // HTML5 拖放：处理器只认组件内部记的 id，所以合成 DragEvent 就够
+  await page.evaluate(() => {
+    const items = document.querySelectorAll<HTMLElement>('.schemes li')
+    const dt = new DataTransfer()
+    items[0].dispatchEvent(new DragEvent('dragstart', { bubbles: true, dataTransfer: dt }))
+    items[1].dispatchEvent(new DragEvent('dragover', { bubbles: true, dataTransfer: dt }))
+    items[1].dispatchEvent(new DragEvent('drop', { bubbles: true, dataTransfer: dt }))
+  })
+  await wait(400)
+  expect(await names()).toEqual(['从零', '甲'])
+
+  await page.reload({ waitUntil: 'networkidle2' })
+  await wait(500)
+  await page.click('button[title="外观设置"]')
+  await wait()
+  expect(await names()).toEqual(['从零', '甲'])
+  expect(errs).toEqual([])
+  await page.close()
+})

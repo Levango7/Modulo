@@ -1,4 +1,4 @@
-import { LOGICAL_COLS, SCHEMA_VERSION } from './types'
+import { LOGICAL_COLS, SCHEMA_VERSION, emptyDoc } from './types'
 import { sanitizeItems } from './validate'
 import type { LayoutDoc, ModuleRegistry } from './types'
 
@@ -32,9 +32,17 @@ function toScheme(raw: Partial<Scheme>, reg: ModuleRegistry, warnings: string[])
     warnings.push('跳过缺少 id 的方案')
     return null
   }
-  const items = sanitizeItems((raw.doc as LayoutDoc | undefined)?.items ?? [], reg).items
-  if (!items.length) {
-    warnings.push(`方案「${raw.name ?? raw.id}」没有有效模块，已跳过`)
+  // 空版面是合法状态（「新建空白版面」就靠它），所以只拒绝 doc 本身不可用的情况。
+  // 早先这里是「items 为空就跳过」，会把用户刚建的空白方案在下次启动时悄悄吃掉。
+  if (!raw.doc || typeof raw.doc !== 'object' || !Array.isArray(raw.doc.items)) {
+    warnings.push(`方案「${raw.name ?? raw.id}」的 doc 不可用，已跳过`)
+    return null
+  }
+  const items = sanitizeItems(raw.doc.items, reg).items
+  // 本来有内容、清洗完一条不剩，说明进来的是不认识的模块 —— 这跟"用户故意建的空白版面"
+  // 不是一回事，静默变成一个空方案比丢掉它更坏。
+  if (raw.doc.items.length && !items.length) {
+    warnings.push(`方案「${cleanName(raw.name)}」里的模块在当前库里都不存在，已跳过`)
     return null
   }
   return {
@@ -73,6 +81,26 @@ export function createScheme(book: SchemeBook, id: string, name: unknown, doc: L
   const scheme: Scheme = { id, name: uniqueName(book, cleanName(name)), doc, updatedAt: at }
   const schemes = [scheme, ...book.schemes].slice(0, MAX_SCHEMES)
   return { ...book, activeId: id, schemes }
+}
+
+/** 新建一个空白版面：给想要从零开始的用户，而不是逼他先清空当前版面再另存 */
+export function createBlankScheme(book: SchemeBook, id: string, name: unknown, at: number): SchemeBook {
+  return createScheme(book, id, cleanName(name, '空白版面'), emptyDoc(), at)
+}
+
+/**
+ * 把 id 那条挪到 to 位置（目标下标，按"移除后"的数组算）。
+ * 越界钳到两端；找不到或位置没变则原样返回同一个对象，好让上层能直接比较判空。
+ */
+export function moveScheme(book: SchemeBook, id: string, to: number): SchemeBook {
+  const from = book.schemes.findIndex((s) => s.id === id)
+  if (from < 0) return book
+  const target = Math.max(0, Math.min(book.schemes.length - 1, Math.trunc(to) || 0))
+  if (target === from) return book
+  const schemes = [...book.schemes]
+  const [moved] = schemes.splice(from, 1)
+  schemes.splice(target, 0, moved)
+  return { ...book, schemes }
 }
 
 export function renameScheme(book: SchemeBook, id: string, name: unknown): SchemeBook {

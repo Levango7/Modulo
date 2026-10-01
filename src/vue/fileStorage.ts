@@ -1,6 +1,6 @@
 import { ref, type Ref } from 'vue'
 import { invoke } from '@tauri-apps/api/core'
-import type { StorageAdapter } from './store'
+import { browserStorage, type StorageAdapter } from './store'
 import { isDesktop } from './useShell'
 
 /**
@@ -115,10 +115,8 @@ export function webStorage(fallback: StorageAdapter): PersistentStorage {
 }
 
 export async function createStorage(desktop = isDesktop): Promise<PersistentStorage> {
-  if (!desktop) {
-    const { browserStorage, memoryStorage } = await import('./store')
-    return webStorage(typeof localStorage === 'undefined' ? memoryStorage() : browserStorage())
-  }
+  // browserStorage() 内部已经处理了"没有 localStorage 就用内存"
+  if (!desktop) return webStorage(browserStorage())
   return createFileStorage(await hydrateData())
 }
 

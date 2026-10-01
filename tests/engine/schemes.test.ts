@@ -51,6 +51,65 @@ describe('scheme book 纯操作', () => {
     expect(b.schemes).toHaveLength(E.MAX_SCHEMES)
     expect(b.schemes[0].name).toBe(`版面 ${E.MAX_SCHEMES + 5}`)
   })
+
+  it('新建空白方案：零个模块、设为活动项、名字默认「空白版面」', () => {
+    const b = E.createBlankScheme(E.emptyBook(), 's1', '', 7)
+    expect(b.activeId).toBe('s1')
+    expect(b.schemes[0]).toMatchObject({ name: '空白版面', updatedAt: 7 })
+    expect(b.schemes[0].doc.items).toEqual([])
+  })
+
+  it('空白方案导出再导入还在（曾经会被当成无效条目丢掉）', () => {
+    const b = E.createBlankScheme(E.emptyBook(), 's1', '起点', 1)
+    const { book, warnings } = E.parseBook(E.bookToJson(b), REG)
+    expect(book.schemes.map((s) => s.id)).toEqual(['s1'])
+    expect(book.schemes[0].doc.items).toEqual([])
+    expect(warnings).toEqual([])
+  })
+
+  describe('moveScheme 排序', () => {
+    const book = () => {
+      let b = E.createScheme(E.emptyBook(), 'a', 'A', doc(), 1)
+      b = E.createScheme(b, 'b', 'B', doc(), 2)
+      b = E.createScheme(b, 'c', 'C', doc(), 3)
+      return b // 顺序 c, b, a
+    }
+
+    it('把最后一条挪到最前', () => {
+      expect(E.moveScheme(book(), 'a', 0).schemes.map((s) => s.id)).toEqual(['a', 'c', 'b'])
+    })
+
+    it('把最前挪到最后', () => {
+      expect(E.moveScheme(book(), 'c', 2).schemes.map((s) => s.id)).toEqual(['b', 'a', 'c'])
+    })
+
+    it('越界钳到两端而不是抛异常', () => {
+      const b = book()
+      expect(E.moveScheme(b, 'b', -5).schemes.map((s) => s.id)).toEqual(['b', 'c', 'a'])
+      expect(E.moveScheme(b, 'b', 99).schemes.map((s) => s.id)).toEqual(['c', 'a', 'b'])
+    })
+
+    /** 上层靠"返回同一个对象"来跳过无意义的写盘 */
+    it('原地不动与未知 id 都返回同一个对象', () => {
+      const b = book()
+      expect(E.moveScheme(b, 'b', 1)).toBe(b)
+      expect(E.moveScheme(b, 'nope', 0)).toBe(b)
+    })
+
+    it('排序不改变活动项，也不改条数', () => {
+      const b = book()
+      const moved = E.moveScheme(b, 'a', 2)
+      expect(moved.activeId).toBe(b.activeId)
+      expect(moved.schemes).toHaveLength(3)
+      expect(moved.schemes.map((s) => s.id).sort()).toEqual(b.schemes.map((s) => s.id).sort())
+    })
+
+    it('排完再导一遍顺序不变（顺序是持久化状态的一部分）', () => {
+      const moved = E.moveScheme(book(), 'a', 0)
+      const round = E.parseBook(E.bookToJson(moved), REG).book
+      expect(round.schemes.map((s) => s.id)).toEqual(['a', 'c', 'b'])
+    })
+  })
 })
 
 describe('parseBook / mergeBooks 对外来数据不设防', () => {

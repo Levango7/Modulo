@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { inject, onMounted, ref } from 'vue'
-import { Check, X } from 'lucide-vue-next'
+import { Check, GripVertical, X } from 'lucide-vue-next'
 import { ACCENTS, MODES, SKINS } from '../appearance'
 import { useFocusTrap } from '../useFocusTrap'
 import { dataDir as fetchDataDir } from '../fileStorage'
@@ -29,6 +29,18 @@ const editingName = ref('')
 function save() {
   schemes.saveAs(draftName.value)
   draftName.value = ''
+}
+function newBlank() {
+  schemes.createBlank(draftName.value)
+  draftName.value = ''
+}
+const dragId = ref<string | null>(null)
+function onDragStart(id: string) {
+  dragId.value = id
+}
+function onDrop(index: number) {
+  if (dragId.value) schemes.move(dragId.value, index)
+  dragId.value = null
 }
 function startRename(s: Scheme) {
   editing.value = s.id
@@ -125,13 +137,26 @@ function onHideChange(e: Event) {
 
       <section>
         <h3>版面方案</h3>
-        <div class="row">
+        <div class="row wrap">
           <input v-model="draftName" placeholder="方案名称" maxlength="32" @keydown.enter="save" />
           <button @click="save">另存为</button>
           <button :disabled="!schemes.active.value" @click="schemes.overwrite()">覆盖当前</button>
+          <button @click="newBlank">新建空白</button>
         </div>
         <ul class="schemes">
-          <li v-for="s in schemes.book.value.schemes" :key="s.id" :data-active="s.id === schemes.book.value.activeId">
+          <li
+            v-for="(s, i) in schemes.book.value.schemes"
+            :key="s.id"
+            :data-active="s.id === schemes.book.value.activeId"
+            draggable="true"
+            tabindex="0"
+            @dragstart="onDragStart(s.id)"
+            @dragover.prevent
+            @drop="onDrop(i)"
+            @keydown.alt.up="schemes.move(s.id, i - 1)"
+            @keydown.alt.down="schemes.move(s.id, i + 1)"
+          >
+            <GripVertical :size="13" class="grip" title="拖动排序，或 Alt+↑/↓" />
             <template v-if="editing === s.id">
               <input v-model="editingName" maxlength="32" @keydown.enter="commitRename" @keydown.esc="editing = null" />
               <button @click="commitRename">存</button>
@@ -146,6 +171,7 @@ function onHideChange(e: Event) {
           </li>
         </ul>
         <p v-if="!schemes.book.value.schemes.length" class="muted hint">还没有保存过方案：把版面排好后，在上面起个名字点「另存为」。</p>
+        <p v-else class="muted hint">拖动左边的把手可以排序，键盘用 Alt+↑/↓。「新建空白」会存一条零模块的方案并切过去；当前版面没丢，Ctrl+Z 能退回来。</p>
       </section>
 
       <section>
@@ -370,6 +396,18 @@ section h3 {
   border: 1px solid var(--border-soft);
   border-radius: var(--radius-md);
   background: var(--bg-card-soft);
+}
+.schemes .grip {
+  flex: none;
+  color: var(--text-4);
+  cursor: grab;
+}
+.schemes li:hover .grip {
+  color: var(--text-2);
+}
+.schemes li:focus-visible {
+  outline: 2px solid var(--brand-500);
+  outline-offset: 1px;
 }
 .schemes li[data-active='true'] {
   border-color: var(--brand-500);
