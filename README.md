@@ -53,4 +53,4 @@ CI（`.github/workflows/ci.yml`）两个 job：`verify` 跑四步 —— 类型�
 
 ## 许可
 
-待定。
+Apache-2.0，全文见 [LICENSE](LICENSE)。选它而不是 MIT 的原因：带显式专利授权与商标条款，且与同目录下的其他仓库保持一致。
