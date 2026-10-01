@@ -253,6 +253,7 @@ MVP 先做 A1，A2 留一个 `projection.a2.test.ts` 做对照实验。不在没
   - 存储适配器是**同步**接口而写文件是异步的，所以启动时一次性 hydrate 成内存镜像，之后 `get` 读镜像、`set` 立刻异步写穿。**不做防抖**：拖拽只在 `pointerup` 提交一次，写频率就是用户动作频率。
   - 首次启动会把桌面壳早期只存在 WebView2 localStorage 里的数据搬进文件；迁移单向，磁盘已有内容时以磁盘为准，避免旧 localStorage 覆盖新数据。
 - 读取一律过 `validate.ts` / `parseBook`：校验 id/整数坐标、按形态 min 钳制、标题 trim+截断、失效 variant 归一，再从上往下扫描逐项消解重叠（x-hub 这套"不信任盘上数据"的做法照抄思路、码重写）。
+  - 卡片数据（待办 / 速记 / 便签）走同一套规矩，入口是 `sanitizeCardData`（`src/vue/cardData.ts`）。**这里原来是漏的**：加载只做 `{...fallback, ...JSON.parse(raw)}`，只兜住了语法错误，`todos: null` 会一路传到渲染期的 `todos.filter(...)` 才炸 —— 注释里"数据损坏不阻塞启动"当时并不成立。现在顶层不是对象整份回退、条目形状不对只丢那一条、`done` 只认真 `true`、id 撞号改唯一（`toggleTodo` 按 id 找，撞号会连坐）、文本与条目数各有上限（几百 MB 的坏文件不该冻住首屏）。12 条单测锁住，含 `__proto__` 键不漏进状态。
 - 导出/导入 = 单个 JSON（含 schemaVersion），导入走同一 validate。
 - 迁移：`migrations: Record<fromVersion, (doc)=>doc>`，当前只有 1→2 的占位接口，不写实现。
 
@@ -330,7 +331,7 @@ MVP 先做 A1，A2 留一个 `projection.a2.test.ts` 做对照实验。不在没
 
 上面那些交互断言原来只是我手动跑的脚本，等于没有防线。现在：
 
-- `tests/e2e/layout.spec.ts` —— 5 条真浏览器断言（vitest + puppeteer-core 驱动系统 Chrome，CI 上走 `CHROME_PATH=/usr/bin/google-chrome`）：三档视口的列数/溢出/裁字/最小字号、编辑器可聚焦格 >0、方向键移动 + Ctrl+Z 回退、框选→成组拖拽→整体撤销、390px 自动堆叠模式、拖拽全程零 console 报错。
+- `tests/e2e/layout.spec.ts` —— 15 条真浏览器断言（vitest + puppeteer-core 驱动系统 Chrome，CI 上走 `CHROME_PATH=/usr/bin/google-chrome`）：三档视口的列数/溢出/裁字/最小字号、固定行高与卡片高度一致、编辑器可聚焦格 >0、方向键移动 + Ctrl+Z 回退、框选→成组拖拽→整体撤销、空格选入与删除后焦点落位、设置面板焦点陷阱、整理/撑满/收紧/紧凑各自的效果与分步撤销、方案册另存→应用→改名→删除、窄屏自动堆叠、推荐布局的二次确认门禁、拖拽全程零 console 报错。
 - `vitest.e2e.setup.ts` 用 vite 的 `build()` + `preview({port:0})` 起随机端口，避免与本机其它 dev server 抢端口。
 - `npm run verify` = typecheck（`tsconfig.json` 严格无 DOM + `tsconfig.e2e.json` 带 DOM，分层：产品代码拿不到 `document`）→ 单测 → 构建 → E2E。`.github/workflows/ci.yml` 就按这四步跑。
 - 首批 CI 落地时的本地实测：103 单测 + 5 E2E 全绿，E2E 约 43s（含构建）；此后各轮持续增补，当前规模看 README。
