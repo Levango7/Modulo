@@ -30,11 +30,14 @@ function submit(e: KeyboardEvent) {
           <button class="del" title="删除" @click="cards.removeTodo(t.id)">×</button>
         </li>
       </ul>
-      <ul v-if="showDone" class="list done">
-        <li v-for="t in done" :key="t.id">
-          <label><input type="checkbox" checked @change="cards.toggleTodo(t.id)" /><span>{{ t.text }}</span></label>
-        </li>
-      </ul>
+      <template v-if="showDone && done.length">
+        <p class="done-title muted">已完成 {{ done.length }}</p>
+        <ul class="list done">
+          <li v-for="t in done" :key="t.id">
+            <label><input type="checkbox" checked @change="cards.toggleTodo(t.id)" /><span>{{ t.text }}</span></label>
+          </li>
+        </ul>
+      </template>
       <input v-model="draft" class="add" placeholder="添加待办，回车确认" @keydown="submit" />
     </div>
   </div>
@@ -70,6 +73,10 @@ function submit(e: KeyboardEvent) {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+.done-title {
+  margin: 0 0 var(--space-1);
+  font-size: 11px;
 }
 .done {
   opacity: 0.55;
