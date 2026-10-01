@@ -424,9 +424,9 @@ MVP 先做 A1，A2 留一个 `projection.a2.test.ts` 做对照实验。不在没
 
 ## 11. 桌面壳（第二轮，2026-10-01）
 
-Tauri 2 最小壳：`src-tauri/` 只声明一个主窗口（1280×800，最小 380×560，居中、可缩放），能力只申请 `core:default`（§11.3 起补了四条窗口动作），**不申请文件、shell、通知权限**。前端一行没改就能跑，因为壳只是把已有的 web 构建装进 WebView2。
+Tauri 2 最小壳：`src-tauri/` 只声明一个主窗口（1280×800，最小 380×560，居中、可缩放；启动时按显示器工作区夹一次，见 §11.4），能力只申请 `core:default`（§11.3 起补了四条窗口动作），**不申请文件、shell、通知权限**。前端一行没改就能跑，因为壳只是把已有的 web 构建装进 WebView2。
 
-**构建与运行已实测**：`npx tauri build --no-bundle` 在注入 MSYS2 PATH 后 5m09s 完成，产物 `src-tauri/target/release/modulo.exe` **5.42 MB**；启动后窗口标题为 `Modulo`、进程稳定存活（验证完即关闭）。未打安装包（NSIS 需要联网下载打包工具，留到发布那一轮）。
+**构建与运行已实测**：`npx tauri build --no-bundle` 在注入 MSYS2 PATH 后 5m09s 完成，产物 `src-tauri/target/release/modulo.exe` **5.42 MB**；启动后窗口标题为 `Modulo`、进程稳定存活（验证完即关闭）。安装包当时没打（NSIS 要联网下载打包工具），后来打了，见 §11.4。
 
 窗口最小尺寸刻意给到 380×560：x-hub 的 `minWidth: 1000` 让它的响应式断点变成死代码，我们把下限压到手机宽度，正是为了让 §3 的投影在桌面端真的被用到。
 
@@ -477,3 +477,15 @@ Tauri 2 最小壳：`src-tauri/` 只声明一个主窗口（1280×800，最小 3
 写这个探针时踩到一个坑值得记下来：`.NET` 的 `Process.MainWindowHandle` 在窗口最小化期间会漂到一个 6×6 的辅助窗口上，于是 `IsIconic` 永远读到 false —— 每次重新查句柄的写法会把「真的最小化了」误报成「没有」。必须第一次拿到 hwnd 后钉死回传。
 
 开发中由测试与取证逼出的三处修正已并入正文：§3.2 的单位口径（逻辑列 vs 物理列）、`findFreeSpot` 在空版面/整列占满时丢失请求 y 的缺陷（回退位改为 `max(maxRow, start)`）、投影取整由 `round` 改 `ceil`（4 列档实测会开出空洞）。
+
+### 11.4 窗口尺寸、打包与许可（2026-10-01）
+
+**默认 1280×800 是这么协调出来的**：横向要求来自产品本身 —— §3 的 12 列投影在约 1200px 以下就降档，工作台的价值全在满列时；纵向按主流 IM 客户端的量级对齐（微信/QQ/钉钉/飞书的默认窗口都在 1000–1200 × 700–800 这个区间里，1280×800 取的是它的上沿）。1080P 上 1280×800 左右各留 320、上下各留 120；1600×900 高度也放得下（832 < 852）。
+
+**小屏靠启动时夹一次，不靠第二套数字**：`fit_window()` 读主显示器的 `work_area()`（`Monitor::work_area`，tauri 2.12 才有），逐轴判断 —— 放得下（留 32px 边距）就一点不动，放不下才取该轴的 94%，下限是配置里的最小尺寸。1366×768 因此只压高度、不连宽度一起缩。判定抽成纯函数 `fit_size()`，三条单测锁住（放得下不动 / 只缩放不下的那轴 / 不低于最小尺寸）。尺寸一律按逻辑像素算，DPI 缩放负责翻译成物理尺寸，所以 4K@150% 不用另设一套数字。
+
+**打包**：`npx tauri build` 出 `Modulo_0.1.0_x64-setup.exe`（NSIS，1.75 MiB）。先前担心的「NSIS 工具链在本机下载不动」没有发生 —— 它走 github.com 的 release 直链（取不动的是 raw.githubusercontent 那一类），下载后还会校验哈希。
+
+**许可**：Apache-2.0（`LICENSE`），`Cargo.toml` 的 `license`、`package.json` 的 `license`、`tauri.conf.json` 的 `bundle.copyright` / `bundle.licenseFile` 四处一起对齐。选 Apache-2.0 而不是 MIT：带显式专利授权与商标条款，且与同目录的 OpsMesh 一致。
+
+**顺带修掉一个「本机 `cargo test` 从来没通过过」的问题**：模板给的 `crate-type = ["staticlib", "cdylib", "rlib"]` 是给移动端的，本项目只有桌面端；而 windows-gnu 目标下 debug 版 cdylib 会把整棵依赖树的符号塞进导出表（dlltool 生成九万余条，超 PE 的 65535 序号上限），链接直接报 `export ordinal too large`。能跑通的只有 `cargo test --lib`。裁成 `["rlib"]` 之后 `cargo test` 第一次真正跑通 —— 也就是说 CI 里那条 `cargo test` 门禁，在本地从来没有被等价地执行过。
