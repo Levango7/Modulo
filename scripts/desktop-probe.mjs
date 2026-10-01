@@ -18,6 +18,8 @@ const EXE = resolve(process.env.MODULO_EXE ?? 'src-tauri/target/release/modulo.e
 const OUT = 'evidence/desktop'
 const PS = 'scripts/shot-window.ps1'
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
+/** 复刻 lib.rs 的 fit_size：放得下（留 32px 边距）就用期望值，放不下取该轴 94%，不低于最小尺寸 */
+const fit = (avail, want, min) => (want + 32 <= avail ? want : Math.max(avail * 0.94, min))
 
 const report = []
 const check = (name, pass, detail) => {
@@ -45,9 +47,9 @@ const state = () => {
   }
 }
 
-async function launch() {
+async function launch(extraEnv = {}) {
   const child = spawn(EXE, [], {
-    env: { ...process.env, WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS: `--remote-debugging-port=${PORT}` },
+    env: { ...process.env, WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS: `--remote-debugging-port=${PORT}`, ...extraEnv },
     stdio: 'ignore',
   })
   pid = child.pid ?? 0
@@ -137,7 +139,6 @@ try {
   // 像素走，150% 下会拿到 1280 物理（=853 逻辑），差 600 多像素，立刻红。夹取分支需要小屏
   // 才触发，本机触发不了，那部分由 fit_size 的三条单测守着。
   const dpr = await page.evaluate(() => window.devicePixelRatio)
-  const fit = (avail, want, min) => (want + 32 <= avail ? want : Math.max(avail * 0.94, min))
   const wantW = Math.round(fit(s0.work.w / dpr, 1280, 380) * dpr)
   const wantH = Math.round(fit(s0.work.h / dpr, 800, 560) * dpr)
   check(
@@ -314,6 +315,30 @@ try {
   check('自检过程未抛异常', false, String(err).slice(0, 300))
 } finally {
   await stop(app).catch(() => {})
+}
+
+// ---- 夹取分支实测：大屏上 fit_window 平时走的是「放得下就不动」那条路，夹取只有单测。
+// 用 lib.rs 的测试接缝把期望尺寸顶过工作区，就能在真窗口上验它一次。
+let clampApp = null
+try {
+  clampApp = await launch({ MODULO_WANT_SIZE: '2600x1500' })
+  await sleep(1500)
+  const cs = state()
+  const cdpr = await clampApp.page.evaluate(() => window.devicePixelRatio)
+  const clampW = Math.round(fit(cs.work.w / cdpr, 2600, 380) * cdpr)
+  const clampH = Math.round(fit(cs.work.h / cdpr, 1500, 560) * cdpr)
+  check(
+    '夹取分支实测：期望尺寸顶过工作区后被逐轴夹住',
+    !!cs.rect && Math.abs(cs.rect.w - clampW) <= 40 && Math.abs(cs.rect.h - clampH) <= 40,
+    { want: '2600x1500', dpr: cdpr, work: cs.work, rect: cs.rect, expect: { w: clampW, h: clampH } },
+  )
+  /** center() 是按可见外框居中的，GetWindowRect 含不可见边框，所以留 24px 余量 */
+  const offCenter = Math.abs(cs.rect.x - (cs.work.x + (cs.work.w - cs.rect.w) / 2))
+  check('夹取后窗口居中（左右留白对称）', offCenter <= 24, { offCenter, x: cs.rect?.x, work: cs.work })
+} catch (err) {
+  check('夹取分支自检未抛异常', false, String(err).slice(0, 200))
+} finally {
+  if (clampApp) await stop(clampApp).catch(() => {})
 }
 
 const failed = report.filter((r) => !r.pass)
