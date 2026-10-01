@@ -103,6 +103,49 @@ mod desktop {
         }
     }
 
+    /// 默认尺寸是「主流 IM 客户端那一档 + 12 列投影要求 ≥1200 宽」协调出来的：
+    /// 微信/QQ/钉钉/飞书的默认窗口都在 1000–1200 × 700–800 区间，这里取上沿；
+    /// 1080P 上左右各留 320、上下各留 120。
+    /// 但 1366×768 这类屏装不下 800 高，所以启动时按显示器工作区夹一次。
+    pub const DEFAULT_SIZE: (f64, f64) = (1280.0, 800.0);
+    /// 与 tauri.conf.json 的 minWidth / minHeight 一致，夹的时候不要夹到窗口管理器还要再拦一道
+    const MIN_SIZE: (f64, f64) = (380.0, 560.0);
+
+    /// 纯函数便于单测：放得下（留 32px 边距）就用期望值，放不下才取工作区的 94%。
+    /// 逐轴独立 —— 1366×768 只该压高度，不该连宽度一起缩。
+    pub fn fit_size(avail: (f64, f64), want: (f64, f64)) -> (f64, f64) {
+        let axis = |a: f64, w: f64, min: f64| {
+            if w + 32.0 <= a {
+                w
+            } else {
+                (a * 0.94).max(min)
+            }
+        };
+        (
+            axis(avail.0, want.0, MIN_SIZE.0),
+            axis(avail.1, want.1, MIN_SIZE.1),
+        )
+    }
+
+    /// 尺寸都按逻辑像素算：DPI 缩放会把它翻译成相应的物理尺寸，所以 4K@150% 上不用另设一套数字。
+    pub fn fit_window(win: &tauri::WebviewWindow) -> tauri::Result<()> {
+        let Some(monitor) = win.primary_monitor()? else {
+            return Ok(());
+        };
+        let scale = monitor.scale_factor();
+        let work = monitor.work_area();
+        let avail = (
+            work.size.width as f64 / scale,
+            work.size.height as f64 / scale,
+        );
+        let size = fit_size(avail, DEFAULT_SIZE);
+        if size != DEFAULT_SIZE {
+            win.set_size(tauri::LogicalSize::new(size.0, size.1))?;
+            win.center()?;
+        }
+        Ok(())
+    }
+
     pub fn build_tray(app: &AppHandle) -> tauri::Result<()> {
         let toggle = MenuItem::with_id(app, "toggle", "显示 / 隐藏", true, None::<&str>)?;
         let on_top = MenuItem::with_id(app, "ontop", "窗口置顶", true, None::<&str>)?;
@@ -166,6 +209,13 @@ pub fn run() {
             )
             .setup(|app| {
                 let handle = app.handle().clone();
+                if let Some(win) = app.get_webview_window("main") {
+                    if let Err(err) = desktop::fit_window(&win) {
+                        eprintln!(
+                            "[modulo] 按工作区调整窗口尺寸失败，继续用配置里的默认尺寸: {err}"
+                        );
+                    }
+                }
                 desktop::build_tray(&handle)?;
                 desktop::register_shortcuts(&handle);
                 Ok(())
@@ -175,4 +225,33 @@ pub fn run() {
     builder
         .run(tauri::generate_context!())
         .expect("Modulo 启动失败");
+}
+
+#[cfg(all(test, desktop))]
+mod tests {
+    use super::desktop::{fit_size, DEFAULT_SIZE};
+
+    #[test]
+    fn keeps_default_size_when_it_fits() {
+        // 1080P / 1440p@150% 的工作区都放得下 1280×800，不该动
+        assert_eq!(fit_size((1920.0, 1040.0), DEFAULT_SIZE), DEFAULT_SIZE);
+        assert_eq!(fit_size((1707.0, 1019.0), DEFAULT_SIZE), DEFAULT_SIZE);
+        // 1600×900 也放得下（832 < 852）
+        assert_eq!(fit_size((1600.0, 852.0), DEFAULT_SIZE), DEFAULT_SIZE);
+    }
+
+    #[test]
+    fn shrinks_only_the_axis_that_does_not_fit() {
+        let (w, h) = fit_size((1366.0, 728.0), DEFAULT_SIZE);
+        assert_eq!(w, 1280.0, "宽度放得下就不该跟着缩");
+        assert!(
+            h < 728.0 && (h - 728.0 * 0.94).abs() < 1e-9,
+            "高度应按工作区 94% 收: {h}"
+        );
+    }
+
+    #[test]
+    fn never_goes_below_the_configured_minimum() {
+        assert_eq!(fit_size((300.0, 400.0), DEFAULT_SIZE), (380.0, 560.0));
+    }
 }
