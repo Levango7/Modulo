@@ -9,7 +9,7 @@ npm ci
 npm run dev            # 浏览器预览 http://localhost:1430
 npm run verify         # 类型检查 + 单测 + 构建 + 真浏览器 E2E
 npm run tauri:dev      # 桌面窗口（需 Rust 工具链，见下）
-npm run desktop:probe  # 桌面壳真机自检：自己起窗口、走完 17 项检查再关掉
+npm run desktop:probe  # 桌面壳真机自检：自己起窗口、走完 30 项检查再关掉
 ```
 
 Windows 上若用 **MSYS2 的 GNU 工具链**（本机情况：`rustc` host 为 `x86_64-pc-windows-gnu`，`gcc`/`windres` 在 MSYS2 里而不在 PATH），构建前需要把它注入到该次命令的 PATH：
@@ -47,9 +47,9 @@ docs/ARCHITECTURE.md   设计定稿与决策记录（含被测试逼出来的修
 
 ## 验证
 
-CI（`.github/workflows/ci.yml`）跑四步：类型检查 → 单测与属性测试 → 构建 → E2E。
+CI（`.github/workflows/ci.yml`）两个 job：`verify` 跑四步 —— 类型检查 → 单测与属性测试 → 构建 → E2E；`desktop` 在 windows-latest 上跑 `cargo fmt --check` → `clippy -D warnings` → `cargo test` → 真打包出 exe 并上传产物。
 投影算法有四条不变量，用随机版面 × 7 档列数各 200 例做属性断言：只读、幂等、无重叠、尺寸充分。
-桌面壳另有一条 `npm run desktop:probe`：给 WebView2 开远调端口，用 CDP 点真实的 DOM 按钮，再从 Win32 侧读窗口状态（图标态/工作区/样式位），不模拟鼠标所以不会抢走指针。17 项，截图落在 `evidence/desktop/`。
+桌面壳另有一条 `npm run desktop:probe`：给 WebView2 开远调端口，用 CDP 点真实的 DOM 按钮、派发真的 mousedown，再从 Win32 侧读窗口状态（图标态/工作区/样式位），不模拟鼠标所以不会抢走指针；`Alt+Shift+M` 用 SendKeys 从系统输入队列投递，验证全局快捷键真的被 OS 触发。30 项，截图落在 `evidence/desktop/`。
 
 ## 许可
 

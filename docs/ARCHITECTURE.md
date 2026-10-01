@@ -444,12 +444,19 @@ Tauri 2 最小壳：`src-tauri/` 只声明一个主窗口（1280×800，最小 3
 ### 11.2 已知取舍
 
 - ~~数据仍在 WebView2 的 localStorage~~ → 桌面壳已改成 `%APPDATA%\app.modulo\data\` 下一个 key 一个 JSON（见 §7），设置页里会显示这个目录。网页版仍用 localStorage。
-- **CSP 里放开了 `ws://localhost:1430`**，只为 dev 模式的 Vite HMR。生产构建带着这条属于多余授权，等接 Tauri 的自定义协议或改 `beforeBuildCommand` 时收紧。
+- ~~CSP 里放开了 `ws://localhost:1430`~~ → 已收紧（2026-10-01）：开发期的 WebSocket 白名单挪进独立的 `devCsp` 字段，生产 `csp` 只剩 `default-src 'self'` + 内联样式 + `data:`/`blob:` 图片。探针仍能连 —— CDP 走的是 WebView2 的调试端口，不受页面 CSP 约束。
 - ~~无边框自制标题栏、托盘、全局快捷键都还没做~~ → 已做，见 §11.3。刻意单独一轮，不和其他改动混在一起 —— 那是 x-hub 踩坑最密的地方（运行期建窗挂死、`skip_taskbar` 失效）。
 
 ### 11.3 托盘、全局快捷键与无边框标题栏（2026-10-01）
 
-**无边框**：`decorations: false` + `src/vue/components/TitleBar.vue`（34px，拖拽区用 `data-tauri-drag-region`，右侧最小化/最大化/还原/关闭三个按钮）。标题栏只在 `isDesktop` 为真时渲染 —— 网页版和 E2E 完全不受影响，`npm run verify` 的 13 条 E2E 仍然是原样通过的。
+**无边框**：`decorations: false` + `src/vue/components/TitleBar.vue`（34px，拖拽区用 `data-tauri-drag-region="deep"`，右侧最小化/最大化/还原/关闭三个按钮）。
+
+拖拽区这里有两个反直觉点，都是读 Tauri 注入的 `drag.js`（`tauri/src/window/scripts/drag.js`）+ 探针实测确认的：
+
+1. **裸 `data-tauri-drag-region` 只认「事件 target 恰好是带属性的那个元素」**（`el === composedPath[0]`）。标题栏里有点击价值的区域恰恰是子元素 —— Logo（SVG）和 "Modulo" 文字，用裸属性等于只有两侧空白能拖。改成 `="deep"` 后子树里除可点击元素（button/a/input…）外都算拖拽区。
+2. **双击最大化不要自己接**。`drag.js` 已经在第二次 `mousedown`（`detail === 2`）里 invoke 了 `internal_toggle_maximize`（该命令在 `core:window:default` 里，不用额外申请）。原先我又在 Vue 上挂了 `@dblclick="win.toggleMaximize()"` —— 真双击会切两次（原生一次、自己一次），净效果是**不最大化**。这是探针改用真 mousedown 事件后才暴露的：合成 `dblclick` 事件根本走不到原生那条路，测了等于没测。
+
+标题栏只在 `isDesktop` 为真时渲染 —— 网页版和 E2E 完全不受影响，`npm run verify` 的 14 条 E2E 仍然是原样通过的。
 
 一个容易踩的布局坑：标题栏不能塞进 `.shell`，因为 `.shell` 有 16px 内边距，标题栏会浮在窗口中间。改成外面套一层 `.app`（flex column），`.shell` 从 `height: 100%` 换成 `flex: 1; min-height: 0`。
 
@@ -463,9 +470,9 @@ Tauri 2 最小壳：`src-tauri/` 只声明一个主窗口（1280×800，最小 3
 
 **权限收紧**：能力清单从只写 `core:default` 改成显式补四条（`allow-minimize / allow-toggle-maximize / allow-close / allow-start-dragging`）—— `core:window:default` 其实只有只读 getter，自制标题栏的按钮一个都不在里面。同时**刻意不给** `allow-create` / `allow-destroy`：x-hub 代价最高的那批 WebView2 bug 都在运行期建窗/销毁窗上，这里用权限层把它堵死，而不是靠口头约定。
 
-**真机自检（`npm run desktop:probe`，17/17）**：不模拟鼠标 —— `SetCursorPos` 会抢走用户真实的指针和焦点，点错地方赔不起。改成给 WebView2 开远调端口（`WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS=--remote-debugging-port`），用 CDP 在页面里点**真实的 DOM 按钮**，再从 Win32 侧读窗口状态，走的是同一条代码路径。已验证：无边框标题栏渲染且带拖拽区、三个按钮都能点、最小化真的进图标态（`rect` 变成 -32000 那个经典值）、最大化铺满工作区、再点回原尺寸、`WS_THICKFRAME` 样式位仍在（所以边缘可拉伸）、托盘图标直接可见没被收进溢出浮层、收进托盘开关两个方向都生效。
+**真机自检（`npm run desktop:probe`，30/30）**：不模拟鼠标 —— `SetCursorPos` 会抢走用户真实的指针和焦点，点错地方赔不起。改成给 WebView2 开远调端口（`WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS=--remote-debugging-port`），用 CDP 在页面里点**真实的 DOM 按钮**，再从 Win32 侧读窗口状态，走的是同一条代码路径。已验证：无边框标题栏渲染且带拖拽区、三个按钮都能点、最小化真的进图标态（`rect` 变成 -32000 那个经典值）、最大化铺满工作区、再点回原尺寸、`WS_THICKFRAME` 样式位仍在（所以边缘可拉伸）、托盘图标直接可见没被收进溢出浮层、收进托盘开关两个方向都生效。
 
-两个自动化够不着的地方，需要人手确认：**拖标题栏移动窗口**、**双击拖拽区最大化**、以及 **`Alt+Shift+M` 在系统层面真的触发**（注册成功已验证，触发需要真实键盘输入）。
+原先说「三件事自动化够不着」，现在只剩一件。**双击拖拽区最大化**改成派发真的 `mousedown(detail=2)`（走 drag.js 而不是自己的 dblclick），顺带把「标题文字、Logo 都算拖拽区」一并断言了。**`Alt+Shift+M` 在系统层面真的触发**则借 `WScript.Shell.SendKeys('%+m')`：SendInput 进的是系统输入队列，`RegisterHotKey` 能收到 —— 按两次、看窗口收起再回来，全程不碰物理键盘。剩下**拖标题栏移动窗口**仍需人手确认：`start_dragging` 会进 Windows 的原生模态拖动循环，合成鼠标事件撑不起这个循环。
 
 写这个探针时踩到一个坑值得记下来：`.NET` 的 `Process.MainWindowHandle` 在窗口最小化期间会漂到一个 6×6 的辅助窗口上，于是 `IsIconic` 永远读到 false —— 每次重新查句柄的写法会把「真的最小化了」误报成「没有」。必须第一次拿到 hwnd 后钉死回传。
 
