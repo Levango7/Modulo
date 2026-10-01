@@ -26,3 +26,40 @@ jobs:
       # 与 x-hub 的反面教材相对：它写了 164 个 Rust 测试，但 CI 只跑 vue-tsc + cargo check，一个测试都不执行
       - name: 浏览器交互 E2E（拖拽 / 框选 / 键盘 / 撤销 / 三档视口）
         run: npm run test:e2e
+
+  # 桌面壳单独一个 job：它要 Windows runner，跑挂了不该把前端那条链一起标红，反之亦然。
+  # 用了两个第三方 action（rust-toolchain / rust-cache），都是事实标准；如果不接受这个依赖，
+  # 去掉 rust-cache 只是变慢，去掉 rust-toolchain 则要确认 runner 预装的工具链带 clippy+rustfmt。
+  desktop:
+    name: 桌面壳（Rust 门禁 + 真打包）
+    runs-on: windows-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+      - run: npm ci
+      - name: 格式检查
+        working-directory: src-tauri
+        run: cargo fmt --check
+      - name: clippy（warning 即失败）
+        working-directory: src-tauri
+        run: cargo clippy --all-targets -- -D warnings
+      - name: Rust 单测（数据文件名的白名单在这里）
+        working-directory: src-tauri
+        run: cargo test
+      - name: 打包出 exe（不打安装包）
+        run: npx tauri build --no-bundle
+      - uses: actions/upload-artifact@v4
+        with:
+          name: modulo-windows-x64-exe
+          path: src-tauri/target/release/modulo.exe
+          if-no-files-found: error
