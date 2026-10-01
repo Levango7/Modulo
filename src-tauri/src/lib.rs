@@ -127,6 +127,31 @@ mod desktop {
         )
     }
 
+    /// 测试接缝：`MODULO_WANT_SIZE="宽x高"` 可以顶掉默认档，用来在正常屏幕上实测夹取
+    /// 分支（本机工作区放不下 2600×1500，就会被逐轴夹住）。不设时产品路径零变化。
+    pub fn parse_size(raw: &str) -> Option<(f64, f64)> {
+        let mut it = raw.split('x');
+        let w: f64 = it.next()?.trim().parse().ok()?;
+        let h: f64 = it.next()?.trim().parse().ok()?;
+        if it.next().is_some() || w <= 0.0 || h <= 0.0 {
+            return None;
+        }
+        Some((w, h))
+    }
+
+    fn wanted_size() -> (f64, f64) {
+        match std::env::var("MODULO_WANT_SIZE") {
+            Ok(raw) => match parse_size(&raw) {
+                Some(size) => size,
+                None => {
+                    eprintln!("[modulo] 忽略无法解析的 MODULO_WANT_SIZE={raw}（应写成 宽x高）");
+                    DEFAULT_SIZE
+                }
+            },
+            Err(_) => DEFAULT_SIZE,
+        }
+    }
+
     /// 尺寸都按逻辑像素算：DPI 缩放会把它翻译成相应的物理尺寸，所以 4K@150% 上不用另设一套数字。
     pub fn fit_window(win: &tauri::WebviewWindow) -> tauri::Result<()> {
         let Some(monitor) = win.primary_monitor()? else {
@@ -138,8 +163,9 @@ mod desktop {
             work.size.width as f64 / scale,
             work.size.height as f64 / scale,
         );
-        let size = fit_size(avail, DEFAULT_SIZE);
-        if size != DEFAULT_SIZE {
+        let want = wanted_size();
+        let size = fit_size(avail, want);
+        if size != want {
             win.set_size(tauri::LogicalSize::new(size.0, size.1))?;
             win.center()?;
         }
@@ -253,5 +279,17 @@ mod tests {
     #[test]
     fn never_goes_below_the_configured_minimum() {
         assert_eq!(fit_size((300.0, 400.0), DEFAULT_SIZE), (380.0, 560.0));
+    }
+
+    #[test]
+    fn parses_the_size_seam_strictly() {
+        use super::desktop::parse_size;
+        assert_eq!(parse_size(" 2600x1500 "), Some((2600.0, 1500.0)));
+        assert_eq!(parse_size("1280x800x24"), None);
+        assert_eq!(parse_size("1280"), None);
+        assert_eq!(parse_size("宽x高"), None);
+        // 0 与负数会让「夹到 94%」失去意义，宁可回落到默认档
+        assert_eq!(parse_size("0x800"), None);
+        assert_eq!(parse_size("-1x800"), None);
     }
 }
