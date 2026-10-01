@@ -7,7 +7,10 @@ rust-version = "1.77"
 
 [lib]
 name = "modulo_lib"
-crate-type = ["staticlib", "cdylib", "rlib"]
+# 模板给的 staticlib/cdylib 是给移动端的，本项目只有桌面端。留着会让 `cargo test` 顺带链一次
+# debug 版 cdylib：windows-gnu 下它的导出表能到 9.4 万条（超 PE 的 65535 序号上限），
+# dlltool/ld 直接报 export ordinal too large —— 本机 `cargo test` 因此从来没通过过。
+crate-type = ["rlib"]
 
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
