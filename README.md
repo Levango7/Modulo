@@ -37,7 +37,7 @@ npm run tauri:build -- --no-bundle   # 只出 exe；去掉 --no-bundle 会去下
 |---|---|
 | 真响应式 | 逻辑 12 列恒定，物理列数按容器宽度**投影**（12/8/6/4/1），投影只读、不回写你的布局 |
 | 调不坏 | 尺寸约束挂在"形态"的 `minW/minH` 上，缩放低于最小值会被拒绝而不是把内容压碎 |
-| 键盘可达 | 方向键移动、`Shift+方向键`缩放、空格多选、`Enter`切形态、`Delete`移回库、`L`锁定、`Ctrl+Z` 撤销 |
+| 键盘可达 | 方向键移动、`Shift+方向键`缩放、`Alt+方向`微调、空格选入、`Enter`切形态、`Delete`/`Backspace`移回库、`L`锁定、`Ctrl/Cmd+A`全选、`Esc`取消、`Ctrl+Z` 撤销 / `Ctrl+Shift+Z`·`Ctrl+Y` 重做 |
 | 可回退 | 50 步历史栈，一次拖拽 = 一步；组合动作（紧凑）保留分步撤销 |
 | 版面工具 | 整理（聚拢空洞）、撑满（按行铺满）、收紧（按内容实测降高）、紧凑（收紧+整理，仍可分步撤销）、推荐布局（破坏性，带二次确认） |
 | 多版面 | 命名方案册（可新建空白、拖拽或 `Alt+↑/↓` 排序）+ 布局/方案两套 JSON 导入导出，导入前逐条校验 |
@@ -58,9 +58,9 @@ docs/ARCHITECTURE.md   设计定稿与决策记录（含被测试逼出来的修
 ## 验证
 
 CI（`.github/workflows/ci.yml`）两个 job：`verify` 跑四步 —— 类型检查 → 单测与属性测试 → 构建 → E2E；`desktop` 在 windows-latest 上跑 `cargo fmt --check` → `clippy -D warnings` → `cargo test` → 真打包出 exe 并上传产物。
-投影算法有四条不变量，用随机版面 × 7 档列数各 200 例做属性断言：只读、幂等、无重叠、尺寸充分。
+投影算法有**五条**断言（只读、幂等、无重叠、尺寸充分、分区完整），用随机版面 × 7 档列数各 200 例做属性测试。
 桌面壳另有一条 `npm run desktop:probe`：给 WebView2 开远调端口，用 CDP 点真实的 DOM 按钮、派发真的 mousedown，再从 Win32 侧读窗口状态（图标态/工作区/样式位），不模拟鼠标所以不会抢走指针；`Alt+Shift+M` 用 SendKeys 从系统输入队列投递，验证全局快捷键真的被 OS 触发。窗口状态一律轮询等到落地再断言——单次 Win32 采样实测 1.1–1.3 秒，固定 sleep 会把「慢」误报成「坏」。33 项，截图落在 `evidence/desktop/`。
 
 ## 许可
 
-Apache-2.0，全文见 [LICENSE](LICENSE)。选它而不是 MIT 的原因：带显式专利授权与商标条款，且与同目录下的其他仓库保持一致。
+Apache-2.0，全文见 [LICENSE](LICENSE)。选它而不是 MIT 的原因：带显式专利授权与商标条款。同目录的 NexusChain 与 OpsMesh 也都是 Apache-2.0（但并非全部 —— corps 与 Interaction 是 MIT，所以"跟邻居一致"只对这几个仓库成立）。
