@@ -1,6 +1,7 @@
 param(
   [string]$Out = '',
   [string]$Process = 'modulo',
+  [int]$ProcId = 0,
   [long]$Hwnd = 0,
   [string]$SendKeys = '',
   [switch]$FullSession,
@@ -61,6 +62,14 @@ $GWL_STYLE = -16
 $SW_RESTORE = 9
 
 function Find-MainWindow([string]$name) {
+  # 给了 -ProcId 就只认那个进程，且不做任何按名字的兜底：
+  # 自检脚本按进程名取「第一个同名进程」时，用户自己也开着应用就会钉到他的窗口上，
+  # 于是 -Restore / 点关闭打在别人的实例里，读到的状态也不是探针那一份。
+  if ($ProcId -ne 0) {
+    $p = Get-Process -Id $ProcId -ErrorAction SilentlyContinue
+    if (-not $p) { return [IntPtr]::Zero }
+    return [Win32]::FindLargestWindow([uint32]$p.Id)
+  }
   $p = Get-Process -Name $name -ErrorAction SilentlyContinue | Select-Object -First 1
   if (-not $p) { return [IntPtr]::Zero }
   $h = [Win32]::FindLargestWindow([uint32]$p.Id)
@@ -126,7 +135,7 @@ if ($State) {
 }
 
 if ($Restore) {
-  if ($hwnd -eq [IntPtr]::Zero) { Write-Error "找不到进程 $Process 的主窗口"; exit 2 }
+  if ($hwnd -eq [IntPtr]::Zero) { Write-Error "找不到窗口（ProcId=$ProcId 进程名=$Process）"; exit 2 }
   [void][Win32]::ShowWindow($hwnd, $SW_RESTORE)
   exit 0
 }

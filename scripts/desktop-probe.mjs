@@ -29,10 +29,13 @@ const runPs = (args) => spawnSync('powershell', ['-NoProfile', '-ExecutionPolicy
 
 // 句柄只解析一次然后钉死：最小化期间 MainWindowHandle 会漂到一个 6×6 的辅助窗口（实测），
 // 每次重新查句柄会把「真的最小化了」误报成「没有」。
+// PID 必传：按进程名找窗口会钉到用户自己开着的那一份实例上（探针 spawn 的子进程只是同名进程之一），
+// 那样 -Restore / 点关闭就打在别人的窗口里。ps1 拿到 -ProcId 后只认那个进程，找不到就报错、不回退按名字查。
 let hwnd = 0
-const withHwnd = () => (hwnd ? ['-Hwnd', String(hwnd)] : [])
+let pid = 0
+const target = () => ['-ProcId', String(pid), ...(hwnd ? ['-Hwnd', String(hwnd)] : [])]
 const state = () => {
-  const r = runPs(['-Out', 'x', '-State', ...withHwnd()])
+  const r = runPs(['-Out', 'x', '-State', ...target()])
   try {
     const s = JSON.parse(r.stdout.trim().split('\n').pop())
     if (s.hwnd) hwnd = s.hwnd
@@ -47,6 +50,7 @@ async function launch() {
     env: { ...process.env, WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS: `--remote-debugging-port=${PORT}` },
     stdio: 'ignore',
   })
+  pid = child.pid ?? 0
   for (let i = 0; i < 60; i++) {
     await sleep(500)
     try {
@@ -84,6 +88,7 @@ const stop = async ({ child, browser }) => {
     }
   }
   hwnd = 0
+  pid = 0
 }
 
 /** 卡片内容里可观察的签名：勾选状态。用来证明重启后数据是从磁盘读回来的。 */
@@ -169,7 +174,7 @@ try {
   const min = await waitUntil((s) => s.iconic === true)
   check('窗口真的进入图标态', min.ok, { waitedMs: min.waited, ...min.s })
 
-  runPs(['-Out', 'x', '-Restore', ...withHwnd()])
+  runPs(['-Out', 'x', '-Restore', ...target()])
   const back = await waitUntil((s) => s.iconic === false && s.visible === true)
   check('可从图标态还原', back.ok, { waitedMs: back.waited, ...back.s })
 
@@ -292,7 +297,7 @@ try {
   const hidden = await waitUntil((s) => s.running && s.visible === false && s.iconic === false)
   check('拨开开关后点关闭是藏进托盘，进程不退出', hidden.ok, { waitedMs: hidden.waited, ...hidden.s })
 
-  runPs(['-Out', 'x', '-Restore', ...withHwnd()])
+  runPs(['-Out', 'x', '-Restore', ...target()])
   const shownAgain = await waitUntil((s) => s.visible === true)
   check('藏起来的窗口可以恢复', shownAgain.ok, { waitedMs: shownAgain.waited, ...shownAgain.s })
 
