@@ -3,7 +3,9 @@
 格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，版本号遵循
 [语义化版本](https://semver.org/lang/zh-CN/)。
 
-## 未发布 —— 版面模板 + 两条 0.1.0 边角（2026-10-03）
+## 0.2.0 —— 2026-10-03
+
+版本号四处对齐（`package.json` / `Cargo.toml` / `Cargo.lock` / `tauri.conf.json`）。
 
 出厂那张"通用"排法修好之后，下一个问题自己冒出来：它凭什么是所有人的起点？这一层补的是
 **默认 → 建议 → 自定义**中间那格。
