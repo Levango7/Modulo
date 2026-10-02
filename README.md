@@ -4,7 +4,7 @@
 
 [![CI](https://github.com/Levango7/Modulo/actions/workflows/ci.yml/badge.svg)](https://github.com/Levango7/Modulo/actions/workflows/ci.yml)
 
-**想要装起来用**：[Releases · v0.1.1](https://github.com/Levango7/Modulo/releases/tag/v0.1.1) 里有 Windows x64 的 NSIS 安装包（`Modulo_0.1.1_x64-setup.exe`，1 859 053 字节，`sha256 47aad05abc9c5ef2958cbf6252b780a23253acd616f69d18e6f4b7a4e73121c6`，构建自 `53b0ed9`，该二进制在本机通过全部 47 项真机检查）。安装包**没有代码签名**，首次运行 Windows SmartScreen 会提示「未知发布者」。数据落在 `%APPDATA%\app.modulo\data\*.json`，整个目录拷走就是备份。
+**想要装起来用**：[Releases · v0.2.0](https://github.com/Levango7/Modulo/releases/tag/v0.2.0) 里有 Windows x64 的 NSIS 安装包（`Modulo_0.2.0_x64-setup.exe`，1 860 690 字节，`sha256 f4ff0413510809c44cfbc75e9faad5436f68fcc715488cb42a71a8f528852559`，构建自 `2e73795`，该二进制在本机通过全部 49 项真机检查）。安装包**没有代码签名**，首次运行 Windows SmartScreen 会提示「未知发布者」。数据落在 `%APPDATA%\app.modulo\data\*.json`，整个目录拷走就是备份。
 
 ![工作台：出厂版面就是铺满的 —— 12 列、行带之间不留中缝](docs/assets/workbench-starter-1440.png)
 

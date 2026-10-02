@@ -64,7 +64,11 @@
   CDP 端口没起来（`127.0.0.1:9223/json/version` fetch failed），还没走到 `SendKeys`。
   结论：`continue-on-error` 的步骤失败也报成功，这类绿必须去读 artifact 才算数（详见 §10.3）。
 
-### 产物（已构建 + 已实机验，Release 尚未创建）
+### 发布
+
+已发：GitHub Release **v0.2.0**（https://github.com/Levango7/Modulo/releases/tag/v0.2.0），
+tag 按 v0.1.x 的惯例落在版本号定型那笔 `ef07a92`。资产由 GitHub 复算过：
+`Modulo_0.2.0_x64-setup.exe|1860690|sha256:f4ff0413510809c4…8852559`，与本地一致。
 
 - 安装包 `Modulo_0.2.0_x64-setup.exe`：**1 860 690 字节**，`sha256 f4ff0413510809c44cfbc75e9faad5436f68fcc715488cb42a71a8f528852559`。
 - 包内主二进制 `modulo.exe`：5 706 752 字节，`sha256 e99ddec087bb34f8e6277901c7faa6848e1fd2ea35d434f4b2a5b6d6f66e57d9`。
