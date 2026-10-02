@@ -58,20 +58,14 @@ jobs:
         run: cargo test
       - name: 打包出 exe（不打安装包）
         run: npx tauri build --no-bundle
-      # 桌面自检：真起窗口、真注册系统快捷键、真投递组合键、真读盘上的 JSON。
-      # 先挂 continue-on-error 观察 —— 它依赖 runner 的交互会话能收到 SendKeys，
-      # 这一点在本机为真、在 windows-latest 上**还没实测过**，所以第一版不拿它拦发布；
-      # 看到一次绿就把 continue-on-error 摘掉，让它变成真门禁。
-      - name: 桌面自检探针（窗口 / 托盘 / 快捷键 / 数据落地）
-        continue-on-error: true
-        run: npm run desktop:probe
+      # 桌面自检探针**不在 CI 跑**（挂过一次，摘了）。实测原因：runner 上 WebView2 的 loader
+      # 不把 WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS 写进浏览器进程 —— 6 条 msedgewebview2 命令行
+      # 0 条带 --remote-debugging-port（runtime 153.0.4234.48），本机同一颗 exe 是 154.0.4258.53、
+      # 命令行带参数且端口可达。于是探针每次都停在"连 CDP"这一步，与产品好坏无关，
+      # 留着的价值只是一个不会拦任何东西的红叉。
+      # 它的定位是**发布前的本机门禁**：跑在要发出去的那颗二进制上（§11.4），CI 管构建与单测。
       - uses: actions/upload-artifact@v4
         with:
           name: modulo-windows-x64-exe
           path: src-tauri/target/release/modulo.exe
           if-no-files-found: error
-      - uses: actions/upload-artifact@v4
-        if: always()
-        with:
-          name: probe-report
-          path: evidence/probe-report.json
