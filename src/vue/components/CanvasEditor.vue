@@ -318,9 +318,12 @@ function onCellKeydown(p: E.Placement, e: KeyboardEvent) {
   const step = dir[e.key]
   if (step) {
     e.preventDefault()
-    if (selCount.value > 1 && !e.altKey) store.moveMany([...sel.value], step[0], step[1])
-    else if (e.shiftKey) store.resize(p.id, p.w + step[0], p.h + step[1])
-    else store.move(p.id, p.x + step[0], p.y + step[1])
+    /** 连按方向键属于「一段连续输入」：同 mergeKey 落在 300ms 窗口内折叠成一步，
+     *  这样把卡片从 4 列拉到 12 列之后，撤销不必一格一格爬回来。 */
+    if (selCount.value > 1 && !e.altKey)
+      store.moveMany([...sel.value], step[0], step[1], `kbd:moveMany:${[...sel.value].sort().join(',')}`)
+    else if (e.shiftKey) store.resize(p.id, p.w + step[0], p.h + step[1], `kbd:resize:${p.id}`)
+    else store.move(p.id, p.x + step[0], p.y + step[1], `kbd:move:${p.id}`)
     return
   }
   if (e.key === ' ') {

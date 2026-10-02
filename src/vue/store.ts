@@ -48,9 +48,14 @@ export function createLayoutStore(opts: { registry: E.ModuleRegistry; storage?: 
   const hist = shallowRef<E.HistoryState>(E.createHistory(initial))
   const warnings = shallowRef<string[]>(parsed.warnings)
 
-  function apply(next: E.LayoutDoc | null): void {
+  /**
+   * mergeKey 给「一段连续输入」用：同一个键在合并窗口（300ms）内的连续提交折叠成一步。
+   * 只有键盘路径传它 —— 指针拖拽本来就只在 pointerup 提交一次，若也带上，
+   * 快速连着拖两次反而会被误折成一步。
+   */
+  function apply(next: E.LayoutDoc | null, mergeKey?: string): void {
     if (!next || next === doc.value) return
-    hist.value = E.commit(hist.value, next, { at: Date.now() })
+    hist.value = E.commit(hist.value, next, { at: Date.now(), mergeKey })
     doc.value = E.currentDoc(hist.value)
     storage.set(key, E.docToJson(doc.value))
   }
@@ -65,8 +70,8 @@ export function createLayoutStore(opts: { registry: E.ModuleRegistry; storage?: 
     available: computed(() => reg.filter((m) => !doc.value.items.some((p) => p.id === m.id))),
 
     add: (id: string, x: number, y: number, variant?: string) => apply(E.addItem(doc.value, reg, id, x, y, variant)),
-    move: (id: string, x: number, y: number) => apply(E.moveItem(doc.value, id, x, y)),
-    resize: (id: string, w: number, h: number) => apply(E.resizeItem(doc.value, reg, id, w, h)),
+    move: (id: string, x: number, y: number, mergeKey?: string) => apply(E.moveItem(doc.value, id, x, y), mergeKey),
+    resize: (id: string, w: number, h: number, mergeKey?: string) => apply(E.resizeItem(doc.value, reg, id, w, h), mergeKey),
     setVariant: (id: string, variant: string) => apply(E.setVariant(doc.value, reg, id, variant)),
     cycleVariant: (id: string) => {
       const p = doc.value.items.find((q) => q.id === id)
@@ -76,7 +81,8 @@ export function createLayoutStore(opts: { registry: E.ModuleRegistry; storage?: 
       apply(E.setVariant(doc.value, reg, id, mod.variants[(i + 1) % mod.variants.length].id))
     },
     remove: (id: string) => apply(E.removeItem(doc.value, id)),
-    moveMany: (ids: readonly string[], dx: number, dy: number) => apply(E.moveMany(doc.value, ids, dx, dy)),
+    moveMany: (ids: readonly string[], dx: number, dy: number, mergeKey?: string) =>
+      apply(E.moveMany(doc.value, ids, dx, dy), mergeKey),
     removeMany: (ids: readonly string[]) => apply(E.removeMany(doc.value, ids)),
     toggleLockMany: (ids: readonly string[]) => {
       const set = new Set(ids)

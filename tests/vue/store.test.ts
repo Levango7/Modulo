@@ -31,6 +31,47 @@ describe('layout store', () => {
     expect(s.doc.value.items.map((p) => p.id)).toContain('clock')
   })
 
+  /** 键盘连按走 mergeKey；下面这三条锁住「一段连续输入 = 一步」，且不带 key 时不折叠 */
+  const emptyBoard = () => {
+    const s = fresh()
+    s.removeMany(s.doc.value.items.map((p) => p.id))
+    s.add('clock', 0, 0)
+    return s
+  }
+
+  it('连按方向键（同 mergeKey）折叠成一步，一次撤销回到连按之前', () => {
+    const s = emptyBoard()
+    const before = JSON.stringify(s.doc.value)
+    s.move('clock', 1, 0, 'kbd:move:clock')
+    s.move('clock', 2, 0, 'kbd:move:clock')
+    s.move('clock', 3, 0, 'kbd:move:clock')
+    expect(JSON.stringify(s.doc.value)).not.toBe(before)
+    s.undo()
+    expect(JSON.stringify(s.doc.value)).toBe(before)
+  })
+
+  it('mergeKey 不同就不折叠：要撤销两次才回到起点', () => {
+    const s = emptyBoard()
+    const before = JSON.stringify(s.doc.value)
+    s.move('clock', 1, 0, 'kbd:move:clock')
+    s.move('clock', 2, 0, 'kbd:move:sticky')
+    s.undo()
+    expect(JSON.stringify(s.doc.value)).not.toBe(before)
+    s.undo()
+    expect(JSON.stringify(s.doc.value)).toBe(before)
+  })
+
+  it('指针路径不传 mergeKey，两次拖拽就是两步（快速连拖也不被误折）', () => {
+    const s = emptyBoard()
+    const before = JSON.stringify(s.doc.value)
+    s.move('clock', 1, 0)
+    s.move('clock', 2, 0)
+    s.undo()
+    expect(JSON.stringify(s.doc.value)).not.toBe(before)
+    s.undo()
+    expect(JSON.stringify(s.doc.value)).toBe(before)
+  })
+
   it('操作写入存储，重建 store 后能读回', () => {
     const storage = memoryStorage()
     const a = createLayoutStore({ registry: REG, storage })
