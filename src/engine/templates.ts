@@ -53,6 +53,16 @@ export const TEMPLATES: readonly LayoutTemplate[] = [
     ],
   },
   {
+    id: 'clock-note',
+    name: '大字时钟',
+    blurb: '一半看时间，一半写一句话',
+    audience: '只想摆着看，几乎不操作',
+    cells: [
+      { id: 'clock', variant: 'big', x: 0, y: 0, w: 6, h: 3 },
+      { id: 'sticky', variant: 'wide', x: 6, y: 0, w: 6, h: 3 },
+    ],
+  },
+  {
     id: 'focus',
     name: '极简专注',
     blurb: '一张大清单 + 时间，别的都收起来',
@@ -61,6 +71,17 @@ export const TEMPLATES: readonly LayoutTemplate[] = [
       { id: 'todo', variant: 'list', x: 0, y: 0, w: 8, h: 6 },
       { id: 'clock', variant: 'big', x: 8, y: 0, w: 4, h: 3 },
       { id: 'sticky', variant: 'note', x: 8, y: 3, w: 4, h: 3 },
+    ],
+  },
+  {
+    id: 'meeting',
+    name: '会议记录',
+    blurb: '左边记要点，右上时间，右下行动项',
+    audience: '开会 / 上课边听边记，还要收尾待办',
+    cells: [
+      { id: 'notes', variant: 'tall', x: 0, y: 0, w: 6, h: 8 },
+      { id: 'clock', variant: 'big', x: 6, y: 0, w: 6, h: 3 },
+      { id: 'todo', variant: 'list', x: 6, y: 3, w: 6, h: 5 },
     ],
   },
   {
