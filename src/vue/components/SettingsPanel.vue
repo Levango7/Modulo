@@ -1,10 +1,10 @@
 <script setup lang="ts">
-import { inject, onMounted, ref } from 'vue'
+import { inject, onBeforeUnmount, onMounted, ref } from 'vue'
 import { Check, GripVertical, X } from 'lucide-vue-next'
 import { ACCENTS, MODES, SKINS } from '../appearance'
 import { useFocusTrap } from '../useFocusTrap'
 import { dataDir as fetchDataDir } from '../fileStorage'
-import { isDesktop, type ShellApi } from '../useShell'
+import { isDesktop, type ShortcutKind, type ShellApi } from '../useShell'
 import type { AppearanceApi } from '../useAppearance'
 import type { SchemesApi } from '../useSchemes'
 import type { Scheme } from '../../engine'
@@ -57,6 +57,54 @@ function when(ts: number): string {
 function onHideChange(e: Event) {
   shell.setHideOnClose((e.target as HTMLInputElement).checked)
 }
+
+/**
+ * 改键录制：点「改键」→ 按下目标组合键 → 交给 Rust 注册。
+ * 用 document 捕获阶段监听并 stopPropagation，否则录的时候 Ctrl+Z、Esc 这些
+ * 应用自身的快捷键会先被执行一遍（Esc 还会把设置面板关掉）。
+ */
+const recording = ref<string | null>(null)
+
+/** 只按修饰键不构成快捷键，等真正的按键落下来再说；这些 code 直接忽略 */
+const MODIFIER_ONLY = /^(Control|Alt|Shift|Meta|OS)(Left|Right)?$|^(ContextMenu|CapsLock|NumLock|ScrollLock)$/
+
+/** 拼成 Rust 认的写法：字母数字用单字符（Ctrl+Alt+M），其余沿用 event.code（ArrowUp / F5） */
+function toChord(e: KeyboardEvent): string | null {
+  const mods = [e.ctrlKey && 'Ctrl', e.altKey && 'Alt', e.shiftKey && 'Shift', e.metaKey && 'Super'].filter(Boolean)
+  if (mods.length === 0 || MODIFIER_ONLY.test(e.code)) return null
+  const letter = /^Key([A-Z])$/.exec(e.code)
+  const digit = /^Digit(\d)$/.exec(e.code)
+  const key = letter?.[1] ?? digit?.[1] ?? e.code
+  return [...mods, key].join('+')
+}
+
+function recordKey(e: KeyboardEvent) {
+  e.preventDefault()
+  e.stopPropagation()
+  if (e.key === 'Escape') {
+    stopRecord()
+    return
+  }
+  const kind = recording.value
+  const chord = kind ? toChord(e) : null
+  if (!kind || !chord) return
+  stopRecord()
+  void shell.setShortcut(kind as ShortcutKind, chord)
+}
+
+function startRecord(kind: string) {
+  if (recording.value === kind) {
+    stopRecord()
+    return
+  }
+  recording.value = kind
+  document.addEventListener('keydown', recordKey, true)
+}
+function stopRecord() {
+  recording.value = null
+  document.removeEventListener('keydown', recordKey, true)
+}
+onBeforeUnmount(stopRecord)
 </script>
 
 <template>
@@ -121,13 +169,26 @@ function onHideChange(e: Event) {
           <span>点关闭时收进托盘，而不是直接退出</span>
         </label>
         <ul v-if="shell.shortcuts.value.length" class="keys">
-          <li v-for="k in shell.shortcuts.value" :key="k.keys">
+          <li v-for="k in shell.shortcuts.value" :key="k.kind">
             <kbd>{{ k.keys }}</kbd>
             <span>{{ k.label }}</span>
             <em v-if="!k.registered" class="warn">注册失败，多半被别的程序占用了</em>
+            <button
+              class="rec"
+              :class="{ live: recording === k.kind }"
+              :aria-pressed="recording === k.kind"
+              @click="startRecord(k.kind)"
+            >
+              {{ recording === k.kind ? '按下组合键…' : '改键' }}
+            </button>
           </li>
         </ul>
-        <p class="hint">快捷键是系统级的，窗口不在前台也能用。注册失败只影响那一条，其余功能照常。</p>
+        <p v-if="recording" class="hint recording">
+          正在录制「{{ shell.shortcuts.value.find((s) => s.kind === recording)?.label }}」：按 Esc 取消。
+          必须带 Ctrl / Alt / Shift / Win 中的一个或多个。
+        </p>
+        <p v-else class="hint">快捷键是系统级的，窗口不在前台也能用。注册失败只影响那一条，其余功能照常。</p>
+        <p v-if="shell.shortcutError.value" class="error">{{ shell.shortcutError.value }}</p>
         <p v-if="dataDir" class="hint">
           版面、方案册、卡片内容和这些设置都各自是一个 JSON 文件，放在
           <code>{{ dataDir }}</code>
@@ -367,6 +428,23 @@ section h3 {
   margin-left: auto;
   font-style: normal;
   color: var(--c-amber);
+}
+.keys .rec {
+  flex: none;
+  font-size: 11px;
+  padding: 1px 8px;
+}
+.keys .rec.live {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+.recording {
+  color: var(--accent);
+}
+.error {
+  margin: var(--space-2) 0 0;
+  font-size: 12px;
+  color: var(--c-red);
 }
 .row {
   display: flex;
