@@ -51,6 +51,25 @@ const countBy = (image) => {
 }
 
 /**
+ * 读 msedgewebview2.exe 的真实命令行。分的是最后两种情况：
+ * 远调参数没进到浏览器进程里（env 变量在这个 runtime 上没生效），
+ * 还是进去了但端口仍不监听（那就是绑定/网络层的问题）。
+ */
+const webviewArgs = () => {
+  const ps = "(Get-CimInstance Win32_Process -Filter \"Name='msedgewebview2.exe'\").CommandLine"
+  const r = spawnSync('powershell', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-Command', ps], { encoding: 'utf8' })
+  const lines = (r.stdout || '').split(/\r?\n/).map((l) => l.trim()).filter(Boolean)
+  const hit = lines.filter((l) => /--remote-debugging-port=/.test(l))
+  return {
+    webviewCmdLines: lines.length,
+    withDebugPort: hit.length,
+    /** 取一条带端口的样本，截断即可 —— 命令行很长，全量塞进报告没人读 */
+    sample: (hit[0] || lines[0] || '').slice(0, 240),
+    psErr: (r.stderr || '').trim().slice(0, 160),
+  }
+}
+
+/**
  * 失败自述。加这个是因为上一轮 runner 那条红我只拿到一句 `fetch failed`，
  * 结果把原因猜错了两次（先猜 SendKeys，再误读代码顺序说"窗口起来了"）。
  * 这几个字段能一刀切开三种情况：应用没起来（childExit 非 null / moduloProcs 0）、
@@ -62,6 +81,7 @@ const diagnose = async (child, browserArgs) => ({
   childSignal: child?.signalCode ?? null,
   moduloProcs: countBy('modulo.exe'),
   webviewProcs: countBy('msedgewebview2.exe'),
+  ...webviewArgs(),
   /** 必须 await：直接把 Promise 塞进 JSON.stringify 会打印成 {}，等于现场造假 */
   portOpen: await portOpen(),
   browserArgsPassed: browserArgs,
