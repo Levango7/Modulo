@@ -16,50 +16,25 @@ export function browserStorage(): StorageAdapter {
 }
 
 /**
- * 首次启动的推荐版面。
- *
- * 坐标和尺寸都是**显式**的，理由有两层：
- * - 只写坐标、让 `fillRows` 去补宽度，会把"单张卡的带"整个拉成通栏 —— 实测把 1 条内容的速记
- *   撑成 12 列横幅，空洞是没了，观感更糟。所以宽度自己排，`spreadLayout` 只当兜底。
- * - 同一带里的卡必须同高，否则撑开后会与下一带相撞，那一整带会被 `fillRows` 整行放弃
- *   （旧版留 37.9% 空洞就有这个原因：`todo` 的 `list` 形态 6 行高，跟谁都不齐）。
- *
- * 旧写法是 `clock(0,0) / todo(8,0) / sticky(0,3) / notes(2,3) / recent(0,9)`：空洞率实测 37.9%，
- * 其中 y7、y8 两整行全空（recent 的 y 是写死的，而上面的卡最高只到 y=6）。
- * 现在两带各自铺满 12 列、0 空洞，由 `tests/vue/starter.test.ts` 守着（含"任何卡不许被撑到
- * 超过理想宽 1.5 倍"这条，专门防上面那个通栏事故）。
+ * 出厂默认版面 = 模板表里的 `general`（`src/engine/templates.ts`）。
+ * 这里不再自己排第二套坐标 —— 两份真相迟早会漂，而"没存档时看到什么"必须和模板选择器里
+ * 那张「通用」卡片画的逐格一致。
  */
 function starterDoc(reg: E.ModuleRegistry): E.LayoutDoc {
-  let d = E.emptyDoc()
-  // id, variant, x, y, w, h
-  // 待办用 `list` 形态（4×6）竖在右侧一整列：一来首启就看到"待办是主卡"，
-  // 二来它是那张**明显比内容高**的卡 —— 「收紧」这个动作得有东西可收，
-  // 出厂就把每张卡都贴内容排，等于把收紧/紧凑的实测场景抹掉了（E2E 那两条就是这么挂的）。
-  const plan: Array<[string, string, number, number, number, number]> = [
-    ['clock', 'big', 0, 0, 5, 3],
-    ['sticky', 'note', 5, 0, 3, 3],
-    ['todo', 'list', 8, 0, 4, 6],
-    ['notes', 'overview', 0, 3, 4, 3],
-    ['recent', 'bar', 4, 3, 4, 3],
-  ]
-  for (const [id, variant, x, y, w, h] of plan) {
-    if (!E.findModule(reg, id)) continue
-    /**
-     * 三步不能省：`addItem` 只按形态的 **ideal** 尺寸找空位（给它 x,y 也只是起点，
-     * 放不下就自己挪走 —— 实测 12 宽的通栏被塞到下一带，于是速记成了"单卡带"，
-     * 被 `fillRows` 拉成 12 列横幅），所以要 resize 到目标尺寸、再 move 回这一带的槽位。
-     */
-    d = E.addItem(d, reg, id, x, y, variant) ?? d
-    d = E.resizeItem(d, reg, id, w, h) ?? d
-    d = E.moveItem(d, id, x, y) ?? d
-  }
-  return E.spreadLayout(d)
+  return E.buildTemplate(reg, E.templateById(E.DEFAULT_TEMPLATE_ID)!)
 }
 
-export function createLayoutStore(opts: { registry: E.ModuleRegistry; storage?: StorageAdapter; key?: string }) {
+export function createLayoutStore(opts: {
+  registry: E.ModuleRegistry
+  storage?: StorageAdapter
+  key?: string
+  templateKey?: string
+}) {
   const reg = opts.registry
   const storage = opts.storage ?? browserStorage()
   const key = opts.key ?? 'modulo.layout.v1'
+  /** 只是"上次选了哪张模板"的记录，用于高亮；用户手动拖过之后它就不再代表版面了。 */
+  const templateKey = opts.templateKey ?? 'modulo.template.v1'
 
   const parsed = E.parseLayout(storage.get(key) ?? '', reg)
   const usedStarter = parsed.doc.items.length === 0
@@ -70,6 +45,9 @@ export function createLayoutStore(opts: { registry: E.ModuleRegistry; storage?: 
   const doc = shallowRef<E.LayoutDoc>(initial)
   const hist = shallowRef<E.HistoryState>(E.createHistory(initial))
   const warnings = shallowRef<string[]>(parsed.warnings)
+  const templateId = shallowRef<string | null>(storage.get(templateKey))
+  /** 首启且用户还没挑过模板 —— App 用它决定要不要自动弹一次模板选择器（只弹一次，不能变成 nag） */
+  const firstRun = usedStarter && !templateId.value
 
   /**
    * mergeKey 给「一段连续输入」用：同一个键在合并窗口（300ms）内的连续提交折叠成一步。
@@ -81,6 +59,25 @@ export function createLayoutStore(opts: { registry: E.ModuleRegistry; storage?: 
     hist.value = E.commit(hist.value, next, { at: Date.now(), mergeKey })
     doc.value = E.currentDoc(hist.value)
     storage.set(key, E.docToJson(doc.value))
+  }
+
+  /** 只记"选过了哪张模板"，不动版面 —— 选择器被直接关掉时用它，避免下次再问 */
+  function setTemplateChoice(id: string): void {
+    templateId.value = id
+    storage.set(templateKey, id)
+  }
+
+  /**
+   * 换模板 = 整体替换版面（一步可撤销），并把选择记下来供选择器高亮。
+   * 返回 false 表示模板 id 不存在 —— 调用方要能区分"没换成"和"换成了原样"，
+   * 否则界面会说谎。
+   */
+  function applyTemplate(id: string): boolean {
+    const t = E.templateById(id)
+    if (!t) return false
+    apply(E.buildTemplate(reg, t))
+    setTemplateChoice(id)
+    return true
   }
 
   return {
@@ -121,7 +118,12 @@ export function createLayoutStore(opts: { registry: E.ModuleRegistry; storage?: 
     spread: () => apply(E.spreadLayout(doc.value)),
     /** 按内容收紧高度：只变矮不变高，且不低于形态最小尺寸 */
     fitToContent: (wanted: Record<string, number>) => apply(E.fitHeights(doc.value, reg, wanted)),
-    restoreStarter: () => apply(starterDoc(reg)),
+    /** 换模板（见下面 applyTemplate）；返回 false 表示模板 id 不存在 */
+    applyTemplate,
+    setTemplateChoice,
+    templateId,
+    firstRun,
+    restoreStarter: () => applyTemplate(E.DEFAULT_TEMPLATE_ID),
     undo: () => {
       hist.value = E.undo(hist.value)
       doc.value = E.currentDoc(hist.value)

@@ -17,6 +17,7 @@ export const DATA_KEYS: readonly string[] = [
   'modulo.carddata.v1',
   'modulo.appearance.v1',
   'modulo.shell.v1',
+  'modulo.template.v1',
 ]
 
 export interface PersistentStorage extends StorageAdapter {
