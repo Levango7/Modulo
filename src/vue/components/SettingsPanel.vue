@@ -183,12 +183,12 @@ onBeforeUnmount(stopRecord)
             </button>
           </li>
         </ul>
-        <p v-if="recording" class="hint recording">
+        <p v-if="recording" class="hint recording" role="status" aria-live="polite">
           正在录制「{{ shell.shortcuts.value.find((s) => s.kind === recording)?.label }}」：按 Esc 取消。
           必须带 Ctrl / Alt / Shift / Win 中的一个或多个。
         </p>
         <p v-else class="hint">快捷键是系统级的，窗口不在前台也能用。注册失败只影响那一条，其余功能照常。</p>
-        <p v-if="shell.shortcutError.value" class="error">{{ shell.shortcutError.value }}</p>
+        <p v-if="shell.shortcutError.value" class="error" role="alert">{{ shell.shortcutError.value }}</p>
         <p v-if="dataDir" class="hint">
           版面、方案册、卡片内容和这些设置都各自是一个 JSON 文件，放在
           <code>{{ dataDir }}</code>
