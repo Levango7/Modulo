@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed } from 'vue'
-import { CARD_COMPONENTS } from '../cardRegistry'
+import { CARD_COMPONENTS } from '../cardComponents'
 import type { PhysicalRect } from '../../engine/projection'
 
 const props = defineProps<{

@@ -1,11 +1,10 @@
-import type { Component } from 'vue'
 import type { ModuleRegistry } from '../engine'
-import ClockCard from '../app/cards/ClockCard.vue'
-import StickyCard from '../app/cards/StickyCard.vue'
-import TodoCard from '../app/cards/TodoCard.vue'
-import NotesCard from '../app/cards/NotesCard.vue'
 
-/** 模块目录：尺寸契约（min/ideal，逻辑列单位）在这里声明，引擎据此钳制与降档 */
+/**
+ * 模块目录：尺寸契约（min/ideal，逻辑列单位）在这里声明，引擎据此钳制与降档。
+ * 这个文件刻意不 import 任何 .vue —— 起步版面的空洞率要靠单测拿**这份真契约**算，
+ * 抄一份到测试里就等于装了个会撒谎的守卫。组件映射在 `cardComponents.ts`。
+ */
 export const REGISTRY: ModuleRegistry = [
   {
     id: 'clock',
@@ -51,11 +50,3 @@ export const REGISTRY: ModuleRegistry = [
     variants: [{ id: 'bar', name: '通栏', minW: 4, minH: 1, idealW: 12, idealH: 2 }],
   },
 ]
-
-export const CARD_COMPONENTS: Record<string, Component> = {
-  clock: ClockCard,
-  sticky: StickyCard,
-  todo: TodoCard,
-  notes: NotesCard,
-  recent: NotesCard,
-}
