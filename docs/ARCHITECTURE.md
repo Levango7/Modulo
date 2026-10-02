@@ -358,6 +358,10 @@ MVP 先做 A1，A2 留一个 `projection.a2.test.ts` 做对照实验。不在没
   也就是说**应用活着、WebView2 runtime 装着且派生了进程、远调参数确实传给了子进程，但端口没人监听** —— 排除了"runner 没装 WebView2"和"应用起不来"这两种，也仍然没走到 `SendKeys`。
   对照组（本机健康状态，同一套查询）：`msedgewebview2.exe` 命令行 24 条里 **2 条带 `--remote-debugging-port`**，且 `Test-NetConnection 127.0.0.1:9223` 返回 `True`。
   所以现在只剩两种分法，靠新加的 `webviewCmdLines / withDebugPort / sample` 三个字段切开：**参数没落到浏览器进程的命令行里**（⇒ 是 env 变量被 wry/Tauri 自己传的显式 args 顶掉这类"参数优先级"问题），还是**命令行带了参数但端口仍不监听**（⇒ 是 runner 的绑定/会话限制）。在切开之前不动 Rust 侧的 browser args —— 那是会影响所有用户的改动，不该建在未区分的假设上。
+- **定位收口（`b4cf1b5`，run 37073016277）：`withDebugPort = 0`。** runner 上 6 条 `msedgewebview2.exe` 命令行，**没有一条带 `--remote-debugging-port`**，样本给出的 runtime 是 **153.0.4234.48**；本机同一颗 exe、同一套 `launch()`，runtime 是 **154.0.4258.53**，命令行里就有 2 条带该参数、端口可达。⇒ 结论是**`WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS` 在 runner 那套 runtime 上根本没被 loader 写进浏览器进程**，端口不监听只是它的直接后果。
+  顺带把开头那个假设正式请出去：**"runner 的交互会话收不到 `SendKeys`"从头到尾没被检验过** —— 探针三次都死在连 CDP 这一步，投递那段代码一行没执行。当时把它写进文档是因为它"听起来合理"，这是典型的拿假设当结论。
+  **仍然未知的**：为什么 153 上不生效。两种可能之间没切开 —— (a) 旧 runtime/loader 对该环境变量的支持路径不同；(b) 环境变量与调用方显式传入的 args 冲突时优先级不同。区分它需要把参数改由 Rust 侧传（改产品代码，且会改变所有用户的 WebView2 启动参数），**为一个 CI 步骤的便利去动用户机器的行为，收益不匹配**，所以不做。
+  **因此这条自检的定位定死**：桌面探针是**发布前的本机门禁**（必须跑在要发的那颗二进制上，见 §11.4），CI 里那一步只作观测。它升为真门禁的前提不是"等一次绿"，而是"runner 上拿得到 CDP" —— 目前没有可行路径；如果哪天要收，就该把这步从 CI 里摘掉，而不是留着一个每次都红的观测。
 - 首批 CI 落地时的本地实测：103 单测 + 5 E2E 全绿，E2E 约 43s（含构建）；此后各轮持续增补，当前规模看 README。
 
 对照 §1 那条事实——x-hub 写了 164 个 Rust 测试但 CI 只跑 `vue-tsc + cargo check`，一个测试都不执行——这条 CI 是它的反面教材，不是可选项。

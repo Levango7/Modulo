@@ -3,6 +3,31 @@
 格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，版本号遵循
 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## 未发布 —— 桌面自检的 CI 化，以及它为什么升不成真门禁（2026-10-03）
+
+v0.2.0 发布后接着做的事。没有产品代码改动 —— 包内的二进制与已发布的 0.2.0 完全一致，所以**不为此发补丁版**。
+
+### 定位到的事实
+
+- **CI 里那步桌面自检探针是假绿**：`continue-on-error: true` 的步骤失败后 conclusion 仍写 `success`，
+  而 `desktop-probe.mjs` 其实一直有"见红就 exit 1"。真相在 artifact 里：**三次独立 run
+  （`c4a05a5` / `7603ba8` / `b4cf1b5`）全是 `passed:0 / total:2`、全卡在连 CDP 这一步** ——
+  前两次只留一句 `fetch failed`，第三次带上了现场字段。稳定复现，不是抖动。
+- **红在 CDP，不在快捷键**：runner 现场 `{"moduloProcs":1,"webviewProcs":6,"portOpen":false,
+  "browserArgsPassed":"--remote-debugging-port=9223","withDebugPort":0}` —— 应用活着、WebView2 起着、
+  参数传了，但 6 条浏览器进程命令行里**没有一条带这个参数**（runner runtime `153.0.4234.48`；
+  本机同一颗 exe 是 `154.0.4258.53`，24 条里 2 条带参数且端口可达）。所以是**环境变量没被 loader 写进浏览器进程**。
+- 开头我猜的"runner 交互会话收不到 `SendKeys`"**从未被检验** —— 探针三次都死在连 CDP，投递那段一行没跑。
+- **为什么不再往下查**：再切一刀要把参数改由 Rust 侧传，那会改变所有用户的 WebView2 启动参数；
+  为一个 CI 步骤的便利动用户机器的行为，收益不匹配。探针的定位就此定死：**发布前的本机门禁**（跑在要发的那颗二进制上）。
+
+### 三条测量纪律（都是本轮踩出来的）
+
+- `continue-on-error` 的步骤**绿了不算数**，必须读它自己写的产物；所以观测型步骤交付时要配 artifact。
+- **测量手段不该改动被测对象**：把 `stdio` 从 `ignore` 改成 `pipe` 去收 stderr，应用以 **101 panic** 死了
+  （Rust 的 `print!` / `eprintln!` 写坏管道是 panic，不是静默丢），49/49 掉到 33/35。已回退。
+- **`Promise` 塞进 `JSON.stringify` 会打成 `{}`** —— 现场字段宁可 await 到底，别留一个看起来有值的假字段。
+
 ## 0.2.0 —— 2026-10-03
 
 版本号四处对齐（`package.json` / `Cargo.toml` / `Cargo.lock` / `tauri.conf.json`）。
@@ -63,6 +88,8 @@
   **首跑实测（`c4a05a5`）：这一步报 `success`，但 artifact 里是 `passed:0/total:2`** —— 红在
   CDP 端口没起来（`127.0.0.1:9223/json/version` fetch failed），还没走到 `SendKeys`。
   结论：`continue-on-error` 的步骤失败也报成功，这类绿必须去读 artifact 才算数（详见 §10.3）。
+  **（追记：这条后来被彻底定位并否决了升级路径，见本文件顶部「未发布 —— 桌面自检的 CI 化」一节；
+  当时写的"看到一次绿就摘掉旗标"这个前提在 runner 上不成立。）**
 
 ### 发布
 
