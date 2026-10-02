@@ -15,22 +15,45 @@ export function browserStorage(): StorageAdapter {
   return typeof localStorage === 'undefined' ? memoryStorage() : { get: (k) => localStorage.getItem(k), set: (k, v) => localStorage.setItem(k, v) }
 }
 
-/** 首次启动的推荐布局：按各模块 ideal 尺寸铺一张能直接用的版面 */
+/**
+ * 首次启动的推荐版面。
+ *
+ * 坐标和尺寸都是**显式**的，理由有两层：
+ * - 只写坐标、让 `fillRows` 去补宽度，会把"单张卡的带"整个拉成通栏 —— 实测把 1 条内容的速记
+ *   撑成 12 列横幅，空洞是没了，观感更糟。所以宽度自己排，`spreadLayout` 只当兜底。
+ * - 同一带里的卡必须同高，否则撑开后会与下一带相撞，那一整带会被 `fillRows` 整行放弃
+ *   （旧版留 37.9% 空洞就有这个原因：`todo` 的 `list` 形态 6 行高，跟谁都不齐）。
+ *
+ * 旧写法是 `clock(0,0) / todo(8,0) / sticky(0,3) / notes(2,3) / recent(0,9)`：空洞率实测 37.9%，
+ * 其中 y7、y8 两整行全空（recent 的 y 是写死的，而上面的卡最高只到 y=6）。
+ * 现在两带各自铺满 12 列、0 空洞，由 `tests/vue/starter.test.ts` 守着（含"任何卡不许被撑到
+ * 超过理想宽 1.5 倍"这条，专门防上面那个通栏事故）。
+ */
 function starterDoc(reg: E.ModuleRegistry): E.LayoutDoc {
   let d = E.emptyDoc()
-  const plan: Array<[string, string, number, number]> = [
-    ['clock', 'big', 0, 0],
-    ['todo', 'list', 8, 0],
-    ['sticky', 'note', 0, 3],
-    ['notes', 'overview', 2, 3],
-    ['recent', 'bar', 0, 9],
+  // id, variant, x, y, w, h
+  // 待办用 `list` 形态（4×6）竖在右侧一整列：一来首启就看到"待办是主卡"，
+  // 二来它是那张**明显比内容高**的卡 —— 「收紧」这个动作得有东西可收，
+  // 出厂就把每张卡都贴内容排，等于把收紧/紧凑的实测场景抹掉了（E2E 那两条就是这么挂的）。
+  const plan: Array<[string, string, number, number, number, number]> = [
+    ['clock', 'big', 0, 0, 5, 3],
+    ['sticky', 'note', 5, 0, 3, 3],
+    ['todo', 'list', 8, 0, 4, 6],
+    ['notes', 'overview', 0, 3, 4, 3],
+    ['recent', 'bar', 4, 3, 4, 3],
   ]
-  for (const [id, variant] of plan) {
+  for (const [id, variant, x, y, w, h] of plan) {
     if (!E.findModule(reg, id)) continue
-    const at = plan.find((p) => p[0] === id)!
-    d = E.addItem(d, reg, id, at[2], at[3], variant) ?? d
+    /**
+     * 三步不能省：`addItem` 只按形态的 **ideal** 尺寸找空位（给它 x,y 也只是起点，
+     * 放不下就自己挪走 —— 实测 12 宽的通栏被塞到下一带，于是速记成了"单卡带"，
+     * 被 `fillRows` 拉成 12 列横幅），所以要 resize 到目标尺寸、再 move 回这一带的槽位。
+     */
+    d = E.addItem(d, reg, id, x, y, variant) ?? d
+    d = E.resizeItem(d, reg, id, w, h) ?? d
+    d = E.moveItem(d, id, x, y) ?? d
   }
-  return d
+  return E.spreadLayout(d)
 }
 
 export function createLayoutStore(opts: { registry: E.ModuleRegistry; storage?: StorageAdapter; key?: string }) {
