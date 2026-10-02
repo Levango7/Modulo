@@ -58,8 +58,20 @@ jobs:
         run: cargo test
       - name: 打包出 exe（不打安装包）
         run: npx tauri build --no-bundle
+      # 桌面自检：真起窗口、真注册系统快捷键、真投递组合键、真读盘上的 JSON。
+      # 先挂 continue-on-error 观察 —— 它依赖 runner 的交互会话能收到 SendKeys，
+      # 这一点在本机为真、在 windows-latest 上**还没实测过**，所以第一版不拿它拦发布；
+      # 看到一次绿就把 continue-on-error 摘掉，让它变成真门禁。
+      - name: 桌面自检探针（窗口 / 托盘 / 快捷键 / 数据落地）
+        continue-on-error: true
+        run: npm run desktop:probe
       - uses: actions/upload-artifact@v4
         with:
           name: modulo-windows-x64-exe
           path: src-tauri/target/release/modulo.exe
           if-no-files-found: error
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: probe-report
+          path: evidence/probe-report.json
