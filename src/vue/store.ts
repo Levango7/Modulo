@@ -39,7 +39,7 @@ export function createLayoutStore(opts: {
   const parsed = E.parseLayout(storage.get(key) ?? '', reg)
   const usedStarter = parsed.doc.items.length === 0
   const initial = usedStarter ? starterDoc(reg) : parsed.doc
-  /** 推荐布局也要立刻落盘：否则用户不动版面就永远没有存档，导出/迁移会拿到空布局 */
+  /** 出厂默认也要立刻落盘：否则用户不动版面就永远没有存档，导出/迁移会拿到空布局 */
   if (usedStarter) storage.set(key, E.docToJson(initial))
 
   const doc = shallowRef<E.LayoutDoc>(initial)

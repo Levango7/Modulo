@@ -20,13 +20,13 @@ const REG: ModuleRegistry = [
 const fresh = () => createLayoutStore({ registry: REG, storage: memoryStorage() })
 
 describe('layout store', () => {
-  it('推荐布局在首次创建时就落盘（否则不动版面就没有存档）', () => {
+  it('出厂默认模板在首次创建时就落盘（否则不动版面就没有存档）', () => {
     const storage = memoryStorage()
     createLayoutStore({ registry: REG, storage })
     expect(storage.get('modulo.layout.v1')).toContain('clock')
   })
 
-  it('无存档时用推荐布局起步', () => {
+  it('无存档时用出厂默认模板起步', () => {
     const s = fresh()
     expect(s.doc.value.items.map((p) => p.id)).toContain('clock')
   })

@@ -52,7 +52,7 @@ function step(p: E.Placement, dw: number, dh: number) {
         <button @click="store.remove(p.id)">×</button>
       </div>
     </div>
-    <p v-if="!items.length" class="muted">版面是空的，先去宽一点的屏幕排一版，或点顶部「推荐布局」。</p>
+    <p v-if="!items.length" class="muted">版面是空的，先去宽一点的屏幕排一版，或点顶部「版面模板」挑一种排法。</p>
   </div>
 </template>
 
