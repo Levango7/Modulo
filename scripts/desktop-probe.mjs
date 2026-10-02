@@ -105,6 +105,13 @@ const clickIn = (page, sel) =>
     return true
   }, sel)
 
+const clickText = (page, label) =>
+  page.evaluate((t) => {
+    const el = [...document.querySelectorAll('button')].find((e) => (e.textContent || '').trim() === t)
+    el?.click()
+    return !!el
+  }, label)
+
 /**
  * 等窗口状态迁移落地，而不是固定 sleep 之后采一次。
  * 窗口动作是异步跨进程调用，重建后的首次运行实测会慢过 1.2s（上一轮三条红就是这么来的）；
@@ -254,6 +261,57 @@ try {
   } else {
     console.log('SKIP  Alt+Shift+M 系统投递（注册未成功，先修上面的注册检查）')
   }
+
+  // ---- 真实 GPU 下的帧距：E2E 那条只能测 headless，这里在 WebView2 上重测一次 ----
+  // 用整版重排（撑满 → 整理）压出让位动画与全网格重绘，采样 rAF 间隔；
+  // 结束后撤销回原状，不给用户存档留副作用。阈值与 E2E 一致：中位 ≤18.2ms（≈55fps）、
+  // p95 ≤33.4ms（不允许掉到 30fps 以下）。
+  const layoutSig = () =>
+    page.evaluate(() =>
+      [...document.querySelectorAll('.grid .cell')]
+        .map((c) => {
+          const s = getComputedStyle(c)
+          return `${c.getAttribute('aria-label')?.slice(0, 2)}@${s.gridColumnStart}/${s.gridRowStart}`
+        })
+        .sort()
+        .join('|'),
+    )
+  const undoKey = () =>
+    page.evaluate(() => {
+      window.dispatchEvent(new KeyboardEvent('keydown', { key: 'z', ctrlKey: true, bubbles: true }))
+    })
+
+  const sig0 = await layoutSig()
+  await page.evaluate(() => {
+    window.__frames = []
+    const tick = (t) => {
+      window.__frames.push(t)
+      if (window.__frames.length < 600) requestAnimationFrame(tick)
+    }
+    requestAnimationFrame(tick)
+  })
+  await clickText(page, '撑满')
+  await sleep(450)
+  await clickText(page, '整理')
+  await sleep(450)
+  const cadence = await page.evaluate(() => {
+    const f = window.__frames
+    const d = []
+    for (let i = 1; i < f.length; i++) d.push(f[i] - f[i - 1])
+    d.sort((a, b) => a - b)
+    const q = (p) => d[Math.min(d.length - 1, Math.floor(d.length * p))]
+    return { frames: f.length, median: +q(0.5).toFixed(1), p95: +q(0.95).toFixed(1) }
+  })
+  for (let i = 0; i < 4 && (await layoutSig()) !== sig0; i++) {
+    await undoKey()
+    await sleep(250)
+  }
+  const restored = (await layoutSig()) === sig0
+  check(
+    '真实 WebView2 下的帧距：中位 ≤18.2ms、p95 ≤33.4ms（整版重排压测，且版面已还原）',
+    cadence.frames > 40 && cadence.median <= 18.2 && cadence.p95 <= 33.4 && restored,
+    { ...cadence, restored },
+  )
 
   // ---- 数据落地：改一处 → 磁盘上真的有文件 → 重启后读回来 ----
   const dir = await page.evaluate(async () => await window.__TAURI_INTERNALS__.invoke('data_dir'))
