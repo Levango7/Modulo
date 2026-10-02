@@ -11,6 +11,8 @@ struct HideOnClose(Mutex<bool>);
 
 #[derive(Clone, serde::Serialize)]
 pub struct ShortcutStatus {
+    /// 稳定标识（summon / ontop）：前端要按它定位某一条，不能靠中文 label 匹配
+    pub kind: String,
     pub keys: String,
     pub label: String,
     pub registered: bool,
@@ -21,6 +23,13 @@ pub struct ShortcutStatus {
 #[derive(Default)]
 struct Shortcuts(Mutex<Vec<ShortcutStatus>>);
 
+/// 当前生效的全局快捷键：kind →（展示用字符串, 解析后的 Shortcut）。
+/// 回调要靠它把收到的 Shortcut 对回是哪一条 —— 一旦允许用户改键，
+/// 再按 `shortcut.key` 猜就不成立了（两条可以共用字母、只改修饰键）。
+#[cfg(desktop)]
+#[derive(Default)]
+struct Chords(Mutex<Vec<(&'static str, String, tauri_plugin_global_shortcut::Shortcut)>>);
+
 #[tauri::command]
 fn set_hide_on_close(app: AppHandle, on: bool) {
     *app.state::<HideOnClose>().0.lock().unwrap() = on;
@@ -29,6 +38,21 @@ fn set_hide_on_close(app: AppHandle, on: bool) {
 #[tauri::command]
 fn global_shortcuts(app: AppHandle) -> Vec<ShortcutStatus> {
     app.state::<Shortcuts>().0.lock().unwrap().clone()
+}
+
+/// 改键：前端录制完组合键后调用，成功才由前端落盘（失败保持原键并返回原因）。
+/// 桌面壳之外没有系统级快捷键，直接报错而不是假装成功。
+#[tauri::command]
+fn set_shortcut(app: AppHandle, kind: String, chord: String) -> Result<ShortcutStatus, String> {
+    #[cfg(desktop)]
+    {
+        desktop::rebind(&app, &kind, &chord)
+    }
+    #[cfg(not(desktop))]
+    {
+        let _ = (&app, &kind, &chord);
+        Err("只有桌面壳支持系统级快捷键".to_string())
+    }
 }
 
 fn toggle_window(app: &AppHandle) {
@@ -60,20 +84,53 @@ mod desktop {
     use super::{toggle_always_on_top, toggle_window, AppHandle, Manager};
     use tauri::menu::{Menu, MenuEvent, MenuItem, PredefinedMenuItem};
     use tauri::tray::{TrayIconBuilder, TrayIconEvent};
-    use tauri_plugin_global_shortcut::{
-        Code, GlobalShortcutExt, Modifiers, Shortcut, ShortcutEvent, ShortcutState,
-    };
+    use tauri_plugin_global_shortcut::{GlobalShortcutExt, Shortcut, ShortcutEvent, ShortcutState};
 
-    pub const SUMMON: &str = "Alt+Shift+M";
-    pub const ON_TOP: &str = "Alt+Shift+T";
+    /// 默认档选 **三个修饰键**（Ctrl+Alt+Shift），是两轮实测逼出来的：
+    ///
+    /// - `Alt+Shift+M`（最初的默认）能被系统接受，但本机 `HKCU\Keyboard Layout\Toggle\HotKey = 1`
+    ///   即「左 Alt+Shift 切换输入法」，中文环境下这个前缀会被输入法吃掉，探针投递收不到。
+    /// - `Ctrl+Alt+M` / `Ctrl+Alt+T` 在本机直接 `RegisterHotKey` 失败（`ERROR_HOTKEY_ALREADY_REGISTERED`
+    ///   =1409，被别的程序占了；`Win+Alt+M` / `Win+Alt+T` 同样 1409）。
+    ///
+    /// 三修饰的组合占用的程序极少，仍留 M/T 好记；真撞上还有设置页改键兜底（注册失败会在设置页显示出来）。
+    pub const SUMMON: &str = "Ctrl+Alt+Shift+M";
+    pub const ON_TOP: &str = "Ctrl+Alt+Shift+T";
+
+    /// 解析组合键字符串（`"Ctrl+Alt+M"`）。global-hotkey 允许裸键（`"M"` 也解析得过），
+    /// 但全局裸键会吞掉系统里所有该键的输入 —— 所以这里强制要求至少一个修饰键。
+    ///
+    /// 为什么这条没有 Rust 单测：一旦测试引用它，windows-gnu 下的测试二进制就
+    /// 加载失败（`STATUS_ENTRYPOINT_NOT_FOUND`，去掉这条测试立刻恢复 6/6）。
+    /// 改由桌面探针端到端验证：`set_shortcut` 传裸键必须被拒、传合法组合必须注册成功。
+    pub fn parse_chord(raw: &str) -> Result<Shortcut, String> {
+        let trimmed = raw.trim();
+        let shortcut: Shortcut = trimmed
+            .parse()
+            .map_err(|err| format!("无法解析组合键「{raw}」：{err}"))?;
+        if shortcut.mods.is_empty() {
+            return Err(format!(
+                "「{raw}」缺少修饰键：全局快捷键必须带 Ctrl / Alt / Shift / Win，否则会吞掉系统里所有「{raw}」的输入"
+            ));
+        }
+        Ok(shortcut)
+    }
 
     pub fn on_shortcut(app: &AppHandle, shortcut: &Shortcut, event: ShortcutEvent) {
         if !matches!(event.state(), ShortcutState::Pressed) {
             return;
         }
-        match shortcut.key {
-            Code::KeyM => toggle_window(app),
-            Code::KeyT => toggle_always_on_top(app),
+        let chords = app.state::<super::Chords>();
+        let kind = chords
+            .0
+            .lock()
+            .unwrap()
+            .iter()
+            .find(|(_, _, s)| s == shortcut)
+            .map(|(k, _, _)| *k);
+        match kind {
+            Some("summon") => toggle_window(app),
+            Some("ontop") => toggle_always_on_top(app),
             _ => {}
         }
     }
@@ -83,11 +140,18 @@ mod desktop {
         use super::{ShortcutStatus, Shortcuts};
         let gs = app.global_shortcut();
         let store = app.state::<Shortcuts>();
-        for (keys, label, key) in [
-            (SUMMON, "唤出 / 隐藏 Modulo", Code::KeyM),
-            (ON_TOP, "窗口置顶", Code::KeyT),
+        let chords = app.state::<super::Chords>();
+        for (kind, keys, label) in [
+            ("summon", SUMMON, "唤出 / 隐藏 Modulo"),
+            ("ontop", ON_TOP, "窗口置顶"),
         ] {
-            let shortcut = Shortcut::new(Some(Modifiers::ALT | Modifiers::SHIFT), key);
+            let shortcut = match parse_chord(keys) {
+                Ok(s) => s,
+                Err(err) => {
+                    eprintln!("[modulo] 默认快捷键 {keys} 解析失败，跳过注册: {err}");
+                    continue;
+                }
+            };
             let registered = match gs.register(shortcut) {
                 Ok(()) => true,
                 Err(err) => {
@@ -95,12 +159,80 @@ mod desktop {
                     false
                 }
             };
+            chords.0.lock().unwrap().push((kind, keys.into(), shortcut));
             store.0.lock().unwrap().push(ShortcutStatus {
+                kind: kind.into(),
                 keys: keys.into(),
                 label: label.into(),
                 registered,
             });
         }
+    }
+
+    /// 改键：先解掉旧的再注册新的；新键注册失败（多半被占用）就把旧的滚回去，
+    /// 绝不能留下「两条都没绑上」的状态。持久化不在这里 —— 和 hide-on-close 一样，
+    /// 前端存盘、启动时推给 Rust。
+    pub fn rebind(
+        app: &AppHandle,
+        kind: &str,
+        chord: &str,
+    ) -> Result<super::ShortcutStatus, String> {
+        use super::{ShortcutStatus, Shortcuts};
+        let label = match kind {
+            "summon" => "唤出 / 隐藏 Modulo",
+            "ontop" => "窗口置顶",
+            other => return Err(format!("未知的快捷键类型「{other}」")),
+        };
+        let wanted = chord.trim().to_string();
+        let shortcut = parse_chord(&wanted)?;
+        let chords = app.state::<super::Chords>();
+        let old = {
+            let guard = chords.0.lock().unwrap();
+            if guard.iter().any(|(k, _, s)| *k != kind && *s == shortcut) {
+                return Err("两条全局快捷键不能是同一个组合".to_string());
+            }
+            guard.iter().find(|(k, _, _)| *k == kind).cloned()
+        };
+        let (old_chord, old_shortcut) = match old {
+            Some((_, c, s)) => (c, s),
+            None => return Err(format!("快捷键「{kind}」还没注册成功，无法改键")),
+        };
+        if old_chord.eq_ignore_ascii_case(&wanted) {
+            return Ok(ShortcutStatus {
+                kind: kind.into(),
+                keys: old_chord,
+                label: label.into(),
+                registered: true,
+            });
+        }
+        let gs = app.global_shortcut();
+        let _ = gs.unregister(old_shortcut);
+        if let Err(err) = gs.register(shortcut) {
+            if let Err(back) = gs.register(old_shortcut) {
+                eprintln!("[modulo] 回滚旧快捷键 {old_chord} 也失败，这条已不可用: {back}");
+            }
+            return Err(format!("注册 {wanted} 失败（多半被别的程序占用）: {err}"));
+        }
+        {
+            let mut guard = chords.0.lock().unwrap();
+            if let Some(entry) = guard.iter_mut().find(|(k, _, _)| *k == kind) {
+                *entry = (entry.0, wanted.clone(), shortcut);
+            }
+        }
+        {
+            let store = app.state::<Shortcuts>();
+            let mut list = store.0.lock().unwrap();
+            if let Some(item) = list.iter_mut().find(|s| s.kind == kind) {
+                item.keys = wanted.clone();
+                item.registered = true;
+            }
+        }
+        Ok(ShortcutStatus {
+            kind: kind.into(),
+            keys: wanted,
+            label: label.into(),
+            registered: true,
+        })
     }
 
     /// 默认尺寸是「主流 IM 客户端那一档 + 12 列投影要求 ≥1200 宽」协调出来的：
@@ -212,6 +344,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             set_hide_on_close,
             global_shortcuts,
+            set_shortcut,
             storage::read_doc,
             storage::write_doc,
             storage::data_dir
@@ -228,6 +361,7 @@ pub fn run() {
     #[cfg(desktop)]
     {
         builder = builder
+            .manage(Chords::default())
             .plugin(
                 tauri_plugin_global_shortcut::Builder::new()
                     .with_handler(desktop::on_shortcut)
