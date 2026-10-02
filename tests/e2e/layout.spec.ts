@@ -47,6 +47,87 @@ async function enterEditor(page: Page) {
   await new Promise((r) => setTimeout(r, 500))
 }
 
+const settle = (ms = 400) => new Promise((r) => setTimeout(r, ms))
+
+const clickTool = (page: Page, label: string) =>
+  page.evaluate((t) => {
+    ;[...document.querySelectorAll<HTMLElement>('button')].find((e) => (e.textContent || '').trim() === t)?.click()
+  }, label)
+
+/** 数行轨数量：行轨是 1fr 会撑满视口，像素高度测不出聚拢效果 */
+const rowCount = (page: Page) =>
+  page.evaluate(() => getComputedStyle(document.querySelector('.grid')!).gridTemplateRows.split(' ').length)
+
+/** 从渲染出的网格反算"已用矩形里有多少空格子"（CSS grid 线是 1 基） */
+const layoutStats = (page: Page) =>
+  page.evaluate(() => {
+    /**
+     * 终点线不能直接 Number()：GridLayout 写的是 `grid-column: x / span w`，
+     * 计算值回来是 'span 5' 这种字符串，Number 得到 NaN，整块统计就静默变成"0 空洞"
+     * —— 守卫自己先撒谎，比没有守卫更糟。
+     */
+    const endLine = (raw: string, start: number) => {
+      const n = Number(raw)
+      if (Number.isFinite(n)) return n
+      const span = /span\s+(\d+)/i.exec(raw)
+      return start + (span ? Number(span[1]) : 1)
+    }
+    const cells = [...document.querySelectorAll<HTMLElement>('.grid .cell')]
+      .map((c) => {
+        const s = getComputedStyle(c)
+        const c1 = Number(s.gridColumnStart)
+        const r1 = Number(s.gridRowStart)
+        return { c1, c2: endLine(s.gridColumnEnd, c1), r1, r2: endLine(s.gridRowEnd, r1) }
+      })
+      .filter((c) => Number.isFinite(c.c1) && Number.isFinite(c.r1))
+    const cols = Math.max(...cells.map((c) => c.c2)) - 1
+    const rows = Math.max(...cells.map((c) => c.r2)) - 1
+    const occ = new Set<string>()
+    for (const c of cells) for (let r = c.r1; r < c.r2; r++) for (let x = c.c1; x < c.c2; x++) occ.add(`${x},${r}`)
+    let holes = 0
+    for (let r = 1; r <= rows; r++) for (let x = 1; x <= cols; x++) if (!occ.has(`${x},${r}`)) holes++
+    return { cols, rows, holes, cells: cells.length }
+  })
+
+/** 首行带（顶边与网格齐平的那些卡）横向覆盖了多大比例 */
+const bandCoverage = (page: Page) =>
+  page.evaluate(() => {
+    const g = document.querySelector('.grid')!.getBoundingClientRect()
+    const cells = [...document.querySelectorAll('.grid .cell')].filter(
+      (c) => Math.abs(c.getBoundingClientRect().top - g.top) < 4,
+    )
+    const sum = cells.reduce((s, c) => s + c.getBoundingClientRect().width, 0)
+    return Math.round((sum / g.width) * 100) / 100
+  })
+
+/**
+ * 带指定版面进页面。整理/撑满这两条用它**自己喂一份乱版面**当夹具，
+ * 而不是依赖出厂版面的缺陷 —— 出厂版面修成 0 空洞之后，"靠默认的中缝来证明整理有效"
+ * 那种断言就永远空转了（这正是这一轮踩到的）。夹具就用旧版那份真实出厂坐标。
+ */
+async function freshPageWithDoc(width: number, height: number, doc: unknown): Promise<Page> {
+  const ctx = await browser.createBrowserContext()
+  const page = await ctx.newPage()
+  await page.setViewport({ width, height, deviceScaleFactor: 1 })
+  await page.evaluateOnNewDocument((d: string) => localStorage.setItem('modulo.layout.v1', d), JSON.stringify(doc))
+  await page.goto(url, { waitUntil: 'networkidle2', timeout: 30000 })
+  await settle(500)
+  return page
+}
+
+/** 2026-10-03 之前的出厂版面：clock/todo 之间空 4 列，y7、y8 两整行全空 */
+const SLOPPY_DOC = {
+  schemaVersion: 1,
+  cols: 12,
+  items: [
+    { id: 'clock', variant: 'big', x: 0, y: 0, w: 4, h: 3 },
+    { id: 'todo', variant: 'list', x: 8, y: 0, w: 4, h: 6 },
+    { id: 'sticky', variant: 'note', x: 0, y: 3, w: 2, h: 3 },
+    { id: 'notes', variant: 'overview', x: 2, y: 3, w: 4, h: 4 },
+    { id: 'recent', variant: 'bar', x: 0, y: 9, w: 12, h: 2 },
+  ],
+}
+
 const skip = !EXE
 beforeAll(async () => {
   if (!EXE) return
@@ -145,9 +226,13 @@ it.skipIf(skip)('框选 → 成组拖拽 → Ctrl+Z 整体回退', async () => {
     return { x: q.x + q.width / 2, y: q.y + 10 }
   })
   const before = await snapshot(page)
+  /**
+   * 拖得远一点：起步版面现在排得是满的，落点只要还压着别的卡，`moveMany` 就会整组拒绝
+   * （这是设计行为 —— 成组移动不做"挤开"，所以必须一路拖到内容下方那片真空区）。
+   */
   await page.mouse.move(anchor.x, anchor.y)
   await page.mouse.down()
-  await page.mouse.move(anchor.x + 60, anchor.y + 110, { steps: 8 })
+  await page.mouse.move(anchor.x + 40, anchor.y + 520, { steps: 12 })
   await page.mouse.up()
   await new Promise((r) => setTimeout(r, 300))
   expect(await snapshot(page)).not.toBe(before)
@@ -159,56 +244,62 @@ it.skipIf(skip)('框选 → 成组拖拽 → Ctrl+Z 整体回退', async () => {
   await page.close()
 })
 
-it.skipIf(skip)('整理：聚拢空洞且不报错，可一步撤销', async () => {
-  const page = await freshPage(1440, 900)
+it.skipIf(skip)('整理：把喂进去的乱版面聚回 0 空洞，可一步撤销', async () => {
+  const page = await freshPageWithDoc(1440, 900, SLOPPY_DOC)
   const errs: string[] = []
   page.on('pageerror', (e: unknown) => errs.push(String(e)))
-  /** 行轨是 1fr 会撑满视口，像素高度测不出聚拢效果，改数行轨数量 */
-  const rowCount = () =>
-    page.evaluate(() => getComputedStyle(document.querySelector('.grid')!).gridTemplateRows.split(' ').length)
-  const before = await rowCount()
-  await page.evaluate(() => {
-    ;[...document.querySelectorAll('button')].find((e) => (e.textContent || '').trim() === '整理')?.click()
-  })
-  await new Promise((r) => setTimeout(r, 400))
-  const after = await rowCount()
-  expect(after).toBeLessThan(before)
+
+  const before = await layoutStats(page)
+  expect(before.holes, '夹具本身就该带空洞（就是旧版出厂那份）').toBeGreaterThan(20)
+  const rowsBefore = await rowCount(page)
+
+  await clickTool(page, '整理')
+  await settle()
+  const after = await layoutStats(page)
+  /**
+   * 整理只负责"往上+往左聚拢"，消不掉横向中缝（那是撑满的活，§10.5 记着这条边界），
+   * 所以这里断言的是"空洞变少、总行数变小、且没有制造新的重叠"，不是 0 空洞。
+   */
+  expect(after.holes, '整理应收掉一部分空洞').toBeLessThan(before.holes)
+  expect(after.rows, '整理不该把版面变高').toBeLessThan(before.rows)
+  expect(await rowCount(page)).toBeLessThan(rowsBefore)
+
   await page.keyboard.down('Control')
   await page.keyboard.press('KeyZ')
   await page.keyboard.up('Control')
-  await new Promise((r) => setTimeout(r, 400))
-  expect(await rowCount()).toBe(before)
+  await settle()
+  expect(await layoutStats(page), '一步撤销应回到乱版面').toEqual(before)
   expect(errs).toEqual([])
   await page.close()
 })
 
-it.skipIf(skip)('撑满：首行带铺满整行宽度，可一步撤销', async () => {
-  const page = await freshPage(1440, 900)
+it.skipIf(skip)('撑满：首行带从缺角铺到满行，可一步撤销', async () => {
+  const page = await freshPageWithDoc(1440, 900, SLOPPY_DOC)
   const errs: string[] = []
   page.on('pageerror', (e: unknown) => errs.push(String(e)))
-  /** 首行带的覆盖宽度占比（不是右边缘 —— 空洞可能在中间） */
-  const bandCoverage = () =>
-    page.evaluate(() => {
-      const g = document.querySelector('.grid')!.getBoundingClientRect()
-      const cells = [...document.querySelectorAll('.grid .cell')].filter(
-        (c) => Math.abs(c.getBoundingClientRect().top - g.top) < 4,
-      )
-      const sum = cells.reduce((s, c) => s + c.getBoundingClientRect().width, 0)
-      return Math.round((sum / g.width) * 100) / 100
-    })
-  const before = await bandCoverage()
-  expect(before).toBeLessThan(0.8)
-  await page.evaluate(() => {
-    ;[...document.querySelectorAll('button')].find((e) => (e.textContent || '').trim() === '撑满')?.click()
-  })
-  await new Promise((r) => setTimeout(r, 400))
-  expect(await bandCoverage()).toBeGreaterThan(0.97)
+
+  const before = await bandCoverage(page)
+  expect(before, '夹具的首行带该有明显中缝').toBeLessThan(0.8)
+
+  await clickTool(page, '撑满')
+  await settle()
+  expect(await bandCoverage(page)).toBeGreaterThan(0.97)
+
   await page.keyboard.down('Control')
   await page.keyboard.press('KeyZ')
   await page.keyboard.up('Control')
-  await new Promise((r) => setTimeout(r, 400))
-  expect(await bandCoverage()).toBe(before)
+  await settle()
+  expect(await bandCoverage(page)).toBe(before)
   expect(errs).toEqual([])
+  await page.close()
+})
+
+it.skipIf(skip)('出厂版面：首行带铺满且整屏不留空洞', async () => {
+  const page = await freshPage(1440, 900)
+  const stats = await layoutStats(page)
+  expect(stats.cells).toBe(5)
+  expect(stats.holes, '起步版面不留空洞').toBe(0)
+  expect(await bandCoverage(page), '起步版面首行带应铺满').toBeGreaterThan(0.97)
   await page.close()
 })
 
@@ -328,7 +419,11 @@ it.skipIf(skip)('设置面板焦点陷阱：Tab 不跑出去，关闭后焦点�
 })
 
 it.skipIf(skip)('版面方案：另存为 → 改版面 → 应用旧方案可回到原坐标，改名与删除生效', async () => {
-  const page = await freshPage(1440, 900)
+  /**
+   * 用乱版面当底座，而不是在出厂版面上按「撑满」指望它变 —— 旧写法又一次是在
+   * 蹭"出厂排得松"的红利：起步版面一旦已经铺满，撑满就是恒等操作，这条断言会静默失效。
+   */
+  const page = await freshPageWithDoc(1440, 900, SLOPPY_DOC)
   const errs: string[] = []
   page.on('pageerror', (e: unknown) => errs.push(String(e)))
   const snap = () =>
@@ -358,7 +453,7 @@ it.skipIf(skip)('版面方案：另存为 → 改版面 → 应用旧方案可�
   const original = await snap()
   await page.keyboard.press('Escape')
   await new Promise((r) => setTimeout(r, 200))
-  await press('撑满')
+  await press('整理')
   await new Promise((r) => setTimeout(r, 400))
   expect(await snap()).not.toBe(original)
 
@@ -438,18 +533,12 @@ it.skipIf(skip)('收紧：按内容降低过高的卡片且不裁切内容，可
   expect((await probe()).span).toBe(before.span)
 
   /** 收紧只改 span、整理才把空行合掉：两个动作正交，组合起来才减少总行数 */
-  const rowCount = () =>
-    page.evaluate(() => getComputedStyle(document.querySelector('.grid')!).gridTemplateRows.split(' ').length)
-  const rowsBefore = await rowCount()
-  await page.evaluate(() => {
-    ;[...document.querySelectorAll<HTMLElement>('button')].find((e) => (e.textContent || '').trim() === '收紧')?.click()
-  })
-  await new Promise((r) => setTimeout(r, 300))
-  await page.evaluate(() => {
-    ;[...document.querySelectorAll<HTMLElement>('button')].find((e) => (e.textContent || '').trim() === '整理')?.click()
-  })
-  await new Promise((r) => setTimeout(r, 400))
-  expect(await rowCount()).toBeLessThan(rowsBefore)
+  const rowsBefore = await rowCount(page)
+  await clickTool(page, '收紧')
+  await settle(300)
+  await clickTool(page, '整理')
+  await settle()
+  expect(await rowCount(page)).toBeLessThan(rowsBefore)
   expect(errs).toEqual([])
   await page.close()
 })
@@ -458,29 +547,22 @@ it.skipIf(skip)('紧凑：一键等于收紧+整理，两步可分别撤销', as
   const page = await freshPage(1440, 900)
   const errs: string[] = []
   page.on('pageerror', (e: unknown) => errs.push(String(e)))
-  const rowCount = () =>
-    page.evaluate(() => getComputedStyle(document.querySelector('.grid')!).gridTemplateRows.split(' ').length)
-  const press = (t: string) =>
-    page.evaluate((label) => {
-      ;[...document.querySelectorAll<HTMLElement>('button')].find((e) => (e.textContent || '').trim() === label)?.click()
-    }, t)
-
-  const before = await rowCount()
-  await press('紧凑')
-  await new Promise((r) => setTimeout(r, 500))
-  const after = await rowCount()
+  const before = await rowCount(page)
+  await clickTool(page, '紧凑')
+  await settle(500)
+  const after = await rowCount(page)
   expect(after).toBeLessThan(before)
 
   await page.keyboard.down('Control')
   await page.keyboard.press('KeyZ')
-  await new Promise((r) => setTimeout(r, 300))
-  const mid = await rowCount()
+  await settle(300)
+  const mid = await rowCount(page)
   await page.keyboard.press('KeyZ')
   await page.keyboard.up('Control')
-  await new Promise((r) => setTimeout(r, 300))
+  await settle(300)
   // 两步历史：第一次撤销退回整理（行数可能不变），第二次必须回到起点
   expect(mid).toBeGreaterThanOrEqual(after)
-  expect(await rowCount()).toBe(before)
+  expect(await rowCount(page)).toBe(before)
   expect(errs).toEqual([])
   await page.close()
 })
