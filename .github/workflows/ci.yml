@@ -19,8 +19,8 @@ jobs:
       - run: npm ci
       - name: 类型检查
         run: npm run typecheck
-      - name: 引擎单测 + 投影属性测试
-        run: npx vitest run
+      - name: 引擎单测 + 投影属性测试（含分支覆盖 ≥90% 门禁）
+        run: npm run cover:engine
       - name: 构建
         run: npm run build
       # 与 x-hub 的反面教材相对：它写了 164 个 Rust 测试，但 CI 只跑 vue-tsc + cargo check，一个测试都不执行

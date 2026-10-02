@@ -533,6 +533,46 @@ it.skipIf(skip)('推荐布局：只出确认框，取消不动版面，确认才
   await page.close()
 })
 
+it.skipIf(skip)('拖动帧率实测：连拖期间的帧距中位数 ≤ 18.2ms（§8 第 3 条，不许估）', async () => {
+  const page = await freshPage(1440, 900)
+  await enterEditor(page)
+  /** rAF 采样器：记录每一帧的时间戳，拖动结束后算帧距分布。中位数比平均值抗抖。 */
+  await page.evaluate(() => {
+    const w = window as unknown as { __frames: number[] }
+    w.__frames = []
+    const tick = (t: number) => {
+      w.__frames.push(t)
+      if (w.__frames.length < 400) requestAnimationFrame(tick)
+    }
+    requestAnimationFrame(tick)
+  })
+  const anchor = await page.evaluate(() => {
+    const q = document.querySelector('.cell')!.getBoundingClientRect()
+    return { x: q.x + q.width / 2, y: q.y + 10 }
+  })
+  await page.mouse.move(anchor.x, anchor.y)
+  await page.mouse.down()
+  for (let i = 0; i < 40; i++) {
+    await page.mouse.move(anchor.x + (i % 2 ? 90 : -90), anchor.y + i * 4, { steps: 2 })
+  }
+  await page.mouse.up()
+  await new Promise((r) => setTimeout(r, 300))
+
+  const s = await page.evaluate(() => {
+    const f = (window as unknown as { __frames: number[] }).__frames
+    const d: number[] = []
+    for (let i = 1; i < f.length; i++) d.push(f[i] - f[i - 1])
+    d.sort((a, b) => a - b)
+    const q = (p: number) => d[Math.min(d.length - 1, Math.floor(d.length * p))]
+    return { frames: f.length, median: q(0.5), p95: q(0.95) }
+  })
+  /** headless 的 rAF 节奏本身就未必稳，样本太少时这条断言没有意义，先要求采到足够帧 */
+  console.log(`[拖动帧距实测] frames=${s.frames} median=${s.median.toFixed(1)}ms p95=${s.p95.toFixed(1)}ms`)
+  expect(s.frames, 'rAF 采样帧数').toBeGreaterThan(40)
+  expect(s.median, `帧距中位数 ${s.median.toFixed(1)}ms（p95 ${s.p95.toFixed(1)}ms）`).toBeLessThanOrEqual(18.2)
+  await page.close()
+})
+
 it.skipIf(skip)('窄屏编辑器自动切堆叠模式，不给出挤成一团的画布', async () => {
   const page = await freshPage(390, 844)
   await enterEditor(page)
