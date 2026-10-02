@@ -4,6 +4,7 @@ param(
   [int]$ProcId = 0,
   [long]$Hwnd = 0,
   [string]$SendKeys = '',
+  [int]$WatchMs = 0,
   [switch]$FullSession,
   [switch]$State,
   [switch]$Restore
@@ -42,7 +43,11 @@ public static class Win32 {
       uint p;
       GetWindowThreadProcessId(h, out p);
       if (p != pid) return true;
-      if (!IsWindowVisible(h) && !IsIconic(h)) return true;
+      // 只在「可见且非图标态」的窗口里挑：这里被调用的时机是"还没钉住句柄"的那一次（启动首轮），
+      // 而主窗口还没建起来时，进程里先出现的往往是图标态窗口（GetWindowRect 给出 -32000 那种垃圾值）。
+      // 让它赢，后面所有读数都是错的 —— 探针实测因此成对红了「夹取尺寸 + 居中」两条。
+      // 已经钉住句柄之后的最小化/隐藏状态走 -Hwnd 直读，不经过这里，所以这个收紧不影响那些检查。
+      if (!IsWindowVisible(h) || IsIconic(h)) return true;
       RECT r;
       if (!GetWindowRect(h, out r)) return true;
       long a = Math.Abs((long)(r.Right - r.Left) * (long)(r.Bottom - r.Top));
@@ -89,7 +94,36 @@ function Save-Bmp([System.Drawing.Bitmap]$bmp, [string]$path) {
 # 不碰物理键盘的前提下验证「全局快捷键真的被 OS 投递」的办法（CDP 合成键只在页面里，到不了系统）。
 if ($SendKeys) {
   $wsh = New-Object -ComObject WScript.Shell
+  # 投递之前先在同一个进程里读一次可见性。JS 侧每次采样都要重新起一个 PowerShell（实测 1.1–1.3 秒），
+  # 而 hide/show 就在投递后几十毫秒内发生完 —— 事后再读只能看到"最后是什么状态"，
+  # 分不清是热键真的翻转过，还是压根没动（第一轮改就是这个歧义，"唤出"那条其实白过）。
+  $preSendVisible = $null
+  if ($WatchMs -gt 0 -and $Hwnd -ne 0) { $preSendVisible = [Win32]::IsWindowVisible([IntPtr]$Hwnd) }
   $wsh.SendKeys($SendKeys)
+  # 投递后接一段高频跟踪（50ms 一跳）：一整趟「收起 → 唤出」往返可能在两次跨进程采样之间跑完。
+  if ($WatchMs -gt 0 -and $Hwnd -ne 0) {
+    $h = [IntPtr]$Hwnd
+    $v = $preSendVisible
+    $everHidden = $preSendVisible -eq $false
+    $everVisible = $preSendVisible -eq $true
+    $samples = 0
+    $hiddenSamples = 0
+    $deadline = (Get-Date).AddMilliseconds($WatchMs)
+    do {
+      $v = [Win32]::IsWindowVisible($h)
+      $samples++
+      if (-not $v) { $hiddenSamples++; $everHidden = $true } else { $everVisible = $true }
+      Start-Sleep -Milliseconds 50
+    } while ((Get-Date) -lt $deadline)
+    Write-Output (@{
+      preSendVisible  = $preSendVisible
+      finalVisible    = $v
+      everHidden      = $everHidden
+      everVisible     = $everVisible
+      hiddenSamples   = $hiddenSamples
+      samples         = $samples
+    } | ConvertTo-Json -Compress)
+  }
   exit 0
 }
 

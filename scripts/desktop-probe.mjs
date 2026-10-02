@@ -1,5 +1,5 @@
 import { spawn, spawnSync } from 'node:child_process'
-import { mkdirSync, readFileSync, rmSync } from 'node:fs'
+import { appendFileSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { join, resolve } from 'node:path'
 import puppeteer from 'puppeteer-core'
 
@@ -70,8 +70,28 @@ async function launch(extraEnv = {}) {
     if (!page) await sleep(250)
   }
   if (!page) throw new Error('CDP 已连上但找不到主页面')
-  // 趁窗口还是正常尺寸把句柄钉死，后面最小化/隐藏时再查就不可靠了
-  if (!state().running) throw new Error('启动后找不到主窗口')
+  /**
+   * 句柄要钉在「主窗口已经成形」之后。图标态窗口的 `GetWindowRect` 就是 (-32000,-32000,237,39)
+   * 这种垃圾值，而一旦钉上去，这一轮后面每条 Win32 断言读的都是它 —— 轮询等多久都不会自己变对
+   * （实测「夹取尺寸 + 居中」两条因此成对红，四轮里中了两次）。
+   * 分不清是辅助窗口抢下还是主窗口自己在图标态，所以两条都堵：筛子只收可见非图标态
+   * （见 shot-window.ps1），这里每轮重试前把 hwnd 清 0 强制重新解析，等不到就抛。
+   */
+  let s = state()
+  for (let i = 0; i < 30 && !(s.running && s.iconic === false && s.rect && s.rect.w > 400); i++) {
+    hwnd = 0
+    await sleep(300)
+    s = state()
+  }
+  if (!s.running) throw new Error('启动后找不到主窗口')
+  /**
+   * 等不到就别继续：钉在图标态窗口上，后面每一条 Win32 断言读到的都是垃圾值，
+   * 表现是「固定成对的两条红」，很容易被误读成产品缺陷（这两轮就是这么绕路的）。
+   * 停在这里，红也只红一条，并且名字会说清是探针没拿到窗口。
+   */
+  if (s.iconic !== false || !s.rect || s.rect.w <= 400) {
+    throw new Error(`启动后 9 秒内没拿到可见的主窗口，最后读到的是 ${JSON.stringify(s)}`)
+  }
   return { child, browser, page }
 }
 
@@ -269,23 +289,46 @@ try {
   check('分派裸 dblclick 不改变窗口状态（没有第二处处理者）', Math.abs(state().rect.w - restored.w) < 40)
 
   // ---- 全局快捷键：往系统输入队列真投一次召唤键，看窗口是否响应 ----
-  // 双重验证 = 正例（投递后收起、再投递后回来）+ 反例（旧默认档 Alt+Shift+M 不再起作用）。
+  // 双重验证 = 正例（投递后真的收起过、再投递后真的唤出）+ 反例（旧默认档不再起作用）。
   // 反例是必需的：本机注册表 HKCU\Keyboard Layout\Toggle\HotKey=1（左 Alt+Shift 切输入法），
   // 此前这条一直红就是被输入法吃掉的；只测正例时，窗口被别的东西碰一下也可能算过。
+  //
+  // 为什么投递后要立刻在 ps1 里做高频跟踪，而不是在 JS 侧轮询：一次 `state()` 采样要重新起一个
+  // PowerShell（实测 1.1–1.3 秒），而「收起 → 唤出」一整趟往返可以短到一秒内 —— 粒度太粗就抓不到，
+  // 于是出现过「注册是绿的、投递说窗口没收起」连红两轮。现在判据看的是**翻转**（startVisible≠finalVisible）
+  // 加**这一趟里真的隐过**（everHidden），既不会白过，也不会被慢采样骗过去。
   const summon = Array.isArray(reg) ? reg.find((r) => r.kind === 'summon') : undefined
+  const deliver = (chord, watchMs = 2600) => {
+    const r = runPs(['-Out', 'x', ...target(), '-SendKeys', chord, '-WatchMs', String(watchMs)])
+    const line = (r.stdout || '').trim().split('\n').pop()
+    // sendErr 单独记：投递命令没跑成（COM/SendKeys 在某些执行上下文里会被吞掉）和
+    // 「投了但热键没响应」是两件事，混在一条红里就查不动了。
+    const sendErr = r.status !== 0 || !!r.error ? String(r.error || r.stderr || '').slice(0, 140) : null
+    try {
+      return { chord, sendErr, ...JSON.parse(line) }
+    } catch {
+      return { chord, sendErr, error: (r.stderr || line || 'ps1 没有输出').toString().slice(0, 140) }
+    }
+  }
+  /**
+   * 一次按键 = 一次翻转，起点用 ps1 在**投递前几毫秒**读的那次可见性（preSendVisible）。
+   * 之前试过两种写法，都不成立：
+   * - JS 侧先 `state()` 再投递：中间隔着一次 1.1–1.3 秒的跨进程采样，窗口被人碰一下就说不清了；
+   * - 只断言"投递之后 visible 变成了 X"：唤出那条会白过（起点本来就是可见时它也成立）。
+   * 现在三条判据都要起点+终点+中间真的动过，缺一不绿。
+   */
+  const wentHidden = (w) => w.preSendVisible === true && w.everHidden === true && w.finalVisible === false
+  const cameBack = (w) => w.preSendVisible === false && w.everVisible === true && w.finalVisible === true
+  const untouched = (w) => w.preSendVisible === true && w.everHidden === false && w.finalVisible === true
   const sendChord = summon?.registered ? toSendKeys(summon.keys) : null
   if (sendChord) {
-    const visBefore = state().visible
-    runPs(['-Out', 'x', '-SendKeys', sendChord])
-    const hid = (await waitUntil((s) => s.visible === false)).ok
-    check(`${summon.keys}（SendKeys ${sendChord}）经系统投递后窗口收起`, visBefore === true && hid, { visBefore, hid })
-    runPs(['-Out', 'x', '-SendKeys', sendChord])
-    const shown = await waitUntil((s) => s.visible === true)
-    check(`再按一次 ${summon.keys} 窗口回来`, shown.ok, { waitedMs: shown.waited })
+    const w1 = deliver(sendChord)
+    check(`${summon.keys}（SendKeys ${sendChord}）经系统投递后窗口收起`, wentHidden(w1), { w1 })
+    const w2 = deliver(sendChord)
+    check(`再投递一次 ${summon.keys} 唤出`, cameBack(w2), { w2 })
 
-    runPs(['-Out', 'x', '-SendKeys', '%+m'])
-    await sleep(700)
-    check('旧默认档 Alt+Shift+M 已不再触发（输入法冲突已避开）', state().visible === true, state())
+    const neg = deliver('%+m')
+    check('旧默认档 Alt+Shift+M 已不再触发（输入法冲突已避开）', untouched(neg), { neg })
   } else {
     console.log('SKIP  召唤键系统投递（未注册成功，或组合键含 Win 键、SendKeys 表达不了）')
   }
@@ -319,16 +362,18 @@ try {
   check(`改键：注册 ${REBIND_TO} 成功`, rebound.ok && rebound.keys === REBIND_TO, rebound)
   if (rebound.ok) {
     const keys = toSendKeys(REBIND_TO)
-    runPs(['-Out', 'x', '-SendKeys', keys])
-    const hidNew = (await waitUntil((s) => s.visible === false)).ok
-    runPs(['-Out', 'x', '-SendKeys', keys])
-    const shownNew = (await waitUntil((s) => s.visible === true)).ok
-    check('改键后新组合键经系统投递可用（收起 + 唤出）', hidNew && shownNew, { hidNew, shownNew })
+    const preNew = state().visible
+    const wNew1 = deliver(keys)
+    const wNew2 = deliver(keys)
+    check(
+      '改键后新组合键经系统投递可用（收起 + 唤出）',
+      wentHidden(wNew1, preNew) && cameBack(wNew2),
+      { preNew, wNew1, wNew2 },
+    )
 
     if (sendChord) {
-      runPs(['-Out', 'x', '-SendKeys', toSendKeys(original)])
-      await sleep(700)
-      check('改键后旧组合键不再响应（没有留双绑）', state().visible === true, state())
+      const wOld = deliver(toSendKeys(original))
+      check('改键后旧组合键不再响应（没有留双绑）', untouched(wOld), { wOld })
     }
     // 换回来。这一步不能抛：默认档本身被别的程序占着时（本机实测 Ctrl+Alt+M/T 返回 1409），
     // 抛出来会把后面十几条检查一起带走 —— 那是「一条环境问题毁掉整轮」，不是产品缺陷。
@@ -555,18 +600,29 @@ try {
 let clampApp = null
 try {
   clampApp = await launch({ MODULO_WANT_SIZE: '2600x1500' })
-  await sleep(1500)
-  const cs = state()
   const cdpr = await clampApp.page.evaluate(() => window.devicePixelRatio)
-  const clampW = Math.round(fit(cs.work.w / cdpr, 2600, 380) * cdpr)
-  const clampH = Math.round(fit(cs.work.h / cdpr, 1500, 560) * cdpr)
+  const first = state()
+  const clampW = Math.round(fit(first.work.w / cdpr, 2600, 380) * cdpr)
+  const clampH = Math.round(fit(first.work.h / cdpr, 1500, 560) * cdpr)
+  /**
+   * 轮询到「夹取真的落地」再断言。原来这里是一次固定 sleep(1500) + 单次采样，
+   * 于是连着两轮 45/47 都是这两条同时红 —— `fit_window` 的 set_size + center() 是跨进程异步调用，
+   * 上一轮实例刚退出时冷启动会超过 1.5 秒，量到的是夹取前的矩形。这是把「慢」报成「坏」，
+   * 而这条正是前面已经修过六遍的那个模式，我在这个新增块里又写了一遍。
+   * 判据仍然可证伪：真不夹取，谓词永远不成立，8 秒后照样红。
+   */
+  const clamped = await waitUntil(
+    (s) => !!s.rect && Math.abs(s.rect.w - clampW) <= 40 && Math.abs(s.rect.h - clampH) <= 40,
+    { timeout: 8000 },
+  )
+  const cs = clamped.s
   check(
     '夹取分支实测：期望尺寸顶过工作区后被逐轴夹住',
-    !!cs.rect && Math.abs(cs.rect.w - clampW) <= 40 && Math.abs(cs.rect.h - clampH) <= 40,
-    { want: '2600x1500', dpr: cdpr, work: cs.work, rect: cs.rect, expect: { w: clampW, h: clampH } },
+    clamped.ok,
+    { want: '2600x1500', dpr: cdpr, waitedMs: clamped.waited, work: cs.work, rect: cs.rect, expect: { w: clampW, h: clampH } },
   )
   /** center() 是按可见外框居中的，GetWindowRect 含不可见边框，所以留 24px 余量 */
-  const offCenter = Math.abs(cs.rect.x - (cs.work.x + (cs.work.w - cs.rect.w) / 2))
+  const offCenter = cs.rect ? Math.abs(cs.rect.x - (cs.work.x + (cs.work.w - cs.rect.w) / 2)) : NaN
   check('夹取后窗口居中（左右留白对称）', offCenter <= 24, { offCenter, x: cs.rect?.x, work: cs.work })
 } catch (err) {
   check('夹取分支自检未抛异常', false, String(err).slice(0, 200))
@@ -576,4 +632,30 @@ try {
 
 const failed = report.filter((r) => !r.pass)
 console.log(`\n${report.length - failed.length}/${report.length} 通过`)
+/**
+ * 逐项结果落盘 + 一行历史。红过的那一轮如果只存在终端 scrollback 里（或者输出被 tail 截了），
+ * 就再也问不出是哪两条红、是「慢」还是「坏」—— 抖动必须能归因，不然只能重跑赌绿。
+ * 写在 evidence/ 而不是 evidence/desktop/：后者每轮开头会被 rmSync 清空。
+ */
+writeFileSync(
+  join('evidence', 'probe-report.json'),
+  JSON.stringify(
+    {
+      at: new Date().toISOString(),
+      exe: EXE,
+      passed: report.length - failed.length,
+      total: report.length,
+      failed: failed.map((f) => f.name),
+      checks: report,
+    },
+    null,
+    2,
+  ),
+)
+appendFileSync(
+  join('evidence', 'probe-history.log'),
+  `${new Date().toISOString()} ${report.length - failed.length}/${report.length}${
+    failed.length ? '  FAIL: ' + failed.map((f) => f.name).join(' | ') : ''
+  }\n`,
+)
 process.exit(failed.length ? 1 : 0)
