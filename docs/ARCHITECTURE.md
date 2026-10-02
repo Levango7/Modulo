@@ -348,7 +348,7 @@ MVP 先做 A1，A2 留一个 `projection.a2.test.ts` 做对照实验。不在没
 - `tests/e2e/layout.spec.ts` —— 18 条真浏览器断言（vitest + puppeteer-core 驱动系统 Chrome，CI 上走 `CHROME_PATH=/usr/bin/google-chrome`）：三档视口的列数/溢出/裁字/最小字号、固定行高与卡片高度一致、编辑器可聚焦格 >0、方向键移动 + Ctrl+Z 回退、框选→成组拖拽→整体撤销、空格选入与删除后焦点落位、设置面板焦点陷阱、整理/撑满/收紧/紧凑各自的效果与分步撤销、方案册另存→应用→改名→删除、窄屏自动堆叠、版面模板选择器（点卡片换版面 / Esc 关闭不动 / 一步撤销 / 迷你示意齐全）、首启自动弹一次且挑过之后不再拦、拖拽帧率实测（rAF 采样，§8 第 3 条）、方案册键盘与拖拽排序跨重启保留、拖拽全程零 console 报错、出厂版面首行带铺满且整屏 0 空洞（§11.5）。**整理/撑满/方案册那三条不再吃出厂版面的红利** —— 它们现在自己喂一份乱版面当夹具（`SLOPPY_DOC`），因为出厂版面已经不烂了。
 - `vitest.e2e.setup.ts` 用 vite 的 `build()` + `preview({port:0})` 起随机端口，避免与本机其它 dev server 抢端口。
 - `npm run verify` = typecheck（`tsconfig.json` 管 `src/**` + `tests/**`（排除 e2e）、`tsconfig.e2e.json` 只管 `tests/e2e/**`，两份 `lib` 都带 DOM —— 分层是**按 include 范围**分的，不是按有没有 DOM；早先记的"产品代码拿不到 `document`"已经不成立）→ 单测 → 构建 → E2E。`.github/workflows/ci.yml` 的 `verify` job 就按这四步跑。
-- **桌面自检也进 CI（2026-10-03，观察态）**：`desktop` job 打完工件后 `npm run desktop:probe`，并把 `evidence/probe-report.json` 用 `if: always()` 传上来。**这一步现在挂 `continue-on-error: true`**：探针依赖交互会话能收 `SendKeys`（`shot-window.ps1` 走 WScript.Shell → SendInput），这点在本机为真、在 windows-latest 上还没实测过 —— 不拿未验证的配置去拦发布，看到一次绿就把旗标摘掉，让它变成真门禁。这也是 §11.4 那条"探针必须在要发的那颗二进制上跑"的 CI 化。
+- **桌面自检在 CI 挂过一步，2026-10-03 当天加了又摘了**：加它是要把 §11.4 那条"探针必须跑在要发的那颗二进制上"CI 化；摘它是因为下面那串排查证明**它在 runner 上量不到任何东西**。现在 `desktop` job 是 10 步（`cargo fmt` → `clippy` → `cargo test` → 打包 exe → 上传产物），没有 `continue-on-error`，也没有观测步骤。留这段排查不是因为好看 —— 它钉住了三条通用的测量纪律。
 - **首次 runner 实跑（`c4a05a5`，run 37069233154）：探针是红的，而那一步显示 `success`。** 把 `probe-report` artifact 下载回来才看见真相：`passed: 0 / total: 2`，两条都是外层 catch 记的「自检过程未抛异常」，detail 为 `Failed to fetch browser webSocket URL from http://127.0.0.1:9223/json/version: fetch failed`。由此钉住两件：
   1. **`continue-on-error: true` 的步骤失败后 conclusion 仍报 `success`** —— 不是脚本漏了退出码（`desktop-probe.mjs:678` 一直是"有红就 exit 1"，本机 49/49 那轮就是这么来的），是 GitHub 把容忍掉的失败写成成功。所以**这类步骤的绿一律不作数，必须读 artifact**。
   2. 卡点在 **CDP 端口没监听**：`launch()` 先以 60×500ms 轮询 `http://127.0.0.1:PORT/json/list`，再 `puppeteer.connect`（`desktop-probe.mjs:55-63`）—— **Win32 钉窗口那段在 connect 之后**（`:78` 起）。日志时间差正好 30.7 秒（21:55:14.907 起步 → 21:55:45.615 报红），就是那 30 秒轮询耗尽后 connect 立刻抛。所以**这条红没有给出任何关于窗口的信息**：runner 上窗口到底出没出来，仍是未知。我第一版这里写的是"探针已过钉窗口那一关、窗口确实出来了"，那是**读错了代码顺序**，已就地收回；同理"runner 收不到 `SendKeys"这个假设也仍然没有被检验过。下一步是给失败路径加自述（子进程退出码、`modulo.exe` / `msedgewebview2.exe` 进程数、端口是否监听、真正传给子进程的远调参数），让下一次 runner 的红自己交代原因，而不是继续在本地猜。
@@ -362,6 +362,7 @@ MVP 先做 A1，A2 留一个 `projection.a2.test.ts` 做对照实验。不在没
   顺带把开头那个假设正式请出去：**"runner 的交互会话收不到 `SendKeys`"从头到尾没被检验过** —— 探针三次都死在连 CDP 这一步，投递那段代码一行没执行。当时把它写进文档是因为它"听起来合理"，这是典型的拿假设当结论。
   **仍然未知的**：为什么 153 上不生效。两种可能之间没切开 —— (a) 旧 runtime/loader 对该环境变量的支持路径不同；(b) 环境变量与调用方显式传入的 args 冲突时优先级不同。区分它需要把参数改由 Rust 侧传（改产品代码，且会改变所有用户的 WebView2 启动参数），**为一个 CI 步骤的便利去动用户机器的行为，收益不匹配**，所以不做。
   **因此这条自检的定位定死**：桌面探针是**发布前的本机门禁**（必须跑在要发的那颗二进制上，见 §11.4），CI 里那一步只作观测。它升为真门禁的前提不是"等一次绿"，而是"runner 上拿得到 CDP" —— 目前没有可行路径；如果哪天要收，就该把这步从 CI 里摘掉，而不是留着一个每次都红的观测。
+- **摘除已执行**：`.github/workflows/ci.yml` 删掉了探针步骤和 `probe-report` 的 artifact 上传，`desktop` job 回到 10 步、无 `continue-on-error`（改完用 `yaml.safe_load` 解析核对过步数与残留）。判据很简单：**一步红既不拦发布、又不携带可用信息，就只是噪音** —— 而噪音会让下一个真的红被当成同类忽略。
 - 首批 CI 落地时的本地实测：103 单测 + 5 E2E 全绿，E2E 约 43s（含构建）；此后各轮持续增补，当前规模看 README。
 
 对照 §1 那条事实——x-hub 写了 164 个 Rust 测试但 CI 只跑 `vue-tsc + cargo check`，一个测试都不执行——这条 CI 是它的反面教材，不是可选项。
