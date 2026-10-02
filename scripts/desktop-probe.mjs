@@ -113,6 +113,28 @@ const clickText = (page, label) =>
   }, label)
 
 /**
+ * 把 Rust 侧的组合键字符串翻译成 SendKeys 语法：Ctrl→^、Alt→%、Shift→+，
+ * 单字符直接写、其余套大括号（F13 → {F13}）。Win/Super 键 SendKeys 表达不了，返回 null 让调用方跳过。
+ * 之所以从「实际注册的键」现算而不是写死字符串：默认档换过、用户改过键，这条检查都不用跟着动。
+ */
+const toSendKeys = (chord) => {
+  const parts = String(chord)
+    .split('+')
+    .map((p) => p.trim())
+    .filter(Boolean)
+  if (parts.length < 2) return null
+  const mark = { ctrl: '^', control: '^', alt: '%', option: '%', shift: '+' }
+  let prefix = ''
+  for (const raw of parts.slice(0, -1)) {
+    const m = mark[raw.toLowerCase()]
+    if (m === undefined) return null
+    prefix += m
+  }
+  const key = parts.at(-1)
+  return prefix + (key.length === 1 ? key.toLowerCase() : `{${key}}`)
+}
+
+/**
  * 等窗口状态迁移落地，而不是固定 sleep 之后采一次。
  * 窗口动作是异步跨进程调用，重建后的首次运行实测会慢过 1.2s（上一轮三条红就是这么来的）；
  * 固定 sleep 会把「慢」误报成「坏」。waited 一并带出去，方便看真实延迟。
@@ -174,6 +196,12 @@ try {
     '全局快捷键注册成功',
     Array.isArray(reg) && reg.length === 2 && reg.every((r) => r.registered),
     reg,
+  )
+  // 前端「改键」按钮按 kind 定位某一条，靠中文 label 匹配是错的（label 会随文案改）
+  check(
+    '两条快捷键都带稳定标识 kind',
+    Array.isArray(reg) && ['summon', 'ontop'].every((k) => reg.some((r) => r.kind === k)),
+    { kinds: (reg ?? []).map((r) => r.kind) },
   )
 
   await page.screenshot({ path: `${OUT}/01-titlebar.png` })
@@ -240,32 +268,92 @@ try {
   await sleep(900)
   check('分派裸 dblclick 不改变窗口状态（没有第二处处理者）', Math.abs(state().rect.w - restored.w) < 40)
 
-  // ---- 全局快捷键：往系统输入队列真投一次 Alt+Shift+M，看窗口是否响应 ----
-  const regOk = Array.isArray(reg) && reg.length === 2 && reg.every((r) => r.registered)
-  if (regOk) {
+  // ---- 全局快捷键：往系统输入队列真投一次召唤键，看窗口是否响应 ----
+  // 双重验证 = 正例（投递后收起、再投递后回来）+ 反例（旧默认档 Alt+Shift+M 不再起作用）。
+  // 反例是必需的：本机注册表 HKCU\Keyboard Layout\Toggle\HotKey=1（左 Alt+Shift 切输入法），
+  // 此前这条一直红就是被输入法吃掉的；只测正例时，窗口被别的东西碰一下也可能算过。
+  const summon = Array.isArray(reg) ? reg.find((r) => r.kind === 'summon') : undefined
+  const sendChord = summon?.registered ? toSendKeys(summon.keys) : null
+  if (sendChord) {
     const visBefore = state().visible
+    runPs(['-Out', 'x', '-SendKeys', sendChord])
+    const hid = (await waitUntil((s) => s.visible === false)).ok
+    check(`${summon.keys}（SendKeys ${sendChord}）经系统投递后窗口收起`, visBefore === true && hid, { visBefore, hid })
+    runPs(['-Out', 'x', '-SendKeys', sendChord])
+    const shown = await waitUntil((s) => s.visible === true)
+    check(`再按一次 ${summon.keys} 窗口回来`, shown.ok, { waitedMs: shown.waited })
+
     runPs(['-Out', 'x', '-SendKeys', '%+m'])
-    let hid = false
-    for (let i = 0; i < 12 && !hid; i++) {
-      await sleep(250)
-      hid = state().visible === false
-    }
-    check('Alt+Shift+M 经系统投递后窗口收起', visBefore === true && hid, { visBefore, hid })
-    runPs(['-Out', 'x', '-SendKeys', '%+m'])
-    let shown = false
-    for (let i = 0; i < 12 && !shown; i++) {
-      await sleep(250)
-      shown = state().visible === true
-    }
-    check('再按一次 Alt+Shift+M 窗口回来', shown)
+    await sleep(700)
+    check('旧默认档 Alt+Shift+M 已不再触发（输入法冲突已避开）', state().visible === true, state())
   } else {
-    console.log('SKIP  Alt+Shift+M 系统投递（注册未成功，先修上面的注册检查）')
+    console.log('SKIP  召唤键系统投递（未注册成功，或组合键含 Win 键、SendKeys 表达不了）')
+  }
+
+  // ---- 改键：裸键必须被拒。windows-gnu 下引用 parse_chord 会让 Rust 测试二进制加载失败，
+  // 这条只能端到端验（见 lib.rs 里 parse_chord 的注释）。
+  const bare = await page.evaluate(async () => {
+    try {
+      await window.__TAURI_INTERNALS__.invoke('set_shortcut', { kind: 'summon', chord: 'M' })
+      return { rejected: false }
+    } catch (err) {
+      return { rejected: true, reason: String(err) }
+    }
+  })
+  check('没有修饰键的裸键被拒', bare.rejected === true, bare)
+
+  // ---- 改键真的可用：换成 Ctrl+Alt+F13（本机没有这个物理键、也没人抢），投递验一次再换回默认 ----
+  const REBIND_TO = 'Ctrl+Alt+F13'
+  const original = summon?.keys ?? ''
+  const rebound = await page.evaluate(
+    async (chord) => {
+      try {
+        const r = await window.__TAURI_INTERNALS__.invoke('set_shortcut', { kind: 'summon', chord })
+        return { ok: true, keys: r.keys }
+      } catch (err) {
+        return { ok: false, reason: String(err) }
+      }
+    },
+    REBIND_TO,
+  )
+  check(`改键：注册 ${REBIND_TO} 成功`, rebound.ok && rebound.keys === REBIND_TO, rebound)
+  if (rebound.ok) {
+    const keys = toSendKeys(REBIND_TO)
+    runPs(['-Out', 'x', '-SendKeys', keys])
+    const hidNew = (await waitUntil((s) => s.visible === false)).ok
+    runPs(['-Out', 'x', '-SendKeys', keys])
+    const shownNew = (await waitUntil((s) => s.visible === true)).ok
+    check('改键后新组合键经系统投递可用（收起 + 唤出）', hidNew && shownNew, { hidNew, shownNew })
+
+    if (sendChord) {
+      runPs(['-Out', 'x', '-SendKeys', toSendKeys(original)])
+      await sleep(700)
+      check('改键后旧组合键不再响应（没有留双绑）', state().visible === true, state())
+    }
+    // 换回来。这一步不能抛：默认档本身被别的程序占着时（本机实测 Ctrl+Alt+M/T 返回 1409），
+    // 抛出来会把后面十几条检查一起带走 —— 那是「一条环境问题毁掉整轮」，不是产品缺陷。
+    const restoredBack = await page.evaluate(
+      async (chord) => {
+        try {
+          const r = await window.__TAURI_INTERNALS__.invoke('set_shortcut', { kind: 'summon', chord })
+          return { ok: true, keys: r.keys, registered: r.registered }
+        } catch (err) {
+          return { ok: false, reason: String(err) }
+        }
+      },
+      original,
+    )
+    if (summon?.registered) {
+      check(`换回默认组合键 ${original}`, restoredBack.ok && restoredBack.keys === original, restoredBack)
+    } else {
+      console.log(`SKIP  换回默认组合键 ${original}（默认档本轮就没注册上，换回去也必然失败：${restoredBack.reason ?? restoredBack.keys}）`)
+    }
   }
 
   // ---- 真实 GPU 下的帧距：E2E 那条只能测 headless，这里在 WebView2 上重测一次 ----
   // 用整版重排（撑满 → 整理）压出让位动画与全网格重绘，采样 rAF 间隔；
-  // 结束后撤销回原状，不给用户存档留副作用。阈值与 E2E 一致：中位 ≤18.2ms（≈55fps）、
-  // p95 ≤33.4ms（不允许掉到 30fps 以下）。
+  // 结束后撤销回原状，不给用户存档留副作用。门槛是 min(18.2ms, 1.5×空闲基线) —— 只用 E2E 那个
+  // 绝对值 18.2ms 在高刷屏上形同虚设（本机 240Hz、基线 4.2ms，掉到 60fps 都算过）；p95 ≤33.4ms（不许掉到 30fps 以下）。
   const layoutSig = () =>
     page.evaluate(() =>
       [...document.querySelectorAll('.grid .cell')]
@@ -372,6 +460,72 @@ try {
   await sleep(400)
   const shellOn = await app.page.evaluate(() => document.querySelector('.panel input[type="checkbox"]')?.checked === true)
   check('开关能拨动', shellOn)
+
+  // ---- 设置页的「改键」录制：合成 keydown 走的是真 DOM 路径（document 捕获阶段），
+  // 但不是 OS 输入 —— 只验「按下去拼成什么组合键、有没有落到 Rust」，投递本身在上面那块已验过。
+  await clickIn(app.page, '.panel .keys .rec')
+  check('快捷键每一行都有「改键」按钮', await app.page.evaluate(() => !!document.querySelector('.panel .keys .rec.live')))
+
+  const summonKeys = () =>
+    app.page.evaluate(async () => (await window.__TAURI_INTERNALS__.invoke('global_shortcuts')).find((s) => s.kind === 'summon').keys)
+  const press = (init) =>
+    app.page.evaluate((i) => document.dispatchEvent(new KeyboardEvent('keydown', { bubbles: true, ...i })), init)
+  // 把「Ctrl+Alt+Shift+M」这形状的组合键还原成一次 keydown：录制端读的是 event.code 和四个
+  // 修饰位，所以这里必须照抄修饰键 —— 少给一个 Shift，界面拼出来的就是另一个组合键。
+  const chordEvent = (chord) => {
+    const tokens = chord.split('+').map((t) => t.trim())
+    const mods = tokens.slice(0, -1).map((t) => t.toLowerCase())
+    const key = tokens.at(-1)
+    const code = /^[A-Z]$/i.test(key) ? `Key${key.toUpperCase()}` : /^[0-9]$/.test(key) ? `Digit${key}` : key
+    return {
+      code,
+      key: key.toLowerCase(),
+      ctrlKey: mods.includes('ctrl') || mods.includes('control'),
+      altKey: mods.includes('alt') || mods.includes('option'),
+      shiftKey: mods.includes('shift'),
+      metaKey: mods.includes('super') || mods.includes('win') || mods.includes('cmd'),
+    }
+  }
+  // 基线从「当前实际生效的键」取，不写死默认档：上一轮探针若在录制块中途挂掉，存档里留的就是改过的键，
+  // 写死默认组合会让下一轮凭空红一条。
+  const base0 = await summonKeys()
+  const swap = base0 === 'Ctrl+Alt+B' ? 'Ctrl+Alt+M' : 'Ctrl+Alt+B'
+
+  await press({ code: 'ControlLeft', key: 'Control', ctrlKey: true })
+  await sleep(300)
+  check(
+    '只按修饰键不提交（还在录制，键没变）',
+    (await summonKeys()) === base0 && (await app.page.evaluate(() => !!document.querySelector('.panel .keys .rec.live'))),
+  )
+
+  await press({ code: 'Escape', key: 'Escape' })
+  await sleep(200)
+  check(
+    'Esc 取消录制：退出录制状态且不改键',
+    (await app.page.evaluate(() => !document.querySelector('.panel .keys .rec.live'))) && (await summonKeys()) === base0,
+  )
+
+  await clickIn(app.page, '.panel .keys .rec')
+  await press(chordEvent(swap))
+  await sleep(500)
+  const shownKeys = await app.page.evaluate(() => document.querySelector('.panel .keys kbd')?.textContent)
+  check(`录制 ${swap}：Rust 换键、界面上的 kbd 跟着换`, (await summonKeys()) === swap && shownKeys === swap, { shownKeys })
+
+  let shellSaved = null
+  try {
+    shellSaved = JSON.parse(readFileSync(join(dir, 'modulo.shell.v1.json'), 'utf8'))
+  } catch {
+    /* 下面断言会报出来 */
+  }
+  check('改过的键写进了 appData 的 shell 存档（不是只活在内存里）', shellSaved?.summon === swap, {
+    file: join(dir, 'modulo.shell.v1.json'),
+    summon: shellSaved?.summon,
+  })
+
+  await clickIn(app.page, '.panel .keys .rec')
+  await press(chordEvent(base0))
+  await sleep(500)
+  check(`再录一次换回基线 ${base0}`, (await summonKeys()) === base0, { keys: await summonKeys() })
 
   await clickIn(app.page, '.tb-btn[aria-label="关闭"]')
   const hidden = await waitUntil((s) => s.running && s.visible === false && s.iconic === false)
