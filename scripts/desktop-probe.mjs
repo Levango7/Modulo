@@ -281,36 +281,53 @@ try {
       window.dispatchEvent(new KeyboardEvent('keydown', { key: 'z', ctrlKey: true, bubbles: true }))
     })
 
-  const sig0 = await layoutSig()
-  await page.evaluate(() => {
-    window.__frames = []
-    const tick = (t) => {
-      window.__frames.push(t)
-      if (window.__frames.length < 600) requestAnimationFrame(tick)
-    }
-    requestAnimationFrame(tick)
-  })
+  const layout0 = await layoutSig()
+  /** rAF 采样器：startSampler 开始记录，stopSampler 关掉开关并返回帧距分布 */
+  const startSampler = () =>
+    page.evaluate(() => {
+      const w = window
+      w.__frames = []
+      w.__sampling = true
+      const tick = (t) => {
+        if (!w.__sampling) return
+        w.__frames.push(t)
+        requestAnimationFrame(tick)
+      }
+      requestAnimationFrame(tick)
+    })
+  const stopSampler = () =>
+    page.evaluate(() => {
+      window.__sampling = false
+      const f = window.__frames ?? []
+      const d = []
+      for (let i = 1; i < f.length; i++) d.push(f[i] - f[i - 1])
+      d.sort((a, b) => a - b)
+      const q = (p) => (d.length ? +d[Math.min(d.length - 1, Math.floor(d.length * p))].toFixed(1) : 0)
+      return { frames: f.length, median: q(0.5), p95: q(0.95), max: q(1) }
+    })
+
+  // 先采一段空闲基线：帧距下限由面板刷新率决定（本机实测 240Hz）。只用绝对阈值
+  // 18.2ms 在高刷屏上形同虚设 —— 掉到 60fps 都能"过"。所以门槛取
+  // min(18.2, 1.5 × 基线)：60Hz 面板上仍是 18.2，240Hz 面板上收紧到 ~6.3ms。
+  await startSampler()
+  await sleep(500)
+  const base = await stopSampler()
+  await startSampler()
   await clickText(page, '撑满')
   await sleep(450)
   await clickText(page, '整理')
   await sleep(450)
-  const cadence = await page.evaluate(() => {
-    const f = window.__frames
-    const d = []
-    for (let i = 1; i < f.length; i++) d.push(f[i] - f[i - 1])
-    d.sort((a, b) => a - b)
-    const q = (p) => d[Math.min(d.length - 1, Math.floor(d.length * p))]
-    return { frames: f.length, median: +q(0.5).toFixed(1), p95: +q(0.95).toFixed(1) }
-  })
-  for (let i = 0; i < 4 && (await layoutSig()) !== sig0; i++) {
+  const cadence = await stopSampler()
+  const limit = +Math.min(18.2, base.median * 1.5).toFixed(1)
+  for (let i = 0; i < 4 && (await layoutSig()) !== layout0; i++) {
     await undoKey()
     await sleep(250)
   }
-  const restored = (await layoutSig()) === sig0
+  const layoutRestored = (await layoutSig()) === layout0
   check(
-    '真实 WebView2 下的帧距：中位 ≤18.2ms、p95 ≤33.4ms（整版重排压测，且版面已还原）',
-    cadence.frames > 40 && cadence.median <= 18.2 && cadence.p95 <= 33.4 && restored,
-    { ...cadence, restored },
+    `真实 WebView2 帧距：重排中位 ≤${limit}ms（= min(18.2, 1.5×基线 ${base.median}ms)）、p95 ≤33.4ms`,
+    cadence.frames > 20 && base.frames > 10 && cadence.median <= limit && cadence.p95 <= 33.4 && layoutRestored,
+    { baseline: base, churn: cadence, limit, layoutRestored },
   )
 
   // ---- 数据落地：改一处 → 磁盘上真的有文件 → 重启后读回来 ----
