@@ -353,6 +353,11 @@ MVP 先做 A1，A2 留一个 `projection.a2.test.ts` 做对照实验。不在没
   1. **`continue-on-error: true` 的步骤失败后 conclusion 仍报 `success`** —— 不是脚本漏了退出码（`desktop-probe.mjs:678` 一直是"有红就 exit 1"，本机 49/49 那轮就是这么来的），是 GitHub 把容忍掉的失败写成成功。所以**这类步骤的绿一律不作数，必须读 artifact**。
   2. 卡点在 **CDP 端口没监听**：`launch()` 先以 60×500ms 轮询 `http://127.0.0.1:PORT/json/list`，再 `puppeteer.connect`（`desktop-probe.mjs:55-63`）—— **Win32 钉窗口那段在 connect 之后**（`:78` 起）。日志时间差正好 30.7 秒（21:55:14.907 起步 → 21:55:45.615 报红），就是那 30 秒轮询耗尽后 connect 立刻抛。所以**这条红没有给出任何关于窗口的信息**：runner 上窗口到底出没出来，仍是未知。我第一版这里写的是"探针已过钉窗口那一关、窗口确实出来了"，那是**读错了代码顺序**，已就地收回；同理"runner 收不到 `SendKeys"这个假设也仍然没有被检验过。下一步是给失败路径加自述（子进程退出码、`modulo.exe` / `msedgewebview2.exe` 进程数、端口是否监听、真正传给子进程的远调参数），让下一次 runner 的红自己交代原因，而不是继续在本地猜。
   **加自述这件事本身翻了一次车**：顺手把 `stdio` 从 `ignore` 改成 `pipe` 想收 stderr，结果应用以 **101 panic** 死了（Rust 的 `print!` / `eprintln!` 在写端坏掉时是 panic，不是静默丢），本机 49/49 当场掉到 33/35。已回退成 `ignore`，观测字段全部改成"看一眼不改行为"的来源（退出码、进程计数、TCP 试探）。**测量手段不该改动被测对象** —— 这条比字段本身值钱，所以钉在 `launch()` 的注释里。
+- **自述字段换回来了第一条真分类（`eb1afd7`，run 37072052990）**：runner 上的现场是
+  `{"childExit":null,"moduloProcs":1,"webviewProcs":6,"portOpen":false,"browserArgsPassed":"--remote-debugging-port=9223"}`。
+  也就是说**应用活着、WebView2 runtime 装着且派生了进程、远调参数确实传给了子进程，但端口没人监听** —— 排除了"runner 没装 WebView2"和"应用起不来"这两种，也仍然没走到 `SendKeys`。
+  对照组（本机健康状态，同一套查询）：`msedgewebview2.exe` 命令行 24 条里 **2 条带 `--remote-debugging-port`**，且 `Test-NetConnection 127.0.0.1:9223` 返回 `True`。
+  所以现在只剩两种分法，靠新加的 `webviewCmdLines / withDebugPort / sample` 三个字段切开：**参数没落到浏览器进程的命令行里**（⇒ 是 env 变量被 wry/Tauri 自己传的显式 args 顶掉这类"参数优先级"问题），还是**命令行带了参数但端口仍不监听**（⇒ 是 runner 的绑定/会话限制）。在切开之前不动 Rust 侧的 browser args —— 那是会影响所有用户的改动，不该建在未区分的假设上。
 - 首批 CI 落地时的本地实测：103 单测 + 5 E2E 全绿，E2E 约 43s（含构建）；此后各轮持续增补，当前规模看 README。
 
 对照 §1 那条事实——x-hub 写了 164 个 Rust 测试但 CI 只跑 `vue-tsc + cargo check`，一个测试都不执行——这条 CI 是它的反面教材，不是可选项。
