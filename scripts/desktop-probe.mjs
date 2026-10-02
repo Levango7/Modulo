@@ -1,6 +1,7 @@
 import { spawn, spawnSync } from 'node:child_process'
 import { appendFileSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { join, resolve } from 'node:path'
+import { connect } from 'node:net'
 import puppeteer from 'puppeteer-core'
 
 /**
@@ -29,6 +30,43 @@ const check = (name, pass, detail) => {
 
 const runPs = (args) => spawnSync('powershell', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', PS, ...args], { encoding: 'utf8' })
 
+/** 端口有没有人监听 —— 比 fetch 直白：fetch 失败分不清是"没人监听"还是"响应不成 JSON" */
+const portOpen = (timeoutMs = 700) =>
+  new Promise((res) => {
+    const s = connect({ host: '127.0.0.1', port: PORT })
+    const done = (v) => {
+      s.destroy()
+      res(v)
+    }
+    s.setTimeout(timeoutMs)
+    s.on('connect', () => done(true))
+    s.on('timeout', () => done(false))
+    s.on('error', () => done(false))
+  })
+
+/** 按镜像名数进程：回答"应用起来了没""WebView2 的浏览器进程派生了没" */
+const countBy = (image) => {
+  const r = spawnSync('tasklist', ['/FI', `IMAGENAME eq ${image}`, '/NH', '/FO', 'CSV'], { encoding: 'utf8' })
+  return (r.stdout || '').split('\n').filter((l) => l.toLowerCase().includes(image.toLowerCase())).length
+}
+
+/**
+ * 失败自述。加这个是因为上一轮 runner 那条红我只拿到一句 `fetch failed`，
+ * 结果把原因猜错了两次（先猜 SendKeys，再误读代码顺序说"窗口起来了"）。
+ * 这几个字段能一刀切开三种情况：应用没起来（childExit 非 null / moduloProcs 0）、
+ * 起来了但 WebView2 缺席（webviewProcs 0，本机正常是 6+）、
+ * 两边都正常而端口没人听（portOpen false ⇒ 远调参数没生效）。
+ */
+const diagnose = async (child, browserArgs) => ({
+  childExit: child?.exitCode ?? null,
+  childSignal: child?.signalCode ?? null,
+  moduloProcs: countBy('modulo.exe'),
+  webviewProcs: countBy('msedgewebview2.exe'),
+  /** 必须 await：直接把 Promise 塞进 JSON.stringify 会打印成 {}，等于现场造假 */
+  portOpen: await portOpen(),
+  browserArgsPassed: browserArgs,
+})
+
 // 句柄只解析一次然后钉死：最小化期间 MainWindowHandle 会漂到一个 6×6 的辅助窗口（实测），
 // 每次重新查句柄会把「真的最小化了」误报成「没有」。
 // PID 必传：按进程名找窗口会钉到用户自己开着的那一份实例上（探针 spawn 的子进程只是同名进程之一），
@@ -48,19 +86,31 @@ const state = () => {
 }
 
 async function launch(extraEnv = {}) {
+  const browserArgs = `--remote-debugging-port=${PORT}`
   const child = spawn(EXE, [], {
-    env: { ...process.env, WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS: `--remote-debugging-port=${PORT}`, ...extraEnv },
+    env: { ...process.env, WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS: browserArgs, ...extraEnv },
+    /**
+     * 必须是 'ignore'，不能是 'pipe'：本轮加诊断时改成 pipe 想收 stderr，结果应用以 101 崩了
+     * （Rust 的 print!/eprintln! 在写端坏掉时是 panic，而不是静默丢），49/49 直接掉到 33/35。
+     * 测量手段不该改动被测对象 —— 想看死因就靠下面的 childExit + 进程计数，别接管它的 stdout。
+     */
     stdio: 'ignore',
   })
   pid = child.pid ?? 0
-  for (let i = 0; i < 60; i++) {
+  let ready = false
+  for (let i = 0; i < 60 && !ready; i++) {
     await sleep(500)
     try {
       const list = await (await fetch(`http://127.0.0.1:${PORT}/json/list`)).json()
-      if (list.some((t) => t.type === 'page' && /tauri\.localhost/.test(t.url))) break
+      ready = list.some((t) => t.type === 'page' && /tauri\.localhost/.test(t.url))
     } catch {
       /* WebView2 还没起来 */
     }
+  }
+  if (!ready) {
+    const diag = await diagnose(child, browserArgs)
+    child.kill('SIGTERM')
+    throw new Error(`CDP 端口 ${PORT} 等了 30 秒没等到 tauri.localhost 的页面。现场：${JSON.stringify(diag)}`)
   }
   const browser = await puppeteer.connect({ browserURL: `http://127.0.0.1:${PORT}`, defaultViewport: null })
   // 页面列表不紧跟 /json/list：重启那一轮曾随机挂在「连上了但找不到主页面」，所以这里要自己重试
