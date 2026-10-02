@@ -300,10 +300,14 @@ try {
       window.__sampling = false
       const f = window.__frames ?? []
       const d = []
-      for (let i = 1; i < f.length; i++) d.push(f[i] - f[i - 1])
+      for (let i = 1; i < f.length; i++) {
+        // 同一帧可能派发多次回调（时间戳相同）：0 差值不是"零耗时帧"，留着会把
+        // 高刷屏（本机 240Hz）的中位数拉到 0，必须丢掉。
+        if (f[i] > f[i - 1]) d.push(f[i] - f[i - 1])
+      }
       d.sort((a, b) => a - b)
       const q = (p) => (d.length ? +d[Math.min(d.length - 1, Math.floor(d.length * p))].toFixed(1) : 0)
-      return { frames: f.length, median: q(0.5), p95: q(0.95), max: q(1) }
+      return { frames: d.length, median: q(0.5), p95: q(0.95), max: q(1) }
     })
 
   // 先采一段空闲基线：帧距下限由面板刷新率决定（本机实测 240Hz）。只用绝对阈值

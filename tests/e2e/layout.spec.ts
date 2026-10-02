@@ -561,10 +561,13 @@ it.skipIf(skip)('拖动帧率实测：连拖期间的帧距中位数 ≤ 18.2ms�
   const s = await page.evaluate(() => {
     const f = (window as unknown as { __frames: number[] }).__frames
     const d: number[] = []
-    for (let i = 1; i < f.length; i++) d.push(f[i] - f[i - 1])
+    for (let i = 1; i < f.length; i++) {
+      // 同一帧派发多次回调时时间戳会重复，0 差值不是真帧距，丢掉（高刷屏上尤其关键）
+      if (f[i] > f[i - 1]) d.push(f[i] - f[i - 1])
+    }
     d.sort((a, b) => a - b)
     const q = (p: number) => d[Math.min(d.length - 1, Math.floor(d.length * p))]
-    return { frames: f.length, median: q(0.5), p95: q(0.95) }
+    return { frames: d.length, median: q(0.5), p95: q(0.95) }
   })
   /** headless 的 rAF 节奏本身就未必稳，样本太少时这条断言没有意义，先要求采到足够帧 */
   console.log(`[拖动帧距实测] frames=${s.frames} median=${s.median.toFixed(1)}ms p95=${s.p95.toFixed(1)}ms`)
