@@ -572,6 +572,23 @@ try {
   await sleep(500)
   check(`再录一次换回基线 ${base0}`, (await summonKeys()) === base0, { keys: await summonKeys() })
 
+  // ---- 带修饰键的 Esc 是一枚合法和弦，不该被"取消录制"吃掉（前端那条修复的真机证据）。
+  // 这里只验 DOM → 拼弦 → Rust 注册这段；投递要不要赢在上面的系统级投递块已经验过同类。
+  const escChord = 'Ctrl+Alt+Shift+Escape'
+  await clickIn(app.page, '.panel .keys .rec')
+  await press({ code: 'Escape', key: 'Escape', ctrlKey: true, altKey: true, shiftKey: true })
+  await sleep(500)
+  check(
+    `录制 ${escChord}：带修饰的 Esc 提交给 Rust，而不是当成取消`,
+    (await app.page.evaluate(() => !document.querySelector('.panel .keys .rec.live'))) && (await summonKeys()) === escChord,
+    { keys: await summonKeys() },
+  )
+
+  await clickIn(app.page, '.panel .keys .rec')
+  await press(chordEvent(base0))
+  await sleep(500)
+  check(`录完 Esc 和弦后换回基线 ${base0}`, (await summonKeys()) === base0, { keys: await summonKeys() })
+
   await clickIn(app.page, '.tb-btn[aria-label="关闭"]')
   const hidden = await waitUntil((s) => s.running && s.visible === false && s.iconic === false)
   check('拨开开关后点关闭是藏进托盘，进程不退出', hidden.ok, { waitedMs: hidden.waited, ...hidden.s })

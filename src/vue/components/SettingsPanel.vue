@@ -2,6 +2,7 @@
 import { inject, onBeforeUnmount, onMounted, ref } from 'vue'
 import { Check, GripVertical, X } from 'lucide-vue-next'
 import { ACCENTS, MODES, SKINS } from '../appearance'
+import { isCancelEscape, toChord } from '../chord'
 import { useFocusTrap } from '../useFocusTrap'
 import { dataDir as fetchDataDir } from '../fileStorage'
 import { isDesktop, type ShortcutKind, type ShellApi } from '../useShell'
@@ -65,23 +66,10 @@ function onHideChange(e: Event) {
  */
 const recording = ref<string | null>(null)
 
-/** 只按修饰键不构成快捷键，等真正的按键落下来再说；这些 code 直接忽略 */
-const MODIFIER_ONLY = /^(Control|Alt|Shift|Meta|OS)(Left|Right)?$|^(ContextMenu|CapsLock|NumLock|ScrollLock)$/
-
-/** 拼成 Rust 认的写法：字母数字用单字符（Ctrl+Alt+M），其余沿用 event.code（ArrowUp / F5） */
-function toChord(e: KeyboardEvent): string | null {
-  const mods = [e.ctrlKey && 'Ctrl', e.altKey && 'Alt', e.shiftKey && 'Shift', e.metaKey && 'Super'].filter(Boolean)
-  if (mods.length === 0 || MODIFIER_ONLY.test(e.code)) return null
-  const letter = /^Key([A-Z])$/.exec(e.code)
-  const digit = /^Digit(\d)$/.exec(e.code)
-  const key = letter?.[1] ?? digit?.[1] ?? e.code
-  return [...mods, key].join('+')
-}
-
 function recordKey(e: KeyboardEvent) {
   e.preventDefault()
   e.stopPropagation()
-  if (e.key === 'Escape') {
+  if (isCancelEscape(e)) {
     stopRecord()
     return
   }
