@@ -339,7 +339,7 @@ MVP 先做 A1，A2 留一个 `projection.a2.test.ts` 做对照实验。不在没
 
 另外去掉了一处观感缺陷：编辑器标签条与卡片自身表头重复显示同一个名字（"便签 / 便签"），改为卡片在编辑态走 `chromeless`，每格只保留一层头部。
 
-当前状态（2026-10-03 复核）：**前端单测 239 条（25 个文件）+ E2E 18 条 + Rust 单测 6 条**全绿，`tsc --noEmit` 干净，引擎分支覆盖 **91.72%**（门禁 90），无 console 报错。`vite build` 同日重跑：**JS 153.50 kB / gzip 56.57 kB，CSS 26.63 kB / gzip 5.85 kB**（比上一版记的 41.0 kB 大得多，因为多了桌面壳设置页、卡片内容与版面模板选择器；桌面探针 47 项见 §11.3）。
+当前状态（2026-10-03 复核）：**前端单测 249 条（26 个文件）+ E2E 18 条 + Rust 单测 6 条**全绿，`tsc --noEmit` 干净，引擎分支覆盖 **91.72%**（门禁 90），无 console 报错。`vite build` 同日重跑：**JS 153.58 kB / gzip 56.59 kB，CSS 26.63 kB / gzip 5.85 kB**（比上一版记的 41.0 kB 大得多，因为多了桌面壳设置页、卡片内容与版面模板选择器；桌面探针 49 项见 §11.3）。
 
 ### 10.3 验证固化进 CI（2026-10-01）
 
@@ -347,7 +347,8 @@ MVP 先做 A1，A2 留一个 `projection.a2.test.ts` 做对照实验。不在没
 
 - `tests/e2e/layout.spec.ts` —— 18 条真浏览器断言（vitest + puppeteer-core 驱动系统 Chrome，CI 上走 `CHROME_PATH=/usr/bin/google-chrome`）：三档视口的列数/溢出/裁字/最小字号、固定行高与卡片高度一致、编辑器可聚焦格 >0、方向键移动 + Ctrl+Z 回退、框选→成组拖拽→整体撤销、空格选入与删除后焦点落位、设置面板焦点陷阱、整理/撑满/收紧/紧凑各自的效果与分步撤销、方案册另存→应用→改名→删除、窄屏自动堆叠、版面模板选择器（点卡片换版面 / Esc 关闭不动 / 一步撤销 / 迷你示意齐全）、首启自动弹一次且挑过之后不再拦、拖拽帧率实测（rAF 采样，§8 第 3 条）、方案册键盘与拖拽排序跨重启保留、拖拽全程零 console 报错、出厂版面首行带铺满且整屏 0 空洞（§11.5）。**整理/撑满/方案册那三条不再吃出厂版面的红利** —— 它们现在自己喂一份乱版面当夹具（`SLOPPY_DOC`），因为出厂版面已经不烂了。
 - `vitest.e2e.setup.ts` 用 vite 的 `build()` + `preview({port:0})` 起随机端口，避免与本机其它 dev server 抢端口。
-- `npm run verify` = typecheck（`tsconfig.json` 严格无 DOM + `tsconfig.e2e.json` 带 DOM，分层：产品代码拿不到 `document`）→ 单测 → 构建 → E2E。`.github/workflows/ci.yml` 就按这四步跑。
+- `npm run verify` = typecheck（`tsconfig.json` 管 `src/**` + `tests/**`（排除 e2e）、`tsconfig.e2e.json` 只管 `tests/e2e/**`，两份 `lib` 都带 DOM —— 分层是**按 include 范围**分的，不是按有没有 DOM；早先记的"产品代码拿不到 `document`"已经不成立）→ 单测 → 构建 → E2E。`.github/workflows/ci.yml` 的 `verify` job 就按这四步跑。
+- **桌面自检也进 CI（2026-10-03，观察态）**：`desktop` job 打完工件后 `npm run desktop:probe`，并把 `evidence/probe-report.json` 用 `if: always()` 传上来。**这一步现在挂 `continue-on-error: true`**：探针依赖交互会话能收 `SendKeys`（`shot-window.ps1` 走 WScript.Shell → SendInput），这点在本机为真、在 windows-latest 上还没实测过 —— 不拿未验证的配置去拦发布，看到一次绿就把旗标摘掉，让它变成真门禁。这也是 §11.4 那条"探针必须在要发的那颗二进制上跑"的 CI 化。
 - 首批 CI 落地时的本地实测：103 单测 + 5 E2E 全绿，E2E 约 43s（含构建）；此后各轮持续增补，当前规模看 README。
 
 对照 §1 那条事实——x-hub 写了 164 个 Rust 测试但 CI 只跑 `vue-tsc + cargo check`，一个测试都不执行——这条 CI 是它的反面教材，不是可选项。
@@ -515,11 +516,13 @@ Tauri 2 最小壳：`src-tauri/` 只声明一个主窗口（1280×800，最小 3
 **用户可改键**（2026-10-02）：`set_shortcut(kind, chord)` 先解旧再注册新，**新键注册失败就把旧键滚回去**，绝不留下「两条都没绑上」的状态。回调不再按 `shortcut.key` 猜是哪一条 —— 改键后两条完全可以共用字母、只换修饰键，所以多了一张 `kind → 当前 Shortcut` 的表来反查。持久化和「收进托盘」同一个套路：Rust 侧不落地，前端存在 `modulo.shell.v1` 里（一个 key 存两样东西，因此每次写回必须带全字段，否则拨一下开关就把改过的键抹了），启动时读到与默认档不一致的键再推回去。
 设置页每行一个「改键」按钮，按下后在 **document 捕获阶段**听 keydown 并 `stopPropagation` —— 挂在 bubble 上会先让应用自己的 Ctrl+Z / Esc 跑掉（Esc 还会顺手关掉设置面板）。裸键（`M`）被 `parse_chord` 拒绝：全局裸键会吞掉系统里所有该键的输入。这条**没有 Rust 单测**：一引用 `parse_chord`，windows-gnu 的测试二进制就 `STATUS_ENTRYPOINT_NOT_FOUND`（去掉立刻恢复），所以由探针端到端验。
 
+**取消键的判定只认裸 Esc**（2026-10-03 修，0.1.0 起就带在身上）：录制态原先按 `key === 'Escape'` 一刀切取消，于是 `Ctrl+Alt+Esc` 这类组合**永远绑不上** —— 而"全局快捷键必须带修饰键"正是产品自己的规则，等于把这条规则允许的键挡在门外。现在 `toChord` / `isCancelEscape` 抽到 `src/vue/chord.ts`（**10 条单测**，含"带修饰的 Esc 拼成 `Ctrl+Alt+Shift+Escape`"与"裸 Esc 才算取消"两组正反用例），Rust 侧确认收得到：`global-hotkey 0.8.0` 的键名表里就有 `"ESCAPE" | "ESC"`（`hotkey.rs:319`）。真机那两条落在探针的录制块里（录进去 + 录完换回基线）。
+
 **「点关闭」默认是退出，不是收进托盘**：Windows 会把新出现的托盘图标塞进溢出浮层，默认藏进去等于把用户关在门外。设置页里有开关可以改成收进托盘，持久化在前端 localStorage，启动时推给 Rust（Rust 侧不落地）。
 
 **权限收紧**：能力清单从只写 `core:default` 改成显式补四条（`allow-minimize / allow-toggle-maximize / allow-close / allow-start-dragging`）—— `core:window:default` 其实只有只读 getter，自制标题栏的按钮一个都不在里面。同时**刻意不给** `allow-create` / `allow-destroy`：x-hub 代价最高的那批 WebView2 bug 都在运行期建窗/销毁窗上，这里用权限层把它堵死，而不是靠口头约定。
 
-**真机自检（`npm run desktop:probe`，那一轮 30/30；项数随轮次增长，最近一轮 47/47，见 §11.3 与 §11.4）**：不模拟鼠标 —— `SetCursorPos` 会抢走用户真实的指针和焦点，点错地方赔不起。改成给 WebView2 开远调端口（`WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS=--remote-debugging-port`），用 CDP 在页面里点**真实的 DOM 按钮**，再从 Win32 侧读窗口状态，走的是同一条代码路径。已验证：无边框标题栏渲染且带拖拽区、三个按钮都能点、最小化真的进图标态（`rect` 变成 -32000 那个经典值）、最大化铺满工作区、再点回原尺寸、`WS_THICKFRAME` 样式位仍在（所以边缘可拉伸）、托盘图标直接可见没被收进溢出浮层、收进托盘开关两个方向都生效。
+**真机自检（`npm run desktop:probe`，那一轮 30/30；项数随轮次增长，最近一轮 49/49，见 §11.3 与 §11.4）**：不模拟鼠标 —— `SetCursorPos` 会抢走用户真实的指针和焦点，点错地方赔不起。改成给 WebView2 开远调端口（`WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS=--remote-debugging-port`），用 CDP 在页面里点**真实的 DOM 按钮**，再从 Win32 侧读窗口状态，走的是同一条代码路径。已验证：无边框标题栏渲染且带拖拽区、三个按钮都能点、最小化真的进图标态（`rect` 变成 -32000 那个经典值）、最大化铺满工作区、再点回原尺寸、`WS_THICKFRAME` 样式位仍在（所以边缘可拉伸）、托盘图标直接可见没被收进溢出浮层、收进托盘开关两个方向都生效。
 
 原先说「三件事自动化够不着」，现在只剩一件。**双击拖拽区最大化**改成派发真的 `mousedown(detail=2)`（走 drag.js 而不是自己的 dblclick），顺带把「标题文字、Logo 都算拖拽区」一并断言了。**召唤键在系统层面真的触发**则借 `WScript.Shell.SendKeys`：SendInput 进的是系统输入队列，`RegisterHotKey` 能收到 —— 全程不碰物理键盘。投递的组合键**从 Rust 实际注册的那条现算**（`toSendKeys('Ctrl+Alt+F13') → ^%{F13}`），默认档换了或用户改过键都不用动探针。验证是双向的：正例按两次、看窗口收起再回来；**反例投旧的 `Alt+Shift+M`、断言窗口纹丝不动** —— 只有正例的话，窗口被别的东西碰一下也可能算过。改键本身另有三条：裸键必须被拒、换成 `Ctrl+Alt+F13` 后新键可用且旧键失效、最后换回默认档。剩下**拖标题栏移动窗口**仍需人手确认：`start_dragging` 会进 Windows 的原生模态拖动循环，合成鼠标事件撑不起这个循环。
 
@@ -545,7 +548,7 @@ Tauri 2 最小壳：`src-tauri/` 只声明一个主窗口（1280×800，最小 3
 | `Alt+Shift+M` / `Ctrl+Shift+M` / `Ctrl+Alt+Space` / `Ctrl+Alt+F9` / `Ctrl+Alt+\` / `Ctrl+Alt+B` / `Ctrl+Alt+J` | FREE | —— |
 | **`Ctrl+Alt+Shift+M` / `Ctrl+Alt+Shift+T`** | FREE | —— |
 
-所以默认档最终取**三修饰**那一行（`lib.rs:97-98`）。1409 说明本机有别的程序占着 `Ctrl+Alt+M/T`，但**没查出是哪个程序**，也没必要 —— 产品侧的处理是：注册失败逐条吞掉、设置页显式显示「注册失败，多半被别的程序占用了」、并提供录制改键。探针那一轮 **47/47**，其中召唤键那块六条：正例投递收起 / 再投递唤出 / 反例（旧 `Alt+Shift+M` 投进去窗口纹丝不动）/ 裸键被拒 / 换成 `Ctrl+Alt+F13` 后新键可用且旧键失效 / 换回默认档。设置页的录制另有五条（按钮存在、只按修饰键不提交、Esc 取消、录制后 Rust 与界面同步、改过的键落进 `modulo.shell.v1.json`）。
+所以默认档最终取**三修饰**那一行（`lib.rs:97-98`）。1409 说明本机有别的程序占着 `Ctrl+Alt+M/T`，但**没查出是哪个程序**，也没必要 —— 产品侧的处理是：注册失败逐条吞掉、设置页显式显示「注册失败，多半被别的程序占用了」、并提供录制改键。探针那一轮 **47/47**，其中召唤键那块六条：正例投递收起 / 再投递唤出 / 反例（旧 `Alt+Shift+M` 投进去窗口纹丝不动）/ 裸键被拒 / 换成 `Ctrl+Alt+F13` 后新键可用且旧键失效 / 换回默认档。设置页的录制另有五条（按钮存在、只按修饰键不提交、Esc 取消、录制后 Rust 与界面同步、改过的键落进 `modulo.shell.v1.json`）。**2026-10-03 这块加到七条**：再补「录 `Ctrl+Alt+Shift+Escape` 要提交给 Rust 而不是当成取消」+「录完换回基线」，实测 detail 里键值原样回读（`keys:"Ctrl+Alt+Shift+Escape"` → 换回 `Ctrl+Alt+Shift+M`），整轮 49/49。
 
 **打包**：当前发布产物是 **`Modulo_0.1.1_x64-setup.exe`**（NSIS，1 859 053 字节 = 1.77 MiB，`sha256 47aad05abc9c5ef2958cbf6252b780a23253acd616f69d18e6f4b7a4e73121c6`，构建自 `53b0ed9`，打包时工作树干净；该二进制本机探针 47/47，见 `evidence/probe-history.log` 的 18:50:25Z 那行）。上一版 `Modulo_0.1.0_x64-setup.exe`（1 858 935 字节，`sha256 4658ada982c7e439…`，构建自 `0c42fc9`）**发布当天就被 §11.5 的起步版面重排作废** —— 这正好说明「尺寸 + sha256 + 源 commit」三件套有什么用：包与代码的差距是可查的事实，不是一句「感觉应该没问题」。v0.1.0 的 Release 页面已加取代声明（不动已公开的 tag：下过 0.1.0 的人手里的校验和必须继续对得上）。v0.1.0 发布前重切过一次：上一版是 `1 852 946 字节 / sha256 4a1c90a7… / 构建自 782a520`，缺本轮的改键能力与新默认组合键。先前担心的「NSIS 工具链在本机下载不动」没有发生 —— 它走 github.com 的 release 直链（取不动的是 raw.githubusercontent 那一类），下载后还会校验哈希。上一版包栽过一次：它的 `modulo.exe` 链于 21:23:11，而 `lib.rs` 最后写入是 21:24:47 —— **包比代码早，不能证明里面含最终的 `fit_window`**。教训是记产物必须同时记尺寸、哈希**和源 commit**：只看时间戳还会漏掉"包里有未提交代码"这种情况。
 

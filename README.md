@@ -21,7 +21,7 @@ npm ci
 npm run dev            # 浏览器预览 http://localhost:1430
 npm run verify         # 类型检查 + 单测（含引擎覆盖率门禁）+ 构建 + 真浏览器 E2E
 npm run tauri:dev      # 桌面窗口（需 Rust 工具链，见下）
-npm run desktop:probe  # 桌面壳真机自检：自己起窗口、走完 47 项检查再关掉
+npm run desktop:probe  # 桌面壳真机自检：自己起窗口、走完 49 项检查再关掉
 ```
 
 Windows 上若用 **MSYS2 的 GNU 工具链**（本机情况：`rustc` host 为 `x86_64-pc-windows-gnu`，`gcc`/`windres` 在 MSYS2 里而不在 PATH），构建前需要把它注入到该次命令的 PATH：
@@ -61,7 +61,7 @@ CHANGELOG.md           迭代变更历史（新增 / 修复 / 门禁 / 已知问
 
 ## 验证
 
-CI（`.github/workflows/ci.yml`）两个 job：`verify` 跑四步 —— 类型检查 → 单测与属性测试（**顺带卡引擎分支覆盖 ≥90%**，`npm run cover:engine`）→ 构建 → E2E；`desktop` 在 windows-latest 上跑 `cargo fmt --check` → `clippy -D warnings` → `cargo test` → 真打包出 exe 并上传产物。
+CI（`.github/workflows/ci.yml`）两个 job：`verify` 跑四步 —— 类型检查 → 单测与属性测试（**顺带卡引擎分支覆盖 ≥90%**，`npm run cover:engine`）→ 构建 → E2E；`desktop` 在 windows-latest 上跑 `cargo fmt --check` → `clippy -D warnings` → `cargo test` → 真打包出 exe → **再对那颗 exe 跑桌面自检探针并上传 `probe-report.json`**（这一步暂时挂 `continue-on-error`：探针要靠交互会话收 `SendKeys`，本机为真、runner 上还没实测，看到一次绿就摘掉旗标变成真门禁）。
 投影算法有**五条**断言（只读、幂等、无重叠、尺寸充分、分区完整），用随机版面 × 7 档列数各 200 例做属性测试。
 两条量化门禁：引擎分支覆盖 ≥90%（`npm run cover:engine`，当前 91.72%）、真拖期间帧距中位数 ≤18.2ms（E2E 里用 rAF 采样，本机 headless 实测 16.7ms —— headless 只能当下限看）。
 桌面壳另有一条 `npm run desktop:probe`：给 WebView2 开远调端口，用 CDP 点真实的 DOM 按钮、派发真的 mousedown，再从 Win32 侧读窗口状态（图标态/工作区/样式位），不模拟鼠标所以不会抢走指针；召唤键用 SendKeys 从系统输入队列投递，正例（收起→唤出）之外还有反例（投一个不该生效的组合键，断言窗口纹丝不动），改键链路也在真窗口里跑一遍。窗口状态一律轮询等到落地再断言——单次 Win32 采样实测 1.1–1.3 秒，固定 sleep 会把「慢」误报成「坏」。截图落在 `evidence/desktop/`。
