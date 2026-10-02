@@ -349,6 +349,9 @@ MVP 先做 A1，A2 留一个 `projection.a2.test.ts` 做对照实验。不在没
 - `vitest.e2e.setup.ts` 用 vite 的 `build()` + `preview({port:0})` 起随机端口，避免与本机其它 dev server 抢端口。
 - `npm run verify` = typecheck（`tsconfig.json` 管 `src/**` + `tests/**`（排除 e2e）、`tsconfig.e2e.json` 只管 `tests/e2e/**`，两份 `lib` 都带 DOM —— 分层是**按 include 范围**分的，不是按有没有 DOM；早先记的"产品代码拿不到 `document`"已经不成立）→ 单测 → 构建 → E2E。`.github/workflows/ci.yml` 的 `verify` job 就按这四步跑。
 - **桌面自检也进 CI（2026-10-03，观察态）**：`desktop` job 打完工件后 `npm run desktop:probe`，并把 `evidence/probe-report.json` 用 `if: always()` 传上来。**这一步现在挂 `continue-on-error: true`**：探针依赖交互会话能收 `SendKeys`（`shot-window.ps1` 走 WScript.Shell → SendInput），这点在本机为真、在 windows-latest 上还没实测过 —— 不拿未验证的配置去拦发布，看到一次绿就把旗标摘掉，让它变成真门禁。这也是 §11.4 那条"探针必须在要发的那颗二进制上跑"的 CI 化。
+- **首次 runner 实跑（`c4a05a5`，run 37069233154）：探针是红的，而那一步显示 `success`。** 把 `probe-report` artifact 下载回来才看见真相：`passed: 0 / total: 2`，两条都是外层 catch 记的「自检过程未抛异常」，detail 为 `Failed to fetch browser webSocket URL from http://127.0.0.1:9223/json/version: fetch failed`。由此钉住两件：
+  1. **`continue-on-error: true` 的步骤失败后 conclusion 仍报 `success`** —— 不是脚本漏了退出码（`desktop-probe.mjs:678` 一直是"有红就 exit 1"，本机 49/49 那轮就是这么来的），是 GitHub 把容忍掉的失败写成成功。所以**这类步骤的绿一律不作数，必须读 artifact**。
+  2. 卡点在 **CDP 端口没起来**，不是 `SendKeys`：探针已经过了 Win32 钉窗口那一关（窗口确实出来了，否则错误会是「启动后 9 秒内没拿到可见的主窗口」），根本没走到投递。于是"runner 的交互会话收不收得到 SendKeys"**仍然没有答案**，摘旗标的前提远没满足。下一步该查的是 runner 上 WebView2 为什么不接 `--remote-debugging-port`（本机靠同一个环境变量起远调，见 §11.3），而不是继续假设产品或快捷键有问题。
 - 首批 CI 落地时的本地实测：103 单测 + 5 E2E 全绿，E2E 约 43s（含构建）；此后各轮持续增补，当前规模看 README。
 
 对照 §1 那条事实——x-hub 写了 164 个 Rust 测试但 CI 只跑 `vue-tsc + cargo check`，一个测试都不执行——这条 CI 是它的反面教材，不是可选项。

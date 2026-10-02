@@ -60,6 +60,9 @@
   `evidence/probe-report.json`。**第一版挂 `continue-on-error`** —— 探针依赖交互会话收
   `SendKeys`，这点在本机为真、在 windows-latest 上我**还没实测**，不拿未验证的东西拦发布；
   看到一次绿就摘掉旗标变成真门禁。
+  **首跑实测（`c4a05a5`）：这一步报 `success`，但 artifact 里是 `passed:0/total:2`** —— 红在
+  CDP 端口没起来（`127.0.0.1:9223/json/version` fetch failed），还没走到 `SendKeys`。
+  结论：`continue-on-error` 的步骤失败也报成功，这类绿必须去读 artifact 才算数（详见 §10.3）。
 
 ## 0.1.1 —— 2026-10-03
 
