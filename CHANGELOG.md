@@ -64,6 +64,13 @@
   CDP 端口没起来（`127.0.0.1:9223/json/version` fetch failed），还没走到 `SendKeys`。
   结论：`continue-on-error` 的步骤失败也报成功，这类绿必须去读 artifact 才算数（详见 §10.3）。
 
+### 产物（已构建 + 已实机验，Release 尚未创建）
+
+- 安装包 `Modulo_0.2.0_x64-setup.exe`：**1 860 690 字节**，`sha256 f4ff0413510809c44cfbc75e9faad5436f68fcc715488cb42a71a8f528852559`。
+- 包内主二进制 `modulo.exe`：5 706 752 字节，`sha256 e99ddec087bb34f8e6277901c7faa6848e1fd2ea35d434f4b2a5b6d6f66e57d9`。
+- 构建自 **`2e73795`**，打包时工作树干净（链接时刻 06:01:03，`find src src-tauri/src scripts -newer <exe>` 零命中 —— 记尺寸/哈希之外还要排掉"包比代码早"，见 §11.4）。
+- **该二进制本机探针 49/49**：`evidence/probe-history.log` 原文行 `2026-10-02T22:02:51.248Z 49/49`（UTC，= 本机 06:02:51），`probe-report.json` 记 `passed:49/total:49, failed:[]`，跑的就是被打进包里的 `target/release/modulo.exe`。
+
 ## 0.1.1 —— 2026-10-03
 
 用户实拍首启界面提出质疑，量出来确实是缺陷，不是观感偏好。版本号四处对齐（`package.json` /
