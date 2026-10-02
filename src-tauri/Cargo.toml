@@ -1,6 +1,6 @@
 [package]
 name = "modulo"
-version = "0.1.0"
+version = "0.1.1"
 description = "Modulo 桌面壳"
 license = "Apache-2.0"
 edition = "2021"

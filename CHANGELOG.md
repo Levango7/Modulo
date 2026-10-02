@@ -3,9 +3,10 @@
 格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，版本号遵循
 [语义化版本](https://semver.org/lang/zh-CN/)。
 
-## 未发布 —— 起步版面重排（2026-10-03）
+## 0.1.1 —— 2026-10-03
 
-用户实拍首启界面提出质疑，量出来确实是缺陷，不是观感偏好。
+用户实拍首启界面提出质疑，量出来确实是缺陷，不是观感偏好。版本号四处对齐（`package.json` /
+`Cargo.toml` / `Cargo.lock` / `tauri.conf.json`）。
 
 ### 修复
 
