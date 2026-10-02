@@ -19,7 +19,7 @@ npm ci
 npm run dev            # 浏览器预览 http://localhost:1430
 npm run verify         # 类型检查 + 单测（含引擎覆盖率门禁）+ 构建 + 真浏览器 E2E
 npm run tauri:dev      # 桌面窗口（需 Rust 工具链，见下）
-npm run desktop:probe  # 桌面壳真机自检：自己起窗口、走完 34 项检查再关掉
+npm run desktop:probe  # 桌面壳真机自检：自己起窗口、走完 47 项检查再关掉
 ```
 
 Windows 上若用 **MSYS2 的 GNU 工具链**（本机情况：`rustc` host 为 `x86_64-pc-windows-gnu`，`gcc`/`windres` 在 MSYS2 里而不在 PATH），构建前需要把它注入到该次命令的 PATH：
@@ -37,12 +37,12 @@ npm run tauri:build -- --no-bundle   # 只出 exe；去掉 --no-bundle 会去下
 |---|---|
 | 真响应式 | 逻辑 12 列恒定，物理列数按容器宽度**投影**（12/8/6/4/1），投影只读、不回写你的布局 |
 | 调不坏 | 尺寸约束挂在"形态"的 `minW/minH` 上，缩放低于最小值会被拒绝而不是把内容压碎 |
-| 键盘可达 | 方向键移动、`Shift+方向键`缩放、`Alt+方向`微调、空格选入、`Enter`切形态、`Delete`/`Backspace`移回库、`L`锁定、`Ctrl/Cmd+A`全选、`Esc`取消、`Ctrl+Z` 撤销 / `Ctrl+Shift+Z`·`Ctrl+Y` 重做 |
+| 键盘可达 | 方向键移动、`Shift+方向键`缩放、多选时 `Alt+方向`只动当前格、空格选入、`Enter`循环切形态、`Delete`/`Backspace`移回库、`L`锁定、`Ctrl/Cmd+A`全选、`Esc`取消、`Ctrl+Z` 撤销 / `Ctrl+Shift+Z`·`Ctrl+Y` 重做 |
 | 可回退 | 50 步历史栈，一次拖拽 = 一步；组合动作（紧凑）保留分步撤销 |
 | 版面工具 | 整理（聚拢空洞）、撑满（按行铺满）、收紧（按内容实测降高）、紧凑（收紧+整理，仍可分步撤销）、推荐布局（破坏性，带二次确认） |
 | 多版面 | 命名方案册（可新建空白、拖拽或 `Alt+↑/↓` 排序）+ 布局/方案两套 JSON 导入导出，导入前逐条校验 |
 | 三套外观 | 墨纸 / 柔光 / 亮彩，纯令牌层切换，含模块身份色与强调色 |
-| 桌面壳 | 无边框自制标题栏、托盘、系统级快捷键；启动尺寸按显示器工作区逐轴夹取（默认 1280×800 逻辑档）；能力清单刻意不含 `allow-create` / `allow-destroy`，运行期不建窗 |
+| 桌面壳 | 无边框自制标题栏、托盘、系统级快捷键（设置页可录制改键，注册失败会显示原因）；启动尺寸按显示器工作区逐轴夹取（默认 1280×800 逻辑档）；能力清单刻意不含 `allow-create` / `allow-destroy`，运行期不建窗 |
 
 ## 结构
 
@@ -61,7 +61,7 @@ CHANGELOG.md           迭代变更历史（新增 / 修复 / 门禁 / 已知问
 CI（`.github/workflows/ci.yml`）两个 job：`verify` 跑四步 —— 类型检查 → 单测与属性测试（**顺带卡引擎分支覆盖 ≥90%**，`npm run cover:engine`）→ 构建 → E2E；`desktop` 在 windows-latest 上跑 `cargo fmt --check` → `clippy -D warnings` → `cargo test` → 真打包出 exe 并上传产物。
 投影算法有**五条**断言（只读、幂等、无重叠、尺寸充分、分区完整），用随机版面 × 7 档列数各 200 例做属性测试。
 两条量化门禁：引擎分支覆盖 ≥90%（`npm run cover:engine`，当前 90.95%）、真拖期间帧距中位数 ≤18.2ms（E2E 里用 rAF 采样，本机 headless 实测 16.7ms —— headless 只能当下限看）。
-桌面壳另有一条 `npm run desktop:probe`：给 WebView2 开远调端口，用 CDP 点真实的 DOM 按钮、派发真的 mousedown，再从 Win32 侧读窗口状态（图标态/工作区/样式位），不模拟鼠标所以不会抢走指针；`Alt+Shift+M` 用 SendKeys 从系统输入队列投递，验证全局快捷键真的被 OS 触发。窗口状态一律轮询等到落地再断言——单次 Win32 采样实测 1.1–1.3 秒，固定 sleep 会把「慢」误报成「坏」。34 项，截图落在 `evidence/desktop/`。
+桌面壳另有一条 `npm run desktop:probe`：给 WebView2 开远调端口，用 CDP 点真实的 DOM 按钮、派发真的 mousedown，再从 Win32 侧读窗口状态（图标态/工作区/样式位），不模拟鼠标所以不会抢走指针；召唤键用 SendKeys 从系统输入队列投递，正例（收起→唤出）之外还有反例（投一个不该生效的组合键，断言窗口纹丝不动），改键链路也在真窗口里跑一遍。窗口状态一律轮询等到落地再断言——单次 Win32 采样实测 1.1–1.3 秒，固定 sleep 会把「慢」误报成「坏」。截图落在 `evidence/desktop/`。
 
 ## 许可
 

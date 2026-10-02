@@ -31,7 +31,7 @@ F:\Nexus\Modulo\
 │  │  ├─ fit.ts            fitState(p, variant) → below|mid|ideal|room
 │  │  ├─ spot.ts           findFreeSpot(items,w,h,x,y) 同列带向下找最近空位
 │  │  ├─ ops.ts            add/move/resize/setVariant/remove/setTitle/toggleLock —— 纯函数，返回新 doc
-│  │  ├─ history.ts        不可变 doc + 引用栈；mergeKey 合并窗口有单测但生产无调用方
+│  │  ├─ history.ts        不可变 doc + 引用栈；mergeKey 合并窗口（连按方向键折成一步）已在生产路径上用
 │  │  ├─ breakpoints.ts    容器宽 → 物理列数 N + 最小行高
 │  │  ├─ projection.ts     ★ project(doc, N) → 物理矩形集 + 收起清单
 │  │  ├─ downgrade.ts      投影后宽度不足时的形态自动降档 / 收起判定
@@ -50,11 +50,11 @@ F:\Nexus\Modulo\
 │  │  └─ cards\            Clock / Sticky / Todo / Notes（全部接容器查询）
 │  ├─ tokens\              设计令牌（纯 CSS 变量，亮/暗两套）
 ├─ tests\
-│  ├─ engine\              单测（14 个文件，每个纯函数）
+│  ├─ engine\              单测（15 个文件，每个纯函数）
 │  ├─ property\            fast-check：投影不变量 I1–I4 + 分区完整（共 5 条断言）
-│  ├─ vue\                 适配层单测（store / fileStorage / cardData / appearance）
+│  ├─ vue\                 适配层单测（store / fileStorage / cardData / appearance / shell）
 │  ├─ engine-purity.test.ts  逐文件守住「引擎零框架 / DOM 依赖」
-│  └─ e2e\                 puppeteer-core 驱动系统 Chrome：15 条真浏览器断言
+│  └─ e2e\                 puppeteer-core 驱动系统 Chrome：16 条真浏览器断言
 └─ docs\ARCHITECTURE.md
 ```
 
@@ -170,7 +170,7 @@ MVP 先做 A1，A2 留一个 `projection.a2.test.ts` 做对照实验。不在没
 ## 4. 交互规范
 
 ### 4.1 拖拽（指针事件，不用 HTML5 DnD）
-- 6px 位移阈值区分点击与拖动；`pointerType` 分流：鼠标直接拖，触摸需长按 250ms 进拖拽态（x-hub 全局零引用 `pointerType`，触摸与鼠标一套逻辑）。
+- 6px 位移阈值区分点击与拖动。**`pointerType` 分流（触摸长按 250ms 才进拖拽）没做**：全仓零处读 `pointerType`，触摸与鼠标共用一套逻辑，只在拖拽区/格子上用 `touch-action: none` 挡住浏览器接管手势（`CanvasEditor.vue:483/505/528/541`）。x-hub 同样是全局零引用，这里不假装做过了。
 - 拖动中：跟随光标的 ghost + 落点预览矩形 + 尺寸/适配文字标签。
 - **移动与缩放的冲突语义故意不同**（承袭 x-hub 的好设计）：
   - 移动 → 目标被占时同列带向下找最近空位，**绝不弹回**；
@@ -183,14 +183,14 @@ MVP 先做 A1，A2 留一个 `projection.a2.test.ts` 做对照实验。不在没
 
 ### 4.3 键盘（x-hub 为 0 分）
 - 格子 roving tabindex，`Tab` 进出版面、`方向键` 在格子间跳焦点。
-- 焦点在格子上时：`方向键`=移动 1 格｜`Shift+方向键`=改宽/高 1 格｜`Enter`=开形态菜单｜`Delete`=移除｜`L`=锁定切换｜`Ctrl+Z / Ctrl+Shift+Z`=撤销/重做。
+- 焦点在格子上时：`方向键`=移动 1 格｜`Shift+方向键`=改宽/高 1 格｜`Enter`=**循环切形态**（`CanvasEditor.vue:334` 直接 `store.cycleVariant`，没有弹形态菜单 —— 形态只有 2–3 档，循环比开菜单快）｜`Delete`=移除｜`L`=锁定切换｜`Ctrl+Z / Ctrl+Shift+Z`=撤销/重做。
 - 焦点环用 `--shadow-focus` 令牌，禁止 `outline:none` 裸删。
 
 ### 4.4 多选与批量（x-hub 无）
 `Shift+点击` 增选；空白处按下拖动 = 框选；选中集支持整体偏移、整体删除、整体锁定。
 
 ### 4.5 历史
-50 步；合并策略：一次拖拽 = 一条历史；连续缩放 300ms 内合并；标题输入按失焦合并。
+50 步；合并策略：一次拖拽 = 一条历史；连按方向键 / 连续缩放在 300ms 窗口内按 `mergeKey` 折叠成一步（`CanvasEditor.vue:321` 传，`store.ts:56` 收）。**「标题输入按失焦合并」这条没实现**：`setTitle` 只在 `store.ts:93` 定义、全仓无 UI 调用方（卡片没有可编辑标题输入，标题走方案册那条输入框，不进历史）。
 
 ---
 
@@ -202,20 +202,20 @@ MVP 先做 A1，A2 留一个 `projection.a2.test.ts` 做对照实验。不在没
   --text-1; --text-2; --text-3; --text-4;
   --border-soft; --border-strong; --scrim;
   --brand-500; --brand-600; --brand-50; --brand-glow;
-  --c-*: 8 色 + -ink/-soft 变体;
-  --radius-xs/sm/md/lg/xl;    /* 8/8/12/16/999，禁止 >24 */
+  --c-*: 5 色（green/red/amber/blue/purple，无 -ink/-soft 变体）;
+  --radius-sm/md/lg/xl/pill;  /* 8/8/12/16/999 —— pill 是刻意例外 */
   --space-1..6;               /* 4/8/12/16/20/24 */
-  --shadow-card/item/hover/dock/focus;
-  --z-base/sticky/overlay/menu/modal/toast/lightbox;   /* ★ 集中定义，x-hub 此处散落各组件 */
+  --shadow-card/hover/focus;
+  --z-base/sticky/overlay/menu/modal/toast;   /* ★ 集中定义，x-hub 此处散落各组件 */
   --dur-micro:150ms; --dur-pop:200ms; --ease-out;
 }
 [data-theme="dark"] { /* 覆盖 */ }
 ```
 
 - 主题三轴照做：模式（亮/暗/系统）× 预设（单色 + 渐变）× 强调色（`--accent` + `color-mix` 派生 brand 全族）。
-- **卡片表面**：MVP 用静态烘焙渐变假装毛玻璃，常驻层**不用真 `backdrop-filter`**，真 blur 只给弹窗/菜单等瞬态层（x-hub 用 GPU 从 ~26% 回落换来的结论，我们直接继承，不重新踩）。
-- **卡片内容一律容器查询**：`.cell{container-type:size}` + `clamp(绝对下限, Ncq…, 绝对上限)`。x-hub 只有 2/13 张卡这么做了，我们 4 张卡全做 —— 这是"任意尺寸不裁字"的唯一可靠路径。
-- 字号下限硬约束：正文 ≥12px，投影降档必须优先保住这条线（x-hub 在 720px 下编辑器预览正文掉到 6.7px）。
+- **卡片表面**：用静态烘焙渐变假装毛玻璃，**全仓零处 `backdrop-filter`**（`grep -rn backdrop-filter src/` = 0 命中）。原计划"真 blur 只给弹窗/菜单等瞬态层"没做 —— 这是 x-hub 用 GPU 从 ~26% 回落换来的结论，我们直接继承，不重新踩；不做也意味着这条没有实测成本可言。
+- **卡片内容一律容器查询**：`.cell{container-type:size}` + `clamp(绝对下限, Ncq…, 绝对上限)`。x-hub 只有 2/13 张卡这么做了，我们 4 个卡组件全做 —— 这是"任意尺寸不裁字"的唯一可靠路径。（注册表里是 **5 个模块**：`cardRegistry.ts:11/21/30/39/48` 的 clock / sticky / todo / notes / **recent**；第 5 个「最近改动」是派生数据，渲染直接复用 `NotesCard`（`:55-60`），所以"4 个卡组件"和"5 个模块"都对，别混着写。起步版面里它也占一格（`store.ts:26`）。）
+- 字号下限硬约束：**正文 ≥12px**，投影降档必须优先保住这条线（x-hub 在 720px 下编辑器预览正文掉到 6.7px）。E2E 卡的是更宽的口 —— `.cell` 里任意叶子文本节点 ≥11px（`tests/e2e/layout.spec.ts:84`），实测三档都是 11px，落在次要文字上（`.hint` / 待办的「已完成」小标题 / ink 皮肤的大写卡头），卡片正文是 13px 起（`tokens.css:180`）。
 
 ---
 
@@ -250,7 +250,7 @@ MVP 先做 A1，A2 留一个 `projection.a2.test.ts` 做对照实验。不在没
 | `modulo.schemes.v1` | 命名方案册 |
 | `modulo.carddata.v1` | 便签文本 / 待办 / 速记 |
 | `modulo.appearance.v1` | 皮肤 × 明暗 × 强调色 |
-| `modulo.shell.v1` | 桌面壳开关（关闭是否收进托盘） |
+| `modulo.shell.v1` | 桌面壳开关（关闭是否收进托盘）+ 两条全局快捷键的自定义组合（`summon` / `ontop`） |
 
 - **网页版**：`localStorage`。
 - **桌面壳**：`%APPDATA%\app.modulo\data\<key>.json`，一个 key 一个文件，整个目录拷走就是备份。由 `read_doc`/`write_doc` 两条命令实现（`src-tauri/src/storage.rs`）。
@@ -271,7 +271,7 @@ MVP 先做 A1，A2 留一个 `projection.a2.test.ts` 做对照实验。不在没
 
 **做**：引擎（含投影）｜画布编辑器 + 堆叠编辑器｜撤销重做｜键盘｜多选｜FLIP｜4 张卡（Clock 三形态 / Sticky / Todo / Notes）｜三轴主题｜本地持久化 + 导入导出。
 
-**不做**：扩展系统、AI、剪贴板历史、账号、市场、自动更新、开机自启、托盘、全局快捷键、任何独立窗口。
+**不做**：扩展系统、AI、剪贴板历史、账号、市场、自动更新、开机自启、任何独立窗口。（托盘与全局快捷键原本也在这条里，已被 §11.3 推翻 —— 桌面壳是 MVP 之后单独开的一轮。）
 
 **验收判据（可测，不靠感觉）—— 2026-10-02 逐条复核**
 1. ✅ 三档视口：无横向滚动、无碎片卡、最小字号达标。**但实际断言跑在 1440 / 720 / 390**，不是这里原写的 360 —— 见 `tests/e2e/layout.spec.ts` 第一条。
@@ -337,13 +337,13 @@ MVP 先做 A1，A2 留一个 `projection.a2.test.ts` 做对照实验。不在没
 
 另外去掉了一处观感缺陷：编辑器标签条与卡片自身表头重复显示同一个名字（"便签 / 便签"），改为卡片在编辑态走 `chromeless`，每格只保留一层头部。
 
-当前状态（2026-10-02 复核）：**前端单测 187 条 + E2E 16 条 + Rust 单测 6 条**全绿，`tsc --noEmit` 干净，引擎分支覆盖 **90.95%**（门禁 90），无 console 报错。`vite build` 41.0 kB gzip 是当时的数（卡片与令牌还在增补，要新数就重跑 `npm run build`）。
+当前状态（2026-10-02 复核）：**前端单测 194 条（23 个文件）+ E2E 16 条 + Rust 单测 6 条**全绿，`tsc --noEmit` 干净，引擎分支覆盖 **90.95%**（门禁 90），无 console 报错。`vite build` 同日重跑：**JS 149.34 kB / gzip 55.04 kB，CSS 24.65 kB / gzip 5.58 kB**（比上一版记的 41.0 kB 大，因为多了桌面壳设置页与卡片内容；桌面探针 47 项见 §11.3）。
 
 ### 10.3 验证固化进 CI（2026-10-01）
 
 上面那些交互断言原来只是我手动跑的脚本，等于没有防线。现在：
 
-- `tests/e2e/layout.spec.ts` —— 15 条真浏览器断言（vitest + puppeteer-core 驱动系统 Chrome，CI 上走 `CHROME_PATH=/usr/bin/google-chrome`）：三档视口的列数/溢出/裁字/最小字号、固定行高与卡片高度一致、编辑器可聚焦格 >0、方向键移动 + Ctrl+Z 回退、框选→成组拖拽→整体撤销、空格选入与删除后焦点落位、设置面板焦点陷阱、整理/撑满/收紧/紧凑各自的效果与分步撤销、方案册另存→应用→改名→删除、窄屏自动堆叠、推荐布局的二次确认门禁、拖拽全程零 console 报错。
+- `tests/e2e/layout.spec.ts` —— 16 条真浏览器断言（vitest + puppeteer-core 驱动系统 Chrome，CI 上走 `CHROME_PATH=/usr/bin/google-chrome`）：三档视口的列数/溢出/裁字/最小字号、固定行高与卡片高度一致、编辑器可聚焦格 >0、方向键移动 + Ctrl+Z 回退、框选→成组拖拽→整体撤销、空格选入与删除后焦点落位、设置面板焦点陷阱、整理/撑满/收紧/紧凑各自的效果与分步撤销、方案册另存→应用→改名→删除、窄屏自动堆叠、推荐布局的二次确认门禁、拖拽帧率实测（rAF 采样，§8 第 3 条）、方案册键盘与拖拽排序跨重启保留、拖拽全程零 console 报错。
 - `vitest.e2e.setup.ts` 用 vite 的 `build()` + `preview({port:0})` 起随机端口，避免与本机其它 dev server 抢端口。
 - `npm run verify` = typecheck（`tsconfig.json` 严格无 DOM + `tsconfig.e2e.json` 带 DOM，分层：产品代码拿不到 `document`）→ 单测 → 构建 → E2E。`.github/workflows/ci.yml` 就按这四步跑。
 - 首批 CI 落地时的本地实测：103 单测 + 5 E2E 全绿，E2E 约 43s（含构建）；此后各轮持续增补，当前规模看 README。
@@ -373,7 +373,7 @@ MVP 先做 A1，A2 留一个 `projection.a2.test.ts` 做对照实验。不在没
 
 ### 10.6 外观设置页（2026-10-01）
 
-顶栏的循环按钮换成正式设置面板（`SettingsPanel.vue`）：**视觉方向**（三张带说明的卡）× **明暗**（亮/暗/跟随系统）× **强调色**（"跟随皮肤" + 7 个预设）。状态逻辑抽成纯函数放 `src/vue/appearance.ts`（`parseAppearance` 逐字段校验、非法回退默认、强调色只收 6 位 hex 以防注入 style；另有 `resolveTheme` / `accentColor`），DOM 应用与 `prefers-color-scheme` 监听在 `useAppearance.ts`，存档 `localStorage['modulo.appearance.v1']`。
+顶栏的循环按钮换成正式设置面板（`SettingsPanel.vue`）：**视觉方向**（三张带说明的卡）× **明暗**（亮/暗/跟随系统）× **强调色**（"跟随皮肤" + 8 个预设，`appearance.ts:23-31`）。状态逻辑抽成纯函数放 `src/vue/appearance.ts`（`parseAppearance` 逐字段校验、非法回退默认、强调色只收 6 位 hex 以防注入 style；另有 `resolveTheme` / `accentColor`），DOM 应用与 `prefers-color-scheme` 监听在 `useAppearance.ts`，存档 `localStorage['modulo.appearance.v1']`。
 
 实现中被抓到两例，都记在这里避免重犯：
 - 模板里写 `a.value.skin` —— `a` 是 setup 返回的 ref，模板已自动解包，运行时直接 `Cannot read properties of undefined`（E2E 打不开面板才发现，单测覆盖不到）。
@@ -481,23 +481,26 @@ Tauri 2 最小壳：`src-tauri/` 只声明一个主窗口（1280×800，最小 3
 1. **裸 `data-tauri-drag-region` 只认「事件 target 恰好是带属性的那个元素」**（`el === composedPath[0]`）。标题栏里有点击价值的区域恰恰是子元素 —— Logo（SVG）和 "Modulo" 文字，用裸属性等于只有两侧空白能拖。改成 `="deep"` 后子树里除可点击元素（button/a/input…）外都算拖拽区。
 2. **双击最大化不要自己接**。`drag.js` 已经在第二次 `mousedown`（`detail === 2`）里 invoke 了 `internal_toggle_maximize`（该命令在 `core:window:default` 里，不用额外申请）。原先我又在 Vue 上挂了 `@dblclick="win.toggleMaximize()"` —— 真双击会切两次（原生一次、自己一次），净效果是**不最大化**。这是探针改用真 mousedown 事件后才暴露的：合成 `dblclick` 事件根本走不到原生那条路，测了等于没测。
 
-标题栏只在 `isDesktop` 为真时渲染 —— 网页版和 E2E 完全不受影响，`npm run verify` 的 E2E（那一轮 14 条，现在 15 条）仍然是原样通过的。
+标题栏只在 `isDesktop` 为真时渲染 —— 网页版和 E2E 完全不受影响，`npm run verify` 的 E2E（那一轮 14 条，现在 16 条）仍然是原样通过的。
 
 一个容易踩的布局坑：标题栏不能塞进 `.shell`，因为 `.shell` 有 16px 内边距，标题栏会浮在窗口中间。改成外面套一层 `.app`（flex column），`.shell` 从 `height: 100%` 换成 `flex: 1; min-height: 0`。
 
 **托盘**：`TrayIconBuilder`（要开 tauri 的 `tray-icon` feature）。左键双击唤出/隐藏，右键出菜单（显示/隐藏、窗口置顶、退出）。刻意 `show_menu_on_left_click(false)` —— 否则单击就弹菜单，双击永远触发不了。图标用 `default_window_icon()`，不额外引 `image` feature。
 
-**全局快捷键**：`tauri-plugin-global-shortcut`，`Alt+Shift+M` 唤出/隐藏、`Alt+Shift+T` 置顶。**逐个注册而不是批量**：插件的 `Builder::with_shortcuts` 在 setup 里 `?` 上抛，一个组合键被别的程序占用就会让整个应用启动失败（`run()` 直接 panic 成"Modulo 启动失败"）。改成在 `setup` 里自己 `register()` 并吞掉错误。
+**全局快捷键**：`tauri-plugin-global-shortcut`，默认 `Ctrl+Alt+Shift+M` 唤出/隐藏、`Ctrl+Alt+Shift+T` 置顶。默认档换了两次，两次都是实测逼的（`Alt+Shift+M` 撞输入法、`Ctrl+Alt+M`/`Ctrl+Alt+T` 在本机 `RegisterHotKey` 直接返回 1409 = 已被别的程序占用），完整过程见下面「已知红」那条。**逐个注册而不是批量**：插件的 `Builder::with_shortcuts` 在 setup 里 `?` 上抛，一个组合键被别的程序占用就会让整个应用启动失败（`run()` 直接 panic 成"Modulo 启动失败"）。改成在 `setup` 里自己 `register()` 并吞掉错误。
 
 注册失败本身是静默的，只在 stderr 打一行等于没有 —— 所以把结果存进状态、开一个 `global_shortcuts` 命令给设置页显示「已注册 / 被占用」。快捷键文案也因此只有一份（Rust 侧），前端不再抄一遍常量。
+
+**用户可改键**（2026-10-02）：`set_shortcut(kind, chord)` 先解旧再注册新，**新键注册失败就把旧键滚回去**，绝不留下「两条都没绑上」的状态。回调不再按 `shortcut.key` 猜是哪一条 —— 改键后两条完全可以共用字母、只换修饰键，所以多了一张 `kind → 当前 Shortcut` 的表来反查。持久化和「收进托盘」同一个套路：Rust 侧不落地，前端存在 `modulo.shell.v1` 里（一个 key 存两样东西，因此每次写回必须带全字段，否则拨一下开关就把改过的键抹了），启动时读到与默认档不一致的键再推回去。
+设置页每行一个「改键」按钮，按下后在 **document 捕获阶段**听 keydown 并 `stopPropagation` —— 挂在 bubble 上会先让应用自己的 Ctrl+Z / Esc 跑掉（Esc 还会顺手关掉设置面板）。裸键（`M`）被 `parse_chord` 拒绝：全局裸键会吞掉系统里所有该键的输入。这条**没有 Rust 单测**：一引用 `parse_chord`，windows-gnu 的测试二进制就 `STATUS_ENTRYPOINT_NOT_FOUND`（去掉立刻恢复），所以由探针端到端验。
 
 **「点关闭」默认是退出，不是收进托盘**：Windows 会把新出现的托盘图标塞进溢出浮层，默认藏进去等于把用户关在门外。设置页里有开关可以改成收进托盘，持久化在前端 localStorage，启动时推给 Rust（Rust 侧不落地）。
 
 **权限收紧**：能力清单从只写 `core:default` 改成显式补四条（`allow-minimize / allow-toggle-maximize / allow-close / allow-start-dragging`）—— `core:window:default` 其实只有只读 getter，自制标题栏的按钮一个都不在里面。同时**刻意不给** `allow-create` / `allow-destroy`：x-hub 代价最高的那批 WebView2 bug 都在运行期建窗/销毁窗上，这里用权限层把它堵死，而不是靠口头约定。
 
-**真机自检（`npm run desktop:probe`，那一轮 30/30；现已扩到 33 项，见 §11.4）**：不模拟鼠标 —— `SetCursorPos` 会抢走用户真实的指针和焦点，点错地方赔不起。改成给 WebView2 开远调端口（`WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS=--remote-debugging-port`），用 CDP 在页面里点**真实的 DOM 按钮**，再从 Win32 侧读窗口状态，走的是同一条代码路径。已验证：无边框标题栏渲染且带拖拽区、三个按钮都能点、最小化真的进图标态（`rect` 变成 -32000 那个经典值）、最大化铺满工作区、再点回原尺寸、`WS_THICKFRAME` 样式位仍在（所以边缘可拉伸）、托盘图标直接可见没被收进溢出浮层、收进托盘开关两个方向都生效。
+**真机自检（`npm run desktop:probe`，那一轮 30/30；项数随轮次增长，最近一轮 47/47，见 §11.3 与 §11.4）**：不模拟鼠标 —— `SetCursorPos` 会抢走用户真实的指针和焦点，点错地方赔不起。改成给 WebView2 开远调端口（`WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS=--remote-debugging-port`），用 CDP 在页面里点**真实的 DOM 按钮**，再从 Win32 侧读窗口状态，走的是同一条代码路径。已验证：无边框标题栏渲染且带拖拽区、三个按钮都能点、最小化真的进图标态（`rect` 变成 -32000 那个经典值）、最大化铺满工作区、再点回原尺寸、`WS_THICKFRAME` 样式位仍在（所以边缘可拉伸）、托盘图标直接可见没被收进溢出浮层、收进托盘开关两个方向都生效。
 
-原先说「三件事自动化够不着」，现在只剩一件。**双击拖拽区最大化**改成派发真的 `mousedown(detail=2)`（走 drag.js 而不是自己的 dblclick），顺带把「标题文字、Logo 都算拖拽区」一并断言了。**`Alt+Shift+M` 在系统层面真的触发**则借 `WScript.Shell.SendKeys('%+m')`：SendInput 进的是系统输入队列，`RegisterHotKey` 能收到 —— 按两次、看窗口收起再回来，全程不碰物理键盘。剩下**拖标题栏移动窗口**仍需人手确认：`start_dragging` 会进 Windows 的原生模态拖动循环，合成鼠标事件撑不起这个循环。
+原先说「三件事自动化够不着」，现在只剩一件。**双击拖拽区最大化**改成派发真的 `mousedown(detail=2)`（走 drag.js 而不是自己的 dblclick），顺带把「标题文字、Logo 都算拖拽区」一并断言了。**召唤键在系统层面真的触发**则借 `WScript.Shell.SendKeys`：SendInput 进的是系统输入队列，`RegisterHotKey` 能收到 —— 全程不碰物理键盘。投递的组合键**从 Rust 实际注册的那条现算**（`toSendKeys('Ctrl+Alt+F13') → ^%{F13}`），默认档换了或用户改过键都不用动探针。验证是双向的：正例按两次、看窗口收起再回来；**反例投旧的 `Alt+Shift+M`、断言窗口纹丝不动** —— 只有正例的话，窗口被别的东西碰一下也可能算过。改键本身另有三条：裸键必须被拒、换成 `Ctrl+Alt+F13` 后新键可用且旧键失效、最后换回默认档。剩下**拖标题栏移动窗口**仍需人手确认：`start_dragging` 会进 Windows 的原生模态拖动循环，合成鼠标事件撑不起这个循环。
 
 写这个探针时踩到一个坑值得记下来：`.NET` 的 `Process.MainWindowHandle` 在窗口最小化期间会漂到一个 6×6 的辅助窗口上，于是 `IsIconic` 永远读到 false —— 每次重新查句柄的写法会把「真的最小化了」误报成「没有」。必须第一次拿到 hwnd 后钉死回传。
 
@@ -512,7 +515,16 @@ Tauri 2 最小壳：`src-tauri/` 只声明一个主窗口（1280×800，最小 3
 **实机核对（2026-10-02）**：探针新增一项启动尺寸断言，把「逻辑档 × DPI」真的落到窗口上这件事钉住 —— 本机 150% 缩放下读到可见外框 1920×1200（= 1280×800 × 1.5）。读数比期望大出 w+22 / h+13 是 Win10+ 的不可见调边框（`GetWindowRect` 含它，tao 保证的是可见外框），容差按邻居检查的 40px 收。夹取分支要小屏才触发、本机平时走不到，一度只剩 `fit_size` 的三条单测守着；**这条边界当天就收掉了**：`fit_window` 加了测试接缝 `MODULO_WANT_SIZE`（不设时产品路径零变化；`parse_size` 严格解析，非法值回落默认档并打日志，单测锁住），探针拿 `2600x1500` 把期望尺寸顶过 2560×1528 的工作区，实测窗口落在 **2428×1449** = 逐轴 94% 算出的 2406×1436 再加那圈边框，且 `center()` 之后左右留白差 **0 像素** —— 夹取与居中从此都是真机断言，探针 31 → 33 项。同轮还把探针里六处固定 sleep 采样改成轮询等待：单次 Win32 采样实测 1.1–1.3 秒（PowerShell 起进程 + `Add-Type` 编译），而最小化/双击的状态迁移本身也要 1 秒上下，旧写法 0.9–1.2 秒的 sleep 正好压在分界线上，会把「慢」报成「坏」（本轮就这样先红了 4 条，改轮询后 31/31）。同轮还换掉了窗口定位：`shot-window.ps1` 原来取「第一个同名 modulo 进程」的窗口，用户自己也开着应用时会钉到他的实例上（`-Restore`、点关闭就打在别人的窗口里）。现在探针把 `spawn()` 的 PID 传进去，ps1 只认那个进程、找不到就返回空**而不回退按名字查**；判别检查是「有一个实例真在跑时传假 PID」，结果 `byName:true / bogus:false / real:true`。
 
 **真机帧距（同日补）**：E2E 那条只能测 headless，探针现在在 WebView2 里先采 500ms 空闲基线，再用整版重排（撑满 → 整理）压测，门槛取 `min(18.2ms, 1.5 × 基线)`。这一步很关键：本机面板是 **240Hz**、空闲基线中位 5.6ms，绝对阈值 18.2ms 在这种屏幕上形同虚设（掉到 60fps 都算"过"）。实测重排期间中位仍 5.6ms（与基线持平、p95 6.6ms）。至于 `max` 里那几百毫秒的"孤峰"——**已排除是我们的代价**：同一台机器上完全不动的空闲窗口，6 秒里同样出现 5–7 次 >100ms 的空窗（max 423–579ms），比压测时的孤峰更大更密；而点下「撑满」的同步耗时实测 0.1–0.8ms（连做 6 次）。所以断言只卡中位数与 p95，`max` 仅记录、不参与判定 —— 它量到的是渲染进程的节流行为，不是我们的代码。
-**当前有一条已知红**：`Alt+Shift+M 经系统投递后窗口收起` 从 09:07 起连续两轮不过，而注册检查仍绿（`registered:true`，说明热键确实归这个实例所有）。外因指向输入法：`HKCU\Keyboard Layout\Toggle` 的 `HotKey=1`、`Language Hotkey=1`，即本机启用了「左 Alt+Shift 切换输入法」，正好是默认召唤键的前缀组合。也排除了自伤 —— 帧距块排在快捷键投递测试**之后**执行，顺序上不可能影响它。
+**曾经那条已知红已结案（2026-10-02 实测）**：`Alt+Shift+M 经系统投递后窗口收起` 从 09:07 起连续两轮不过，而注册检查仍绿（`registered:true`，热键确实归这个实例）。当时归因于输入法（`HKCU\Keyboard Layout\Toggle\HotKey = 1`、`Language Hotkey = 1`，即「左 Alt+Shift 切换输入法」正是这个前缀）—— **这是假设，始终没有直接证到**；能证的是换档之后同一条投递检查稳定通过。换档过程踩了第二坑：先试 `Ctrl+Alt+M` / `Ctrl+Alt+T`，结果**开机就注册不上**，stderr 两条 `RegisterHotKey` 失败。用一段独立 PowerShell 直接调 `RegisterHotKey` 实测本机（`SetLastError=true` 取真实错误码）：
+
+| 组合键 | 结果 | Win32 |
+|---|---|---|
+| `Ctrl+Alt+M` / `Ctrl+Alt+T` | TAKEN | 1409 = `ERROR_HOTKEY_ALREADY_REGISTERED` |
+| `Win+Alt+M` / `Win+Alt+T` | TAKEN | 1409 |
+| `Alt+Shift+M` / `Ctrl+Shift+M` / `Ctrl+Alt+Space` / `Ctrl+Alt+F9` / `Ctrl+Alt+\` / `Ctrl+Alt+B` / `Ctrl+Alt+J` | FREE | —— |
+| **`Ctrl+Alt+Shift+M` / `Ctrl+Alt+Shift+T`** | FREE | —— |
+
+所以默认档最终取**三修饰**那一行（`lib.rs:97-98`）。1409 说明本机有别的程序占着 `Ctrl+Alt+M/T`，但**没查出是哪个程序**，也没必要 —— 产品侧的处理是：注册失败逐条吞掉、设置页显式显示「注册失败，多半被别的程序占用了」、并提供录制改键。探针那一轮 **47/47**，其中召唤键那块六条：正例投递收起 / 再投递唤出 / 反例（旧 `Alt+Shift+M` 投进去窗口纹丝不动）/ 裸键被拒 / 换成 `Ctrl+Alt+F13` 后新键可用且旧键失效 / 换回默认档。设置页的录制另有五条（按钮存在、只按修饰键不提交、Esc 取消、录制后 Rust 与界面同步、改过的键落进 `modulo.shell.v1.json`）。
 
 **打包**：`npx tauri build` 出 `Modulo_0.1.0_x64-setup.exe`（NSIS，1 852 946 字节 = 1.77 MiB，`sha256 4a1c90a7440e6a74…`，**构建自 `782a520`** 的前端 + 壳代码；此后的改动只涉及探针与文档，不进包）。这一版是发现"包比代码旧"之后重切的：`7b85f21` 那版缺 `MODULO_WANT_SIZE` 接缝与 mergeKey 接线。先前担心的「NSIS 工具链在本机下载不动」没有发生 —— 它走 github.com 的 release 直链（取不动的是 raw.githubusercontent 那一类），下载后还会校验哈希。上一版包栽过一次：它的 `modulo.exe` 链于 21:23:11，而 `lib.rs` 最后写入是 21:24:47 —— **包比代码早，不能证明里面含最终的 `fit_window`**。教训是记产物必须同时记尺寸、哈希**和源 commit**：只看时间戳还会漏掉"包里有未提交代码"这种情况。
 
