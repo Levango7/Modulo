@@ -22,5 +22,8 @@ export function findFreeSpot(
     const rect: Rect = { x: cx, y: yy, w, h }
     if (!anyCollides(obstacles, rect)) return rect
   }
+  // 兜底分支，理论上到不了：循环一定会在 yy = bottom = maxRow(obstacles) 处命中
+  // （所有已放项都满足 y+h ≤ maxRow）。留着是因为 TS 要求每条路径都有返回值，
+  // 而这里没有比"再返回一次 bottom"更合理的写法。覆盖率报告里它永远标红，不必为它编用例。
   return { x: cx, y: bottom, w, h }
 }
