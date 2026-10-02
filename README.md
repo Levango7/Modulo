@@ -53,6 +53,7 @@ src/vue/        适配层：store、指针拖拽、键盘、FLIP、皮肤、持�
 src/app/cards/  卡片：全部用容器查询连续缩放
 tests/          单测 + fast-check 属性测试（投影不变量）+ 真浏览器 E2E
 docs/ARCHITECTURE.md   设计定稿与决策记录（含被测试逼出来的修正）
+CHANGELOG.md           迭代变更历史（新增 / 修复 / 门禁 / 已知问题）
 ```
 
 ## 验证
