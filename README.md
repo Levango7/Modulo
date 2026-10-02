@@ -6,7 +6,7 @@
 
 **想要装起来用**：[Releases · v0.1.0](https://github.com/Levango7/Modulo/releases/tag/v0.1.0) 里有 Windows x64 的 NSIS 安装包（`Modulo_0.1.0_x64-setup.exe`，1 858 935 字节，`sha256 4658ada982c7e439f5d5a238c2cb8a40ae0229c71281170466ffe49c3d8f2a15`，构建自 `0c42fc9`，该二进制在本机通过全部 47 项真机检查）。安装包**没有代码签名**，首次运行 Windows SmartScreen 会提示"未知发布者"。数据落在 `%APPDATA%\app.modulo\data\*.json`，整个目录拷走就是备份。
 
-![工作台：点「撑满」后每个行带铺满 12 列](docs/assets/workbench-spread-1440.png)
+![工作台：出厂版面就是铺满的 —— 12 列、行带之间不留中缝](docs/assets/workbench-starter-1440.png)
 
 ## 界面
 
@@ -62,7 +62,7 @@ CHANGELOG.md           迭代变更历史（新增 / 修复 / 门禁 / 已知问
 
 CI（`.github/workflows/ci.yml`）两个 job：`verify` 跑四步 —— 类型检查 → 单测与属性测试（**顺带卡引擎分支覆盖 ≥90%**，`npm run cover:engine`）→ 构建 → E2E；`desktop` 在 windows-latest 上跑 `cargo fmt --check` → `clippy -D warnings` → `cargo test` → 真打包出 exe 并上传产物。
 投影算法有**五条**断言（只读、幂等、无重叠、尺寸充分、分区完整），用随机版面 × 7 档列数各 200 例做属性测试。
-两条量化门禁：引擎分支覆盖 ≥90%（`npm run cover:engine`，当前 90.95%）、真拖期间帧距中位数 ≤18.2ms（E2E 里用 rAF 采样，本机 headless 实测 16.7ms —— headless 只能当下限看）。
+两条量化门禁：引擎分支覆盖 ≥90%（`npm run cover:engine`，当前 91.33%）、真拖期间帧距中位数 ≤18.2ms（E2E 里用 rAF 采样，本机 headless 实测 16.7ms —— headless 只能当下限看）。
 桌面壳另有一条 `npm run desktop:probe`：给 WebView2 开远调端口，用 CDP 点真实的 DOM 按钮、派发真的 mousedown，再从 Win32 侧读窗口状态（图标态/工作区/样式位），不模拟鼠标所以不会抢走指针；召唤键用 SendKeys 从系统输入队列投递，正例（收起→唤出）之外还有反例（投一个不该生效的组合键，断言窗口纹丝不动），改键链路也在真窗口里跑一遍。窗口状态一律轮询等到落地再断言——单次 Win32 采样实测 1.1–1.3 秒，固定 sleep 会把「慢」误报成「坏」。截图落在 `evidence/desktop/`。
 
 ## 许可

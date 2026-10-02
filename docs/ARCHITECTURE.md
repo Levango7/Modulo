@@ -42,7 +42,8 @@ F:\Nexus\Modulo\
 │  │  └─ index.ts          对外统一出口
 │  ├─ vue\                 唯一允许碰框架的适配层
 │  │  ├─ store.ts          模块级 shallowRef 单例（无 Pinia）
-│  │  ├─ cardData.ts cardRegistry.ts appearance.ts useAppearance.ts
+│  │  ├─ cardData.ts cardRegistry.ts（尺寸契约，不 import .vue）cardComponents.ts
+│  │  ├─ appearance.ts useAppearance.ts
 │  │  ├─ fileStorage.ts fileIo.ts useShell.ts useSchemes.ts
 │  │  ├─ useDensity.ts useFocusTrap.ts
 │  │  └─ components\       TitleBar · BrandMark · GridLayout · CanvasEditor · StackEditor · SettingsPanel
@@ -52,7 +53,7 @@ F:\Nexus\Modulo\
 ├─ tests\
 │  ├─ engine\              单测（15 个文件，每个纯函数）
 │  ├─ property\            fast-check：投影不变量 I1–I4 + 分区完整（共 5 条断言）
-│  ├─ vue\                 适配层单测（store / fileStorage / cardData / appearance / shell）
+│  ├─ vue\                 适配层单测（store / fileStorage / cardData / appearance / shell / starter）
 │  ├─ engine-purity.test.ts  逐文件守住「引擎零框架 / DOM 依赖」
 │  └─ e2e\                 puppeteer-core 驱动系统 Chrome：16 条真浏览器断言
 └─ docs\ARCHITECTURE.md
@@ -214,7 +215,7 @@ MVP 先做 A1，A2 留一个 `projection.a2.test.ts` 做对照实验。不在没
 
 - 主题三轴照做：模式（亮/暗/系统）× 预设（单色 + 渐变）× 强调色（`--accent` + `color-mix` 派生 brand 全族）。
 - **卡片表面**：用静态烘焙渐变假装毛玻璃，**全仓零处 `backdrop-filter`**（`grep -rn backdrop-filter src/` = 0 命中）。原计划"真 blur 只给弹窗/菜单等瞬态层"没做 —— 这是 x-hub 用 GPU 从 ~26% 回落换来的结论，我们直接继承，不重新踩；不做也意味着这条没有实测成本可言。
-- **卡片内容一律容器查询**：`.cell{container-type:size}` + `clamp(绝对下限, Ncq…, 绝对上限)`。x-hub 只有 2/13 张卡这么做了，我们 4 个卡组件全做 —— 这是"任意尺寸不裁字"的唯一可靠路径。（注册表里是 **5 个模块**：`cardRegistry.ts:11/21/30/39/48` 的 clock / sticky / todo / notes / **recent**；第 5 个「最近改动」是派生数据，渲染直接复用 `NotesCard`（`:55-60`），所以"4 个卡组件"和"5 个模块"都对，别混着写。起步版面里它也占一格（`store.ts:26`）。）
+- **卡片内容一律容器查询**：`.cell{container-type:size}` + `clamp(绝对下限, Ncq…, 绝对上限)`。x-hub 只有 2/13 张卡这么做了，我们 4 个卡组件全做 —— 这是"任意尺寸不裁字"的唯一可靠路径。（注册表里是 **5 个模块**：`cardRegistry.ts:10/20/29/38/47` 的 clock / sticky / todo / notes / **recent**；第 5 个「最近改动」是派生数据，渲染直接复用 `NotesCard`（`cardComponents.ts:12-18`），所以"4 个卡组件"和"5 个模块"都对，别混着写。起步版面里它也占一格（`store.ts:43`）。）
 - 字号下限硬约束：**正文 ≥12px**，投影降档必须优先保住这条线（x-hub 在 720px 下编辑器预览正文掉到 6.7px）。E2E 卡的是更宽的口 —— `.cell` 里任意叶子文本节点 ≥11px（`tests/e2e/layout.spec.ts:84`），实测三档都是 11px，落在次要文字上（`.hint` / 待办的「已完成」小标题 / ink 皮肤的大写卡头），卡片正文是 13px 起（`tokens.css:180`）。
 
 ---
@@ -337,13 +338,13 @@ MVP 先做 A1，A2 留一个 `projection.a2.test.ts` 做对照实验。不在没
 
 另外去掉了一处观感缺陷：编辑器标签条与卡片自身表头重复显示同一个名字（"便签 / 便签"），改为卡片在编辑态走 `chromeless`，每格只保留一层头部。
 
-当前状态（2026-10-02 复核）：**前端单测 194 条（23 个文件）+ E2E 16 条 + Rust 单测 6 条**全绿，`tsc --noEmit` 干净，引擎分支覆盖 **90.95%**（门禁 90），无 console 报错。`vite build` 同日重跑：**JS 149.34 kB / gzip 55.04 kB，CSS 24.65 kB / gzip 5.58 kB**（比上一版记的 41.0 kB 大，因为多了桌面壳设置页与卡片内容；桌面探针 47 项见 §11.3）。
+当前状态（2026-10-03 复核）：**前端单测 201 条（24 个文件）+ E2E 17 条 + Rust 单测 6 条**全绿，`tsc --noEmit` 干净，引擎分支覆盖 **91.33%**（门禁 90），无 console 报错。`vite build` 同日重跑：**JS 149.34 kB / gzip 55.04 kB，CSS 24.65 kB / gzip 5.58 kB**（比上一版记的 41.0 kB 大，因为多了桌面壳设置页与卡片内容；桌面探针 47 项见 §11.3）。
 
 ### 10.3 验证固化进 CI（2026-10-01）
 
 上面那些交互断言原来只是我手动跑的脚本，等于没有防线。现在：
 
-- `tests/e2e/layout.spec.ts` —— 16 条真浏览器断言（vitest + puppeteer-core 驱动系统 Chrome，CI 上走 `CHROME_PATH=/usr/bin/google-chrome`）：三档视口的列数/溢出/裁字/最小字号、固定行高与卡片高度一致、编辑器可聚焦格 >0、方向键移动 + Ctrl+Z 回退、框选→成组拖拽→整体撤销、空格选入与删除后焦点落位、设置面板焦点陷阱、整理/撑满/收紧/紧凑各自的效果与分步撤销、方案册另存→应用→改名→删除、窄屏自动堆叠、推荐布局的二次确认门禁、拖拽帧率实测（rAF 采样，§8 第 3 条）、方案册键盘与拖拽排序跨重启保留、拖拽全程零 console 报错。
+- `tests/e2e/layout.spec.ts` —— 17 条真浏览器断言（vitest + puppeteer-core 驱动系统 Chrome，CI 上走 `CHROME_PATH=/usr/bin/google-chrome`）：三档视口的列数/溢出/裁字/最小字号、固定行高与卡片高度一致、编辑器可聚焦格 >0、方向键移动 + Ctrl+Z 回退、框选→成组拖拽→整体撤销、空格选入与删除后焦点落位、设置面板焦点陷阱、整理/撑满/收紧/紧凑各自的效果与分步撤销、方案册另存→应用→改名→删除、窄屏自动堆叠、推荐布局的二次确认门禁、拖拽帧率实测（rAF 采样，§8 第 3 条）、方案册键盘与拖拽排序跨重启保留、拖拽全程零 console 报错、出厂版面首行带铺满且整屏 0 空洞（§11.5）。**整理/撑满/方案册那三条不再吃出厂版面的红利** —— 它们现在自己喂一份乱版面当夹具（`SLOPPY_DOC`），因为出厂版面已经不烂了。
 - `vitest.e2e.setup.ts` 用 vite 的 `build()` + `preview({port:0})` 起随机端口，避免与本机其它 dev server 抢端口。
 - `npm run verify` = typecheck（`tsconfig.json` 严格无 DOM + `tsconfig.e2e.json` 带 DOM，分层：产品代码拿不到 `document`）→ 单测 → 构建 → E2E。`.github/workflows/ci.yml` 就按这四步跑。
 - 首批 CI 落地时的本地实测：103 单测 + 5 E2E 全绿，E2E 约 43s（含构建）；此后各轮持续增补，当前规模看 README。
@@ -355,11 +356,11 @@ MVP 先做 A1，A2 留一个 `projection.a2.test.ts` 做对照实验。不在没
 `src/engine/tidy.ts`：单趟"上+左"重力聚拢，锁定项不动、其余绕开它落位，兜底放到 `maxRow` 之下（那一行必然空闲）。两个实现细节是被测试逼出来的：
 
 1. **两趟分开聚拢（先左后上）会造出重叠** —— 找不到空位时"原样返回"就撞上了前一趟已挪动过的卡片。随机版面性质测试抓到后改成单趟联合扫描。
-2. **单次整理可能让版面更高**（推荐布局实测 11 行 → 12 行：左聚把窄卡挤到下一列，通栏只能再往下落）。改为同时算"仅上聚"与"上+左聚"两个候选取更矮者，并**迭代到不动点**保证幂等。现在有两条硬保证：`usedRows` 只会变小不会变大（200 组随机版面断言）、tidy 两次等于一次。
+2. **单次整理可能让版面更高**（旧出厂版面实测 11 行 → 12 行：左聚把窄卡挤到下一列，通栏只能再往下落；那份默认已按 §11.5 重排过，数字留作 tidy 行为的例证）。改为同时算"仅上聚"与"上+左聚"两个候选取更矮者，并**迭代到不动点**保证幂等。现在有两条硬保证：`usedRows` 只会变小不会变大（200 组随机版面断言）、tidy 两次等于一次。
 
 工作台与编辑器共用顶部「整理」按钮；撤销/重做同时上移为**全局**键盘能力（E2E 抓到过：在工作台点整理后按 Ctrl+Z 无效，因为监听只挂在编辑器组件上）。
 
-诚实边界：整理能把 11 行压到 9 行、消除纵向空档，但**不会让版面"看起来满"**——5 张卡在 12 列里仍会留下中部横向空白（见 `evidence/tidy-before.png` / `tidy-after.png`）。要真正解决稀疏感，需要的是"按可用宽度重新分配卡片宽度"的模式，属于视觉/排版策略层，由 §10.5 的撑满模式接手。
+诚实边界：整理能压掉纵向空档，但**不会让版面"看起来满"** —— 横向中缝它管不了（那两张 `evidence/tidy-*.png` 是旧出厂版面的记录；出厂默认本身已在 §11.5 重排成 0 空洞）。要真正解决稀疏感，需要的是"按可用宽度重新分配卡片宽度"的模式，属于视觉/排版策略层，由 §10.5 的撑满模式接手。
 
 ### 10.5 视觉方向与撑满模式（2026-10-01）
 
@@ -539,3 +540,30 @@ Tauri 2 最小壳：`src-tauri/` 只声明一个主窗口（1280×800，最小 3
 **许可**：Apache-2.0（`LICENSE`），`Cargo.toml` 的 `license`、`package.json` 的 `license`、`tauri.conf.json` 的 `bundle.copyright` / `bundle.licenseFile` 四处一起对齐。选 Apache-2.0 而不是 MIT：带显式专利授权与商标条款，且与同目录的 OpsMesh 一致。
 
 **顺带修掉一个「本机 `cargo test` 从来没通过过」的问题**：模板给的 `crate-type = ["staticlib", "cdylib", "rlib"]` 是给移动端的，本项目只有桌面端；而 windows-gnu 目标下 debug 版 cdylib 会把整棵依赖树的符号塞进导出表（dlltool 生成九万余条，超 PE 的 65535 序号上限），链接直接报 `export ordinal too large`。能跑通的只有 `cargo test --lib`。裁成 `["rlib"]` 之后 `cargo test` 第一次真正跑通 —— 也就是说 CI 里那条 `cargo test` 门禁，在本地从来没有被等价地执行过。
+
+### 11.5 起步版面重排：0 空洞，以及三条"靠默认缺陷才过"的测试（2026-10-03）
+
+**现象**：用户实拍首启界面 —— 时钟与待办之间空着 4 列 × 3 行，屏幕右半一大块白。
+
+**量出来的根因**：`starterDoc` 把坐标写死（`clock(0,0)` / `todo(8,0)` / `sticky(0,3)` / `notes(2,3)` / `recent(0,9)`），每张卡用形态的 ideal 尺寸，于是：
+- `clock` 4 宽 + `todo` 4 宽 = 8，**cols 4-8 整段没人占**；
+- `recent` 的 y=9 是硬编码的，而它上面的卡最高只落到 y=6/7，**y7、y8 两整行全空**；
+- 用引擎实算：11 行的矩形里 **50/132 格是空的 = 37.9% 空洞**（`① 出厂 starterDoc` 那次跑数）。
+
+README 主图一直用的是"点过撑满之后"的截图 —— 等于默认了这个起点不好看。
+
+**修法分两层，缺一不可**：
+1. **显式重排**（`store.ts:32-57`）：两带各自铺满 12 列 —— 第一带 时钟 5×3 + 便签 3×3 + 待办 4×6（待办竖在右侧一整列，既是主卡也撑住两带高度），第二带 速记 4×3 + 最近改动 4×3。
+2. **`spreadLayout` 兜底**：手排只保证"当下这两带是满的"，以后改 registry 的 ideal 尺寸或加第 6 个模块，还得靠 tidy+fillRows 收。
+
+**中间踩到的两个反直觉点**：
+- **只靠 `fillRows` 会把事情弄糟**：它按"顶边相同的卡"为一组铺宽，**某一带只剩一张卡时会被拉成通栏** —— 实测速记变成 12 列横幅装 1 条内容，空洞率 0 了但更难看。所以宽度必须自己排，`fillRows` 只当兜底；守卫里也加了"任何卡不许超过理想宽 1.5 倍"（`tests/vue/starter.test.ts`）。
+- **`addItem` 不吃尺寸**：它只按形态 ideal 找空位，给 x,y 也只是搜索起点。所以起步版面必须 `addItem → resizeItem → moveItem` 三步走（`store.ts:47-51`），少了 move 那步，12 宽的通栏会被塞到下一带，速记就成了上面那种"单卡带"。
+- 待办必须留 4 逻辑列：N=4 档是 `ceil(w/3)`，3 列会被压成 1 物理列（实测 159px），条目文字直接裁掉（`clipped=2`）。
+
+**顺带暴露的测试设计问题（这条最值钱）**：改完 0 空洞之后，**三条 E2E 立刻挂了** —— 「整理：行数变少」「撑满：首行带从缺角铺满」「版面方案：按撑满改版面」，它们全都建立在"出厂版面本来就有洞"上，也就是**一直在测"排版排得烂"，而不是测"这三个工具有用"**。默认一修好，它们就空转了。现在这三条改成自己喂夹具（`SLOPPY_DOC`，就是旧版那份真实出厂坐标），另加一条正向守卫「出厂版面：首行带铺满且整屏不留空洞」。
+**教训**：凡是"点一下 X 会变化"的断言，都要问一句"这个变化是 X 造成的，还是默认状态本来就烂"。夹具要自带，不能蹭默认。
+
+**新增守卫**：`tests/vue/starter.test.ts` 7 条（0 空洞、无整行空、不重叠、minW/minH 下限、1.5× 理想宽上限、tidy/spread 不动点），并且它 import 的是**真注册表** —— 为此把 `.vue` 组件映射从 `cardRegistry.ts` 拆到 `cardComponents.ts`（尺寸契约文件必须能被 node 环境的单测直接 import，抄一份 fixture 进测试等于装了个会撒谎的守卫）。
+
+**实测**：三档视口（1440 / 720 / 390）`hScroll=false`、`clipped=0`、最小字号 11px、零 console 报错；`npm run verify` 两轮连绿：**201 单测（24 文件）+ 17 E2E**，引擎分支覆盖 90.95% → **91.33%**（新守卫顺带跑到了 `spread`/`tidy` 的更多分支）。README 三张实拍图已按新出厂版面重拍（1× 尺寸，旧的 `workbench-spread-1440.png` 删除）。
