@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import * as E from '../../src/engine'
-import { TEMPLATES, DEFAULT_TEMPLATE_ID, buildTemplate, templateById, validateTemplate } from '../../src/engine/templates'
+import { TEMPLATES, DEFAULT_TEMPLATE_ID, buildTemplate, templateById, validateTemplate, type LayoutTemplate } from '../../src/engine/templates'
 import { REGISTRY } from '../../src/vue/cardRegistry'
 
 const COLS = 12
@@ -62,6 +62,8 @@ describe('版面模板', () => {
         for (const c of t.cells) {
           const p = doc.items.find((i) => i.id === c.id)!
           expect([p.x, p.y, p.w, p.h], `${c.id} 位置尺寸`).toEqual([c.x, c.y, c.w, c.h])
+          /** 形态也要钉住：写错形态名时 resolveVariant 会悄悄回退，只数 x/y/w/h 发现不了 */
+          expect(p.variant, `${c.id} 形态`).toBe(c.variant)
         }
       })
     })
@@ -73,5 +75,33 @@ describe('版面模板', () => {
       expect(E.tidyLayout(doc).items, t.name).toEqual(doc.items)
       expect(E.spreadLayout(doc).items, t.name).toEqual(doc.items)
     }
+  })
+
+  /**
+   * 反向自测：上面那条「validateTemplate 返回 []」只证明了"没报错"，没证明"会报错"。
+   * 这三条钉住它必须拦住的三种写法 —— 否则哪天守卫退化成永远返回空数组，绿灯一个都不会变。
+   */
+  describe('validateTemplate 不是摆设', () => {
+    const base = templateById(DEFAULT_TEMPLATE_ID)!
+    const withCells = (cells: LayoutTemplate['cells']): LayoutTemplate => ({ ...base, cells })
+
+    it('用了未注册的模块要报出来', () => {
+      const w = validateTemplate(withCells([{ id: 'nope', variant: 'big', x: 0, y: 0, w: 4, h: 4 }]), REGISTRY)
+      expect(w.join('\n')).toContain('未注册的模块')
+    })
+
+    it('形态不存在要报出来', () => {
+      const w = validateTemplate(withCells([{ id: 'clock', variant: 'nope', x: 0, y: 0, w: 4, h: 4 }]), REGISTRY)
+      expect(w.join('\n')).toContain('形态 nope 不存在')
+    })
+
+    it('小于形态最小尺寸要报出来（注册表里最小的 minW 是 2，所以 1×1 必定越界）', () => {
+      const w = validateTemplate(withCells([{ id: 'clock', variant: 'big', x: 0, y: 0, w: 1, h: 1 }]), REGISTRY)
+      expect(w.join('\n')).toContain('小于最小尺寸 3×3')
+    })
+
+    it('合法模板仍然 0 条（防止上面三条靠"什么都报"蒙过去）', () => {
+      expect(validateTemplate(withCells(base.cells), REGISTRY)).toEqual([])
+    })
   })
 })

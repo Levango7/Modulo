@@ -1,7 +1,7 @@
 import { addItem, moveItem, resizeItem } from './ops'
 import { spreadLayout } from './spread'
 import { emptyDoc } from './types'
-import { findModule, resolveVariant } from './types'
+import { findModule } from './types'
 import type { LayoutDoc, ModuleRegistry } from './types'
 
 /**
@@ -129,9 +129,17 @@ export function validateTemplate(t: LayoutTemplate, reg: ModuleRegistry): string
       warnings.push(`模板「${t.name}」用了未注册的模块 ${c.id}`)
       continue
     }
-    if (!resolveVariant(mod, c.variant)) warnings.push(`模板「${t.name}」的 ${c.id} 形态 ${c.variant} 不存在`)
-    const v = resolveVariant(mod, c.variant)
-    if (v && (c.w < v.minW || c.h < v.minH)) warnings.push(`模板「${t.name}」的 ${c.id} 小于最小尺寸 ${v.minW}×${v.minH}`)
+    /**
+     * 必须按 id 精确查，**不能用 `resolveVariant`**：那个函数在形态失效时刻意回退到
+     * defaultVariant（对用户友好是对的），于是"模板写错了形态名"这种漂移永远查不出来 ——
+     * 而模板要是被静默换成正方形形态，格子数就不对，铺满守卫跟着一起骗人。
+     */
+    const v = mod.variants.find((x) => x.id === c.variant)
+    if (!v) {
+      warnings.push(`模板「${t.name}」的 ${c.id} 形态 ${c.variant} 不存在`)
+      continue
+    }
+    if (c.w < v.minW || c.h < v.minH) warnings.push(`模板「${t.name}」的 ${c.id} 小于最小尺寸 ${v.minW}×${v.minH}`)
   }
   return warnings
 }
