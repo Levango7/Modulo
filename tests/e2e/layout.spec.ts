@@ -24,6 +24,9 @@ async function freshPage(width: number, height: number): Promise<Page> {
   const ctx = await browser.createBrowserContext()
   const page = await ctx.newPage()
   await page.setViewport({ width, height, deviceScaleFactor: 1 })
+  // 预置"已经挑过模板"：否则首启会自动弹选择器，挡住下面这些要真点鼠标的测试。
+  // 首启行为本身另有专门一条测试覆盖（"首启：自动弹一次模板选择器"）。
+  await page.evaluateOnNewDocument(() => localStorage.setItem('modulo.template.v1', 'general'))
   await page.goto(url, { waitUntil: 'networkidle2', timeout: 30000 })
   await new Promise((r) => setTimeout(r, 500))
   return page
@@ -567,52 +570,62 @@ it.skipIf(skip)('紧凑：一键等于收紧+整理，两步可分别撤销', as
   await page.close()
 })
 
-it.skipIf(skip)('推荐布局：只出确认框，取消不动版面，确认才替换且可一步撤销', async () => {
+it.skipIf(skip)('版面模板：点一张卡片就换版面，Esc 关闭不动，可一步撤销', async () => {
   const page = await freshPage(1440, 900)
   const errs: string[] = []
   page.on('pageerror', (e: unknown) => errs.push(String(e)))
-  const press = (t: string) =>
-    page.evaluate((label) => {
-      ;[...document.querySelectorAll<HTMLElement>('button')].find((e) => (e.textContent || '').trim() === label)?.click()
-    }, t)
-  const dialogOpen = () => page.evaluate(() => !!document.querySelector('.confirm[role="dialog"]'))
-  const settle = () => new Promise((r) => setTimeout(r, 400))
+  const general = await snapshot(page)
 
-  const starter = await snapshot(page)
+  await clickTool(page, '版面模板')
+  await settle()
+  expect(await page.evaluate(() => document.querySelectorAll('.picker .card').length), '模板卡片数量').toBeGreaterThanOrEqual(4)
+  /** 每张卡都得画出迷你示意 —— 选择器靠形状说话，没图的卡片等于没写文案 */
+  expect(
+    await page.evaluate(() => [...document.querySelectorAll('.picker .mini')].every((m) => m.children.length > 0)),
+    '每张模板卡都要有迷你示意',
+  ).toBe(true)
 
-  /** 先弄脏版面：编辑器里方向键移一格（比鼠标拖拽稳），回工作台才测得出「替换」到底有没有发生 */
-  await enterEditor(page)
-  await page.evaluate(() => document.querySelector<HTMLElement>('.cell')?.focus())
-  await page.keyboard.press('ArrowRight')
+  await page.keyboard.press('Escape')
   await settle()
-  await press('工作台')
-  await settle()
-  const dirty = await snapshot(page)
-  expect(dirty, '前置条件：版面应已被改脏').not.toBe(starter)
+  expect(await page.evaluate(() => !!document.querySelector('.picker')), 'Esc 应关掉选择器').toBe(false)
+  expect(await snapshot(page), '只是关掉选择器，版面一格都不该动').toBe(general)
 
-  await press('推荐布局')
+  await clickTool(page, '版面模板')
   await settle()
-  expect(await dialogOpen(), '点按钮应先出确认框').toBe(true)
-  expect(await snapshot(page), '确认前版面不能被改动').toBe(dirty)
-
-  await press('取消')
+  await page.evaluate(() => {
+    const btn = [...document.querySelectorAll<HTMLElement>('.picker .card')].find((b) => b.textContent?.includes('极简专注'))
+    btn?.click()
+  })
   await settle()
-  expect(await dialogOpen()).toBe(false)
-  expect(await snapshot(page), '取消后版面保持不动').toBe(dirty)
-
-  await press('推荐布局')
-  await press('载入推荐布局')
-  await settle()
-  expect(await dialogOpen(), '确认后弹层要收掉').toBe(false)
-  expect(await snapshot(page), '确认后才替换成推荐版面').toBe(starter)
+  expect(await snapshot(page), '换成「极简专注」后版面应该不同').not.toBe(general)
+  expect(await page.evaluate(() => document.querySelectorAll('.grid .cell').length), '极简专注只 3 张卡').toBe(3)
+  expect(await page.evaluate(() => !!document.querySelector('.picker')), '选完要收掉').toBe(false)
 
   await page.keyboard.down('Control')
   await page.keyboard.press('KeyZ')
   await page.keyboard.up('Control')
   await settle()
-  expect(await snapshot(page), '替换可一步撤销').toBe(dirty)
+  expect(await snapshot(page), '换模板可一步撤销').toBe(general)
   expect(errs).toEqual([])
   await page.close()
+})
+
+it.skipIf(skip)('首启：自动弹一次模板选择器，挑过之后刷新就不再拦', async () => {
+  const ctx = await browser.createBrowserContext()
+  const page = await ctx.newPage()
+  await page.setViewport({ width: 1440, height: 900, deviceScaleFactor: 1 })
+  await page.goto(url, { waitUntil: 'networkidle2', timeout: 30000 })
+  await settle(700)
+  expect(await page.evaluate(() => !!document.querySelector('.picker[role="dialog"]')), '没有存档时首启应自动出选择器').toBe(true)
+
+  await page.evaluate(() => {
+    ;[...document.querySelectorAll<HTMLElement>('.picker .card')].find((b) => b.textContent?.includes('通用'))?.click()
+  })
+  await settle(600)
+  await page.reload({ waitUntil: 'networkidle2' })
+  await settle(700)
+  expect(await page.evaluate(() => !!document.querySelector('.picker')), '挑过一次就不该再拦第二次').toBe(false)
+  await ctx.close()
 })
 
 it.skipIf(skip)('拖动帧率实测：连拖期间的帧距中位数 ≤ 18.2ms（§8 第 3 条，不许估）', async () => {

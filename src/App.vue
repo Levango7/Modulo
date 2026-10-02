@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, inject, nextTick, onBeforeUnmount, onMounted, provide, ref, watch } from 'vue'
+import { computed, inject, onBeforeUnmount, onMounted, provide, ref } from 'vue'
 import { LayoutGrid, LayoutTemplate, Maximize2, Minimize2, Redo2, Settings, SlidersHorizontal, Sparkles, TriangleAlert, Undo2, Wand2 } from 'lucide-vue-next'
 import { measureWantedRows } from './vue/useDensity'
 import * as E from './engine'
@@ -13,6 +13,7 @@ import GridLayout from './vue/components/GridLayout.vue'
 import CanvasEditor from './vue/components/CanvasEditor.vue'
 import StackEditor from './vue/components/StackEditor.vue'
 import SettingsPanel from './vue/components/SettingsPanel.vue'
+import TemplatePicker from './vue/components/TemplatePicker.vue'
 import TitleBar from './vue/components/TitleBar.vue'
 import BrandMark from './vue/components/BrandMark.vue'
 
@@ -27,8 +28,12 @@ provide('shell', useShell(storage))
 
 const view = ref<'workbench' | 'edit'>('workbench')
 const settingsOpen = ref(false)
-/** 「推荐布局」是这一排里唯一的破坏性动作（整体替换版面），所以要多一次确认。撤销仍然可用 */
-const confirmStarter = ref(false)
+/**
+ * 版面模板选择器。它会整体替换版面，但**不再单独加一层确认框** ——
+ * 选择器本身就是"看着图挑一个"的界面，卡片上画的就是会换成什么样，
+ * 而且换完在同一个弹层里就能再点一张、或 Ctrl+Z 退回。确认框在这里只是多一步。
+ */
+const templatesOpen = ref(false)
 const stageEl = ref<HTMLElement | null>(null)
 const stageW = ref(1200)
 
@@ -46,6 +51,8 @@ onMounted(() => {
   })
   if (stageEl.value) ro.observe(stageEl.value)
   window.addEventListener('keydown', onGlobalKey)
+  /** 首启（没有存档、也没挑过模板）自动开一次选择器 —— 这正是"选项"该出现的地方 */
+  if (store.firstRun) templatesOpen.value = true
 })
 onBeforeUnmount(() => {
   ro?.disconnect()
@@ -62,18 +69,20 @@ function compact() {
   store.tidy()
 }
 
-function applyStarter() {
-  confirmStarter.value = false
-  store.restoreStarter()
+/** 选择器里点「自己去编辑器排」：关掉弹层直接进编辑器，不用先挑一张 */
+function pickAndEdit() {
+  closeTemplates()
+  view.value = 'edit'
 }
 
-/** 弹层是 aria-modal 的，就得自己把焦点收进来 —— 否则键盘用户还在页面里 Tab，Esc 也到不了 */
-const starterCancel = ref<HTMLElement | null>(null)
-watch(confirmStarter, async (on) => {
-  if (!on) return
-  await nextTick()
-  starterCancel.value?.focus()
-})
+/**
+ * 关掉就等于"这次先不挑"：记下选择，下次启动不再拦。
+ * 拦两次就成了骚扰 —— 但一次都不拦，新用户就看不到这些排法。
+ */
+function closeTemplates() {
+  templatesOpen.value = false
+  if (!store.templateId.value) store.setTemplateChoice(E.DEFAULT_TEMPLATE_ID)
+}
 
 /** 收紧/紧凑要读真实渲染出来的卡片高度，编辑器里没有那张 .grid，所以只能在工作台用 */
 const onlyWorkbench = '回「工作台」可用：这一步要按真实渲染的卡片高度测量'
@@ -84,11 +93,11 @@ const isEditable = (el: EventTarget | null): boolean => {
   return n.tagName === 'INPUT' || n.tagName === 'TEXTAREA' || n.isContentEditable
 }
 
-/** 撤销/重做是全局能力：整理、推荐布局这类动作也可能在工作台上做，不能只在编辑器里可撤销 */
+/** 撤销/重做是全局能力：整理、换模板这类动作也可能在工作台上做，不能只在编辑器里可撤销 */
 function onGlobalKey(e: KeyboardEvent) {
   if (e.key === 'Escape') {
-    /** 两层弹层叠着时 Esc 只关最上面那层：先确认框，再设置页 */
-    if (confirmStarter.value) confirmStarter.value = false
+    /** 弹层叠着时 Esc 只关最上面那层：先模板选择器，再设置页 */
+    if (templatesOpen.value) closeTemplates()
     else if (settingsOpen.value) settingsOpen.value = false
   }
   if (isEditable(e.target)) return
@@ -152,8 +161,8 @@ function onGlobalKey(e: KeyboardEvent) {
         </span>
         <span class="sep" aria-hidden="true"></span>
         <span class="grp" role="group" aria-label="版面与设置">
-          <button class="wide danger" title="用推荐版面替换当前版面（会先确认）" @click="confirmStarter = true">
-            <LayoutTemplate :size="14" /> 推荐布局
+          <button class="wide" title="挑一种排法：点一张卡片就换成那个版面（可 Ctrl+Z 退回）" @click="templatesOpen = true">
+            <LayoutTemplate :size="14" /> 版面模板
           </button>
           <button class="wide" title="外观设置" @click="settingsOpen = true"><Settings :size="14" /> 外观</button>
         </span>
@@ -181,16 +190,7 @@ function onGlobalKey(e: KeyboardEvent) {
     </main>
     </div>
 
-    <div v-if="confirmStarter" class="scrim" @click.self="confirmStarter = false">
-      <div class="confirm" role="dialog" aria-modal="true" aria-labelledby="starter-title">
-        <h2 id="starter-title">载入推荐布局？</h2>
-        <p>当前版面会被整体替换成推荐版面，并立刻写进存档。这一步可以撤销（Ctrl+Z）。</p>
-        <div class="confirm-actions">
-          <button ref="starterCancel" @click="confirmStarter = false">取消</button>
-          <button class="primary" @click="applyStarter()">载入推荐布局</button>
-        </div>
-      </div>
-    </div>
+    <TemplatePicker v-if="templatesOpen" @close="closeTemplates" @edit="pickAndEdit" />
 
     <SettingsPanel v-if="settingsOpen" @close="settingsOpen = false" />
   </div>
@@ -281,54 +281,6 @@ function onGlobalKey(e: KeyboardEvent) {
   display: inline-flex;
   align-items: center;
   gap: var(--space-1);
-}
-.tools button.danger {
-  border-color: color-mix(in oklab, var(--c-red) 45%, transparent);
-}
-.scrim {
-  position: fixed;
-  inset: 0;
-  z-index: 40;
-  display: grid;
-  place-items: center;
-  background: color-mix(in oklab, #000 45%, transparent);
-}
-.confirm {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-3);
-  width: min(380px, calc(100vw - var(--space-4) * 2));
-  padding: var(--space-4);
-  border: 1px solid var(--border-strong);
-  border-radius: var(--radius-md);
-  background: var(--bg-card);
-  box-shadow: var(--shadow-card);
-}
-.confirm h2 {
-  margin: 0;
-  font-size: 15px;
-}
-.confirm p {
-  margin: 0;
-  font-size: 13px;
-  line-height: 1.5;
-}
-.confirm-actions {
-  display: flex;
-  justify-content: flex-end;
-  gap: var(--space-2);
-}
-.confirm-actions button {
-  border: 1px solid var(--border-strong);
-  border-radius: var(--radius-pill);
-  background: var(--bg-card);
-  padding: var(--space-1) var(--space-3);
-  font-size: 13px;
-}
-.confirm-actions .primary {
-  border-color: transparent;
-  background: var(--brand-500);
-  color: #fff;
 }
 .pill {
   padding: 2px 10px;
