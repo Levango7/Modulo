@@ -14,6 +14,9 @@
  * ## 它守住什么
  * 单测条数与文件数、E2E 条数、受测层分支覆盖率、构建产物体积。
  * 全部实跑，不接受任何"文档里写的"作为输入。
+ * 其中覆盖率是**下限承诺**（`≥N%`）：同一份代码在不同 V8 / 平台间会差出 0.01 个百分点以上，
+ * 等值核对会把环境抖动报成文档漂移（实测 CI 两次跑出 93.74 / 93.75，本机与 CI 的逐文件
+ * 分支计数也不同）；其余维度的数字则要求逐字一致。
  *
  * 用法：
  *   node scripts/docs-check.mjs          # 核对，有对不上就 exit 1
@@ -120,7 +123,24 @@ const RULES = [
   { key: '单测条数', kw: /单测[^\n]{0,24}条/, want: () => String(facts.tests), re: (v) => new RegExp(`(?:\\*\\*)?${v}(?:\\*\\*)?\\s*条`) },
   { key: '单测文件数', kw: /\d+\s*(?:个)?文件/, want: () => String(facts.files), re: (v) => new RegExp(`${v}\\s*(?:个)?文件`) },
   { key: 'E2E 条数', kw: /E2E[^\n]{0,12}条/, want: () => String(facts.e2e), re: (v) => new RegExp(`(?:\\*\\*)?${v}(?:\\*\\*)?\\s*条`) },
-  { key: '受测层分支覆盖', kw: /覆盖[^\n]{0,24}%/, want: () => facts.coverage?.toFixed(2) ?? '?', re: (v) => new RegExp(`(?:\\*\\*)?${v.replace('.', '\\.')}(?:\\*\\*)?\\s*%`) },
+  {
+    // 覆盖率是全表唯一一条**下限承诺**，不做等值核对：这个数会随环境与运行抖动
+    // （实测 CI 两次跑出 93.74 / 93.75；本机 Node 26 与 CI Node 22 的 V8 对个别文件的分支计数
+    // 也不同，如 serialize.ts 97.29 vs 97.22、validate.ts 89.36 vs 89.58）。行里可以有多个下限
+    // （门禁 ≥90% 与现状 ≥93.7%），取最严的那条核对。
+    key: '受测层分支覆盖',
+    kw: /覆盖[^\n]{0,24}%/,
+    want: () => facts.coverage?.toFixed(2) ?? '?',
+    floor: (line) => {
+      const floors = [...line.matchAll(/≥\s*(\d+(?:\.\d+)?)\s*%/g)].map((m) => Number(m[1]));
+      if (!floors.length) return { ok: false, why: '这行在谈覆盖率，但没有 `≥N%` 的下限写法（覆盖率只按下限核对）' };
+      if (facts.coverage === null) return { ok: false, why: '没有 coverage 数据 —— 先跑 `npm run cover:engine`' };
+      const need = Math.max(...floors);
+      return facts.coverage >= need
+        ? { ok: true }
+        : { ok: false, why: `低于这行认领的下限 ${need}%` };
+    },
+  },
   { key: 'JS 体积', kw: /\bJS\b[^\n]{0,20}kB/, want: () => facts.jsKB?.toFixed(2) ?? '?', re: (v) => new RegExp(`${v.replace('.', '\\.')}\\s*kB`) },
   { key: 'CSS 体积', kw: /CSS[^\n]{0,20}kB/, want: () => facts.cssKB?.toFixed(2) ?? '?', re: (v) => new RegExp(`${v.replace('.', '\\.')}\\s*kB`) },
 ];
@@ -135,6 +155,15 @@ for (const file of TARGETS) {
     for (const rule of RULES) {
       // 一条标记行不必把所有维度都写上：行里没提这个维度就不判
       if (!rule.kw.test(line)) continue;
+      // 下限型规则（覆盖率）走自己的判据：看"实测够不够"，不是"数字是否逐字相同"
+      if (rule.floor) {
+        const r = rule.floor(line);
+        if (!r.ok) {
+          bad++;
+          console.error(`✗ ${file}:${i + 1} · ${rule.key}\n    ${r.why}（实测 ${rule.want()}%）\n    ${line.trim().slice(0, 110)}`);
+        }
+        continue;
+      }
       const want = rule.want();
       if (!rule.re(want).test(line)) {
         bad++;

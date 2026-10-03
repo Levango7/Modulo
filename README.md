@@ -67,7 +67,7 @@ CHANGELOG.md           迭代变更历史（新增 / 修复 / 门禁 / 已知问
 
 CI（`.github/workflows/ci.yml`）两个 job：`verify` 跑五步 —— 类型检查 → 单测与属性测试（**顺带卡受测层分支覆盖 ≥90%**，`npm run cover:engine`）→ 构建 → E2E → 文档数字核对；`desktop` 在 windows-latest 上跑 `cargo fmt --check` → `clippy -D warnings` → `cargo test` → 真打包出 exe 并上传产物。**桌面自检探针（`npm run desktop:probe`，49 项）不在 CI 跑** —— 试过，摘了：runner 上 WebView2 不把远调端口参数写进浏览器进程，探针每次都停在"连 CDP"那一步，与产品好坏无关。它的定位是**发布前的本机门禁**，跑在要发出去的那颗二进制上（见 `docs/ARCHITECTURE.md` §10.3 / §11.4）。
 投影算法有**五条**断言（只读、幂等、无重叠、尺寸充分、分区完整），用随机版面 × 7 档列数各 200 例做属性测试。
-两条量化门禁：受测层（`src/engine/**` 全量 + 6 个 vue 纯模块）分支覆盖 ≥90%（`npm run cover:engine`，当前 **93.75%** —— engine 92.32%、vue 纯模块 97.28%）、真拖期间帧距中位数 ≤18.2ms（E2E 里用 rAF 采样，本机 headless 实测 16.7ms —— headless 只能当下限看）。<!-- facts -->
+两条量化门禁：受测层（`src/engine/**` 全量 + 6 个 vue 纯模块）分支覆盖 ≥90%（`npm run cover:engine`，当前 **≥93.7%** —— engine 92.32%、vue 纯模块 97.28%）、真拖期间帧距中位数 ≤18.2ms（E2E 里用 rAF 采样，本机 headless 实测 16.7ms —— headless 只能当下限看）。<!-- facts -->
 还有第三条 `npm run docs:check`：实跑一遍单测与构建，核对本文与架构文档里**认领了规模数字**的那几行 —— 文档里的"单测条数"是人抄的，抄错没人会发现，现在机器会拦。它只认显式标记过的行，所以这段说明、§3.5 的历史实验数字都不会被误判成漂移。
 桌面壳另有一条 `npm run desktop:probe`：给 WebView2 开远调端口，用 CDP 点真实的 DOM 按钮、派发真的 mousedown，再从 Win32 侧读窗口状态（图标态/工作区/样式位），不模拟鼠标所以不会抢走指针；召唤键用 SendKeys 从系统输入队列投递，正例（收起→唤出）之外还有反例（投一个不该生效的组合键，断言窗口纹丝不动），改键链路也在真窗口里跑一遍。窗口状态一律轮询等到落地再断言——单次 Win32 采样实测 1.1–1.3 秒，固定 sleep 会把「慢」误报成「坏」。截图落在 `evidence/desktop/`。
 
