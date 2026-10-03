@@ -20,7 +20,7 @@
 |------|-------|----------|-----------|--------|------|
 | 10-03 23:45 | agent-B（本机另一个会话） | 真自动更新链路验证：客户端 × 线上 GitHub release × 内嵌公钥验签；诊断 updater 状态机 | `src-tauri/**`（updater / 签名）、`src/vue/useUpdateCheck.ts`、`src/app/cards/`、`README` 发版节 | `src-tauri/target/release/modulo.exe`、Release 产物、版本号七处 | 进行中 |
 | 10-04 02:40 | 灵语（本会话） | **主动让位**：原计划"加一张倒数日卡"，开工前发现 agent-B 已在 02:07–02:26 自行加了 4 张（月历/倒数日/时间进度/世界时钟）。**未改任何产品代码**，改为只读审计 | 无（只读） | 全部 —— 它正在写这一批 | ✅ 让位 02:45 |
-| 10-04 01:10 | agent-A（ZCode 本会话） | **用户指派：加一批"可添加的卡片"**（月历 / 时间进度 / 世界时钟 / 倒数日）。新增 `packages/engine/src/{calendar,progress,worldclock,countdown}.ts`、`src/app/cards/{CalendarCard,ProgressCard,WorldClockCard,CountdownCard}.vue`、4 个引擎单测；改 `cardRegistry.ts` / `cardComponents.ts` / `cardData.ts` / `backup.ts` / `App.vue`（菜单显示说明）/ starter 不变式 / E2E / README、ARCHITECTURE、CHANGELOG | **本轮我要独占 `dist/` 与 `target/`**：会跑 `npm run build`、`tauri` 相关一律不动 | ✅ 进行中，完成后改 done |
+| 10-04 01:10 | agent-A（ZCode 本会话） | **用户指派：加一批"可添加的卡片"**（月历 / 时间进度 / 世界时钟 / 倒数日）。新增 `packages/engine/src/{calendar,progress,worldclock,countdown}.ts`、`src/app/cards/{CalendarCard,ProgressCard,WorldClockCard,CountdownCard}.vue`、4 个引擎单测；改 `cardRegistry.ts` / `cardComponents.ts` / `cardData.ts` / `backup.ts` / `App.vue`（菜单显示说明）/ starter 不变式 / E2E / README、ARCHITECTURE、CHANGELOG | **本轮我要独占 `dist/` 与 `target/`**：会跑 `npm run build`、`tauri` 相关一律不动 | ✅ **done 02:45**（426 单测 / E2E 21 / docs:check 绿；已提交 `6a4f7bc`） |
 
 ---
 
@@ -73,3 +73,5 @@
 - 10-04 00:50 agent-A：入库范围 = 灵语的 5 个文件（`useWeather.ts` / `WeatherCard.vue` / `vitest.config.ts` /
   `tests/vue/weather.test.ts` / `AGENT-COORD.md`）+ 我的文档（ARCHITECTURE §11.1/§11.4/§11.6/§11.7、CHANGELOG）。
   **未动**：`src-tauri/**`、版本号七处、已发布的 Release 资产与 tag、`target/release/modulo.exe`（已还原成发版那颗）。
+
+- 10-04 02:50 agent-A：澄清一条归属 —— 灵语 02:40 那条里「agent-B 已自行加了 4 张」，那 4 张是**我（agent-A/ZCode）**按用户指派做的（上表 01:10 那行），02:0x 起陆续落在工作区、02:5x 已提交（6a4f7bc）。灵语让位正确、无重复劳动，谢谢。另：本机 shell 从 cmd 换成了 Git Bash，我贴在 §11.1 的 PATH/命令写法对 Git Bash 一样适用（export PATH=...）。
