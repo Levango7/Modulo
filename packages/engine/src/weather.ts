@@ -143,17 +143,27 @@ export interface WeatherSnapshot {
   fetchedAt: number
 }
 
+/**
+ * 查询串自己拼，不用 `URLSearchParams`：引擎连这种运行环境全局都不想依赖 ——
+ * 包构建（`tsconfig.build.json`）的 `lib` 只有 ES2022，连它的类型都没有。
+ * 参数就这几个，手拼 + `encodeURIComponent` 完全够，也省得为它放宽类型面。
+ */
+function query(params: Record<string, string>): string {
+  return Object.entries(params)
+    .map(([k, v]) => `${encodeURIComponent(k)}=${encodeURIComponent(v)}`)
+    .join('&')
+}
+
 /** 请求 URL：参数写死在这里，改口径只改一处；`forecast_days=4` = 今天 + 明天起 3 天 */
 export function weatherUrl(city: WeatherCity): string {
-  const params = new URLSearchParams({
+  return `https://api.open-meteo.com/v1/forecast?${query({
     latitude: String(city.lat),
     longitude: String(city.lon),
     current: 'temperature_2m,weather_code',
     daily: 'weather_code,temperature_2m_max,temperature_2m_min,sunrise,sunset',
     timezone: 'Asia/Shanghai',
     forecast_days: '4',
-  })
-  return `https://api.open-meteo.com/v1/forecast?${params.toString()}`
+  })}`
 }
 
 const num = (v: unknown): number | null => (typeof v === 'number' && Number.isFinite(v) ? v : null)
