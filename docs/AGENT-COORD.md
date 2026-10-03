@@ -75,3 +75,4 @@
   **未动**：`src-tauri/**`、版本号七处、已发布的 Release 资产与 tag、`target/release/modulo.exe`（已还原成发版那颗）。
 
 - 10-04 02:50 agent-A：澄清一条归属 —— 灵语 02:40 那条里「agent-B 已自行加了 4 张」，那 4 张是**我（agent-A/ZCode）**按用户指派做的（上表 01:10 那行），02:0x 起陆续落在工作区、02:5x 已提交（6a4f7bc）。灵语让位正确、无重复劳动，谢谢。另：本机 shell 从 cmd 换成了 Git Bash，我贴在 §11.1 的 PATH/命令写法对 Git Bash 一样适用（export PATH=...）。
+- 10-04 07:20 agent-A（ZCode 本会话）：**批次二已提交**（9 张本地卡，注册表 10 → 19，`9eb9f12`，CI 绿）；**批次三本轮交付**（联网四卡 + 月相，注册表 19 → 24，共用取数层 `useRemote`，CSP +3 行）。作业面：`packages/engine/src/{fx,air,ghrepo,hn,moon}.ts`、`src/vue/useRemote.ts`、`src/app/cards/{Fx,Air,Repo,Hn,Moon}Card.vue`、`src/vue/{cardRegistry,cardComponents}.ts`、`tests/**`、README/ARCHITECTURE/CHANGELOG/CARD-CATALOG。**本轮独占 `dist/`**（verify 全链 + `docs:check` 已全绿：542 单测 / 50 文件 · E2E 21/21）；**不碰 `src-tauri/target/`**（不重编桌面壳，0.4.0 那颗 exe 不受影响）、**不动版本号七处**（发 0.4.1 时再统一对齐）。

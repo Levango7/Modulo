@@ -17,6 +17,11 @@ import ColorCard from '../app/cards/ColorCard.vue'
 import TextStatCard from '../app/cards/TextStatCard.vue'
 import RandomCard from '../app/cards/RandomCard.vue'
 import BaseCard from '../app/cards/BaseCard.vue'
+import FxCard from '../app/cards/FxCard.vue'
+import AirCard from '../app/cards/AirCard.vue'
+import RepoCard from '../app/cards/RepoCard.vue'
+import HnCard from '../app/cards/HnCard.vue'
+import MoonCard from '../app/cards/MoonCard.vue'
 
 /**
  * 模块 id → 渲染组件。单独一个文件是因为 `cardRegistry.ts` 只放尺寸契约、必须能被
@@ -43,4 +48,9 @@ export const CARD_COMPONENTS: Record<string, Component> = {
   textstat: TextStatCard,
   randomnum: RandomCard,
   baseconv: BaseCard,
+  fx: FxCard,
+  air: AirCard,
+  repo: RepoCard,
+  hn: HnCard,
+  moon: MoonCard,
 }

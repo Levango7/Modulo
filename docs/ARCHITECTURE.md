@@ -43,6 +43,7 @@ F:\Nexus\Modulo\
 │  │  ├─ worldclock.ts countdown.ts ★ 世界时钟（偏移交 Intl，本地时区由界面问）与倒数日（按日历日算差）
 │  │  ├─ calc.ts baseconv.ts convert.ts color.ts    ★ 计算器（无 eval 的递归下降）、进制（BigInt）、单位表、颜色三表示 + WCAG
 │  │  ├─ textstat.ts habit.ts dtools.ts             ★ 文本统计（字素簇）、习惯 streak、日期工具（复用倒数日口径）
+│  │  ├─ fx.ts air.ts ghrepo.ts hn.ts moon.ts       ★ 联网卡的收窄层（汇率 / 空气质量 / 仓库 / HN）+ 月相（本地）
 │  │  ├─ validate.ts       盘上数据解析、钳制、重叠消解（不信任存储）
 │  │  ├─ serialize.ts      JSON schema；schemaVersion 偏高只告警并按 v1 读；**迁移表 MIGRATIONS 有真调用方**（`parseLayout` 每次读盘都过）
 │  │  └─ index.ts          对外统一出口
@@ -54,7 +55,7 @@ F:\Nexus\Modulo\
 │  │  ├─ useDensity.ts useFocusTrap.ts
 │  │  └─ components\       TitleBar · BrandMark · GridLayout · CanvasEditor · StackEditor · SettingsPanel · TemplatePicker
 │  ├─ app\                 视图装配：工作台 / 编辑器 / 设置 / 卡片
-│  │  └─ cards\            Clock / Sticky / Todo / Notes / Weather / Calendar / Progress / WorldClock / Countdown / DateTools / Elapsed / Habit / Calculator / Unit / Color / TextStat / Random / Base（全部接容器查询）
+│  │  └─ cards\   Clock / Sticky / Todo / Notes / Weather / Calendar / Progress / WorldClock / Countdown / DateTools / Elapsed / Habit / Calculator / Unit / Color / TextStat / Random / Base / Fx / Air / Repo / Hn / Moon（全部接容器查询）
 │  ├─ tokens\              设计令牌（纯 CSS 变量，亮/暗两套）
 ├─ tests\
 │  ├─ engine\              单测（15 个文件，每个纯函数）
@@ -346,7 +347,7 @@ MVP 先做 A1，A2 留一个 `projection.a2.test.ts` 做对照实验。不在没
 
 另外去掉了一处观感缺陷：编辑器标签条与卡片自身表头重复显示同一个名字（"便签 / 便签"），改为卡片在编辑态走 `chromeless`，每格只保留一层头部。
 
-当前状态（2026-10-04 复核）：**前端单测 499 条（45 个文件）+ E2E 21 条 + Rust 单测 6 条**全绿，`tsc --noEmit` 干净，受测层分支覆盖 **≥94%**（engine 94.74% + vue 纯模块 96.14%，门禁 90），无 console 报错。`vite build` 同日重跑：**JS 217.63 kB / gzip 78.68 kB（主包 216.60 + 更新插件面 1.03），CSS 46.71 kB / gzip 8.55 kB**（比上一版记的 41.0 kB 大得多，因为多了桌面壳设置页、卡片内容、版面模板选择器、完整备份、更新插件与十几种卡的 JS 面；桌面探针 49 项见 §11.3）。<!-- facts -->
+当前状态（2026-10-04 复核）：**前端单测 542 条（50 个文件）+ E2E 21 条 + Rust 单测 6 条**全绿，`tsc --noEmit` 干净，受测层分支覆盖 **≥94%**（engine 94.81% + vue 纯模块 96.14%，门禁 90），无 console 报错。`vite build` 同日重跑：**JS 233.04 kB / gzip 81.90 kB（主包 232.01 + 更新插件面 1.03），CSS 54.29 kB / gzip 9.34 kB**（比上一版记的 41.0 kB 大得多，因为多了桌面壳设置页、卡片内容、版面模板选择器、完整备份、更新插件与 24 种卡的 JS/CSS 面；桌面探针 49 项见 §11.3）。<!-- facts -->
 
 ### 10.3 验证固化进 CI（2026-10-01）
 
@@ -508,7 +509,7 @@ MVP 先做 A1，A2 留一个 `projection.a2.test.ts` 做对照实验。不在没
 
 **CSP 是要付的账**：桌面壳的 `connect-src` 从 `'self' https://api.github.com` 加了
 `https://api.open-meteo.com`（生产与 `devCsp` 两处）。每加一个外部源都是真实的表面积增加，
-所以记一笔现状：**这个应用只连两个域名，两个都是 GET、都不带凭据。**
+所以记一笔现状：**这个应用只连 5 个域名，全部 GET、全部不带凭据**（api.github.com / api.open-meteo.com / air-quality-api.open-meteo.com / open.er-api.com / hacker-news.firebaseio.com）。
 
 **出厂版面刻意不含天气卡**（`tests/vue/starter.test.ts` 的 `NETWORK_MODULES` 守着这条）：
 出厂版面是每个新用户首启看到的那一张，把网络卡摆进去 = 每次首启都飞一个请求出去。
@@ -534,7 +535,7 @@ MVP 先做 A1，A2 留一个 `projection.a2.test.ts` 做对照实验。不在没
 
 **四张卡的共同点**（也是选它们的三条标准）：全部**本地计算、不联网、不需要账号**，而且都是"摆着就在说话"的卡 ——
 时钟 / 进度 / 月历这类不需要用户每天输入，却每天都在变。§10.15 那条"外部数据要克制"的线因此没被碰：
-`connect-src` 仍然只连两个域名。
+`connect-src` 一行都没加。
 
 | 卡 | 引擎模块 | 关键决定 |
 |---|---|---|
@@ -584,8 +585,27 @@ MVP 先做 A1，A2 留一个 `projection.a2.test.ts` 做对照实验。不在没
 - 习惯 streak 的口径：**今天没打卡不归零**（锚点取今天或昨天里更晚的）。
 - 倒数日 / 正计时 / 习惯的内容都在 `cardData`，因此**都跟着完整备份走**；
   世界时钟的城市与天气的城市同口径（偏好，自己的 key）。
-- 通往 40 张的下两批（联网卡 × 6、需更多设计的 × 14）在目录里排好了批次与前置条件
+- 通往 40 张的下两批（联网卡 + 月相 × 5、需更多设计的 × 14）在目录里排好了批次与前置条件
   （联网卡 = 天气同款模式 + 每张一条 CSP 的账）。
+
+### 10.18 批次三：联网卡四张 + 月相，与共用取数层 `useRemote`（2026-10-04）
+
+注册表 19 → **24**，菜单 **19 项**。四张联网卡（汇率 / 空气质量 / GitHub 仓库 / HN 热榜）走
+**同一个取数口径**（抽成 `useRemote`**：首次渲染才查、TTL 内不重复查、取不到保留
+上一份并如实说 —— 收窄响应仍是各卡自己的纯函数（真夹具单测）。
+
+- `useRemote` 带 **`freshKey`**：缓存属于**哪个目标**（城市 / 仓库名），目标一变立刻重查，
+  而不是等 TTL 过期。这正是天气卡修过的那个坑，现在做成通用的一条。
+- 它和 `useUpdateCheck` 同层级：**网络胶水不进单测门禁**（要真 fetch / 真计时），
+  验收在 E2E 与"取不到是合法状态"这条纪律上。天气卡的 `useWeather` 是同一口径的另一份实现 ——
+  将来该合并（它有城市选择等额外状态，本轮没动它，避免两处一起改出问题）。
+- **空气质量卡的城市跟天气卡走**（读 `modulo.weather.v1` 的 `cityId`）：用户已经选过城市，再问一遍是骚扰。
+- **GitHub 卡没加新域名**（api.github.com 早在 CSP 里，更新检查用它）；HN 的"1 个列表 + 5 条详情"
+  在卡上如实写清楚；月相纯本地。
+- CSP 现在连 **5 个域名**（api.github.com / api.open-meteo.com / air-quality-api.open-meteo.com /
+  open.er-api.com / hacker-news.firebaseio.com），全部 GET、全部不带凭据。
+- 这一轮抓到的坑：`air.ts` 又用了一次 `URLSearchParams`（引擎包构建的 lib 里没有它，老坑第二次踩）；
+  `daysToFullMoon` 的**测试上限**写错（满月后到下一次满月是一整个朔望月 —— 实现对、判据错）。
 
 ### 10.14 下一步
 

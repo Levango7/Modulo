@@ -147,8 +147,9 @@ export interface WeatherSnapshot {
  * 查询串自己拼，不用 `URLSearchParams`：引擎连这种运行环境全局都不想依赖 ——
  * 包构建（`tsconfig.build.json`）的 `lib` 只有 ES2022，连它的类型都没有。
  * 参数就这几个，手拼 + `encodeURIComponent` 完全够，也省得为它放宽类型面。
+ * （空气质量卡也用这一支，见 `air.ts`。）
  */
-function query(params: Record<string, string>): string {
+export function query(params: Record<string, string>): string {
   return Object.entries(params)
     .map(([k, v]) => `${encodeURIComponent(k)}=${encodeURIComponent(v)}`)
     .join('&')

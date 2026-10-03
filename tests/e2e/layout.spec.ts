@@ -818,9 +818,9 @@ it.skipIf(skip)('添加卡片：只列不在版面上的模块，点一下加进
   await clickTool(page, '添加卡片')
   await settle(200)
   const items = await page.evaluate(() => [...document.querySelectorAll('.add-menu [role="menuitem"]')].map((b) => (b.textContent || '').trim()))
-  // 出厂版面 = 核心 5 张；其余 14 张按分组排在菜单里
-  expect(items.length, `可添加的卡应有 14 张：${items.join(' | ')}`).toBe(14)
-  for (const title of ['天气', '月历', '时间进度', '世界时钟', '倒数日', '计算器', '单位换算', '习惯打卡']) {
+  // 出厂版面 = 核心 5 张；其余 19 张按分组排在菜单里
+  expect(items.length, `可添加的卡应有 19 张：${items.join(' | ')}`).toBe(19)
+  for (const title of ['天气', '月历', '时间进度', '世界时钟', '倒数日', '计算器', '单位换算', '习惯打卡', '汇率', '月相']) {
     expect(items.some((t) => t.includes(title)), `菜单里应有「${title}」`).toBe(true)
   }
   // 分组标题在（19 张卡翻平铺列表没法用）
@@ -845,13 +845,14 @@ it.skipIf(skip)('添加卡片：只列不在版面上的模块，点一下加进
   expect(card, '天气卡渲染出来了').not.toBeNull()
   expect(card!).toMatch(/正在取天气|取不到天气|点右上角取一次天气|°/)
 
-  // 加了一张之后菜单少一项，但按钮还能用（剩下的还得能继续加）
+  // 加了一张之后菜单少一项，但按钮还能用（剩下的还得能继续加）。
+  // 用**相对断言**：菜单条数每加一批卡都会变，写死数字等于给下一批埋一颗红
   await clickTool(page, '添加卡片')
   await settle(200)
   expect(
     await page.evaluate(() => document.querySelectorAll('.add-menu [role="menuitem"]').length),
     '加过的那张不再列出来',
-  ).toBe(13)
+  ).toBe(items.length - 1)
   await page.keyboard.press('Escape')
   await settle(150)
 
@@ -864,7 +865,7 @@ it.skipIf(skip)('添加卡片：只列不在版面上的模块，点一下加进
 })
 
 /**
- * 全部卡同屏（出厂 5 张 + 可添加的 14 张）× 三档视口：
+ * 全部卡同屏（出厂 5 张 + 可添加的 19 张）× 三档视口：
  * 不溢出、不裁字、最小字号 ≥11px。
  *
  * 为什么单拎这一条：新卡既不进出厂版面、也不进 8 张模板，**没有这条它们在任何视口下的表现
@@ -875,7 +876,7 @@ it.skipIf(skip)('添加卡片：只列不在版面上的模块，点一下加进
 const ALL_MODULES_DOC = {
   schemaVersion: 1,
   cols: 12,
-  items: ['clock', 'sticky', 'todo', 'notes', 'recent', 'weather', 'calendar', 'progress', 'worldclock', 'countdown', 'dtools', 'elapsed', 'habit', 'calc', 'unitconv', 'colorconv', 'textstat', 'randomnum', 'baseconv'].map((id) => ({ id, x: 0, y: 0 })),
+  items: ['clock', 'sticky', 'todo', 'notes', 'recent', 'weather', 'calendar', 'progress', 'worldclock', 'countdown', 'dtools', 'elapsed', 'habit', 'calc', 'unitconv', 'colorconv', 'textstat', 'randomnum', 'baseconv', 'fx', 'air', 'repo', 'hn', 'moon'].map((id) => ({ id, x: 0, y: 0 })),
 }
 
 it.skipIf(skip)('全部卡上版：三档视口不溢出、不裁字、最小字号 ≥11px', async () => {
