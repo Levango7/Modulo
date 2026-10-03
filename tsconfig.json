@@ -11,8 +11,12 @@
     "verbatimModuleSyntax": true,
     "skipLibCheck": true,
     "noEmit": true,
-    "types": ["node", "vite/client"]
+    "types": ["node", "vite/client"],
+    "paths": {
+      "@modulo/engine": ["./packages/engine/src/index.ts"],
+      "@modulo/engine/*": ["./packages/engine/src/*"]
+    }
   },
-  "include": ["src/**/*.ts", "tests/**/*.ts", "vitest.config.ts"],
+  "include": ["src/**/*.ts", "tests/**/*.ts", "packages/engine/src/**/*.ts", "vitest.config.ts"],
   "exclude": ["tests/e2e", "vitest.e2e.config.ts", "vitest.e2e.setup.ts"]
 }

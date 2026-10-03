@@ -1,5 +1,5 @@
 import { computed, ref } from 'vue'
-import * as E from '../engine'
+import * as E from '@modulo/engine'
 import { browserStorage, type LayoutStore } from './store'
 import { downloadText, pickTextFile, stamp } from './fileIo'
 

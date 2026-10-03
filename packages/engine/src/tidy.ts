@@ -1,5 +1,5 @@
-import { anyCollides, maxRow } from './geometry'
-import type { LayoutDoc, Placement } from './types'
+import { anyCollides, maxRow } from './geometry.js'
+import type { LayoutDoc, Placement } from './types.js'
 
 function pack(doc: LayoutDoc, allowLeft: boolean): Placement[] {
   const pinned = doc.items.filter((p) => p.locked)

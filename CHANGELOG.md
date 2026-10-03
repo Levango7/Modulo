@@ -20,6 +20,32 @@ v0.3.0 之后的一轮。**新增用户可见的能力：应用内更新。**
 - 配套：`scripts/make-latest-json.mjs` 生成更新清单，且**自检**签名里必须有 `version:` 绑定
   （客户端开着 `requireSignedVersion`，没有绑定的包会被拒收，宁可脚本里就红）；
   MSRV 1.77 → 1.90（插件稳定版的下限）；`serde_json` 回到依赖表（`plugins` 段的代码生成需要它，注释已写明别再删）。
+- **引擎抽成 `@modulo/engine` 包**（`packages/engine/`，从 `src/engine/` 整体 `git mv`，保留提交历史）：
+  让 93% 分支覆盖的引擎从"应用内部的一个目录"变成**可分发的资产**。仓库内按**源码**消费
+  （vite / vitest / tsconfig 三处 `@modulo/engine` 别名，改引擎不用先构建），对外入口是 `dist/`
+  （`npm run engine:build`；`engine:pack` 出 tarball，`prepack` 自动先构建）。
+  包边界加了三条硬规矩：不许 `../` 出包（纯度守卫新增断言）、包构建的 `lib` 只有 ES2022 不含 DOM
+  （碰 DOM 编译即失败）、CI 加一步「引擎包可独立构建」。
+  **消费者冒烟抓到一个真缺陷**：`tsc` 产出的 ESM 里相对导入没带扩展名（`'./types'`）——
+  用 bundler 的消费者一辈子看不见，但把 tarball 装进空白工程用 Node 一跑就是 `ERR_MODULE_NOT_FOUND`。
+  引擎源码内的相对导入因此统一补上 `.js`（16 个文件），barrel 与 `@modulo/engine/update` 这类
+  子路径导入现在都在纯 Node 下验过（`parseLayout` 真跑、`compareVersions` 真跑）。
+- **版本号同源也交给机器**：抽包之后版本散到 7 处（`package.json` / `package-lock.json` /
+  `Cargo.toml` / `Cargo.lock` / `tauri.conf.json` / `useBackup.ts` 的 `APP_VERSION` / 引擎包），
+  `docs:check` 里加了"逐个读出来比"的守卫 —— 0.1.0 那轮"版本号三处不一致"的教训从此由机器盯着。
+- **第一张有外部数据源的卡：天气**（`packages/engine/src/weather.ts` + `WeatherCard.vue`）。
+  数据源是**实测选出来的**（可达性用 curl、CORS 看响应头逐条比）：open-meteo 不用 key、CORS `*`、
+  一个请求连日出日落都给。三条口径写在 `useWeather.ts` 文件头：**首次渲染才查**（版面上没有这张卡
+  就一个请求都不发）、**30 分钟 TTL**、**取不到保留上一份并注明"上次没取到"**（卡片底部永远有
+  "多久之前更新"）。桌面壳 CSP 相应放行 `https://api.open-meteo.com` —— 这笔记在 §10.15：
+  这个应用现在只连两个域名，两个都是 GET、都不带凭据。
+- **「添加卡片」入口**（工具条）：8 张模板管的是"起点"，而"起点之后想让版面上多一张卡"这件事
+  此前**没有任何入口**（`store.add` 从立项起没有调用方）。现在菜单只列还没在版面上的模块
+  （数据模型是单实例），点一下加到第一个空位、一步 Ctrl+Z 退得回；**出厂版面刻意不含天气卡**
+  （网络模块不摆进首启版面，`starter.test.ts` 的 `NETWORK_MODULES` 守着这条不变式）。
+- 顺带：E2E 19 → **20**（新那条锁"只列缺的 / 点一下真加进来 / Esc 关 / 加满后禁用 / 一步撤销"）；
+  引擎层 17 条天气单测 —— 其中一条当场抓出真 bug：`weatherKind` 本来用 `code >= 95` 判雷暴，
+  把 1234 这种表外码也算成雷暴了，改成显式列举三个码。
 
 ## 0.3.0 —— 完整备份、版本检查、网页版托管、组件拆分（2026-10-03）
 

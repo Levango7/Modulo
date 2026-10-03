@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import * as E from '../../src/engine'
-import type { ModuleRegistry } from '../../src/engine/types'
+import * as E from '@modulo/engine'
+import type { ModuleRegistry } from '@modulo/engine/types'
 
 const REG: ModuleRegistry = [
   {

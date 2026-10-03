@@ -803,3 +803,47 @@ it.skipIf(skip)('方案册：新建空白可撤销，键盘与拖拽都能排序
   expect(errs).toEqual([])
   await page.close()
 })
+
+/**
+ * 「添加卡片」是 0.4.0 新开的入口：8 张模板管的是"起点"，此前**起点之后想让版面上多一张卡，
+ * 没有任何入口**（`store.add` 一直没有调用方）。这条断言锁三件事：菜单只列缺的、点一下真加进来、
+ * 一步撤销退得回去。天气卡还顺带证明一件事 —— **取不到数据是合法状态**：E2E 环境里它可能
+ * 联网也可能不联网，两种情况下卡片都得立住、都不许把页面弄崩。
+ */
+it.skipIf(skip)('添加卡片：只列不在版面上的模块，点一下加进来，Ctrl+Z 一步退回', async () => {
+  const page = await freshPage(1440, 900)
+  const count = () => page.evaluate(() => document.querySelectorAll('.grid .cell').length)
+  expect(await count(), '出厂 5 张').toBe(5)
+
+  await clickTool(page, '添加卡片')
+  await settle(200)
+  const items = await page.evaluate(() => [...document.querySelectorAll('.add-menu [role="menuitem"]')].map((b) => (b.textContent || '').trim()))
+  expect(items.length, '出厂版面上没有的只剩天气').toBe(1)
+  expect(items[0]).toContain('天气')
+
+  await page.keyboard.press('Escape')
+  await settle(150)
+  expect(await page.evaluate(() => !!document.querySelector('.add-menu')), 'Esc 关掉菜单').toBe(false)
+
+  await clickTool(page, '添加卡片')
+  await settle(150)
+  await page.evaluate(() => document.querySelector<HTMLElement>('.add-menu [role="menuitem"]')!.click())
+  await settle(400)
+  expect(await count(), '加进来一张').toBe(6)
+  const card = await page.evaluate(() => {
+    const el = [...document.querySelectorAll('.cell')].find((c) => c.querySelector('.weather'))
+    return el ? (el as HTMLElement).innerText.replace(/\s+/g, ' ').trim().slice(0, 80) : null
+  })
+  expect(card, '天气卡渲染出来了').not.toBeNull()
+  expect(card!).toMatch(/正在取天气|取不到天气|点右上角取一次天气|°/)
+
+  const disabled = await page.evaluate(() => document.querySelector<HTMLButtonElement>('button[title^="所有卡片"]')?.title ?? null)
+  expect(disabled, '全在版面上时按钮禁用并说明原因').toContain('都已在版面上')
+
+  await page.keyboard.down('Control')
+  await page.keyboard.press('KeyZ')
+  await page.keyboard.up('Control')
+  await settle(400)
+  expect(await count(), '一步撤销退回 5 张').toBe(5)
+  await page.close()
+})

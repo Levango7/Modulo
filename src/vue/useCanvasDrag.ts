@@ -12,7 +12,7 @@
  */
 
 import { computed, onBeforeUnmount, ref, type Ref } from 'vue'
-import * as E from '../engine'
+import * as E from '@modulo/engine'
 import type { LayoutStore } from './store'
 
 export const GAP = 16

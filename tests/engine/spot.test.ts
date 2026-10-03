@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { anyCollides } from '../../src/engine/geometry'
-import { findFreeSpot } from '../../src/engine/spot'
+import { anyCollides } from '@modulo/engine/geometry'
+import { findFreeSpot } from '@modulo/engine/spot'
 
 describe('findFreeSpot', () => {
   it('空版面直接落位', () => {

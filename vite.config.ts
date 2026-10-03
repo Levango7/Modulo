@@ -1,5 +1,14 @@
+import { dirname, join } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { defineConfig } from 'vite'
 import vue from '@vitejs/plugin-vue'
+
+/**
+ * `@modulo/engine` 在仓库内按**源码**解析（应用与测试都走这条）；
+ * 包对外的入口是 `dist/`（`packages/engine` 的 `build` 用 tsc 产出，`prepack` 会先构建）。
+ * 同一条源码、两种消费方式 —— 改引擎不用先构建，编辑器直接跳到源码。
+ */
+const engineSrc = join(dirname(fileURLToPath(import.meta.url)), 'packages/engine/src')
 
 /**
  * `base` 走环境变量，默认 '/'（根路径）。
@@ -13,6 +22,12 @@ import vue from '@vitejs/plugin-vue'
 export default defineConfig({
   base: process.env.PUBLIC_BASE || '/',
   plugins: [vue()],
+  resolve: {
+    alias: [
+      { find: /^@modulo\/engine$/, replacement: join(engineSrc, 'index.ts') },
+      { find: /^@modulo\/engine\//, replacement: `${engineSrc}/` },
+    ],
+  },
   server: { port: 1430 },
   preview: { port: 1430 },
 })

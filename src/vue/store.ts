@@ -1,5 +1,5 @@
 import { computed, shallowRef } from 'vue'
-import * as E from '../engine'
+import * as E from '@modulo/engine'
 
 export interface StorageAdapter {
   get(key: string): string | null

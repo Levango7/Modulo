@@ -1,9 +1,9 @@
-import { physicalCols, scaleFactor } from './breakpoints'
-import { pickVariantForSize } from './downgrade'
-import { anyCollides, clamp } from './geometry'
-import { findFreeSpot } from './spot'
-import { LOGICAL_COLS } from './types'
-import type { LayoutDoc, ModuleRegistry, Rect } from './types'
+import { physicalCols, scaleFactor } from './breakpoints.js'
+import { pickVariantForSize } from './downgrade.js'
+import { anyCollides, clamp } from './geometry.js'
+import { findFreeSpot } from './spot.js'
+import { LOGICAL_COLS } from './types.js'
+import type { LayoutDoc, ModuleRegistry, Rect } from './types.js'
 
 export interface PhysicalRect extends Rect {
   id: string

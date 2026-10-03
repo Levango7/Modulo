@@ -24,9 +24,9 @@ Modulo 是一个**逻辑网格恒定、物理列数随屏幕投影**的卡片式
 
 ```
 F:\Nexus\Modulo\
-├─ src\
-│  ├─ engine\              ★ 纯 TS。禁止 import vue / @tauri / document / window
-│  │  ├─ types.ts          LayoutDoc / Placement / ModuleDef / VariantDef / FitLevel
+├─ packages\engine\src\    ★ `@modulo/engine` 包（2026-10-03 从 src\engine\ 搬入，git 历史保留）
+│                          ★ 禁止 import vue / @tauri / document / window，也不许 `../` 出包
+│  ├─ types.ts          LayoutDoc / Placement / ModuleDef / VariantDef / FitLevel
 │  │  ├─ geometry.ts       collides(a,b) · rectsOverlap · maxRow
 │  │  ├─ fit.ts            fitState(p, variant) → below|mid|ideal|room
 │  │  ├─ spot.ts           findFreeSpot(items,w,h,x,y) 同列带向下找最近空位
@@ -38,8 +38,9 @@ F:\Nexus\Modulo\
 │  │  ├─ tidy.ts spread.ts fitHeight.ts   按需整理 / 撑满 / 按内容降高
 │  │  ├─ schemes.ts        方案册纯函数（上限 24、重名加序号、逐条清洗）
 │  │  ├─ templates.ts      ★ 版面模板表（8 张）+ buildTemplate：坐标显式，铺满由单测数格子证明
+│  │  ├─ weather.ts        ★ 天气数据层：open-meteo 响应收窄 + WMO 码→语义/中文（网络在 useWeather.ts）
 │  │  ├─ validate.ts       盘上数据解析、钳制、重叠消解（不信任存储）
-│  │  ├─ serialize.ts      JSON schema；schemaVersion 偏高只告警并按 v1 读（**没有迁移器**）
+│  │  ├─ serialize.ts      JSON schema；schemaVersion 偏高只告警并按 v1 读；**迁移表 MIGRATIONS 有真调用方**（`parseLayout` 每次读盘都过）
 │  │  └─ index.ts          对外统一出口
 │  ├─ vue\                 唯一允许碰框架的适配层
 │  │  ├─ store.ts          模块级 shallowRef 单例（无 Pinia）
@@ -49,7 +50,7 @@ F:\Nexus\Modulo\
 │  │  ├─ useDensity.ts useFocusTrap.ts
 │  │  └─ components\       TitleBar · BrandMark · GridLayout · CanvasEditor · StackEditor · SettingsPanel · TemplatePicker
 │  ├─ app\                 视图装配：工作台 / 编辑器 / 设置 / 卡片
-│  │  └─ cards\            Clock / Sticky / Todo / Notes（全部接容器查询）
+│  │  └─ cards\            Clock / Sticky / Todo / Notes / Weather（全部接容器查询）
 │  ├─ tokens\              设计令牌（纯 CSS 变量，亮/暗两套）
 ├─ tests\
 │  ├─ engine\              单测（15 个文件，每个纯函数）
@@ -62,7 +63,9 @@ F:\Nexus\Modulo\
 
 > **2026-10-02 复核**：上面这棵树此前记的是设计时的**计划**结构，和落地的代码差了十几个名字 —— 没有 `useDrag.ts` / `useKeyboard.ts` / `useFlip.ts` / `GridCell.vue`，也没有 `src/persist/`（拖拽与键盘编排直接长在 `CanvasEditor.vue` 与 `App.vue` 里，没单独抽 composable；让位动效是 `GridLayout.vue` 的 `TransitionGroup`），E2E 用的是 puppeteer-core 而不是 Playwright。已按实际文件重写。
 
-**引擎纯度由一条测试守住**：`tests/engine-purity.test.ts` 扫 `src/engine/**/*.ts` 的 import，出现 `vue`、`@tauri`、`document`、`window` 即失败。不引 eslint 插件。
+**引擎纯度由两条防线守着**：`tests/engine-purity.test.ts` 扫 `packages/engine/src/**/*.ts` 的 import，出现 `vue`、`@tauri`、`document`、`window` 即失败（也不许用 `../` 往包外伸手）；`packages/engine` 自己的构建（`tsconfig.build.json` 的 `lib` 只有 ES2022、不含 DOM）是更硬的那一条 —— 真碰 DOM，编译就过不去。不引 eslint 插件。
+
+**2026-10-03 起，引擎是 `@modulo/engine` 包**（`packages/engine/`，从 `src/engine/` 整体 `git mv` 搬入）：仓库内按**源码**消费（`vite.config.ts` / `vitest.config.ts` / `tsconfig.json` 三处 `@modulo/engine` 别名），对外入口是 `dist/`（`npm run engine:build` 产出、`engine:pack` 出 tarball，`prepack` 自动先构建）。下文 §10 的历史叙述里写的 `src/engine/**` 是搬家前的路径，指同一个东西，按当时的写法保留。
 
 ---
 
@@ -280,7 +283,7 @@ MVP 先做 A1，A2 留一个 `projection.a2.test.ts` 做对照实验。不在没
 2. ✅ 纯键盘可完成移动 / 缩放 / 切形态 / 选入 / 撤销 —— 由「编辑器键盘可达」「键盘补完」「方案册键盘排序」三条 E2E 覆盖。
 3. ✅ **已补成测试**（2026-10-02）：`tests/e2e/layout.spec.ts` 里「拖动帧率实测」用 rAF 采样器在真拖期间记录帧距，断言**中位数 ≤ 18.2ms（≈55fps）**；本机 headless Chrome 实测 `median=16.7ms / p95=16.7ms / 103 帧`。注意这是 headless 的软合成节奏，只能当**下限**看，不代表低端实机。
 4. ✅ 属性测试全绿：随机 200 例 × **7 档**列数（原写 5 档）× **5 条**断言（I1–I4 + 分区完整）。
-5. ✅ **已补成门禁**：`npm run cover:engine`（v8 provider，`thresholds.branches = 90`），已并入 `verify` 的第二步，所以 CI 会拦。圈选范围 2026-10-03 从只圈 `src/engine/**` 扩到「engine 全量 + `vitest.config.ts` 里 `GATED_VUE_MODULES` 那 6 个 vue 纯模块」，合数 93.75%。首跑实测 **87.29%** —— 也就是说这条判据从来没达成过；补了 13 条边界/失败分支用例后到 **90.95%**。剩下没覆盖到的多是防御性分支，例如 `spot.ts:25-26` 那个兜底 return 在数学上到不了（`bottom = maxRow(obstacles)`，循环到 `bottom` 时必然已空）—— 不为它编假测试。
+5. ✅ **已补成门禁**：`npm run cover:engine`（v8 provider，`thresholds.branches = 90`），已并入 `verify` 的第二步，所以 CI 会拦。圈选范围 2026-10-03 从只圈 `src/engine/**` 扩到「engine 全量（现 `packages/engine/src/**`）+ `vitest.config.ts` 里 `GATED_VUE_MODULES` 那 6 个 vue 纯模块」，合数 93.85%。首跑实测 **87.29%** —— 也就是说这条判据从来没达成过；补了 13 条边界/失败分支用例后到 **90.95%**。剩下没覆盖到的多是防御性分支，例如 `spot.ts:25-26` 那个兜底 return 在数学上到不了（`bottom = maxRow(obstacles)`，循环到 `bottom` 时必然已空）—— 不为它编假测试。
 6. ✅ 与 x-hub 同数据、同视口并排截图（见 §10.1）。
 
 > §9 第一条教训是「文档会烂 → 验收标准写成测试，不写成文档条目」。第 3、5 条曾经就是那条教训的现场 —— 判据停在纸面上，谁也没测过。2026-10-02 两条都补成了可执行的测试/门禁，六条判据现在全部有断言或工具背书。
@@ -339,7 +342,7 @@ MVP 先做 A1，A2 留一个 `projection.a2.test.ts` 做对照实验。不在没
 
 另外去掉了一处观感缺陷：编辑器标签条与卡片自身表头重复显示同一个名字（"便签 / 便签"），改为卡片在编辑态走 `chromeless`，每格只保留一层头部。
 
-当前状态（2026-10-03 复核）：**前端单测 336 条（31 个文件）+ E2E 19 条 + Rust 单测 6 条**全绿，`tsc --noEmit` 干净，受测层分支覆盖 **≥93.7%**（engine 92.5% + vue 纯模块 97.28%，门禁 90），无 console 报错。`vite build` 同日重跑：**JS 169.68 kB / gzip 62.64 kB（主包 168.65 + 更新插件面 1.03），CSS 27.40 kB / gzip 6.00 kB**（比上一版记的 41.0 kB 大得多，因为多了桌面壳设置页、卡片内容、版面模板选择器、完整备份与更新插件的 JS 面；桌面探针 49 项见 §11.3）。<!-- facts -->
+当前状态（2026-10-03 复核）：**前端单测 355 条（32 个文件）+ E2E 20 条 + Rust 单测 6 条**全绿，`tsc --noEmit` 干净，受测层分支覆盖 **≥93.7%**（engine 93.13% + vue 纯模块 97.28%，门禁 90），无 console 报错。`vite build` 同日重跑：**JS 180.10 kB / gzip 66.45 kB（主包 179.07 + 更新插件面 1.03），CSS 30.40 kB / gzip 6.53 kB**（比上一版记的 41.0 kB 大得多，因为多了桌面壳设置页、卡片内容、版面模板选择器、完整备份、更新插件与天气卡的 JS 面；桌面探针 49 项见 §11.3）。<!-- facts -->
 
 ### 10.3 验证固化进 CI（2026-10-01）
 
@@ -473,6 +476,52 @@ MVP 先做 A1，A2 留一个 `projection.a2.test.ts` 做对照实验。不在没
 **首启只拦一次**：没有存档**且**没挑过模板才自动弹（`store.firstRun`）。关掉（Esc / ✕ / 点遮罩）就记为"先不挑"，写 `modulo.template.v1`，下次不再问 —— 问第二次就成了骚扰。该 key 已加进 `fileStorage.ts` 的 `DATA_KEYS`，否则桌面壳下不会落盘，重启就失忆。
 
 **确认框被吃掉这件事**：§10.12 那层"载入推荐布局？"的确认框删了 —— 它防的是误操作，但代价是把"我该选什么"这个更难的问题留给了用户。现在点卡片直接换，安全网换成三样：可 Ctrl+Z 退回、弹层里可连点不同卡片反复比较、以及换完的版面本身就是看得见的。
+
+### 10.15 天气卡与「添加卡片」：第一张有外部数据源的卡，以及起点之后的路（2026-10-03）
+
+**为什么这一步是两件事**：评估里说"现在 5 张卡的尺寸契约太听话，压不出投影边界"，所以加第 6 张
+**内容来自网络**的卡；而真动手时发现一个更硬的事实：`store.add` 从立项起**没有任何调用方** ——
+8 张模板管的是"起点"，而"起点之后想让版面上多一张卡"这件事，应用此前没有任何入口。
+只加卡不给入口，等于做了一件用户够不着的东西。所以这一节是"卡 + 入口"一起做。
+
+**数据源怎么选的**（不是拍脑袋，是逐条实测：可达性用本机 curl、CORS 看 `Access-Control-Allow-Origin`）：
+
+| 候选 | 可达（无梯子） | CORS | 判定 |
+|---|---|---|---|
+| **open-meteo**（天气） | ✅ 实测 200 | `*` | **选它**：不用 key、一个请求给全（连日出日落都有） |
+| api.github.com | ✅（更新检查在用） | `*` | 备选；白板上挂仓库动态的产品面太窄 |
+| hacker-news firebaseio | ✅ 实测 200 | `*` | 可达，但英文资讯站对不上这个产品的使用场景 |
+| frankfurter / open.er-api（汇率） | ✅ | `*` | 内容太少，压不出布局边界 |
+
+选天气的另一个理由是**内容真的不规整**：温度有 `-12°` 与 `8°` 两种宽度、天气短句 2–7 个字、
+三天预报是个列表、取不到时还要显示"上次没取到"（时间戳变旧）—— 这些正是 5 张本地卡给不了的输入。
+
+**三条口径**（写在 `useWeather.ts` 文件头，也是这一节的核心）：
+
+1. **首次渲染才查**：把卡加进版面 = 用户明确要它；版面上没有这张卡，一个请求都不发。
+2. **30 分钟 TTL**，卡片底部永远显示"多久之前更新" —— 一份不显示新鲜度的天气数据比没有更糟。
+3. **取不到保留上一份**并注明"上次没取到"，刷新是右上角那枚按钮；错误文案说清是哪一种（超时/HTTP/形状不认识）。
+
+**CSP 是要付的账**：桌面壳的 `connect-src` 从 `'self' https://api.github.com` 加了
+`https://api.open-meteo.com`（生产与 `devCsp` 两处）。每加一个外部源都是真实的表面积增加，
+所以记一笔现状：**这个应用只连两个域名，两个都是 GET、都不带凭据。**
+
+**出厂版面刻意不含天气卡**（`tests/vue/starter.test.ts` 的 `NETWORK_MODULES` 守着这条）：
+出厂版面是每个新用户首启看到的那一张，把网络卡摆进去 = 每次首启都飞一个请求出去。
+那条不变式原来写的是"注册表里有几张就摆几张"，现在改成"注册表里的**非网络**模块各一张 +
+**网络模块一张都不摆**"。
+
+**「添加卡片」入口**（`App.vue`）：工具条「添加卡片」→ 菜单只列**还没在版面上**的模块
+（数据模型就是单实例：`sanitizeItems` 会把重复模块去重）→ 点一下加到第一个空位，一步 Ctrl+Z 退得回。
+菜单是 `role="menu"`、Esc 关闭、点外面关闭、全在版面上时按钮禁用并说明原因。
+**它同时补上了"8 张模板之后怎么办"** —— 这是评估里"不要再往模板表里加卡"那半句建议的另一半：
+模板给起点，添加入口给演进。
+
+**实测**：引擎层 17 条单测（其中一条当场抓出真 bug：`weatherKind` 本来用 `code >= 95` 判雷暴，
+把 1234 这种表外码也算成雷暴了 —— 改成显式列举三个码）+ E2E 19 → **20** 条
+（新那条锁"只列缺的 / 点一下真加进来 / Esc 关 / 加满后禁用 / Ctrl+Z 一步退回"）。
+天气卡在 E2E 里**可能与也可能不与网络连通**，断言因此写成"两种状态都得立住"——
+取不到数据是合法状态，不许把页面弄崩。
 
 ### 10.14 下一步
 

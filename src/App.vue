@@ -1,8 +1,8 @@
 <script setup lang="ts">
 import { computed, inject, onBeforeUnmount, onMounted, provide, ref } from 'vue'
-import { LayoutGrid, LayoutTemplate, Maximize2, Minimize2, Redo2, Settings, SlidersHorizontal, Sparkles, TriangleAlert, Undo2, Wand2 } from 'lucide-vue-next'
+import { LayoutGrid, LayoutTemplate, Maximize2, Minimize2, Plus, Redo2, Settings, SlidersHorizontal, Sparkles, TriangleAlert, Undo2, Wand2 } from 'lucide-vue-next'
 import { measureWantedRows } from './vue/useDensity'
-import * as E from './engine'
+import * as E from '@modulo/engine'
 import type { LayoutStore } from './vue/store'
 import type { PersistentStorage } from './vue/fileStorage'
 import type { CardDataApi } from './vue/cardData'
@@ -39,6 +39,25 @@ const settingsOpen = ref(false)
  * 而且换完在同一个弹层里就能再点一张、或 Ctrl+Z 退回。确认框在这里只是多一步。
  */
 const templatesOpen = ref(false)
+/**
+ * 「添加卡片」：把还没在版面上的模块加到第一个空位。
+ *
+ * 为什么需要这个入口：8 张模板管的是"起点"，而"起点之后想让版面上多一张卡"这件事，
+ * 这个应用此前**没有任何入口**（`store.add` 一直没有调用方）。天气卡是第一位受益者。
+ * 只列缺的那些，是因为数据模型就是单实例（`sanitizeItems` 会把重复模块去重）。
+ */
+const addOpen = ref(false)
+const addWrap = ref<HTMLElement | null>(null)
+const missingModules = computed(() => reg.filter((m) => !store.doc.value.items.some((i) => i.id === m.id)))
+
+function addCard(id: string): void {
+  addOpen.value = false
+  store.add(id, 0, 0)
+}
+
+function onDocMousedown(e: MouseEvent): void {
+  if (addOpen.value && addWrap.value && !addWrap.value.contains(e.target as Node)) addOpen.value = false
+}
 const stageEl = ref<HTMLElement | null>(null)
 const stageW = ref(1200)
 
@@ -56,12 +75,14 @@ onMounted(() => {
   })
   if (stageEl.value) ro.observe(stageEl.value)
   window.addEventListener('keydown', onGlobalKey)
+  document.addEventListener('mousedown', onDocMousedown)
   /** 首启（没有存档、也没挑过模板）自动开一次选择器 —— 这正是"选项"该出现的地方 */
   if (store.firstRun) templatesOpen.value = true
 })
 onBeforeUnmount(() => {
   ro?.disconnect()
   window.removeEventListener('keydown', onGlobalKey)
+  document.removeEventListener('mousedown', onDocMousedown)
 })
 
 function fitContent() {
@@ -101,8 +122,9 @@ const isEditable = (el: EventTarget | null): boolean => {
 /** 撤销/重做是全局能力：整理、换模板这类动作也可能在工作台上做，不能只在编辑器里可撤销 */
 function onGlobalKey(e: KeyboardEvent) {
   if (e.key === 'Escape') {
-    /** 弹层叠着时 Esc 只关最上面那层：先模板选择器，再设置页 */
-    if (templatesOpen.value) closeTemplates()
+    /** 弹层叠着时 Esc 只关最上面那层：先添加菜单，再模板选择器，再设置页 */
+    if (addOpen.value) addOpen.value = false
+    else if (templatesOpen.value) closeTemplates()
     else if (settingsOpen.value) settingsOpen.value = false
   }
   if (isEditable(e.target)) return
@@ -166,6 +188,24 @@ function onGlobalKey(e: KeyboardEvent) {
         </span>
         <span class="sep" aria-hidden="true"></span>
         <span class="grp" role="group" aria-label="版面与设置">
+          <span ref="addWrap" class="add-wrap">
+            <button
+              class="wide"
+              :disabled="!missingModules.length"
+              :title="missingModules.length ? '把还没在版面上的卡片加进来（可 Ctrl+Z 退回）' : '所有卡片都已在版面上'"
+              aria-haspopup="menu"
+              :aria-expanded="addOpen"
+              @click="addOpen = !addOpen"
+            >
+              <Plus :size="14" /> 添加卡片
+            </button>
+            <div v-if="addOpen" class="add-menu" role="menu" aria-label="可添加的卡片">
+              <button v-for="m in missingModules" :key="m.id" role="menuitem" @click="addCard(m.id)">
+                <span>{{ m.title }}</span>
+                <span class="v">{{ m.variants.find((x) => x.id === m.defaultVariant)?.name }}</span>
+              </button>
+            </div>
+          </span>
           <button class="wide" title="挑一种排法：点一张卡片就换成那个版面（可 Ctrl+Z 退回）" @click="templatesOpen = true">
             <LayoutTemplate :size="14" /> 版面模板
           </button>
@@ -286,6 +326,47 @@ function onGlobalKey(e: KeyboardEvent) {
   display: inline-flex;
   align-items: center;
   gap: var(--space-1);
+}
+.add-wrap {
+  position: relative;
+  display: inline-flex;
+}
+.add-menu {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  z-index: var(--z-menu);
+  min-width: 172px;
+  padding: var(--space-1);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  background: var(--bg-card);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-hover);
+}
+.add-menu [role='menuitem'] {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-3);
+  width: 100%;
+  padding: var(--space-2) var(--space-3);
+  background: transparent;
+  border: none;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  text-align: left;
+  color: inherit;
+}
+.add-menu [role='menuitem']:hover,
+.add-menu [role='menuitem']:focus-visible {
+  background: var(--bg-card-soft);
+}
+.add-menu .v {
+  font-size: 12px;
+  color: var(--text-3);
 }
 .pill {
   padding: 2px 10px;

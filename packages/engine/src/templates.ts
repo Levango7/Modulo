@@ -1,8 +1,8 @@
-import { addItem, moveItem, resizeItem } from './ops'
-import { spreadLayout } from './spread'
-import { emptyDoc } from './types'
-import { findModule } from './types'
-import type { LayoutDoc, ModuleRegistry } from './types'
+import { addItem, moveItem, resizeItem } from './ops.js'
+import { spreadLayout } from './spread.js'
+import { emptyDoc } from './types.js'
+import { findModule } from './types.js'
+import type { LayoutDoc, ModuleRegistry } from './types.js'
 
 /**
  * 版面模板：给"不知道从哪开始排"的人一个**起点**，不是又一个功能开关。

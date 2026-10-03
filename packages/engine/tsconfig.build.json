@@ -1,0 +1,21 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    // 只有 ES2022：**不放 DOM 是刻意的** —— 引擎一旦碰 document/window，这个构建就会失败。
+    // 比 tests/engine-purity.test.ts 的正则守卫更硬：那条是"查源代码里有没有这些词"，
+    // 这条是"编译器答不答应"。两边都留着：正则能抓到字符串里的误用，编译器能抓类型级引用。
+    "lib": ["ES2022"],
+    "strict": true,
+    "noImplicitOverride": true,
+    "noUnusedLocals": true,
+    "noFallthroughCasesInSwitch": true,
+    "verbatimModuleSyntax": true,
+    "skipLibCheck": true,
+    "declaration": true,
+    "outDir": "dist",
+    "rootDir": "src"
+  },
+  "include": ["src"]
+}

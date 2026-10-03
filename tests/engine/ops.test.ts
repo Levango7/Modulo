@@ -8,8 +8,8 @@ import {
   setItemTitle,
   setVariant,
   toggleLock,
-} from '../../src/engine/ops'
-import { emptyDoc } from '../../src/engine/types'
+} from '@modulo/engine/ops'
+import { emptyDoc } from '@modulo/engine/types'
 import { REGISTRY, doc } from '../fixtures'
 
 const clockAt = (x: number, y: number, w = 4, h = 3) => ({ id: 'clock', variant: 'big', x, y, w, h })

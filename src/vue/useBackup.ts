@@ -7,7 +7,7 @@
  */
 
 import { ref } from 'vue'
-import * as E from '../engine'
+import * as E from '@modulo/engine'
 import { buildBackup, backupToJson, parseBackup, type BackupSummary, type ParsedBackup } from './backup'
 import { downloadText, pickTextFile, stamp } from './fileIo'
 import type { CardData } from './cardData'

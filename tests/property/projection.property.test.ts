@@ -1,10 +1,10 @@
 import { describe, expect, it } from 'vitest'
 import * as fc from 'fast-check'
-import { addItem, resizeItem, setVariant } from '../../src/engine/ops'
-import { collides } from '../../src/engine/geometry'
-import { project } from '../../src/engine/projection'
-import { LOGICAL_COLS } from '../../src/engine/types'
-import type { LayoutDoc } from '../../src/engine/types'
+import { addItem, resizeItem, setVariant } from '@modulo/engine/ops'
+import { collides } from '@modulo/engine/geometry'
+import { project } from '@modulo/engine/projection'
+import { LOGICAL_COLS } from '@modulo/engine/types'
+import type { LayoutDoc } from '@modulo/engine/types'
 import { REGISTRY } from '../fixtures'
 
 /** 确定性 PRNG：失败时可凭 seed 复现 */

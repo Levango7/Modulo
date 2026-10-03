@@ -24,8 +24,9 @@ npm run dev            # 浏览器预览
 
 几条本项目自己立的规矩，写代码时用得上：
 
-- **引擎层（`src/engine/**`）不许 import vue / @tauri，也不许出现 `document` / `window`。**
-  这不是风格偏好，是 `tests/engine-purity.test.ts` 逐文件守着的硬约束 —— 破了它引擎就没法脱离 UI 单测。
+- **引擎层（`packages/engine/src/**`，即 `@modulo/engine` 包）不许 import vue / @tauri，也不许出现 `document` / `window`，更不许用 `../` 往包外伸手。**
+  这不是风格偏好，是 `tests/engine-purity.test.ts` 逐文件守着的硬约束 —— 破了它引擎就没法脱离 UI 单测；
+  包的构建（`tsconfig.build.json` 里 `lib` 只有 ES2022、不含 DOM）是第二道、更硬的门：真碰 DOM 编译就过不去。
 - **验收标准写成测试，不写成文档条目。** 本项目的历史里，§8 的验收判据有两条曾经只停在纸面上，
   谁也没测过；补成可执行的断言之后才算数。
 - **夹具要自带，不能蹭默认状态。** 「点一下 X 会变化」这类断言要问一句：这个变化是 X 造成的，

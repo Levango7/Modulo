@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { cellIntent, globalIntent, isEditableTarget, shouldPrevent, type KeyLike } from '../../src/vue/keyboard'
-import type { Placement } from '../../src/engine'
+import type { Placement } from '@modulo/engine'
 
 /** 造一个按键：只填我们关心的字段，其余与 KeyboardEvent 一致地缺省为 false */
 function key(k: string, mods: Partial<KeyLike> = {}): KeyLike {

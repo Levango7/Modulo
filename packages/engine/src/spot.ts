@@ -1,6 +1,6 @@
-import { anyCollides, clamp, maxRow } from './geometry'
-import type { Rect } from './types'
-import { LOGICAL_COLS } from './types'
+import { anyCollides, clamp, maxRow } from './geometry.js'
+import type { Rect } from './types.js'
+import { LOGICAL_COLS } from './types.js'
 
 /**
  * 在目标列带内从 y 向下找最近的无障碍空位；找不到就落到所有已放项之下。

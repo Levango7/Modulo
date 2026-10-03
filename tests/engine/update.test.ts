@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { applyChunk, compareVersions, formatBytes, isNewer, pickUpdate, plainText, progressPct } from '../../src/engine/update'
+import { applyChunk, compareVersions, formatBytes, isNewer, pickUpdate, plainText, progressPct } from '@modulo/engine/update'
 
 function release(over: Record<string, unknown> = {}) {
   return { tag_name: 'v0.3.0', html_url: 'https://github.com/Levango7/Modulo/releases/tag/v0.3.0', body: '', published_at: '2026-10-03T00:00:00Z', ...over }

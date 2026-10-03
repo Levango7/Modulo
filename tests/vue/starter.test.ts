@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import { createLayoutStore, memoryStorage } from '../../src/vue/store'
 import { REGISTRY } from '../../src/vue/cardRegistry'
-import * as E from '../../src/engine'
-import type { LayoutDoc } from '../../src/engine/types'
+import * as E from '@modulo/engine'
+import type { LayoutDoc } from '@modulo/engine/types'
 
 /**
  * 起步版面是产品门面：新用户首启看到的就是这张。
@@ -24,10 +24,27 @@ const holeCells = (doc: LayoutDoc) => {
   return holes
 }
 
+/**
+ * 出厂版面 = 注册表里**除了"网络模块"之外**的全部模块。
+ *
+ * 为什么天气卡不摆进来：出厂版面是每个新用户首启看到的那一张 —— 把要联网的卡摆在里面，
+ * 等于每次首启都有一个请求飞出去，与"启动不联网"的克制（`useWeather.ts` 开头写着）直接冲突。
+ * 它由「添加卡片」入口按需加进版面：把卡加进来 = 用户明确要它，加进来之后才首次请求。
+ */
+const NETWORK_MODULES = ['weather']
+
 describe('起步版面', () => {
-  it('注册表里有几张模块，出厂就摆几张', () => {
+  it('注册表里的每个非网络模块，出厂都摆了一张', () => {
     const d = starter()
-    expect(d.items.map((i) => i.id).sort()).toEqual(REGISTRY.map((m) => m.id).sort())
+    const want = REGISTRY.map((m) => m.id).filter((id) => !NETWORK_MODULES.includes(id)).sort()
+    expect(d.items.map((i) => i.id).sort()).toEqual(want)
+  })
+
+  it('网络模块不进出厂版面（首启不该有请求飞出去）', () => {
+    const d = starter()
+    for (const id of NETWORK_MODULES) {
+      expect(d.items.some((i) => i.id === id), `${id} 不该出现在出厂版面里`).toBe(false)
+    }
   })
 
   it('12 列 × 已用行数之内不留任何空洞（旧版实测 37.9%）', () => {

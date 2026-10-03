@@ -1,7 +1,7 @@
-import { anyCollides, clamp } from './geometry'
-import { findFreeSpot } from './spot'
-import { findModule, resolveVariant, TITLE_MAX } from './types'
-import type { LayoutDoc, ModuleRegistry, Placement } from './types'
+import { anyCollides, clamp } from './geometry.js'
+import { findFreeSpot } from './spot.js'
+import { findModule, resolveVariant, TITLE_MAX } from './types.js'
+import type { LayoutDoc, ModuleRegistry, Placement } from './types.js'
 
 function withItems(doc: LayoutDoc, items: Placement[]): LayoutDoc {
   return { ...doc, items }

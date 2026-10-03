@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
-import { sanitizeItems } from '../../src/engine/validate'
-import { docToJson, parseLayout } from '../../src/engine/serialize'
-import { collides } from '../../src/engine/geometry'
+import { sanitizeItems } from '@modulo/engine/validate'
+import { docToJson, parseLayout } from '@modulo/engine/serialize'
+import { collides } from '@modulo/engine/geometry'
 import { REGISTRY } from '../fixtures'
 
 describe('sanitizeItems', () => {

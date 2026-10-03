@@ -1,6 +1,6 @@
-import { LOGICAL_COLS, SCHEMA_VERSION, emptyDoc } from './types'
-import { sanitizeItems } from './validate'
-import type { LayoutDoc, ModuleRegistry } from './types'
+import { LOGICAL_COLS, SCHEMA_VERSION, emptyDoc } from './types.js'
+import { sanitizeItems } from './validate.js'
+import type { LayoutDoc, ModuleRegistry } from './types.js'
 
 export interface Scheme {
   id: string

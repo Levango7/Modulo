@@ -12,7 +12,7 @@
  * 这条取舍本身也是项目的一条老教训的同款：判据要能证伪，不能靠人记。
  *
  * ## 它守住什么
- * 单测条数与文件数、E2E 条数、受测层分支覆盖率、构建产物体积。
+ * 单测条数与文件数、E2E 条数、受测层分支覆盖率、构建产物体积、**版本号同源**。
  * 全部实跑，不接受任何"文档里写的"作为输入。
  * 其中覆盖率是**下限承诺**（`≥N%`）：同一份代码在不同 V8 / 平台间会差出 0.01 个百分点以上，
  * 等值核对会把环境抖动报成文档漂移（实测 CI 两次跑出 93.74 / 93.75，本机与 CI 的逐文件
@@ -99,8 +99,34 @@ function bundleFacts() {
 
 const facts = { ...unitFacts(), e2e: e2eFacts(), coverage: coverageFact(), ...(bundleFacts() ?? {}) };
 
+/**
+ * 版本号同源：版本现在散在 7 个文件里（抽 `@modulo/engine` 包之后又多一处），
+ * 人手同步必然漂 —— 历史上就漂过一次（CHANGELOG 0.1.0：「版本号三处不一致」）。
+ * 这里逐个读出来比，加一处只需往 VERSION_PLACES 里加一条。
+ */
+const VERSION_PLACES = [
+  ['package.json', /"version":\s*"([^"]+)"/],
+  ['package-lock.json', /^\s*"version":\s*"([^"]+)"/m],
+  ['src-tauri/Cargo.toml', /^version\s*=\s*"([^"]+)"/m],
+  ['src-tauri/Cargo.lock', /name = "modulo"\nversion = "([^"]+)"/],
+  ['src-tauri/tauri.conf.json', /"version":\s*"([^"]+)"/],
+  ['src/vue/useBackup.ts', /APP_VERSION\s*=\s*'([^']+)'/],
+  ['packages/engine/package.json', /"version":\s*"([^"]+)"/],
+];
+
+function versionFacts() {
+  return VERSION_PLACES.map(([file, re]) => {
+    const p = resolve(root, file);
+    if (!existsSync(p)) return { file, version: null };
+    const m = readFileSync(p, 'utf8').match(re);
+    return { file, version: m ? m[1] : null };
+  });
+}
+
+const versions = versionFacts();
+
 if (process.argv.includes('--print')) {
-  console.log(JSON.stringify(facts, null, 2));
+  console.log(JSON.stringify({ ...facts, versions }, null, 2));
   process.exit(0);
 }
 
@@ -173,7 +199,15 @@ for (const file of TARGETS) {
   });
 }
 
-console.log(`实跑事实：${facts.tests} 单测 / ${facts.files} 文件 · E2E ${facts.e2e} 条 · 受测层分支覆盖 ${facts.coverage?.toFixed(2) ?? '?'}%${facts.jsKB ? ` · JS ${facts.jsKB} kB` : ''}`);
+// 版本号同源：不一致就是发布事故的前一步（漏对齐一处 = 装完的人看到两套版本号）
+const versionSet = new Set(versions.filter((v) => v.version).map((v) => v.version));
+if (versionSet.size > 1) {
+  bad++;
+  console.error(`✗ 版本号不一致：${[...versionSet].join(' vs ')}`);
+  for (const { file, version } of versions) console.error(`    ${version ?? '(读不到)'}  ${file}`);
+}
+
+console.log(`实跑事实：${facts.tests} 单测 / ${facts.files} 文件 · E2E ${facts.e2e} 条 · 受测层分支覆盖 ${facts.coverage?.toFixed(2) ?? '?'}%${facts.jsKB ? ` · JS ${facts.jsKB} kB` : ''} · 版本 ${[...versionSet][0] ?? '?'}（${versions.length} 处同源）`);
 if (bad) {
   console.error(`\n${bad} 处对不上。改文档或改代码都算修，但别让两个数字长期各说各话。`);
   process.exit(1);

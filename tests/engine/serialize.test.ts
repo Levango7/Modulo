@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { CURRENT_SCHEMA_VERSION, MIGRATIONS, docToJson, migrate, parseLayout, type Migration } from '../../src/engine/serialize'
-import { LOGICAL_COLS } from '../../src/engine/types'
+import { CURRENT_SCHEMA_VERSION, MIGRATIONS, docToJson, migrate, parseLayout, type Migration } from '@modulo/engine/serialize'
+import { LOGICAL_COLS } from '@modulo/engine/types'
 import { REGISTRY } from '../../src/vue/cardRegistry'
 
 const v1 = {

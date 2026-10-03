@@ -1,5 +1,5 @@
-import { emptyDoc } from '../src/engine/types'
-import type { LayoutDoc, ModuleRegistry } from '../src/engine/types'
+import { emptyDoc } from '@modulo/engine/types'
+import type { LayoutDoc, ModuleRegistry } from '@modulo/engine/types'
 
 export const REGISTRY: ModuleRegistry = [
   {

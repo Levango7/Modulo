@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import * as E from '../../src/engine'
-import { TEMPLATES, DEFAULT_TEMPLATE_ID, buildTemplate, templateById, validateTemplate, type LayoutTemplate } from '../../src/engine/templates'
+import * as E from '@modulo/engine'
+import { TEMPLATES, DEFAULT_TEMPLATE_ID, buildTemplate, templateById, validateTemplate, type LayoutTemplate } from '@modulo/engine/templates'
 import { REGISTRY } from '../../src/vue/cardRegistry'
 
 const COLS = 12

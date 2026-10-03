@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { fitState, fitsVariant } from '../../src/engine/fit'
+import { fitState, fitsVariant } from '@modulo/engine/fit'
 
 const v = { id: 'x', name: 'x', minW: 3, minH: 2, idealW: 5, idealH: 4 }
 

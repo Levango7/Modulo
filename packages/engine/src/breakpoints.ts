@@ -1,4 +1,4 @@
-import { LOGICAL_COLS } from './types'
+import { LOGICAL_COLS } from './types.js'
 
 export type EditorMode = 'canvas' | 'stack'
 

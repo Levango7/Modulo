@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest'
-import { collides } from '../../src/engine/geometry'
-import { project } from '../../src/engine/projection'
-import { LOGICAL_COLS } from '../../src/engine/types'
-import type { Placement } from '../../src/engine/types'
+import { collides } from '@modulo/engine/geometry'
+import { project } from '@modulo/engine/projection'
+import { LOGICAL_COLS } from '@modulo/engine/types'
+import type { Placement } from '@modulo/engine/types'
 import { REGISTRY, doc } from '../fixtures'
 
 const items: Placement[] = [

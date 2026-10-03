@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, inject, ref } from 'vue'
 import { X } from 'lucide-vue-next'
-import * as E from '../../engine'
+import * as E from '@modulo/engine'
 import { useFocusTrap } from '../useFocusTrap'
 import type { LayoutStore } from '../store'
 

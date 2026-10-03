@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
-import { moveMany, removeMany } from '../../src/engine/ops'
-import { collides } from '../../src/engine/geometry'
-import type { Placement } from '../../src/engine/types'
+import { moveMany, removeMany } from '@modulo/engine/ops'
+import { collides } from '@modulo/engine/geometry'
+import type { Placement } from '@modulo/engine/types'
 import { doc } from '../fixtures'
 
 const A: Placement = { id: 'clock', variant: 'big', x: 0, y: 0, w: 4, h: 3 }

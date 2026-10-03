@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { createLayoutStore, memoryStorage } from '../../src/vue/store'
-import type { ModuleRegistry } from '../../src/engine/types'
+import type { ModuleRegistry } from '@modulo/engine/types'
 
 const REG: ModuleRegistry = [
   {

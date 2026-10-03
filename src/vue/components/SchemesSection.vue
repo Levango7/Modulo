@@ -12,7 +12,7 @@
 import { inject, ref } from 'vue'
 import { GripVertical } from 'lucide-vue-next'
 import type { SchemesApi } from '../useSchemes'
-import type { Scheme } from '../../engine'
+import type { Scheme } from '@modulo/engine'
 
 const schemes = inject<SchemesApi>('schemes')!
 

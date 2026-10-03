@@ -1,4 +1,4 @@
-import type { LayoutDoc } from './types'
+import type { LayoutDoc } from './types.js'
 
 export interface Step {
   doc: LayoutDoc

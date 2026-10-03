@@ -1,7 +1,7 @@
-import { anyCollides, clamp, isInt } from './geometry'
-import { findFreeSpot } from './spot'
-import { LOGICAL_COLS, TITLE_MAX } from './types'
-import type { LayoutDoc, ModuleRegistry, Placement } from './types'
+import { anyCollides, clamp, isInt } from './geometry.js'
+import { findFreeSpot } from './spot.js'
+import { LOGICAL_COLS, TITLE_MAX } from './types.js'
+import type { LayoutDoc, ModuleRegistry, Placement } from './types.js'
 
 export interface SanitizeResult {
   items: Placement[]

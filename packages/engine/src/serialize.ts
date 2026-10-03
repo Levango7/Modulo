@@ -1,6 +1,6 @@
-import { LOGICAL_COLS, SCHEMA_VERSION } from './types'
-import type { LayoutDoc, ModuleRegistry } from './types'
-import { sanitizeItems } from './validate'
+import { LOGICAL_COLS, SCHEMA_VERSION } from './types.js'
+import type { LayoutDoc, ModuleRegistry } from './types.js'
+import { sanitizeItems } from './validate.js'
 
 export interface ParseResult {
   doc: LayoutDoc

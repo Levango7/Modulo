@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { editorMode, physicalCols, rowHeight, scaleFactor } from '../../src/engine/breakpoints'
+import { editorMode, physicalCols, rowHeight, scaleFactor } from '@modulo/engine/breakpoints'
 
 describe('physicalCols', () => {
   it('按断点表取物理列数', () => {

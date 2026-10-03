@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { canRedo, canUndo, commit, createHistory, currentDoc, redo, undo } from '../../src/engine/history'
-import type { LayoutDoc } from '../../src/engine/types'
+import { canRedo, canUndo, commit, createHistory, currentDoc, redo, undo } from '@modulo/engine/history'
+import type { LayoutDoc } from '@modulo/engine/types'
 import { doc, clockItem } from '../fixtures'
 
 const d0 = doc([clockItem(0)])

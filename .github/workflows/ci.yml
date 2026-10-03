@@ -23,6 +23,10 @@ jobs:
         run: npm run cover:engine
       - name: 构建
         run: npm run build
+      # 「抽包」的承诺是"可分发的资产"，不是"目录挪了个位置" —— 包必须能独立构建。
+      # 不构建的话 dist/ 永远是空的，等真发 npm 包（prepack 会构建）才发现问题太晚。
+      - name: 引擎包独立构建（@modulo/engine）
+        run: npm run engine:build
       # 与 x-hub 的反面教材相对：它写了 164 个 Rust 测试，但 CI 只跑 vue-tsc + cargo check，一个测试都不执行
       - name: 浏览器交互 E2E（拖拽 / 框选 / 键盘 / 撤销 / 三档视口）
         run: npm run test:e2e

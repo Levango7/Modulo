@@ -1,4 +1,4 @@
-import type { ModuleDef, VariantDef } from './types'
+import type { ModuleDef, VariantDef } from './types.js'
 
 /**
  * 投影后宽度不足时挑一个装得下的形态：优先保留用户当前形态，

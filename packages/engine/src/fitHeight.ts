@@ -1,5 +1,5 @@
-import { findModule, resolveVariant } from './types'
-import type { LayoutDoc, ModuleRegistry } from './types'
+import { findModule, resolveVariant } from './types.js'
+import type { LayoutDoc, ModuleRegistry } from './types.js'
 
 /**
  * 按内容收紧高度：只把卡片改矮，绝不改高（变高才可能撞邻居，这里不需要）。

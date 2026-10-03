@@ -1,6 +1,6 @@
-import { anyCollides } from './geometry'
-import { tidyLayout } from './tidy'
-import type { LayoutDoc, Placement } from './types'
+import { anyCollides } from './geometry.js'
+import { tidyLayout } from './tidy.js'
+import type { LayoutDoc, Placement } from './types.js'
 
 /** 按顶边 y 分组；组内必须两两横向不相交，否则重排 x 会破坏它们 */
 function rowsOf(items: readonly Placement[]): Placement[][] {

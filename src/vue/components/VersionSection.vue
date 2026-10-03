@@ -10,7 +10,7 @@
  * 桌面壳里仍不给「点开下载页」的链接：WebView 里 `target="_blank"` 不会打开系统浏览器。
  */
 import { computed, inject } from 'vue'
-import { formatBytes, progressPct } from '../../engine/update'
+import { formatBytes, progressPct } from '@modulo/engine/update'
 import { useUpdateCheck } from '../useUpdateCheck'
 import type { StorageAdapter } from '../store'
 

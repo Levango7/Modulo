@@ -1,4 +1,4 @@
-import type { VariantDef } from './types'
+import type { VariantDef } from './types.js'
 
 export type FitLevel = 'below' | 'mid' | 'ideal' | 'room'
 
