@@ -106,7 +106,13 @@ function close() {
   z-index: var(--z-modal);
 }
 .picker {
-  width: min(920px, 100%);
+  /**
+   * 920 → 1180：8 张模板在 3 列下要排 3 行（实测内容高 862 > 可视 759，得滚）。
+   * 加宽成 4 列把行数砍到 2 行，比压卡片高度划算 —— 每张卡只有 96px 高的预览，
+   * 再矮就读不出排法了，而"看图挑"正是这个弹层唯一的价值。
+   * 模板再多下去（≥12 张）会重新需要滚，那时该做的是分组而不是继续加宽。
+   */
+  width: min(1180px, 100%);
   max-height: min(86vh, 760px);
   overflow: auto;
   background: var(--bg-card);

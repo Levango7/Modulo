@@ -584,6 +584,17 @@ it.skipIf(skip)('版面模板：点一张卡片就换版面，Esc 关闭不动�
     await page.evaluate(() => [...document.querySelectorAll('.picker .mini')].every((m) => m.children.length > 0)),
     '每张模板卡都要有迷你示意',
   ).toBe(true)
+  /**
+   * 8 张排法在 1440×900 里必须**不用滚就看完**：弹层要滚，等于后半排模板对新用户不存在。
+   * 断言用行数和"内容高 vs 可视高"两个量，不写死列数 —— 列数随宽度自适应，写死会把响应式判成回归。
+   */
+  const fit1440 = await page.evaluate(() => {
+    const p = document.querySelector('.picker') as HTMLElement
+    const rows = new Set([...p.querySelectorAll<HTMLElement>('.card')].map((c) => c.offsetTop)).size
+    return { rows, scrollH: p.scrollHeight, clientH: p.clientHeight }
+  })
+  expect(fit1440.rows, `1440×900 下排了 ${fit1440.rows} 行`).toBeLessThanOrEqual(2)
+  expect(fit1440.scrollH, `弹层内容高 ${fit1440.scrollH} > 可视 ${fit1440.clientH}`).toBeLessThanOrEqual(fit1440.clientH + 1)
 
   await page.keyboard.press('Escape')
   await settle()
@@ -607,6 +618,32 @@ it.skipIf(skip)('版面模板：点一张卡片就换版面，Esc 关闭不动�
   await settle()
   expect(await snapshot(page), '换模板可一步撤销').toBe(general)
   expect(errs).toEqual([])
+  await page.close()
+})
+
+/**
+ * 1280×800 是**出厂默认窗口尺寸**（fit_size 的默认档），所以这才是真正要成立的那一条：
+ * 用户第一次打开应用看到的选择器，尺寸就是它。只测 1440 等于测了一个不存在的默认。
+ */
+it.skipIf(skip)('版面模板：出厂默认窗口 1280×800 里不用滚就能看完全部模板', async () => {
+  const page = await freshPage(1280, 800)
+  await clickTool(page, '版面模板')
+  await settle()
+  const r = await page.evaluate(() => {
+    const p = document.querySelector('.picker') as HTMLElement
+    const cards = [...p.querySelectorAll<HTMLElement>('.card')]
+    return {
+      cards: cards.length,
+      rows: new Set(cards.map((c) => c.offsetTop)).size,
+      scrollH: p.scrollHeight,
+      clientH: p.clientHeight,
+      hScroll: p.scrollWidth > p.clientWidth + 1,
+    }
+  })
+  expect(r.cards, '模板张数').toBeGreaterThanOrEqual(8)
+  expect(r.rows, `1280×800 下排了 ${r.rows} 行`).toBeLessThanOrEqual(2)
+  expect(r.scrollH, `弹层内容高 ${r.scrollH} > 可视 ${r.clientH}`).toBeLessThanOrEqual(r.clientH + 1)
+  expect(r.hScroll, '弹层内不该出现横向滚动').toBe(false)
   await page.close()
 })
 
