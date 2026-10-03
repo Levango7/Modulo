@@ -14,8 +14,8 @@ import type { CardData } from './cardData'
 import type { LayoutStore } from './store'
 import type { SchemesApi } from './useSchemes'
 
-/** 与 package.json / Cargo.toml / tauri.lock / tauri.conf.json 同源；发布时四处一起对齐 */
-export const APP_VERSION = '0.2.0'
+/** 与 package.json / Cargo.toml / Cargo.lock / tauri.conf.json 同源；发布时四处一起对齐 */
+export const APP_VERSION = '0.3.0'
 
 export interface PendingRestore extends BackupSummary {
   parsed: ParsedBackup
