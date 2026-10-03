@@ -30,7 +30,8 @@ fn release_installer_signature_matches_embedded_pubkey() {
         .expect("src-tauri 应该在仓库根下")
         .to_path_buf();
     let conf: serde_json::Value = serde_json::from_str(
-        &fs::read_to_string(repo.join("src-tauri/tauri.conf.json")).expect("读不到 tauri.conf.json"),
+        &fs::read_to_string(repo.join("src-tauri/tauri.conf.json"))
+            .expect("读不到 tauri.conf.json"),
     )
     .expect("tauri.conf.json 不是 JSON");
     let pubkey_b64 = conf["plugins"]["updater"]["pubkey"]
@@ -40,13 +41,19 @@ fn release_installer_signature_matches_embedded_pubkey() {
 
     let version = env!("CARGO_PKG_VERSION");
     let name = format!("Modulo_{version}_x64-setup.exe");
-    let installer = repo.join("src-tauri/target/release/bundle/nsis").join(&name);
+    let installer = repo
+        .join("src-tauri/target/release/bundle/nsis")
+        .join(&name);
     let sig_path = repo
         .join("src-tauri/target/release/bundle/nsis")
         .join(format!("{name}.sig"));
 
-    let artifact = fs::read(&installer)
-        .unwrap_or_else(|e| panic!("读不到安装包 {}：{e}（先带签名环境变量构建）", installer.display()));
+    let artifact = fs::read(&installer).unwrap_or_else(|e| {
+        panic!(
+            "读不到安装包 {}：{e}（先带签名环境变量构建）",
+            installer.display()
+        )
+    });
     let sig_b64 = fs::read_to_string(&sig_path)
         .unwrap_or_else(|e| panic!("读不到 {}：{e}", sig_path.display()));
 
@@ -58,8 +65,10 @@ fn release_installer_signature_matches_embedded_pubkey() {
         String::from_utf8(bytes).expect("不是 UTF-8 的 minisign 文本")
     };
 
-    let public_key = minisign_verify::PublicKey::decode(&decode(&pubkey_b64)).expect("公钥 decode 失败");
-    let signature = minisign_verify::Signature::decode(&decode(&sig_b64)).expect("签名 decode 失败");
+    let public_key =
+        minisign_verify::PublicKey::decode(&decode(&pubkey_b64)).expect("公钥 decode 失败");
+    let signature =
+        minisign_verify::Signature::decode(&decode(&sig_b64)).expect("签名 decode 失败");
     public_key
         .verify(artifact.as_slice(), &signature, true)
         .expect("签名验证失败 —— 这个包客户端会拒收，绝不能发");
