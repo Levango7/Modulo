@@ -1952,6 +1952,8 @@ dependencies = [
 name = "modulo"
 version = "0.4.0"
 dependencies = [
+ "base64 0.22.1",
+ "minisign-verify",
  "serde",
  "serde_json",
  "tauri",

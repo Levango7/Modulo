@@ -32,3 +32,9 @@ tauri-plugin-process = "2"
 codegen-units = 1
 lto = true
 strip = true
+
+[dev-dependencies]
+# 发布门禁测试（tests/release_signature.rs）用：与 tauri-plugin-updater **同一套实现**，
+# 不是另写一套自娱自乐 —— 判定口径逐行对应插件的 verify_signature()。
+minisign-verify = "0.2"
+base64 = "0.22"

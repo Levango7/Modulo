@@ -6,7 +6,7 @@
 
 **先试 30 秒（不用装任何东西）**：[网页版](https://levango7.github.io/Modulo/)。打开后**把窗口从宽拖到窄** —— 这就是这个产品的全部：12 列逻辑版面会按容器宽度投影成 12 / 8 / 6 / 4 / 1 列，卡片按形态降档而不是被压成碎片。数据存在浏览器 localStorage 里，与桌面版各存各的。
 
-**想要装起来用**：[Releases · v0.3.0](https://github.com/Levango7/Modulo/releases/tag/v0.3.0) 里有 Windows x64 的 NSIS 安装包（`Modulo_0.3.0_x64-setup.exe`，1 865 657 字节，`sha256 0b879d72631a7a72d182e67fb31a460104b7365b696448e2a6e1b21ae18d6779`，构建自 `4c5b54c`，该二进制在本机通过全部 49 项真机检查）。安装包**没有代码签名**，首次运行 Windows SmartScreen 会提示「未知发布者」。数据落在 `%APPDATA%\app.modulo\data\*.json`，整个目录拷走就是备份。
+**想要装起来用**：[Releases · v0.4.0](https://github.com/Levango7/Modulo/releases/tag/v0.4.0) 里有 Windows x64 的 NSIS 安装包（`Modulo_0.4.0_x64-setup.exe`，2 806 839 字节，`sha256 53c431d5f7971bc8b17265042c1f6e33d35eaac10cff3542df3eaa1bf627ac18`，构建自 `b27142e`，该二进制在本机通过全部 49 项真机检查）。**装过这一版之后，以后的新版本可以在设置页里直接更新**（下载 → 本地验签 → 重启安装）。安装包**没有代码签名**，首次运行 Windows SmartScreen 会提示「未知发布者」。数据落在 `%APPDATA%\app.modulo\data\*.json`，整个目录拷走就是备份。
 
 ![工作台：出厂版面就是铺满的 —— 12 列、行带之间不留中缝](docs/assets/workbench-starter-1440.png)
 
