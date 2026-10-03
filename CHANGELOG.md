@@ -22,6 +22,14 @@ v0.2.0 之后的一轮。**含产品代码改动，建议发 0.3.0**（新增用
   刻意只认显式标记过的行（`<!-- facts -->`）：ARCHITECTURE §10 的实现状态表里记着 87/87、93/93、
   41.0 kB 这些**历史**规模，全文扫描必然误报，而一条会误报的检查等于没有检查。
   守卫做过变异自检：把 312 改回 262 立刻报红。已进 CI（`verify` job 第 8 步）。
+- **E2E 的构建把 `NODE_ENV=test` 泄漏进了产物**（复核时抓到，本会让 CI 一提交就红）：
+  `vitest.e2e.setup.ts` 在 vitest 进程里跑 `build()`，而 vitest 把进程的 `NODE_ENV` 设成 `test`，
+  vite 原样烤进产物 —— Vue 走 dev 运行时，163.98 → **201.74 kB**（gzip 60.41 → 74.64），
+  并覆盖掉 `npm run build` 的生产 dist。后果：`npm run verify`（绿）后紧接
+  `npm run docs:check` 必红（量到 201.75，而文档认领 163.98），而 ci.yml 恰好把
+  docs:check 排在 E2E 之后。修法：构建期间显式 `NODE_ENV=production`，构建完还原。
+  字节级复现：`NODE_ENV=test` 下手动构建，产出的哈希与 E2E 留在 dist 里的那颗一致。
+  顺带说破一件一直没被注意的事：**E2E 此前测的从来不是要发出去的那颗包**。
 
 ### 新增
 

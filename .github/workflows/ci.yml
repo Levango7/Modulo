@@ -28,7 +28,9 @@ jobs:
         run: npm run test:e2e
       # 文档里的规模数字是人抄的，抄错不会让任何测试变红 —— 所以让机器核对。
       # 只认显式标记过的行（`<!-- facts -->`），历史数字与说明段不会被误判。
-      # 排在 E2E 之后：它要 dist/ 与 coverage/，两者都由上面几步产出。
+      # 量的是 dist/ 与 coverage/：coverage 来自上面的门禁步骤；dist 由「构建」产出，
+      # 而 E2E 的 globalSetup 又以 production 重建了一遍（vitest.e2e.setup.ts），
+      # 所以排在 E2E 之后量到的仍是生产产物。
       - name: 文档数字核对（认领了规模数字的行必须与实跑一致）
         run: npm run docs:check
 
