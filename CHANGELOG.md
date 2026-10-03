@@ -79,6 +79,24 @@ v0.2.0 之后的一轮（含被本节取代的 0.2.1：标签页图标与两张�
   写测试时踩了一次值得记的：先在测试里**自己模拟**了一遍迁移循环，于是生产代码那几行一次没跑到 ——
   覆盖率从 91.72 掉到 91.55 才暴露。改成真往表里装一条假想迁移再撤回，才算测到东西。
 
+### 发布
+
+已发：GitHub Release **v0.3.0**（https://github.com/Levango7/Modulo/releases/tag/v0.3.0），
+tag 落在 `4c5b54c` —— 与 v0.1.x「tag 落在版本号定型那笔」差了一次核对修复：版本定型那笔
+`5d2c642` 上带着会被环境抖动打红的 docs-check（见上「修掉的真问题」第三条），发布点不该是这个状态。
+
+- 安装包 `Modulo_0.3.0_x64-setup.exe`：**1 865 657 字节**，`sha256 0b879d72631a7a72d182e67fb31a460104b7365b696448e2a6e1b21ae18d6779`。
+- 包内主二进制 `modulo.exe`：**5 711 872 字节**，`sha256 3b475a5b7c2873cb7d6d56a92a3816719716221ae45bd8d2d057194e37778264`。
+- 构建自 `4c5b54c`，打包时工作树干净（`src` / `src-tauri/src` / `scripts` 里比 exe 新的文件：0 个）。
+- **该二进制本机探针 49/49**：原始行 `2026-10-03T05:02:28.732Z 49/49`（本机 13:02:28），来自 `evidence/probe-history.log`。
+- **网页版两份**：公开入口 [levango7.github.io/Modulo](https://levango7.github.io/Modulo/)（GitHub Pages `gh-pages` 分支，
+  `PUBLIC_BASE=/Modulo/` 构建、源 commit `4c5b54c`；仓库本就是 PUBLIC，Pages 直接公开）；EdgeOne Makers 那份也重新
+  `-e production` 部署过（deployment `dpilox2485fy`），但它的域名**按平台设计带 token 签名**（裸域名 401，
+  `type:"preset", isTld:0`，CLI 没有放开公开访问的入口）—— 所以 README 的公开入口指向 Pages，EdgeOne 那份只作控制台预览用。
+- 本机构建的一个坑（记下来省下一次排查）：默认工具链是 `stable-x86_64-pc-windows-gnu`，`tauri-winres` 要
+  `windres` —— 构建前需 `set PATH=D:\msys64\mingw64\bin;%PATH%`，否则 build script 直接 panic
+  （`NotAttempted("windres")`），而 CI 的 windows-latest 走 MSVC 不会遇到。
+
 ## 0.2.1 —— 两张常用模板 + 桌面自检的 CI 化排查（2026-10-03，未单独发布，内容并入 0.3.0）
 
 v0.2.0 发布后接着做的事。**这一节含产品代码改动（模板表加两张），所以攒够一批要发 0.2.x / 0.3.0**
