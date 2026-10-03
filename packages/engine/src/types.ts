@@ -18,6 +18,8 @@ export interface ModuleDef {
   title: string
   /** 一句话说清这张卡是干什么的 —— 「添加卡片」菜单里显示它（选卡的人不该靠名字猜） */
   blurb?: string
+  /** 菜单分组名（时间 / 记录 / 工具 / 联网 / 专注）—— 卡到 40 张时平铺菜单没法翻 */
+  group?: string
   defaultVariant: string
   variants: VariantDef[]
 }

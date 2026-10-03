@@ -38,7 +38,14 @@ export interface BackupInput {
  * 每次调用都给新对象 —— 导出成常量的话，某个调用方改了返回值就会污染后面所有次导入的兜底。
  */
 export function emptyCardData(): CardData {
-  return { sticky: '', todos: [], notes: [], countdown: { label: '', date: '' } }
+  return {
+    sticky: '',
+    todos: [],
+    notes: [],
+    countdown: { label: '', date: '' },
+    elapsed: { label: '', date: '' },
+    habit: { name: '', days: [] },
+  }
 }
 
 export function buildBackup(input: BackupInput): BackupPayload {
@@ -55,6 +62,8 @@ export function buildBackup(input: BackupInput): BackupPayload {
       todos: input.cardData.todos.map((t) => ({ ...t })),
       notes: input.cardData.notes.map((n) => ({ ...n })),
       countdown: { ...input.cardData.countdown },
+      elapsed: { ...input.cardData.elapsed },
+      habit: { ...input.cardData.habit, days: [...input.cardData.habit.days] },
     },
   }
 }

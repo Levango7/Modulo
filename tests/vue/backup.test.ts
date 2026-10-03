@@ -27,6 +27,8 @@ const cardData: CardData = {
   ],
   notes: [{ id: 'n1', title: '想法', body: '把投影抽成包', at: 5 }],
   countdown: { label: '元旦', date: '2027-01-01' },
+  elapsed: { label: '不喝奶茶', date: '2026-10-01' },
+  habit: { name: '早起', days: ['2026-10-15', '2026-10-16'] },
 }
 
 function makePayload(over: Partial<Parameters<typeof buildBackup>[0]> = {}) {
@@ -56,14 +58,23 @@ describe('buildBackup：三样东西必须都在里面', () => {
   })
 
   it('深拷贝：导出后用户新敲的字不会跟着进包', () => {
-    const live: CardData = { sticky: '原样', todos: [{ id: 't1', text: '一', done: false }], notes: [], countdown: { label: '原样', date: '2027-01-01' } }
+    const live: CardData = {
+      sticky: '原样',
+      todos: [{ id: 't1', text: '一', done: false }],
+      notes: [],
+      countdown: { label: '原样', date: '2027-01-01' },
+      elapsed: { label: '原样', date: '2026-10-01' },
+      habit: { name: '原样', days: ['2026-10-15'] },
+    }
     const payload = makePayload({ cardData: live })
     live.sticky = '后来改的'
     live.todos.push({ id: 't9', text: '后来加的', done: false })
     live.countdown.label = '后来改的名字'
+    live.habit.days.push('2026-10-16')
     expect(payload.cardData.sticky).toBe('原样')
     expect(payload.cardData.todos).toHaveLength(1)
     expect(payload.cardData.countdown.label).toBe('原样')
+    expect(payload.cardData.habit.days).toEqual(['2026-10-15'])
   })
 
   it('kind 与 version 是这份包自己的元数据，不与版面 schemaVersion 混用', () => {

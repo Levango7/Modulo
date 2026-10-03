@@ -41,6 +41,8 @@ F:\Nexus\Modulo\
 │  │  ├─ weather.ts        ★ 天气数据层：open-meteo 响应收窄 + WMO 码→语义/中文（网络在 useWeather.ts）
 │  │  ├─ calendar.ts progress.ts    ★ 月历格子（固定 6×7）与时间进度（今天/本月/今年）
 │  │  ├─ worldclock.ts countdown.ts ★ 世界时钟（偏移交 Intl，本地时区由界面问）与倒数日（按日历日算差）
+│  │  ├─ calc.ts baseconv.ts convert.ts color.ts    ★ 计算器（无 eval 的递归下降）、进制（BigInt）、单位表、颜色三表示 + WCAG
+│  │  ├─ textstat.ts habit.ts dtools.ts             ★ 文本统计（字素簇）、习惯 streak、日期工具（复用倒数日口径）
 │  │  ├─ validate.ts       盘上数据解析、钳制、重叠消解（不信任存储）
 │  │  ├─ serialize.ts      JSON schema；schemaVersion 偏高只告警并按 v1 读；**迁移表 MIGRATIONS 有真调用方**（`parseLayout` 每次读盘都过）
 │  │  └─ index.ts          对外统一出口
@@ -52,7 +54,7 @@ F:\Nexus\Modulo\
 │  │  ├─ useDensity.ts useFocusTrap.ts
 │  │  └─ components\       TitleBar · BrandMark · GridLayout · CanvasEditor · StackEditor · SettingsPanel · TemplatePicker
 │  ├─ app\                 视图装配：工作台 / 编辑器 / 设置 / 卡片
-│  │  └─ cards\            Clock / Sticky / Todo / Notes / Weather / Calendar / Progress / WorldClock / Countdown（全部接容器查询）
+│  │  └─ cards\            Clock / Sticky / Todo / Notes / Weather / Calendar / Progress / WorldClock / Countdown / DateTools / Elapsed / Habit / Calculator / Unit / Color / TextStat / Random / Base（全部接容器查询）
 │  ├─ tokens\              设计令牌（纯 CSS 变量，亮/暗两套）
 ├─ tests\
 │  ├─ engine\              单测（15 个文件，每个纯函数）
@@ -344,7 +346,7 @@ MVP 先做 A1，A2 留一个 `projection.a2.test.ts` 做对照实验。不在没
 
 另外去掉了一处观感缺陷：编辑器标签条与卡片自身表头重复显示同一个名字（"便签 / 便签"），改为卡片在编辑态走 `chromeless`，每格只保留一层头部。
 
-当前状态（2026-10-04 复核）：**前端单测 426 条（37 个文件）+ E2E 21 条 + Rust 单测 6 条**全绿，`tsc --noEmit` 干净，受测层分支覆盖 **≥94%**（engine 93.91% + vue 纯模块 96.85%，门禁 90），无 console 报错。`vite build` 同日重跑：**JS 192.65 kB / gzip 70.64 kB（主包 191.62 + 更新插件面 1.03），CSS 35.59 kB / gzip 7.26 kB**（比上一版记的 41.0 kB 大得多，因为多了桌面壳设置页、卡片内容、版面模板选择器、完整备份、更新插件与五张新卡的 JS 面；桌面探针 49 项见 §11.3）。<!-- facts -->
+当前状态（2026-10-04 复核）：**前端单测 499 条（45 个文件）+ E2E 21 条 + Rust 单测 6 条**全绿，`tsc --noEmit` 干净，受测层分支覆盖 **≥94%**（engine 94.74% + vue 纯模块 96.14%，门禁 90），无 console 报错。`vite build` 同日重跑：**JS 217.63 kB / gzip 78.68 kB（主包 216.60 + 更新插件面 1.03），CSS 46.71 kB / gzip 8.55 kB**（比上一版记的 41.0 kB 大得多，因为多了桌面壳设置页、卡片内容、版面模板选择器、完整备份、更新插件与十几种卡的 JS 面；桌面探针 49 项见 §11.3）。<!-- facts -->
 
 ### 10.3 验证固化进 CI（2026-10-01）
 
@@ -562,6 +564,28 @@ MVP 先做 A1，A2 留一个 `projection.a2.test.ts` 做对照实验。不在没
 
 **没做的**：四张卡都没进 8 张模板（模板给起点、新卡是起点之后的选项）；"同种卡多实例"仍未放开
 （数据模型单实例，三层都堵着，见 §10.15）；卡片身份色**复用现有 5 色**，没为它们扩令牌集。
+
+### 10.17 批次二：九张新卡、菜单分组，与通往 40 张的目录（2026-10-04）
+
+用户对四张新卡的答复是"**我希望是 40 张卡**"。40 张不能一口气糊出来（每张都要过引擎单测、
+三档视口、尺寸契约这道组合门），所以分两步：**先把 40 张的目录立成文档**（`docs/CARD-CATALOG.md`，
+四批、每张标注引擎与数据源），**再按批次交付**。本轮交付批次 2 的九张（计算器 / 单位换算 / 日期工具 /
+正计时 / 颜色工具 / 文本统计 / 随机数 / 进制转换 / 习惯打卡），注册表 10 → 19，
+「添加卡片」菜单按**分组**渲染（19 张的平铺列表已经翻不动）。
+
+- 分组数据用**普通数组**（`{name, cards}[]`）而不是 Map —— Map 的 v-for 解构顺序在模板里
+  出过一次渲染歧义（组头显示成数字索引、条目全空，本地 preview 的 DOM 取证定位）。
+- 计算器的**表达式求值不用 `eval`**（递归下降，`calc.ts`）：错误分"语法 / 除以零"两种文案、
+  尾随垃圾拒绝、浮点显示修到 12 位有效数字。单测抓过三个实现缺陷：`%` 的两种语义冲突、
+  除零错误被语法错误吞掉、`1+2)` 的尾括号被接受。
+- 文本统计的字符按**字素簇**（`Intl.Segmenter`）：三人家庭 emoji 是 1 个字符（码点 5、UTF-16 8）。
+- 随机数**RNG 注入**：引擎不摸 `crypto`（包构建的 lib 里没有它），测试用固定序列，
+  卡片层才递 `getRandomValues` 包出来的 `() => number`。
+- 习惯 streak 的口径：**今天没打卡不归零**（锚点取今天或昨天里更晚的）。
+- 倒数日 / 正计时 / 习惯的内容都在 `cardData`，因此**都跟着完整备份走**；
+  世界时钟的城市与天气的城市同口径（偏好，自己的 key）。
+- 通往 40 张的下两批（联网卡 × 6、需更多设计的 × 14）在目录里排好了批次与前置条件
+  （联网卡 = 天气同款模式 + 每张一条 CSP 的账）。
 
 ### 10.14 下一步
 

@@ -25,11 +25,25 @@ export interface CountdownSetting {
   date: string
 }
 
+/** 正计时：从哪天起算（"第 N 天"）。与倒数日共用日期口径（`isValidDate`） */
+export interface ElapsedSetting {
+  label: string
+  date: string
+}
+
+/** 习惯打卡：名字 + 打过卡的日期集合 */
+export interface HabitSetting {
+  name: string
+  days: string[]
+}
+
 export interface CardData {
   sticky: string
   todos: Todo[]
   notes: Note[]
   countdown: CountdownSetting
+  elapsed: ElapsedSetting
+  habit: HabitSetting
 }
 
 const KEY = 'modulo.carddata.v1'
@@ -97,11 +111,31 @@ export function sanitizeCardData(raw: unknown, fallback: CardData): CardData {
       }
     : fallback.countdown
 
+  const elRaw = o.elapsed as Partial<ElapsedSetting> | undefined
+  const elapsed: ElapsedSetting = elRaw && typeof elRaw === 'object' && !Array.isArray(elRaw)
+    ? {
+        label: textOf(elRaw.label, 24).trim(),
+        date: typeof elRaw.date === 'string' && isValidDate(elRaw.date) ? elRaw.date : '',
+      }
+    : fallback.elapsed
+
+  const hbRaw = o.habit as Partial<HabitSetting> | undefined
+  const habit: HabitSetting = hbRaw && typeof hbRaw === 'object' && !Array.isArray(hbRaw)
+    ? {
+        name: textOf(hbRaw.name, 16).trim(),
+        days: Array.isArray(hbRaw.days)
+          ? [...new Set(hbRaw.days.filter((x): x is string => typeof x === 'string' && isValidDate(x)))].slice(0, 1000)
+          : fallback.habit.days,
+      }
+    : fallback.habit
+
   return {
     sticky: textOf(o.sticky, 4000),
     todos: Array.isArray(o.todos) ? todos : fallback.todos,
     notes: Array.isArray(o.notes) ? notes : fallback.notes,
     countdown,
+    elapsed,
+    habit,
   }
 }
 
@@ -114,8 +148,10 @@ export function createCardData(storage = browserStorage()) {
       { id: 't3', text: '把周报草稿发出去', done: false },
     ],
     notes: [{ id: 'n1', title: '先扔进来的念头', body: '开会时冒出来的一句话，不整理也没关系，回头再收。', at: Date.now() }],
-    // 示例内容只给"待办/速记"这两张默认在版面上的卡；倒数日给人留空，让它显示"点一下设个日子"
+    // 示例内容只给"待办/速记"这两张默认在版面上的卡；倒数日/正计时/习惯给人留空
     countdown: { label: '', date: '' },
+    elapsed: { label: '', date: '' },
+    habit: { name: '', days: [] },
   }
   let initial = fallback
   try {

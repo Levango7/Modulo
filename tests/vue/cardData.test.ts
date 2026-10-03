@@ -6,6 +6,8 @@ const fallback: CardData = {
   todos: [{ id: 'f1', text: '示例待办', done: false }],
   notes: [{ id: 'nf', title: '示例笔记', body: 'b', at: 0 }],
   countdown: { label: '', date: '' },
+  elapsed: { label: '', date: '' },
+  habit: { name: '', days: [] },
 }
 
 describe('sanitizeCardData：盘上数据先清洗再用', () => {
@@ -16,6 +18,8 @@ describe('sanitizeCardData：盘上数据先清洗再用', () => {
       todos: [{ id: 'a', text: '一', done: true }],
       notes: [],
       countdown: fallback.countdown,
+      elapsed: fallback.elapsed,
+      habit: fallback.habit,
     })
   })
 
@@ -72,7 +76,7 @@ describe('sanitizeCardData：盘上数据先清洗再用', () => {
 
   it('__proto__ 之类的键不会漏进状态：只认白名单字段', () => {
     const r = sanitizeCardData(JSON.parse('{"__proto__":{"polluted":1},"sticky":"ok"}'), fallback)
-    expect(Object.keys(r).sort()).toEqual(['countdown', 'notes', 'sticky', 'todos'])
+    expect(Object.keys(r).sort()).toEqual(['countdown', 'elapsed', 'habit', 'notes', 'sticky', 'todos'])
     expect({} as Record<string, unknown>).not.toHaveProperty('polluted')
   })
 

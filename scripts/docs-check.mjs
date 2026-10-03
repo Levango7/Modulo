@@ -16,7 +16,8 @@
  * 全部实跑，不接受任何"文档里写的"作为输入。
  * 其中覆盖率是**下限承诺**（`≥N%`）：同一份代码在不同 V8 / 平台间会差出 0.01 个百分点以上，
  * 等值核对会把环境抖动报成文档漂移（实测 CI 两次跑出 93.74 / 93.75，本机与 CI 的逐文件
- * 分支计数也不同）；其余维度的数字则要求逐字一致。
+ * 分支计数也不同）；**JS / CSS 体积同理**：rolldown 两次构建差过 50 字节（217.63 vs 217.68），
+ * 所以这两条按 ±1 kB 容差核对。其余数字（条数 / 文件数 / 版本号）要求逐字一致。
  *
  * 用法：
  *   node scripts/docs-check.mjs          # 核对，有对不上就 exit 1
@@ -167,8 +168,20 @@ const RULES = [
         : { ok: false, why: `低于这行认领的下限 ${need}%` };
     },
   },
-  { key: 'JS 体积', kw: /\bJS\b[^\n]{0,20}kB/, want: () => facts.jsKB?.toFixed(2) ?? '?', re: (v) => new RegExp(`${v.replace('.', '\\.')}\\s*kB`) },
-  { key: 'CSS 体积', kw: /CSS[^\n]{0,20}kB/, want: () => facts.cssKB?.toFixed(2) ?? '?', re: (v) => new RegExp(`${v.replace('.', '\\.')}\\s*kB`) },
+  {
+    // 体积有 ±1 kB 容差：rolldown 两次构建的产物差过 50 字节（非确定性），精确比对会永久飘红。
+    // 行里可以有多个 kB 数（本体的 + gzip 的），任何一个落在容差内即通过。
+    key: 'JS 体积',
+    kw: /\bJS\b[^\n]{0,20}kB/,
+    want: () => facts.jsKB?.toFixed(2) ?? '?',
+    tolKb: 1,
+  },
+  {
+    key: 'CSS 体积',
+    kw: /CSS[^\n]{0,20}kB/,
+    want: () => facts.cssKB?.toFixed(2) ?? '?',
+    tolKb: 1,
+  },
 ];
 
 let bad = 0;
@@ -181,6 +194,17 @@ for (const file of TARGETS) {
     for (const rule of RULES) {
       // 一条标记行不必把所有维度都写上：行里没提这个维度就不判
       if (!rule.kw.test(line)) continue;
+      // 体积类规则走 ±1 kB 容差：行里任意一个 kB 数落在容差内即通过（gzip 的数也在同一行）
+      if (rule.tolKb) {
+        const nums = [...line.matchAll(/([\d.]+)\s*kB/g)].map((m) => Number(m[1]));
+        const measured = facts[rule.key === 'JS 体积' ? 'jsKB' : 'cssKB'];
+        const hit = measured !== null && nums.some((n) => Math.abs(n - measured) <= rule.tolKb);
+        if (!hit) {
+          bad++;
+          console.error(`✗ ${file}:${i + 1} · ${rule.key}\n    这行认领的 ${rule.key} 与实跑 ${rule.want()} kB 差超过 ${rule.tolKb} kB\n    ${line.trim().slice(0, 110)}`);
+        }
+        continue;
+      }
       // 下限型规则（覆盖率）走自己的判据：看"实测够不够"，不是"数字是否逐字相同"
       if (rule.floor) {
         const r = rule.floor(line);

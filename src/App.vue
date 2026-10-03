@@ -49,6 +49,22 @@ const templatesOpen = ref(false)
 const addOpen = ref(false)
 const addWrap = ref<HTMLElement | null>(null)
 const missingModules = computed(() => reg.filter((m) => !store.doc.value.items.some((i) => i.id === m.id)))
+/** 菜单按分组渲染（19 种卡已经翻不动平铺列表了，目录里还有 20 张等着进来）。
+ * 用普通数组而不是 Map：v-for 对 Map 的 (value, key) 顺序在不同版本里出过歧义，
+ * 数组没有这个问题 —— 分组头直接读 `name`。 */
+const missingByGroup = computed(() => {
+  const groups: { name: string; cards: { id: string; title: string; blurb?: string }[] }[] = []
+  for (const m of missingModules.value) {
+    const name = m.group ?? '其他'
+    let g = groups.find((x) => x.name === name)
+    if (!g) {
+      g = { name, cards: [] }
+      groups.push(g)
+    }
+    g.cards.push(m)
+  }
+  return groups
+})
 
 function addCard(id: string): void {
   addOpen.value = false
@@ -200,10 +216,13 @@ function onGlobalKey(e: KeyboardEvent) {
               <Plus :size="14" /> 添加卡片
             </button>
             <div v-if="addOpen" class="add-menu" role="menu" aria-label="可添加的卡片">
-              <button v-for="m in missingModules" :key="m.id" role="menuitem" @click="addCard(m.id)">
-                <span class="t">{{ m.title }}</span>
-                <span class="v">{{ m.blurb }}</span>
-              </button>
+              <template v-for="g in missingByGroup" :key="g.name">
+                <div class="gh" role="presentation">{{ g.name }}</div>
+                <button v-for="m in g.cards" :key="m.id" role="menuitem" @click="addCard(m.id)">
+                  <span class="t">{{ m.title }}</span>
+                  <span class="v">{{ m.blurb }}</span>
+                </button>
+              </template>
             </div>
           </span>
           <button class="wide" title="挑一种排法：点一张卡片就换成那个版面（可 Ctrl+Z 退回）" @click="templatesOpen = true">
@@ -346,6 +365,11 @@ function onGlobalKey(e: KeyboardEvent) {
   border: 1px solid var(--border-soft);
   border-radius: var(--radius-md);
   box-shadow: var(--shadow-hover);
+}
+.add-menu .gh {
+  font-size: 10px;
+  color: var(--text-4);
+  padding: var(--space-1) var(--space-2) 0;
 }
 .add-menu [role='menuitem'] {
   display: flex;

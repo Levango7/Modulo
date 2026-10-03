@@ -8,11 +8,20 @@ import CalendarCard from '../app/cards/CalendarCard.vue'
 import ProgressCard from '../app/cards/ProgressCard.vue'
 import WorldClockCard from '../app/cards/WorldClockCard.vue'
 import CountdownCard from '../app/cards/CountdownCard.vue'
+import DateToolsCard from '../app/cards/DateToolsCard.vue'
+import ElapsedCard from '../app/cards/ElapsedCard.vue'
+import HabitCard from '../app/cards/HabitCard.vue'
+import CalculatorCard from '../app/cards/CalculatorCard.vue'
+import UnitCard from '../app/cards/UnitCard.vue'
+import ColorCard from '../app/cards/ColorCard.vue'
+import TextStatCard from '../app/cards/TextStatCard.vue'
+import RandomCard from '../app/cards/RandomCard.vue'
+import BaseCard from '../app/cards/BaseCard.vue'
 
 /**
  * 模块 id → 渲染组件。单独一个文件是因为 `cardRegistry.ts` 只放尺寸契约、必须能被
  * node 环境的单测直接 import（vitest 默认环境没装 vue 插件，碰 .vue 就解析不了），
- * 而这张表偏偏要 import 九个 .vue。
+ * 而这张表偏偏要 import 十八个 .vue。
  */
 export const CARD_COMPONENTS: Record<string, Component> = {
   clock: ClockCard,
@@ -25,4 +34,13 @@ export const CARD_COMPONENTS: Record<string, Component> = {
   progress: ProgressCard,
   worldclock: WorldClockCard,
   countdown: CountdownCard,
+  dtools: DateToolsCard,
+  elapsed: ElapsedCard,
+  habit: HabitCard,
+  calc: CalculatorCard,
+  unitconv: UnitCard,
+  colorconv: ColorCard,
+  textstat: TextStatCard,
+  randomnum: RandomCard,
+  baseconv: BaseCard,
 }
