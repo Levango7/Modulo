@@ -5,8 +5,10 @@ import { measureWantedRows } from './vue/useDensity'
 import * as E from './engine'
 import type { LayoutStore } from './vue/store'
 import type { PersistentStorage } from './vue/fileStorage'
+import type { CardDataApi } from './vue/cardData'
 import { CARD_COMPONENTS } from './vue/cardComponents'
 import { useAppearance } from './vue/useAppearance'
+import { useBackup } from './vue/useBackup'
 import { useSchemes } from './vue/useSchemes'
 import { isDesktop, useShell } from './vue/useShell'
 import GridLayout from './vue/components/GridLayout.vue'
@@ -19,11 +21,14 @@ import BrandMark from './vue/components/BrandMark.vue'
 
 const storage = inject<PersistentStorage>('storage')!
 const store = inject<LayoutStore>('store')!
+const cardDataApi = inject<CardDataApi>('cardData')!
 const reg = store.reg
 const appearance = useAppearance(storage)
 provide('appearance', appearance)
 const schemes = useSchemes(store, storage)
 provide('schemes', schemes)
+/** 完整备份（含卡片内容）：拼包在 backup.ts，这里只挂上胶水 */
+provide('backup', useBackup(store, schemes, () => cardDataApi.state))
 provide('shell', useShell(storage))
 
 const view = ref<'workbench' | 'edit'>('workbench')

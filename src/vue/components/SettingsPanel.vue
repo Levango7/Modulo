@@ -1,14 +1,16 @@
 <script setup lang="ts">
 import { inject, onBeforeUnmount, onMounted, ref } from 'vue'
-import { Check, GripVertical, X } from 'lucide-vue-next'
+import { Check, X } from 'lucide-vue-next'
 import { ACCENTS, MODES, SKINS } from '../appearance'
 import { isCancelEscape, toChord } from '../chord'
 import { useFocusTrap } from '../useFocusTrap'
 import { dataDir as fetchDataDir } from '../fileStorage'
 import { isDesktop, type ShortcutKind, type ShellApi } from '../useShell'
+import BackupSection from './BackupSection.vue'
+import SchemesSection from './SchemesSection.vue'
+import VersionSection from './VersionSection.vue'
 import type { AppearanceApi } from '../useAppearance'
 import type { SchemesApi } from '../useSchemes'
-import type { Scheme } from '../../engine'
 
 defineEmits<{ (e: 'close'): void }>()
 const appearance = inject<AppearanceApi>('appearance')!
@@ -23,38 +25,6 @@ onMounted(async () => {
   if (isDesktop) dataDir.value = await fetchDataDir()
 })
 
-const draftName = ref('')
-const editing = ref<string | null>(null)
-const editingName = ref('')
-
-function save() {
-  schemes.saveAs(draftName.value)
-  draftName.value = ''
-}
-function newBlank() {
-  schemes.createBlank(draftName.value)
-  draftName.value = ''
-}
-const dragId = ref<string | null>(null)
-function onDragStart(id: string) {
-  dragId.value = id
-}
-function onDrop(index: number) {
-  if (dragId.value) schemes.move(dragId.value, index)
-  dragId.value = null
-}
-function startRename(s: Scheme) {
-  editing.value = s.id
-  editingName.value = s.name
-}
-function commitRename() {
-  if (editing.value) schemes.rename(editing.value, editingName.value)
-  editing.value = null
-}
-function when(ts: number): string {
-  if (!ts) return '未知时间'
-  return new Date(ts).toLocaleString('zh-CN', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' })
-}
 function onHideChange(e: Event) {
   shell.setHideOnClose((e.target as HTMLInputElement).checked)
 }
@@ -180,62 +150,15 @@ onBeforeUnmount(stopRecord)
         <p v-if="dataDir" class="hint">
           版面、方案册、卡片内容和这些设置都各自是一个 JSON 文件，放在
           <code>{{ dataDir }}</code>
-          ，整个目录拷走就是备份。
+          ，整个目录拷走就是备份。也可以在上面那节导出一个 JSON 自己收着。
         </p>
       </section>
 
-      <section>
-        <h3>版面方案</h3>
-        <div class="row wrap">
-          <input v-model="draftName" placeholder="方案名称" maxlength="32" @keydown.enter="save" />
-          <button @click="save">另存为</button>
-          <button :disabled="!schemes.active.value" @click="schemes.overwrite()">覆盖当前</button>
-          <button @click="newBlank">新建空白</button>
-        </div>
-        <ul class="schemes">
-          <li
-            v-for="(s, i) in schemes.book.value.schemes"
-            :key="s.id"
-            :data-active="s.id === schemes.book.value.activeId"
-            draggable="true"
-            tabindex="0"
-            @dragstart="onDragStart(s.id)"
-            @dragover.prevent
-            @drop="onDrop(i)"
-            @keydown.alt.up="schemes.move(s.id, i - 1)"
-            @keydown.alt.down="schemes.move(s.id, i + 1)"
-          >
-            <GripVertical :size="13" class="grip" title="拖动排序，或 Alt+↑/↓" />
-            <template v-if="editing === s.id">
-              <input v-model="editingName" maxlength="32" @keydown.enter="commitRename" @keydown.esc="editing = null" />
-              <button @click="commitRename">存</button>
-            </template>
-            <strong v-else>{{ s.name }}</strong>
-            <span class="muted meta">{{ when(s.updatedAt) }} · {{ s.doc.items.length }} 个模块</span>
-            <span class="ops">
-              <button v-if="s.id !== schemes.book.value.activeId" @click="schemes.activate(s.id)">应用</button>
-              <button @click="startRename(s)">改名</button>
-              <button @click="schemes.remove(s.id)">删除</button>
-            </span>
-          </li>
-        </ul>
-        <p v-if="!schemes.book.value.schemes.length" class="muted hint">还没有保存过方案：把版面排好后，在上面起个名字点「另存为」。</p>
-        <p v-else class="muted hint">拖动左边的把手可以排序，键盘用 Alt+↑/↓。「新建空白」会存一条零模块的方案并切过去；当前版面没丢，Ctrl+Z 能退回来。</p>
-      </section>
+      <SchemesSection />
 
-      <section>
-        <h3>导入导出</h3>
-        <div class="row wrap">
-          <button @click="schemes.exportCurrent()">导出当前布局</button>
-          <button @click="schemes.importCurrent()">导入布局</button>
-          <button @click="schemes.exportAll()">导出全部方案</button>
-          <button @click="schemes.importBook()">导入方案（合并）</button>
-        </div>
-        <ul v-if="schemes.notices.value.length" class="notices">
-          <li v-for="(n, i) in schemes.notices.value" :key="i">{{ n }}</li>
-        </ul>
-        <p class="hint">导入会先做校验：未知模块被剔除、尺寸钳到形态最小值、重叠自动让位，坏数据回退空布局并在这里说明。</p>
-      </section>
+      <BackupSection />
+
+      <VersionSection />
     </div>
   </div>
 </template>
@@ -445,57 +368,6 @@ section h3 {
 }
 .row.wrap {
   flex-wrap: wrap;
-}
-.schemes {
-  list-style: none;
-  margin: var(--space-3) 0 0;
-  padding: 0;
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-1);
-}
-.schemes li {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-  padding: var(--space-2) var(--space-3);
-  border: 1px solid var(--border-soft);
-  border-radius: var(--radius-md);
-  background: var(--bg-card-soft);
-}
-.schemes .grip {
-  flex: none;
-  color: var(--text-4);
-  cursor: grab;
-}
-.schemes li:hover .grip {
-  color: var(--text-2);
-}
-.schemes li:focus-visible {
-  outline: 2px solid var(--brand-500);
-  outline-offset: 1px;
-}
-.schemes li[data-active='true'] {
-  border-color: var(--brand-500);
-}
-.schemes strong {
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  max-width: 40%;
-}
-.meta {
-  font-size: 11px;
-  margin-right: auto;
-  white-space: nowrap;
-}
-.ops {
-  display: flex;
-  gap: var(--space-1);
-}
-.ops button {
-  font-size: 12px;
-  padding: 2px 8px;
 }
 .notices {
   margin: var(--space-3) 0 0;

@@ -19,13 +19,18 @@ jobs:
       - run: npm ci
       - name: 类型检查
         run: npm run typecheck
-      - name: 引擎单测 + 投影属性测试（含分支覆盖 ≥90% 门禁）
+      - name: 单测 + 投影属性测试（受测层分支覆盖 ≥90% 门禁）
         run: npm run cover:engine
       - name: 构建
         run: npm run build
       # 与 x-hub 的反面教材相对：它写了 164 个 Rust 测试，但 CI 只跑 vue-tsc + cargo check，一个测试都不执行
       - name: 浏览器交互 E2E（拖拽 / 框选 / 键盘 / 撤销 / 三档视口）
         run: npm run test:e2e
+      # 文档里的规模数字是人抄的，抄错不会让任何测试变红 —— 所以让机器核对。
+      # 只认显式标记过的行（`<!-- facts -->`），历史数字与说明段不会被误判。
+      # 排在 E2E 之后：它要 dist/ 与 coverage/，两者都由上面几步产出。
+      - name: 文档数字核对（认领了规模数字的行必须与实跑一致）
+        run: npm run docs:check
 
   # 桌面壳单独一个 job：它要 Windows runner，跑挂了不该把前端那条链一起标红，反之亦然。
   # 用了两个第三方 action（rust-toolchain / rust-cache），都是事实标准；如果不接受这个依赖，

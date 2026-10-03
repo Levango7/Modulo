@@ -1,0 +1,26 @@
+name: 功能建议
+description: 提一个想要的能力
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: 你想解决的问题
+      description: 描述处境，而不是描述功能。「我需要把便签和待办放在同一屏又不想缩小它们」比「我想加一个置顶按钮」信息量大得多。
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: 你想到的解法（可留空）
+      description: 留空完全没问题 —— 我们更想知道问题本身。
+  - type: input
+    id: scope
+    attributes:
+      label: 涉及哪一块
+      description: 引擎（投影 / 排布 / 校验）· 桌面壳 · 卡片内容 · 主题外观 · 导入导出 · 别的
+  - type: checkboxes
+    id: carddata
+    attributes:
+      label: 这条建议涉及卡片内容
+      options:
+        - label: 是，且我担心改完之后已写好的文字会丢

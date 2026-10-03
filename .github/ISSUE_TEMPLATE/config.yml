@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: 设计与决策记录
+    url: https://github.com/Levango7/Modulo/blob/master/docs/ARCHITECTURE.md
+    about: 为什么是这个方案、哪些假设被推翻了 —— 提建议前值得先看，尤其 §3（投影）与 §10（实现状态）
+  - name: 贡献指南
+    url: https://github.com/Levango7/Modulo/blob/master/CONTRIBUTING.md
+    about: 环境、提交前要跑什么、本项目自己立的几条规矩

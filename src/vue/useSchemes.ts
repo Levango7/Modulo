@@ -56,6 +56,16 @@ export function useSchemes(store: LayoutStore, storage = browserStorage()) {
     persist()
   }
 
+  /**
+   * 备份恢复用：把一份已解析好的册子并进来。**复用 `mergeBooks`**（id 与重名各自加后缀），
+   * 所以恢复不会覆盖用户已有的方案 —— 备份是"补齐"，不是"替换"。
+   * 单测测的是引擎那条 `mergeBooks`，这里只保证胶水层不绕过它。
+   */
+  function mergeBook(incoming: E.SchemeBook) {
+    book.value = E.mergeBooks(book.value, incoming)
+    notices.value = []
+    persist()
+  }
   function exportCurrent() {
     downloadText(`modulo-layout-${stamp()}.json`, E.docToJson(store.doc.value))
   }
@@ -77,7 +87,7 @@ export function useSchemes(store: LayoutStore, storage = browserStorage()) {
     persist()
   }
 
-  return { book, notices, active, saveAs, createBlank, move, overwrite, activate, rename, remove, exportCurrent, exportAll, importCurrent, importBook }
+  return { book, notices, active, saveAs, createBlank, move, overwrite, activate, rename, remove, mergeBook, exportCurrent, exportAll, importCurrent, importBook }
 }
 
 export type SchemesApi = ReturnType<typeof useSchemes>

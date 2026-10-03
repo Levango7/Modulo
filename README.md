@@ -4,6 +4,8 @@
 
 [![CI](https://github.com/Levango7/Modulo/actions/workflows/ci.yml/badge.svg)](https://github.com/Levango7/Modulo/actions/workflows/ci.yml)
 
+**先试 30 秒（不用装任何东西）**：[网页版](https://modulo-workbench-j54unvvv.edgeone.cool)。打开后**把窗口从宽拖到窄** —— 这就是这个产品的全部：12 列逻辑版面会按容器宽度投影成 12 / 8 / 6 / 4 / 1 列，卡片按形态降档而不是被压成碎片。数据存在浏览器 localStorage 里，与桌面版各存各的。
+
 **想要装起来用**：[Releases · v0.2.0](https://github.com/Levango7/Modulo/releases/tag/v0.2.0) 里有 Windows x64 的 NSIS 安装包（`Modulo_0.2.0_x64-setup.exe`，1 860 690 字节，`sha256 f4ff0413510809c44cfbc75e9faad5436f68fcc715488cb42a71a8f528852559`，构建自 `2e73795`，该二进制在本机通过全部 49 项真机检查）。安装包**没有代码签名**，首次运行 Windows SmartScreen 会提示「未知发布者」。数据落在 `%APPDATA%\app.modulo\data\*.json`，整个目录拷走就是备份。
 
 ![工作台：出厂版面就是铺满的 —— 12 列、行带之间不留中缝](docs/assets/workbench-starter-1440.png)
@@ -13,6 +15,8 @@
 ![布局编辑器：格子带适配徽标（正好铺满 / 紧凑可读），拖拽与键盘都能编排](docs/assets/editor-1440.png)
 
 ![390 窄屏：投影自动降到 1 列并切堆叠模式，工具条按簇整体换行](docs/assets/workbench-390.png)
+
+还有「备份」：设置页里「导出备份（含内容）」把**版面、方案册和卡片内容**（便签 / 待办 / 速记的正文）打进一个 JSON，换机器或重装靠它。恢复时会先把这份包里有什么摆出来让你确认 —— 覆盖是破坏性的，就不省这一步。
 
 ## 跑起来
 
@@ -61,9 +65,10 @@ CHANGELOG.md           迭代变更历史（新增 / 修复 / 门禁 / 已知问
 
 ## 验证
 
-CI（`.github/workflows/ci.yml`）两个 job：`verify` 跑四步 —— 类型检查 → 单测与属性测试（**顺带卡引擎分支覆盖 ≥90%**，`npm run cover:engine`）→ 构建 → E2E；`desktop` 在 windows-latest 上跑 `cargo fmt --check` → `clippy -D warnings` → `cargo test` → 真打包出 exe 并上传产物。**桌面自检探针（`npm run desktop:probe`，49 项）不在 CI 跑** —— 试过，摘了：runner 上 WebView2 不把远调端口参数写进浏览器进程，探针每次都停在"连 CDP"那一步，与产品好坏无关。它的定位是**发布前的本机门禁**，跑在要发出去的那颗二进制上（见 `docs/ARCHITECTURE.md` §10.3 / §11.4）。
+CI（`.github/workflows/ci.yml`）两个 job：`verify` 跑五步 —— 类型检查 → 单测与属性测试（**顺带卡受测层分支覆盖 ≥90%**，`npm run cover:engine`）→ 构建 → E2E → 文档数字核对；`desktop` 在 windows-latest 上跑 `cargo fmt --check` → `clippy -D warnings` → `cargo test` → 真打包出 exe 并上传产物。**桌面自检探针（`npm run desktop:probe`，49 项）不在 CI 跑** —— 试过，摘了：runner 上 WebView2 不把远调端口参数写进浏览器进程，探针每次都停在"连 CDP"那一步，与产品好坏无关。它的定位是**发布前的本机门禁**，跑在要发出去的那颗二进制上（见 `docs/ARCHITECTURE.md` §10.3 / §11.4）。
 投影算法有**五条**断言（只读、幂等、无重叠、尺寸充分、分区完整），用随机版面 × 7 档列数各 200 例做属性测试。
-两条量化门禁：引擎分支覆盖 ≥90%（`npm run cover:engine`，当前 91.72%）、真拖期间帧距中位数 ≤18.2ms（E2E 里用 rAF 采样，本机 headless 实测 16.7ms —— headless 只能当下限看）。
+两条量化门禁：受测层（`src/engine/**` 全量 + 6 个 vue 纯模块）分支覆盖 ≥90%（`npm run cover:engine`，当前 **93.75%** —— engine 92.32%、vue 纯模块 97.28%）、真拖期间帧距中位数 ≤18.2ms（E2E 里用 rAF 采样，本机 headless 实测 16.7ms —— headless 只能当下限看）。<!-- facts -->
+还有第三条 `npm run docs:check`：实跑一遍单测与构建，核对本文与架构文档里**认领了规模数字**的那几行 —— 文档里的"单测条数"是人抄的，抄错没人会发现，现在机器会拦。它只认显式标记过的行，所以这段说明、§3.5 的历史实验数字都不会被误判成漂移。
 桌面壳另有一条 `npm run desktop:probe`：给 WebView2 开远调端口，用 CDP 点真实的 DOM 按钮、派发真的 mousedown，再从 Win32 侧读窗口状态（图标态/工作区/样式位），不模拟鼠标所以不会抢走指针；召唤键用 SendKeys 从系统输入队列投递，正例（收起→唤出）之外还有反例（投一个不该生效的组合键，断言窗口纹丝不动），改键链路也在真窗口里跑一遍。窗口状态一律轮询等到落地再断言——单次 Win32 采样实测 1.1–1.3 秒，固定 sleep 会把「慢」误报成「坏」。截图落在 `evidence/desktop/`。
 
 ## 许可

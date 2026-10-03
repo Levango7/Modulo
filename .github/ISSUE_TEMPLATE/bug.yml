@@ -1,0 +1,45 @@
+name: Bug 反馈
+description: 报告一个可复现的缺陷
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: 发生了什么
+      placeholder: 版面被我拖乱了 / 点「整理」之后卡片重叠 / 导出之后换机器内容没了
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: 复现步骤
+      placeholder: |
+        1. 打开应用
+        2. 把窗口拖到 700px 宽
+        3. 点「整理」
+      validations:
+      required: true
+  - type: input
+    id: width
+    attributes:
+      label: 当时的容器宽度
+      description: 顶栏右侧那枚 pill 就写着「NNNpx · N 列 · 画布/堆叠」，请照抄那个宽度 —— 投影按容器宽度换档，这一项通常就是关键。
+      placeholder: 例如 720
+  - type: textarea
+    id: expect
+    attributes:
+      label: 你以为会怎样
+    validations:
+      required: true
+  - type: textarea
+    id: env
+    attributes:
+      label: 环境
+      description: 桌面版还是网页版；Windows 版本与显示缩放；浏览器版本。
+      placeholder: Windows 11 / 桌面版 / 2560×1440 @150%
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: 控制台报错（如果有）
+      description: 桌面版在 `%APPDATA%\app.modulo\data\` 旁边没有日志，但设置页会显示存储错误；网页版请给 console 原文。

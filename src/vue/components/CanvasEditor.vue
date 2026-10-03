@@ -3,48 +3,22 @@ import { computed, inject, nextTick, onBeforeUnmount, onMounted, ref } from 'vue
 import * as E from '../../engine'
 import { Lock, LockOpen, Shuffle, X, LayoutGrid, Trash2 } from 'lucide-vue-next'
 import type { LayoutStore } from '../store'
+import { useCanvasDrag } from '../useCanvasDrag'
+import { cellIntent, globalIntent, isEditableTarget, shouldPrevent } from '../keyboard'
 
 const store = inject<LayoutStore>('store')!
 const reg = store.reg
-const GAP = 16
-const COLS = E.LOGICAL_COLS
 
 const gridEl = ref<HTMLElement | null>(null)
 const sel = ref<Set<string>>(new Set())
 const selCount = computed(() => sel.value.size)
 
-interface Drag {
-  mode: 'move' | 'resize' | 'new' | 'group' | 'marquee'
-  id: string
-  variant?: string
-  w: number
-  h: number
-  startX: number
-  startY: number
-  originCol: number
-  originRow: number
-  started: boolean
-  preview: E.Rect | null
-  groupPreview: E.Rect[]
-  marquee: E.Rect | null
-  label: string
-  bad: boolean
-}
-const drag = ref<Drag | null>(null)
-const ghost = ref({ x: 0, y: 0 })
-
 const items = computed(() => store.doc.value.items)
-const rowCount = computed(() => {
-  let m = items.value.reduce((acc, p) => Math.max(acc, p.y + p.h), 12)
-  const d = drag.value
-  if (d?.preview) m = Math.max(m, d.preview.y + d.preview.h)
-  if (d?.marquee) m = Math.max(m, d.marquee.y + d.marquee.h)
-  for (const r of d?.groupPreview ?? []) m = Math.max(m, r.y + r.h)
-  return m
-})
+
+/** 指针状态机在 `useCanvasDrag.ts`（见那里的注释：四条互相 interference 的语义为什么值得单列一个文件） */
+const { drag, ghost, rowCount, toggleSelect, startMove, startNew, startResize, onCanvasPointerDown, variantOf } = useCanvasDrag({ store, gridEl, sel })
 
 const titleOf = (p: E.Placement) => p.title ?? E.findModule(reg, p.id)?.title ?? p.id
-const variantOf = (p: E.Placement) => E.resolveVariant(E.findModule(reg, p.id), p.variant)
 const variantName = (p: E.Placement) => variantOf(p)?.name ?? ''
 const hasVariants = (id: string) => (E.findModule(reg, id)?.variants.length ?? 0) > 1
 const isSelected = (id: string) => sel.value.has(id)
@@ -54,191 +28,13 @@ function badge(p: E.Placement) {
   return v ? E.fitState({ w: p.w, h: p.h }, v) : { level: 'ideal' as const, label: '' }
 }
 
-function cellAt(clientX: number, clientY: number): { col: number; row: number } | null {
-  const el = gridEl.value
-  if (!el) return null
-  const r = el.getBoundingClientRect()
-  const cw = (r.width - (COLS - 1) * GAP) / COLS
-  const ch = (r.height - (rowCount.value - 1) * GAP) / rowCount.value
-  if (cw <= 0 || ch <= 0) return null
-  const col = Math.floor((clientX - r.left) / (cw + GAP))
-  const row = Math.floor((clientY - r.top) / (ch + GAP))
-  return { col: Math.max(0, Math.min(COLS - 1, col)), row: Math.max(0, row) }
-}
-
-function insideCanvas(clientX: number, clientY: number): boolean {
-  const el = gridEl.value
-  if (!el) return false
-  const r = el.getBoundingClientRect()
-  return clientX >= r.left && clientX <= r.right && clientY >= r.top && clientY <= r.bottom
-}
-
-function begin(mode: Drag['mode'], id: string, e: PointerEvent, opts: { variant?: string; w: number; h: number }) {
-  e.preventDefault()
-  const at = cellAt(e.clientX, e.clientY)
-  drag.value = {
-    mode,
-    id,
-    variant: opts.variant,
-    w: opts.w,
-    h: opts.h,
-    startX: e.clientX,
-    startY: e.clientY,
-    originCol: at?.col ?? 0,
-    originRow: at?.row ?? 0,
-    started: false,
-    preview: null,
-    groupPreview: [],
-    marquee: null,
-    label: '',
-    bad: false,
-  }
-  ghost.value = { x: e.clientX, y: e.clientY }
-  window.addEventListener('pointermove', onMove)
-  window.addEventListener('pointerup', onUp)
-}
-
-function stopListening() {
-  window.removeEventListener('pointermove', onMove)
-  window.removeEventListener('pointerup', onUp)
-}
-
-function toggleSelect(id: string) {
-  const next = new Set(sel.value)
-  if (next.has(id)) next.delete(id)
-  else next.add(id)
-  sel.value = next
-}
-
-function startMove(p: E.Placement, e: PointerEvent) {
-  if (p.locked) return
-  if (e.shiftKey || e.ctrlKey || e.metaKey) {
-    toggleSelect(p.id)
-    return
-  }
-  if (!sel.value.has(p.id)) sel.value = new Set([p.id])
-  const mode = sel.value.size > 1 ? 'group' : 'move'
-  if (mode === 'group' && [...sel.value].some((id) => items.value.find((q) => q.id === id)?.locked)) return
-  begin(mode, p.id, e, { variant: p.variant, w: p.w, h: p.h })
-}
-
-function startNew(id: string, variant: string, e: PointerEvent) {
-  const v = E.resolveVariant(E.findModule(reg, id), variant)
-  if (!v) return
-  begin('new', id, e, { variant: v.id, w: v.idealW, h: v.idealH })
-}
-
-function startResize(p: E.Placement, e: PointerEvent) {
-  e.stopPropagation()
-  if (p.locked) return
-  sel.value = new Set([p.id])
-  begin('resize', p.id, e, { variant: p.variant, w: p.w, h: p.h })
-}
-
-/** 空白处按下 = 框选起点（同时清掉上一次的选择） */
-function onCanvasPointerDown(e: PointerEvent) {
-  if (e.target !== gridEl.value) return
-  sel.value = new Set()
-  begin('marquee', '', e, { w: 0, h: 0 })
-}
-
-function onMove(e: PointerEvent) {
-  const d = drag.value
-  if (!d) return
-  ghost.value = { x: e.clientX, y: e.clientY }
-  if (!d.started) {
-    if (Math.hypot(e.clientX - d.startX, e.clientY - d.startY) < 6) return
-    d.started = true
-  }
-  const cell = insideCanvas(e.clientX, e.clientY) ? cellAt(e.clientX, e.clientY) : null
-
-  if (d.mode === 'marquee') {
-    if (!cell) return
-    const a = { col: d.originCol, row: d.originRow }
-    d.marquee = {
-      x: Math.min(a.col, cell.col),
-      y: Math.min(a.row, cell.row),
-      w: Math.abs(a.col - cell.col) + 1,
-      h: Math.abs(a.row - cell.row) + 1,
-    }
-    return
-  }
-  if (!cell) {
-    d.preview = null
-    d.groupPreview = []
-    d.label = ''
-    return
-  }
-  const p = items.value.find((q) => q.id === d.id)
-
-  if (d.mode === 'group') {
-    const dx = cell.col - d.originCol
-    const dy = cell.row - d.originRow
-    d.groupPreview = items.value
-      .filter((q) => sel.value.has(q.id))
-      .map((q) => ({ x: q.x + dx, y: q.y + dy, w: q.w, h: q.h }))
-    d.label = `移动 ${sel.value.size} 个模块`
-    return
-  }
-
-  if (d.mode === 'resize' && p) {
-    const v = variantOf(p)!
-    const nw = Math.min(Math.max(cell.col - p.x + 1, v.minW), COLS - p.x)
-    const nh = Math.max(cell.row - p.y + 1, v.minH)
-    const f = E.fitState({ w: nw, h: nh }, v)
-    d.preview = { x: p.x, y: p.y, w: nw, h: nh }
-    d.label = `${nw}×${nh} · ${f.label}`
-    d.bad = f.level === 'below'
-    return
-  }
-
-  const blockers = d.mode === 'move' && p ? items.value.filter((q) => q.id !== d.id) : items.value
-  const spot = E.findFreeSpot(blockers, d.w, d.h, cell.col, cell.row, COLS)
-  d.preview = spot
-  const v = E.resolveVariant(E.findModule(reg, d.id), d.variant)
-  const f = v ? E.fitState({ w: d.w, h: d.h }, v) : { level: 'ideal' as const, label: '' }
-  d.label = `${d.w}×${d.h} · ${f.label}`
-  d.bad = f.level === 'below'
-}
-
-function onUp(e: PointerEvent) {
-  const d = drag.value
-  stopListening()
-  drag.value = null
-  if (!d || !d.started) return
-
-  if (d.mode === 'marquee') {
-    const box = d.marquee
-    if (box) {
-      const hit = items.value.filter((p) => E.collides(p, box)).map((p) => p.id)
-      sel.value = new Set(hit)
-    }
-    return
-  }
-  if (d.mode === 'group') {
-    const cell = cellAt(e.clientX, e.clientY)
-    if (!cell) return
-    store.moveMany([...sel.value], cell.col - d.originCol, cell.row - d.originRow)
-    return
-  }
-  if (!insideCanvas(e.clientX, e.clientY)) return
-  const cell = cellAt(e.clientX, e.clientY)
-  if (!cell) return
-  if (d.mode === 'resize') store.resize(d.id, d.preview?.w ?? d.w, d.preview?.h ?? d.h)
-  else if (d.mode === 'new') {
-    store.add(d.id, cell.col, cell.row, d.variant)
-    sel.value = new Set([d.id])
-  } else store.move(d.id, cell.col, cell.row)
-}
-
 onBeforeUnmount(() => {
-  stopListening()
-  window.removeEventListener('keydown', onKeydown)
+  window.removeEventListener('keydown', onGlobalKey)
 })
 onMounted(() => {
   /** 挂 window 而不是容器：拖拽时 pointerdown 被 preventDefault，焦点可能仍留在 body 上，
    *  容器级监听会收不到键盘事件（实测 Ctrl+Z 失效） */
-  window.addEventListener('keydown', onKeydown)
+  window.addEventListener('keydown', onGlobalKey)
 })
 
 function cellStyle(p: E.Placement) {
@@ -266,76 +62,83 @@ function focusNearest(candidates: E.Placement[], from: E.Rect) {
   const dist = (p: E.Placement) => Math.hypot(p.x + p.w / 2 - cx, p.y + p.h / 2 - cy)
   focusCell([...candidates].sort((a, b) => dist(a) - dist(b))[0].id)
 }
-function removeCell(p: E.Placement) {
-  const rest = items.value.filter((q) => q.id !== p.id)
-  store.remove(p.id)
-  focusNearest(rest, p)
-}
-function removeSelectedAndRefocus() {
-  const anchor = items.value.find((q) => q.id === [...sel.value][0])
-  const rest = items.value.filter((q) => !sel.value.has(q.id))
-  store.removeMany([...sel.value])
-  clearSel()
-  if (anchor) focusNearest(rest, anchor)
-}
 
 function clearSel() {
   sel.value = new Set()
 }
+
+/**
+ * 键盘编排。**判定全在 `keyboard.ts`（纯函数，可单测）**，这里只负责执行意图。
+ * 拆开的理由：这段语义（Shift 改尺寸、Alt 只动当前格、mergeKey 折叠历史）是本项目
+ * 对 x-hub 声称的差异点之一 —— 它原先埋在 727 行组件里，一条断言都没有。
+ */
+function runIntent(intent: ReturnType<typeof cellIntent> | ReturnType<typeof globalIntent>) {
+  if (!intent) return
+  switch (intent.kind) {
+    case 'clearSelection':
+      clearSel()
+      break
+    case 'selectAll':
+      sel.value = new Set(items.value.map((p) => p.id))
+      break
+    case 'deleteSelection': {
+      const anchor = items.value.find((q) => q.id === [...sel.value][0])
+      const rest = items.value.filter((q) => !sel.value.has(q.id))
+      store.removeMany([...sel.value])
+      clearSel()
+      if (anchor) focusNearest(rest, anchor)
+      break
+    }
+    case 'moveMany':
+      store.moveMany(intent.ids, intent.dx, intent.dy, intent.mergeKey)
+      break
+    case 'resize':
+      store.resize(intent.id, intent.w, intent.h, intent.mergeKey)
+      break
+    case 'move':
+      store.move(intent.id, intent.x, intent.y, intent.mergeKey)
+      break
+    case 'toggleSelect':
+      toggleSelect(intent.id)
+      break
+    case 'cycleVariant':
+      store.cycleVariant(intent.id)
+      break
+    case 'toggleLock':
+      store.toggleLock(intent.id)
+      break
+    case 'remove': {
+      const p = items.value.find((q) => q.id === intent.id)
+      if (!p) break
+      const rest = items.value.filter((q) => q.id !== p.id)
+      store.remove(p.id)
+      focusNearest(rest, p)
+      break
+    }
+  }
+}
+
+function onGlobalKey(e: KeyboardEvent) {
+  /** 输入框里把 Ctrl+Z / Ctrl+A / Backspace 交还给原生文本编辑，别抢 */
+  if (isEditableTarget(e.target)) return
+  const intent = globalIntent(e, { items: items.value, selCount: selCount.value })
+  if (!intent) return
+  if (shouldPrevent(intent)) e.preventDefault()
+  runIntent(intent)
+}
+
+/** 焦点在某个格子上时的键盘编排 */
+function onCellKeydown(p: E.Placement, e: KeyboardEvent) {
+  if (isEditableTarget(e.target)) return
+  const intent = cellIntent(e, p, [...sel.value])
+  if (!intent) return
+  if (shouldPrevent(intent)) e.preventDefault()
+  runIntent(intent)
+}
+
 function removeSelected() {
   store.removeMany([...sel.value])
   clearSel()
-}
-
-const isEditable = (el: EventTarget | null): boolean => {
-  const n = el as HTMLElement | null
-  if (!n || !n.tagName) return false
-  return n.tagName === 'INPUT' || n.tagName === 'TEXTAREA' || n.isContentEditable
-}
-
-function onKeydown(e: KeyboardEvent) {
-  /** 输入框里把 Ctrl+Z / Ctrl+A / Backspace 交还给原生文本编辑，别抢 */
-  if (isEditable(e.target)) return
-  if (e.key === 'Escape') clearSel()
-  if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'a') {
-    e.preventDefault()
-    sel.value = new Set(items.value.map((p) => p.id))
-  }
-  if ((e.key === 'Delete' || e.key === 'Backspace') && selCount.value > 1) {
-    e.preventDefault()
-    removeSelectedAndRefocus()
-  }
-}
-
-/** 键盘编排 —— x-hub 的编辑器实测 tabindex 数为 0，这条是我们的差距点之一 */
-function onCellKeydown(p: E.Placement, e: KeyboardEvent) {
-  const dir: Record<string, [number, number]> = {
-    ArrowLeft: [-1, 0],
-    ArrowRight: [1, 0],
-    ArrowUp: [0, -1],
-    ArrowDown: [0, 1],
-  }
-  const step = dir[e.key]
-  if (step) {
-    e.preventDefault()
-    /** 连按方向键属于「一段连续输入」：同 mergeKey 落在 300ms 窗口内折叠成一步，
-     *  这样把卡片从 4 列拉到 12 列之后，撤销不必一格一格爬回来。 */
-    if (selCount.value > 1 && !e.altKey)
-      store.moveMany([...sel.value], step[0], step[1], `kbd:moveMany:${[...sel.value].sort().join(',')}`)
-    else if (e.shiftKey) store.resize(p.id, p.w + step[0], p.h + step[1], `kbd:resize:${p.id}`)
-    else store.move(p.id, p.x + step[0], p.y + step[1], `kbd:move:${p.id}`)
-    return
-  }
-  if (e.key === ' ') {
-    e.preventDefault()
-    toggleSelect(p.id)
-    return
-  }
-  if (e.key === 'Enter') store.cycleVariant(p.id)
-  else if (e.key === 'l' || e.key === 'L') store.toggleLock(p.id)
-  else if (e.key === 'Delete' || e.key === 'Backspace') removeCell(p)
-  else return
-  e.preventDefault()
 }
 </script>
 

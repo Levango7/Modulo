@@ -280,7 +280,7 @@ MVP 先做 A1，A2 留一个 `projection.a2.test.ts` 做对照实验。不在没
 2. ✅ 纯键盘可完成移动 / 缩放 / 切形态 / 选入 / 撤销 —— 由「编辑器键盘可达」「键盘补完」「方案册键盘排序」三条 E2E 覆盖。
 3. ✅ **已补成测试**（2026-10-02）：`tests/e2e/layout.spec.ts` 里「拖动帧率实测」用 rAF 采样器在真拖期间记录帧距，断言**中位数 ≤ 18.2ms（≈55fps）**；本机 headless Chrome 实测 `median=16.7ms / p95=16.7ms / 103 帧`。注意这是 headless 的软合成节奏，只能当**下限**看，不代表低端实机。
 4. ✅ 属性测试全绿：随机 200 例 × **7 档**列数（原写 5 档）× **5 条**断言（I1–I4 + 分区完整）。
-5. ✅ **已补成门禁**：`npm run cover:engine`（v8 provider，只圈 `src/engine/**`，`thresholds.branches = 90`），已并入 `verify` 的第二步，所以 CI 会拦。首跑实测 **87.29%** —— 也就是说这条判据从来没达成过；补了 13 条边界/失败分支用例后到 **90.95%**。剩下没覆盖到的多是防御性分支，例如 `spot.ts:25-26` 那个兜底 return 在数学上到不了（`bottom = maxRow(obstacles)`，循环到 `bottom` 时必然已空）—— 不为它编假测试。
+5. ✅ **已补成门禁**：`npm run cover:engine`（v8 provider，`thresholds.branches = 90`），已并入 `verify` 的第二步，所以 CI 会拦。圈选范围 2026-10-03 从只圈 `src/engine/**` 扩到「engine 全量 + `vitest.config.ts` 里 `GATED_VUE_MODULES` 那 6 个 vue 纯模块」，合数 93.75%。首跑实测 **87.29%** —— 也就是说这条判据从来没达成过；补了 13 条边界/失败分支用例后到 **90.95%**。剩下没覆盖到的多是防御性分支，例如 `spot.ts:25-26` 那个兜底 return 在数学上到不了（`bottom = maxRow(obstacles)`，循环到 `bottom` 时必然已空）—— 不为它编假测试。
 6. ✅ 与 x-hub 同数据、同视口并排截图（见 §10.1）。
 
 > §9 第一条教训是「文档会烂 → 验收标准写成测试，不写成文档条目」。第 3、5 条曾经就是那条教训的现场 —— 判据停在纸面上，谁也没测过。2026-10-02 两条都补成了可执行的测试/门禁，六条判据现在全部有断言或工具背书。
@@ -339,7 +339,7 @@ MVP 先做 A1，A2 留一个 `projection.a2.test.ts` 做对照实验。不在没
 
 另外去掉了一处观感缺陷：编辑器标签条与卡片自身表头重复显示同一个名字（"便签 / 便签"），改为卡片在编辑态走 `chromeless`，每格只保留一层头部。
 
-当前状态（2026-10-03 复核）：**前端单测 262 条（27 个文件）+ E2E 19 条 + Rust 单测 6 条**全绿，`tsc --noEmit` 干净，引擎分支覆盖 **91.72%**（门禁 90），无 console 报错。`vite build` 同日重跑：**JS 154.09 kB / gzip 56.80 kB，CSS 26.63 kB / gzip 5.85 kB**（比上一版记的 41.0 kB 大得多，因为多了桌面壳设置页、卡片内容与版面模板选择器；桌面探针 49 项见 §11.3）。
+当前状态（2026-10-03 复核）：**前端单测 331 条（31 个文件）+ E2E 19 条 + Rust 单测 6 条**全绿，`tsc --noEmit` 干净，受测层分支覆盖 **93.75%**（engine 92.32% + vue 纯模块 97.28%，门禁 90），无 console 报错。`vite build` 同日重跑：**JS 163.98 kB / gzip 60.41 kB，CSS 27.34 kB / gzip 5.99 kB**（比上一版记的 41.0 kB 大得多，因为多了桌面壳设置页、卡片内容、版面模板选择器与完整备份；桌面探针 49 项见 §11.3）。<!-- facts -->
 
 ### 10.3 验证固化进 CI（2026-10-01）
 
@@ -347,7 +347,7 @@ MVP 先做 A1，A2 留一个 `projection.a2.test.ts` 做对照实验。不在没
 
 - `tests/e2e/layout.spec.ts` —— 19 条真浏览器断言（vitest + puppeteer-core 驱动系统 Chrome，CI 上走 `CHROME_PATH=/usr/bin/google-chrome`）：三档视口的列数/溢出/裁字/最小字号、固定行高与卡片高度一致、编辑器可聚焦格 >0、方向键移动 + Ctrl+Z 回退、框选→成组拖拽→整体撤销、空格选入与删除后焦点落位、设置面板焦点陷阱、整理/撑满/收紧/紧凑各自的效果与分步撤销、方案册另存→应用→改名→删除、窄屏自动堆叠、版面模板选择器（点卡片换版面 / Esc 关闭不动 / 一步撤销 / 迷你示意齐全 / **1440×900 下不超过 2 行且不出现内部滚动**）、**出厂默认窗口 1280×800 里全部模板不用滚就能看完**、首启自动弹一次且挑过之后不再拦、拖拽帧率实测（rAF 采样，§8 第 3 条）、方案册键盘与拖拽排序跨重启保留、拖拽全程零 console 报错、出厂版面首行带铺满且整屏 0 空洞（§11.5）。**整理/撑满/方案册那三条不再吃出厂版面的红利** —— 它们现在自己喂一份乱版面当夹具（`SLOPPY_DOC`），因为出厂版面已经不烂了。
 - `vitest.e2e.setup.ts` 用 vite 的 `build()` + `preview({port:0})` 起随机端口，避免与本机其它 dev server 抢端口。
-- `npm run verify` = typecheck（`tsconfig.json` 管 `src/**` + `tests/**`（排除 e2e）、`tsconfig.e2e.json` 只管 `tests/e2e/**`，两份 `lib` 都带 DOM —— 分层是**按 include 范围**分的，不是按有没有 DOM；早先记的"产品代码拿不到 `document`"已经不成立）→ 单测 → 构建 → E2E。`.github/workflows/ci.yml` 的 `verify` job 就按这四步跑。
+- `npm run verify` = typecheck（`tsconfig.json` 管 `src/**` + `tests/**`（排除 e2e）、`tsconfig.e2e.json` 只管 `tests/e2e/**`，两份 `lib` 都带 DOM —— 分层是**按 include 范围**分的，不是按有没有 DOM；早先记的"产品代码拿不到 `document`"已经不成立）→ 单测与覆盖率 → 构建 → E2E。`.github/workflows/ci.yml` 的 `verify` job 按这四步跑，再加一步 `npm run docs:check`（共 5 步）。
 - **桌面自检在 CI 挂过一步，2026-10-03 当天加了又摘了**：加它是要把 §11.4 那条"探针必须跑在要发的那颗二进制上"CI 化；摘它是因为下面那串排查证明**它在 runner 上量不到任何东西**。现在 `desktop` job 是 10 步（`cargo fmt` → `clippy` → `cargo test` → 打包 exe → 上传产物），没有 `continue-on-error`，也没有观测步骤。留这段排查不是因为好看 —— 它钉住了三条通用的测量纪律。
 - **首次 runner 实跑（`c4a05a5`，run 37069233154）：探针是红的，而那一步显示 `success`。** 把 `probe-report` artifact 下载回来才看见真相：`passed: 0 / total: 2`，两条都是外层 catch 记的「自检过程未抛异常」，detail 为 `Failed to fetch browser webSocket URL from http://127.0.0.1:9223/json/version: fetch failed`。由此钉住两件：
   1. **`continue-on-error: true` 的步骤失败后 conclusion 仍报 `success`** —— 不是脚本漏了退出码（`desktop-probe.mjs:678` 一直是"有红就 exit 1"，本机 49/49 那轮就是这么来的），是 GitHub 把容忍掉的失败写成成功。所以**这类步骤的绿一律不作数，必须读 artifact**。
