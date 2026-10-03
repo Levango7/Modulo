@@ -27,8 +27,16 @@ const ICONS = { clear: Sun, partly: CloudSun, cloudy: Cloud, fog: CloudFog, driz
 const s = computed(() => weather.snapshot.value)
 const kind = computed(() => (s.value ? weatherKind(s.value.code) : 'unknown'))
 const icon = computed(() => ICONS[kind.value])
-const place = computed(() => cityById(weather.cityId.value).name)
+/**
+ * 显示的必须是**数据自己的城市**（`snapshot.place`），不是"当前选中的城市"。
+ * 两者在换城市请求失败时会不一致 —— 那时留着的是上一个城市的数据，
+ * 若按 `cityId` 显示就成了「标题写着上海、内容却是北京」，而它连一句提示都没有。
+ * 数据知道自己属于谁，就用它自己说的；不一致时下面那行脚注会如实写出来。
+ */
+const place = computed(() => s.value?.place ?? cityById(weather.cityId.value).name)
 const stale = computed(() => weather.status.value === 'error' && !!s.value)
+/** 选了 A、显示的还是 B —— 这时候"新鲜度"是不能单独看的，必须连城市一起说 */
+const mismatch = computed(() => !!s.value && s.value.place !== cityById(weather.cityId.value).name)
 
 function onCity(e: Event): void {
   weather.setCity((e.target as HTMLSelectElement).value)
@@ -65,8 +73,9 @@ function onCity(e: Event): void {
             <span class="what">{{ weatherText(d.code) }}</span>
           </li>
         </ul>
-        <p class="foot" :class="{ warn: stale }">
+        <p class="foot" :class="{ warn: stale || mismatch }">
           {{ freshness(s.fetchedAt, now) }}<template v-if="stale"> · 上次没取到（{{ weather.message.value }}）</template>
+          <template v-if="mismatch"> · 显示的还是{{ s.place }}的数据</template>
         </p>
       </template>
       <p v-else-if="weather.status.value === 'loading'" class="empty">正在取天气…</p>

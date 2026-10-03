@@ -18,8 +18,20 @@ import { defineConfig } from 'vitest/config'
  *
  * 余量故意不大：以后往这几个文件加带分支而没测到的代码，CI 就该红 ——
  * 处理方式是补用例，不是调低阈值。
+ *
+ * 纳入门禁的判据不是"它在 src/vue 下"，而是"**它能在不开浏览器的情况下被断言**"。
+ * `useWeather` 在 2026-10-04 补进来：它是**网络层**，而网络是会失败的那一半 ——
+ * 引擎那半（`packages/engine/src/weather.ts`）有测试，不代表"发请求 + 存缓存"这半有。
  */
-const GATED_VUE_MODULES = ['src/vue/appearance.ts', 'src/vue/backup.ts', 'src/vue/cardData.ts', 'src/vue/chord.ts', 'src/vue/keyboard.ts', 'src/vue/store.ts']
+const GATED_VUE_MODULES = [
+  'src/vue/appearance.ts',
+  'src/vue/backup.ts',
+  'src/vue/cardData.ts',
+  'src/vue/chord.ts',
+  'src/vue/keyboard.ts',
+  'src/vue/store.ts',
+  'src/vue/useWeather.ts',
+]
 
 /** 仓库内按源码解析引擎包（与 vite.config.ts 同一条约定） */
 const engineSrc = join(dirname(fileURLToPath(import.meta.url)), 'packages/engine/src')
