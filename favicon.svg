@@ -1,0 +1,26 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
+  <!--
+    Modulo 图标：九块模块落在一张 5 列 × 3 行的网格上，拼出字母 M。
+      · 左右两列各三块 = M 的两条腿
+      · 中列两侧顶行两块 + 正中下一行一块 = M 的中缝 V
+    腿必须是「堆叠的模块」而不是实心长条：试过实心长条，肉眼读成 H，中缝三块掉成装饰点。
+    配色刻意避开紫蓝渐变：暖墨 #171512 + 骨白 #F2EDE4 + 朱砂 #E4572E。
+    网格：x=160/306/452/598/744，y=190/414/638，模块 120×196，间隙 26/28。
+  -->
+  <rect width="1024" height="1024" rx="200" fill="#171512"/>
+
+  <g fill="#F2EDE4">
+    <rect x="160" y="190" width="120" height="196" rx="40"/>
+    <rect x="160" y="414" width="120" height="196" rx="40"/>
+    <rect x="160" y="638" width="120" height="196" rx="40"/>
+    <rect x="744" y="190" width="120" height="196" rx="40"/>
+    <rect x="744" y="414" width="120" height="196" rx="40"/>
+    <rect x="744" y="638" width="120" height="196" rx="40"/>
+  </g>
+
+  <g fill="#E4572E">
+    <rect x="306" y="190" width="120" height="196" rx="40"/>
+    <rect x="598" y="190" width="120" height="196" rx="40"/>
+    <rect x="452" y="414" width="120" height="196" rx="40"/>
+  </g>
+</svg>
