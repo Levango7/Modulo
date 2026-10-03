@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { compareVersions, isNewer, pickUpdate, plainText } from '../../src/engine/update'
+import { applyChunk, compareVersions, formatBytes, isNewer, pickUpdate, plainText, progressPct } from '../../src/engine/update'
 
 function release(over: Record<string, unknown> = {}) {
   return { tag_name: 'v0.3.0', html_url: 'https://github.com/Levango7/Modulo/releases/tag/v0.3.0', body: '', published_at: '2026-10-03T00:00:00Z', ...over }
@@ -96,5 +96,40 @@ describe('plainText：markdown → 一行纯文本', () => {
 
   it('多余空白压成一个空格', () => {
     expect(plainText('a\n\n\n  b   c')).toBe('a b c')
+  })
+})
+
+describe('下载进度：只有真的知道总量才画百分比', () => {
+  it('applyChunk 累加块长；Started 带的总长只在它自己那次事件里生效', () => {
+    let p = applyChunk({ downloaded: 0, total: null }, 0, 1865657)
+    expect(p).toEqual({ downloaded: 0, total: 1865657 })
+    p = applyChunk(p, 1000)
+    p = applyChunk(p, 500)
+    expect(p.downloaded).toBe(1500)
+    expect(p.total).toBe(1865657)
+  })
+
+  it('总长为 0 / 缺失 / 负数：保持"未知"，别把 0 当除数', () => {
+    expect(applyChunk({ downloaded: 0, total: null }, 10, 0).total).toBeNull()
+    expect(applyChunk({ downloaded: 0, total: null }, 10).total).toBeNull()
+    expect(applyChunk({ downloaded: 0, total: null }, 10, -5).total).toBeNull()
+  })
+
+  it('负数块长按 0 处理：进度宁可不动，也不许倒退', () => {
+    expect(applyChunk({ downloaded: 100, total: 1000 }, -40).downloaded).toBe(100)
+  })
+
+  it('progressPct：未知总量返回 null（界面画不确定进度），否则取整并封顶 100', () => {
+    expect(progressPct({ downloaded: 500, total: null })).toBeNull()
+    expect(progressPct({ downloaded: 500, total: 1000 })).toBe(50)
+    expect(progressPct({ downloaded: 999, total: 1000 })).toBe(100)
+    expect(progressPct({ downloaded: 2000, total: 1000 })).toBe(100)
+  })
+
+  it('formatBytes：1000 进制、kB/MB 一位小数、B 不带小数（与 Release 页体积口径一致）', () => {
+    expect(formatBytes(0)).toBe('0 B')
+    expect(formatBytes(999)).toBe('999 B')
+    expect(formatBytes(163980)).toBe('164.0 kB')
+    expect(formatBytes(1865657)).toBe('1.9 MB')
   })
 })

@@ -362,6 +362,13 @@ pub fn run() {
     {
         builder = builder
             .manage(Chords::default())
+            // 应用内更新：查 `plugins.updater.endpoints` 指向的 latest.json，下载后按
+            // 内嵌的 minisign 公钥验签（验签发生在 download 里，见插件 updater.rs），
+            // NSIS 走 `/P /UPDATE` 静默升级。**与代码签名是两件事** —— 这里的签名是
+            // 更新包的完整性校验（自己生成密钥对，免费），SmartScreen 那个 Authenticode
+            // 证书仍然没有。密钥与发布步骤见 docs/ARCHITECTURE.md §11.6。
+            .plugin(tauri_plugin_updater::Builder::new().build())
+            .plugin(tauri_plugin_process::init())
             .plugin(
                 tauri_plugin_global_shortcut::Builder::new()
                     .with_handler(desktop::on_shortcut)

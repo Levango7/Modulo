@@ -11,3 +11,8 @@ coverage/
 .env
 .env.local
 .edgeone/
+
+# 更新包的签名私钥（真身在 %USERPROFILE%\.modulo\，这里只是防止它被误放进仓库的兜底）。
+# 丢了私钥 = 已发布的版本永远收不到更新，所以它不进 git、只在本机与（将来的）CI secret 里。
+*.key
+*.key.pub

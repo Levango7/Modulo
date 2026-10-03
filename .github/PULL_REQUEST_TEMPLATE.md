@@ -37,7 +37,7 @@ body:
       label: 怎么验的
       description: 贴实跑输出（数字、单测数、覆盖率）。headless 数据请注明是 headless。
       placeholder: |
-        单测 331 条（31 文件）全绿；受测层分支覆盖 93.75%（门禁 90）
+        单测全绿（条数/文件数照抄实跑输出）；受测层分支覆盖过门禁（≥90%）
         三档视口 1440/720/390：hScroll=false、clipped=0、最小字号 11px、零 console 报错
   - type: textarea
     id: visual

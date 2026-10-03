@@ -81,9 +81,49 @@ export function plainText(md: string): string {
     .trim()
 }
 
+/** 下载进度。`total` 未知时是 null —— 有些端点不给 Content-Length，界面该画不确定进度条而不是假装知道。 */
+export interface DownloadProgress {
+  downloaded: number
+  total: number | null
+}
+
+/**
+ * 把一次下载事件并进进度：`Started` 带总长（contentLength），其余事件只带本块长（chunkLength）。
+ * 负数块长（协议上不该出现）按 0 处理，宁可进度不动也不能把 downloaded 减回去。
+ */
+export function applyChunk(
+  p: DownloadProgress,
+  chunkLength: number,
+  contentLength?: number | null,
+): DownloadProgress {
+  return {
+    downloaded: p.downloaded + Math.max(0, chunkLength),
+    total:
+      typeof contentLength === 'number' && contentLength > 0 ? contentLength : p.total,
+  }
+}
+
+/** 百分比（0–100，取整）。总数未知时返回 null。 */
+export function progressPct(p: DownloadProgress): number | null {
+  if (p.total === null || p.total <= 0) return null
+  return Math.min(100, Math.round((p.downloaded / p.total) * 100))
+}
+
+/** 给人看的字节数：1000 进制（与 Releases 页写体积的口径一致），小到 B 就不带小数。 */
+export function formatBytes(n: number): string {
+  const v = Math.max(0, n)
+  if (v < 1000) return `${Math.round(v)} B`
+  if (v < 1000 * 1000) return `${(v / 1000).toFixed(1)} kB`
+  return `${(v / 1000 / 1000).toFixed(1)} MB`
+}
+
 export type UpdateState =
   | { status: 'idle' }
   | { status: 'checking' }
   | { status: 'current' }
   | { status: 'found'; info: UpdateInfo }
+  /** 只在桌面壳出现：网页版没有安装能力，查到就停在 found */
+  | { status: 'downloading'; progress: DownloadProgress }
+  | { status: 'downloaded' }
+  | { status: 'installing' }
   | { status: 'failed'; message: string }

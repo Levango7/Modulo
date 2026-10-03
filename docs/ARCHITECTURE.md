@@ -339,7 +339,7 @@ MVP 先做 A1，A2 留一个 `projection.a2.test.ts` 做对照实验。不在没
 
 另外去掉了一处观感缺陷：编辑器标签条与卡片自身表头重复显示同一个名字（"便签 / 便签"），改为卡片在编辑态走 `chromeless`，每格只保留一层头部。
 
-当前状态（2026-10-03 复核）：**前端单测 331 条（31 个文件）+ E2E 19 条 + Rust 单测 6 条**全绿，`tsc --noEmit` 干净，受测层分支覆盖 **≥93.7%**（engine 92.32% + vue 纯模块 97.28%，门禁 90），无 console 报错。`vite build` 同日重跑：**JS 163.98 kB / gzip 60.41 kB，CSS 27.34 kB / gzip 5.99 kB**（比上一版记的 41.0 kB 大得多，因为多了桌面壳设置页、卡片内容、版面模板选择器与完整备份；桌面探针 49 项见 §11.3）。<!-- facts -->
+当前状态（2026-10-03 复核）：**前端单测 336 条（31 个文件）+ E2E 19 条 + Rust 单测 6 条**全绿，`tsc --noEmit` 干净，受测层分支覆盖 **≥93.7%**（engine 92.5% + vue 纯模块 97.28%，门禁 90），无 console 报错。`vite build` 同日重跑：**JS 169.68 kB / gzip 62.64 kB（主包 168.65 + 更新插件面 1.03），CSS 27.40 kB / gzip 6.00 kB**（比上一版记的 41.0 kB 大得多，因为多了桌面壳设置页、卡片内容、版面模板选择器、完整备份与更新插件的 JS 面；桌面探针 49 项见 §11.3）。<!-- facts -->
 
 ### 10.3 验证固化进 CI（2026-10-01）
 
@@ -604,3 +604,51 @@ README 主图一直用的是"点过撑满之后"的截图 —— 等于默认了
 **新增守卫**：`tests/vue/starter.test.ts` 7 条（0 空洞、无整行空、不重叠、minW/minH 下限、1.5× 理想宽上限、tidy/spread 不动点），并且它 import 的是**真注册表** —— 为此把 `.vue` 组件映射从 `cardRegistry.ts` 拆到 `cardComponents.ts`（尺寸契约文件必须能被 node 环境的单测直接 import，抄一份 fixture 进测试等于装了个会撒谎的守卫）。
 
 **实测**：三档视口（1440 / 720 / 390）`hScroll=false`、`clipped=0`、最小字号 11px、零 console 报错；`npm run verify` 两轮连绿：**201 单测（24 文件）+ 17 E2E**，引擎分支覆盖 90.95% → **91.33%**（新守卫顺带跑到了 `spread`/`tidy` 的更多分支）。README 三张实拍图已按新出厂版面重拍（1× 尺寸，旧的 `workbench-spread-1440.png` 删除）。
+
+### 11.6 应用内更新：自己人的签名，与仍然没有的代码签名（2026-10-03）
+
+**这一节解决的是哪个问题**：0.3.0 的版本检查只做到"有新版，去看下载页" —— 装过旧版的人仍要自己下载、自己重装。
+这一轮把"下载 → 验签 → 安装 → 自重启"接上（`tauri-plugin-updater`）。但必须把**两种"签名"**分清楚，
+它们经常被混成一句"要签名就得花钱"：
+
+| | 谁签 | 花钱 | 防的是什么 | 现在有吗 |
+|---|---|---|---|---|
+| **更新包签名**（minisign） | 我们自己（密钥对） | 不花 | 更新包被调包、清单被篡改（配合 `requireSignedVersion` 顺带防降级） | ✅ 已接上 |
+| **代码签名**（Authenticode） | CA（OV/EV 证书） | 花钱 + 实名 | Windows SmartScreen 的「未知发布者」 | ❌ **仍然没有** |
+
+**密钥放哪**：私钥 `%USERPROFILE%\.modulo\modulo-updater.key`（**不在仓库里**，`.gitignore` 加了 `*.key` 兜底）；
+公钥内嵌在 `tauri.conf.json` 的 `plugins.updater.pubkey`。丢了私钥 = 已发布的版本永远收不到更新，
+所以它只在本机（将来若上 CI 签名，放 CI secret）。构建时用 `TAURI_SIGNING_PRIVATE_KEY`（路径或内容）
++ `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`（密钥没设密码就免了）。
+
+**发布流程**（比之前多两步）：
+
+1. `set TAURI_SIGNING_PRIVATE_KEY=%USERPROFILE%\.modulo\modulo-updater.key` → `npm run tauri:build`。
+   `bundle.createUpdaterArtifacts: true` 会额外产出 `Modulo_<版本>_x64-setup.exe.sig`；
+2. `node scripts/make-latest-json.mjs --notes-file <Release notes 文件>` 生成清单。
+   它会**自检**签名里有没有 `version:` 绑定 —— 应用开着 `requireSignedVersion`，没绑定的包客户端直接拒收，
+   与其发一个"谁都装不上"的更新，不如脚本里就红；
+3. Release 里**必须同时上传安装包 + `.sig` + `latest.json`**。端点就是
+   `https://github.com/Levango7/Modulo/releases/latest/download/latest.json`。
+
+**三条克制**（与上一轮"不自动查"一脉相承）：检查、下载、安装**三件事都只由用户在设置页点出来**；
+启动时不联网；下载完成停在"重启并安装"，不偷偷装。**验签发生在 `download()` 里**（插件 `updater.rs`），
+所以界面上"下载完成，签名校验通过"这句是有后端依据的，不是文案。
+
+**这一轮怎么验的**（不满足于"配好了"）：用 `-c` 把一颗**测试二进制**的端点覆盖到 `http://127.0.0.1:8787`
+（本地假端点），跑的仍是真插件、真验签：
+
+- 正向：假端点发 `9.9.9`（用 `tauri signer sign --app-version 9.9.9` 签过），应用里点「检查更新 → 下载更新」，
+  界面停在 **「下载完成，签名校验通过。」**；
+- 反向：把签名数据中段改一个字符（**外层 base64 仍合法、签名结构仍合法**），同样操作报
+  **「The signature verification failed」** —— 打到的是 minisign 的密码学验签，不是格式检查。
+  （第一次反向用例我改的是最后一个字节，结果只打到 base64 解析层就先红了 —— 判据要打到哪一层，得自己确认。）
+
+**踩到的三个坑**（都不是产品问题，但每次都值半小时）：
+
+- `cargo add tauri-plugin-updater` 会因为 `Cargo.toml` 里 `rust-version = "1.77"` **悄悄回退到 2.0.0-rc**；
+  插件稳定版要求 rustc 1.90 → MSRV 抬到 **1.90**（本机 1.97.1、CI 的 stable 都满足）。
+- `tauri.conf.json` 里一出现 `plugins` 段，`generate_context!` 生成的代码就会在 crate 根上引用 `serde_json` ——
+  这个依赖曾在 0.1.0 被当"未使用"删掉过，删了直接 `E0433` 编译不过。**它现在有真实用途，别再删。**
+- 手工 `tauri signer sign` 默认**不带**版本绑定（CLI 只打一句警告），`tauri build` 才会自动带上 ——
+  所以清单脚本把"签名里有 version:"做成硬检查。

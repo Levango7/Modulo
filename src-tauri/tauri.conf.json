@@ -30,8 +30,17 @@
   "bundle": {
     "active": true,
     "targets": ["nsis"],
+    "createUpdaterArtifacts": true,
     "icon": ["icons/32x32.png", "icons/128x128.png", "icons/icon.ico"],
     "copyright": "Copyright © 2026 Modulo Contributors",
     "licenseFile": "../LICENSE"
+  },
+  "plugins": {
+    "updater": {
+      "endpoints": ["https://github.com/Levango7/Modulo/releases/latest/download/latest.json"],
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEUyRUIxODhFMDgxRkRGMjYKUldRbTN4OElqaGpyNG5tU1Mvd0hvZUhCZzZ2YUk5blFZTnVzUkdFLzNzRk16N1RPdEYrbGJkRWoK",
+      "requireSignedVersion": true,
+      "windows": { "installMode": "passive" }
+    }
   }
 }

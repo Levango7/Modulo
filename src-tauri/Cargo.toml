@@ -4,7 +4,9 @@ version = "0.3.0"
 description = "Modulo 桌面壳"
 license = "Apache-2.0"
 edition = "2021"
-rust-version = "1.77"
+# 1.77 → 1.90：tauri-plugin-updater / -process 的稳定版都要求 1.90（cargo add 会因这条声明
+# 悄悄回退到 2.0.0-rc 古董版，别让它得逞）。本机 1.97.1、CI 的 stable 都满足。
+rust-version = "1.90"
 
 [lib]
 name = "modulo_lib"
@@ -20,6 +22,11 @@ tauri-build = { version = "2", features = [] }
 tauri = { version = "2", features = ["tray-icon"] }
 tauri-plugin-global-shortcut = "2"
 serde = { version = "1", features = ["derive"] }
+# 别当"未使用"删掉：tauri.conf.json 里有 `plugins` 段之后，`generate_context!` 生成的
+# 插件配置解析代码会在 app crate 根上引用 `serde_json`，删了就编译不过（E0433）。
+serde_json = "1"
+tauri-plugin-updater = "2"
+tauri-plugin-process = "2"
 
 [profile.release]
 codegen-units = 1

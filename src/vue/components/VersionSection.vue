@@ -1,22 +1,22 @@
 <script setup lang="ts">
 /**
- * 设置页里的「版本」一块：显示当前版本 + 一枚「检查更新」。
+ * 设置页里的「版本」一块。
  *
- * 定位要说清楚：**它不是自动更新**，只是"有新版了，去看一眼"。
- * 自动更新要代码签名（证书 + updater 公钥），那是另一笔要花的钱，
- * 而眼下更急的问题是"装过旧版的人根本不知道出了新版"。
+ * 两条路，按运行环境分（判定在 `useUpdateCheck` 里）：
+ * - **网页版**：只查 GitHub Releases，显示"有新版"与下载页链接 —— 浏览器里没有安装能力。
+ * - **桌面壳**：查 Release 里的 `latest.json`，可以**下载 → 本地验签 → 重启并安装**。
  *
- * 两条克制：
- * ① **不在启动时自动查** —— 一次启动不该顺手给 GitHub 发请求，改成用户点了才查；
- * ② 桌面壳里不给「点开下载页」的按钮 —— WebView 里 `target="_blank"` 不会打开系统浏览器，
- *    一枚点了没反应的按钮比一段可复制的地址糟糕得多。
+ * 克制照旧：**不在启动时自动查**、不自动下载、不自动安装 —— 三件事都由用户点出来。
+ * 桌面壳里仍不给「点开下载页」的链接：WebView 里 `target="_blank"` 不会打开系统浏览器。
  */
-import { inject } from 'vue'
-import { isDesktop } from '../useShell'
+import { computed, inject } from 'vue'
+import { formatBytes, progressPct } from '../../engine/update'
 import { useUpdateCheck } from '../useUpdateCheck'
 import type { StorageAdapter } from '../store'
 
 const updates = useUpdateCheck(inject<StorageAdapter>('storage') ?? undefined)
+const st = computed(() => updates.state.value)
+const busy = computed(() => st.value.status === 'checking' || st.value.status === 'downloading' || st.value.status === 'installing')
 </script>
 
 <template>
@@ -24,19 +24,36 @@ const updates = useUpdateCheck(inject<StorageAdapter>('storage') ?? undefined)
     <h3>版本</h3>
     <div class="row wrap">
       <span class="muted">当前 {{ updates.current }}</span>
-      <button :disabled="updates.state.value.status === 'checking'" @click="updates.check(true)">
-        {{ updates.state.value.status === 'checking' ? '检查中…' : '检查更新' }}
+      <button :disabled="busy" @click="updates.check(true)">
+        {{ st.status === 'checking' ? '检查中…' : '检查更新' }}
       </button>
     </div>
-    <p v-if="updates.state.value.status === 'found'" class="update" role="status">
-      有新版 <strong>{{ updates.state.value.info.latest }}</strong>（{{ updates.current }}）。
-      <a v-if="!isDesktop" :href="updates.state.value.info.url" target="_blank" rel="noreferrer">去看下载页</a>
-      <code v-else>{{ updates.state.value.info.url }}</code>
-      <span v-if="updates.state.value.info.notes" class="muted"> {{ updates.state.value.info.notes }}</span>
+
+    <p v-if="st.status === 'found'" class="update" role="status">
+      有新版 <strong>{{ st.info.latest }}</strong>（{{ updates.current }}）。
+      <button v-if="updates.desktop" @click="updates.download()">下载更新</button>
+      <a v-else :href="st.info.url" target="_blank" rel="noreferrer">去看下载页</a>
+      <span v-if="st.info.notes" class="muted"> {{ st.info.notes }}</span>
     </p>
-    <p v-else-if="updates.state.value.status === 'current'" class="muted hint">已是最新。</p>
-    <p v-else-if="updates.state.value.status === 'failed'" class="muted hint">
-      查不到（{{ updates.state.value.message }}）。这不影响任何功能，下次再点一次就行。
+
+    <p v-else-if="st.status === 'downloading'" class="update" role="status">
+      正在下载 {{ formatBytes(st.progress.downloaded) }}<template v-if="progressPct(st.progress) !== null">（{{ progressPct(st.progress) }}%）</template>……
+    </p>
+
+    <p v-else-if="st.status === 'downloaded'" class="update" role="status">
+      下载完成，签名校验通过。
+      <button @click="updates.install()">重启并安装</button>
+      <span class="muted">会先关掉 Modulo，装完自动重开。</span>
+    </p>
+
+    <p v-else-if="st.status === 'installing'" class="muted hint">正在安装，Modulo 会自行重启……</p>
+    <p v-else-if="st.status === 'current'" class="muted hint">已是最新。</p>
+    <p v-else-if="st.status === 'failed'" class="muted hint">
+      没成（{{ st.message }}）。这不影响任何功能，下次再点一次就行。
+    </p>
+    <p v-else-if="updates.desktop" class="hint">
+      桌面版可以直接在应用内更新：点「检查更新」→「下载更新」→「重启并安装」，下载后会先在本地验签。
+      仍不在启动时联网，这三件事都要你自己点。安装包没有 Authenticode 代码签名，Windows 首次运行仍会提示「未知发布者」。
     </p>
     <p v-else class="hint">
       Modulo 不会自动更新，也不会在启动时联网。查一下只发一次请求到 GitHub。
@@ -57,5 +74,8 @@ const updates = useUpdateCheck(inject<StorageAdapter>('storage') ?? undefined)
 }
 .update a {
   color: var(--brand-600);
+}
+.update button {
+  margin: 0 var(--space-2);
 }
 </style>
