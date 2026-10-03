@@ -5,12 +5,18 @@ const fallback: CardData = {
   sticky: '',
   todos: [{ id: 'f1', text: '示例待办', done: false }],
   notes: [{ id: 'nf', title: '示例笔记', body: 'b', at: 0 }],
+  countdown: { label: '', date: '' },
 }
 
 describe('sanitizeCardData：盘上数据先清洗再用', () => {
   it('形状正确的数据原样保留', () => {
     const r = sanitizeCardData({ sticky: '便签', todos: [{ id: 'a', text: '一', done: true }], notes: [] }, fallback)
-    expect(r).toEqual({ sticky: '便签', todos: [{ id: 'a', text: '一', done: true }], notes: [] })
+    expect(r).toEqual({
+      sticky: '便签',
+      todos: [{ id: 'a', text: '一', done: true }],
+      notes: [],
+      countdown: fallback.countdown,
+    })
   })
 
   it('todos 是 null 时整栏回退示例，而不是把 null 交给渲染期', () => {
@@ -66,7 +72,30 @@ describe('sanitizeCardData：盘上数据先清洗再用', () => {
 
   it('__proto__ 之类的键不会漏进状态：只认白名单字段', () => {
     const r = sanitizeCardData(JSON.parse('{"__proto__":{"polluted":1},"sticky":"ok"}'), fallback)
-    expect(Object.keys(r).sort()).toEqual(['notes', 'sticky', 'todos'])
+    expect(Object.keys(r).sort()).toEqual(['countdown', 'notes', 'sticky', 'todos'])
     expect({} as Record<string, unknown>).not.toHaveProperty('polluted')
+  })
+
+  describe('倒数日：用户写的内容，清洗后要能安全落盘、也要能跟着备份走', () => {
+    it('正常的名字与日期原样留；名字去空白、截到 24 字', () => {
+      const r = sanitizeCardData({ countdown: { label: '  元旦假期  ', date: '2027-01-01' } }, fallback)
+      expect(r.countdown).toEqual({ label: '元旦假期', date: '2027-01-01' })
+      const long = sanitizeCardData({ countdown: { label: 'x'.repeat(80), date: '2027-01-01' } }, fallback)
+      expect(long.countdown.label).toHaveLength(24)
+    })
+
+    it('日期必须真实存在：2026-02-30 / 2026-2-3 / 垃圾串一律当"没设"（不编一个日子）', () => {
+      for (const bad of ['2026-02-30', '2026-2-3', '2026-13-01', 'abc', '', 42, null]) {
+        expect(sanitizeCardData({ countdown: { label: 'x', date: bad } }, fallback).countdown.date).toBe('')
+      }
+      expect(sanitizeCardData({ countdown: { label: 'x', date: '2028-02-29' } }, fallback).countdown.date).toBe('2028-02-29')
+    })
+
+    it('整块缺失（旧数据）或形状不对 → 回退兜底，绝不抛', () => {
+      expect(sanitizeCardData({ sticky: 'a' }, fallback).countdown).toEqual(fallback.countdown)
+      for (const bad of [null, 'x', 42, [], true]) {
+        expect(sanitizeCardData({ countdown: bad }, fallback).countdown).toEqual(fallback.countdown)
+      }
+    })
   })
 })

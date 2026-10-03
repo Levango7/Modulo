@@ -164,7 +164,7 @@ select.place {
   display: flex;
   flex-wrap: wrap;
   gap: clamp(4px, 2cqw, 14px);
-  font-size: clamp(10px, 2.6cqw, 13px);
+  font-size: clamp(11px, 2.6cqw, 13px);
   color: var(--text-2);
 }
 .days {
@@ -174,7 +174,7 @@ select.place {
   display: flex;
   flex-direction: column;
   gap: clamp(1px, 0.8cqw, 6px);
-  font-size: clamp(10px, 2.6cqw, 13px);
+  font-size: clamp(11px, 2.6cqw, 13px);
 }
 .days li {
   display: flex;
@@ -198,7 +198,7 @@ select.place {
 }
 .foot {
   margin: auto 0 0;
-  font-size: clamp(9px, 2.2cqw, 11px);
+  font-size: clamp(11px, 2.2cqw, 11px);
   color: var(--text-2);
 }
 .foot.warn {
@@ -211,7 +211,7 @@ select.place {
   line-height: 1.6;
 }
 .hint {
-  font-size: clamp(10px, 2.4cqw, 12px);
+  font-size: clamp(11px, 2.4cqw, 12px);
   opacity: 0.75;
 }
 </style>

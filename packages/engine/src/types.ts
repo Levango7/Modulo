@@ -16,6 +16,8 @@ export interface VariantDef {
 export interface ModuleDef {
   id: string
   title: string
+  /** 一句话说清这张卡是干什么的 —— 「添加卡片」菜单里显示它（选卡的人不该靠名字猜） */
+  blurb?: string
   defaultVariant: string
   variants: VariantDef[]
 }

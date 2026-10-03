@@ -35,7 +35,7 @@ export function useBackup(store: LayoutStore, schemes: SchemesApi, cardData: () 
     })
     downloadText(`modulo-backup-${stamp()}.json`, backupToJson(payload))
     notices.value = [
-      `已导出：${payload.layout.items.length} 个模块、${payload.cardData.todos.length} 条待办、${payload.cardData.notes.length} 条速记`,
+      `已导出：${payload.layout.items.length} 个模块、${payload.cardData.todos.length} 条待办、${payload.cardData.notes.length} 条速记${payload.cardData.countdown.date ? '、倒数日' : ''}`,
     ]
   }
 
@@ -76,7 +76,7 @@ export function useBackup(store: LayoutStore, schemes: SchemesApi, cardData: () 
       target.sticky = p.parsed.cardData.sticky
       target.todos = p.parsed.cardData.todos.map((t) => ({ ...t }))
       target.notes = p.parsed.cardData.notes.map((n) => ({ ...n }))
-      done.push(`内容 ${p.parsed.cardData.todos.length} 条待办 / ${p.parsed.cardData.notes.length} 条速记`)
+      done.push(`内容 ${p.parsed.cardData.todos.length} 条待办 / ${p.parsed.cardData.notes.length} 条速记${p.parsed.cardData.countdown.date ? ' / 倒数日' : ''}`)
     }
     pending.value = null
     notices.value = [...p.parsed.warnings, `已恢复：${done.join('、')}`]

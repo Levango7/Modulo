@@ -38,7 +38,7 @@ export interface BackupInput {
  * 每次调用都给新对象 —— 导出成常量的话，某个调用方改了返回值就会污染后面所有次导入的兜底。
  */
 export function emptyCardData(): CardData {
-  return { sticky: '', todos: [], notes: [] }
+  return { sticky: '', todos: [], notes: [], countdown: { label: '', date: '' } }
 }
 
 export function buildBackup(input: BackupInput): BackupPayload {
@@ -54,6 +54,7 @@ export function buildBackup(input: BackupInput): BackupPayload {
       sticky: input.cardData.sticky,
       todos: input.cardData.todos.map((t) => ({ ...t })),
       notes: input.cardData.notes.map((n) => ({ ...n })),
+      countdown: { ...input.cardData.countdown },
     },
   }
 }
@@ -71,6 +72,8 @@ export interface BackupSummary {
   notes: number
   sticky: boolean
   schemes: number
+  /** 倒数日有没有设过（设过才值得在确认框里提一句） */
+  countdown: boolean
 }
 
 export interface ParsedBackup {
@@ -83,7 +86,7 @@ export interface ParsedBackup {
   summary: BackupSummary
 }
 
-const EMPTY_SUMMARY: BackupSummary = { modules: 0, todos: 0, notes: 0, sticky: false, schemes: 0 }
+const EMPTY_SUMMARY: BackupSummary = { modules: 0, todos: 0, notes: 0, sticky: false, schemes: 0, countdown: false }
 
 function summarize(layout: LayoutDoc | null, schemes: SchemeBook | null, cardData: CardData | null): BackupSummary {
   return {
@@ -92,6 +95,7 @@ function summarize(layout: LayoutDoc | null, schemes: SchemeBook | null, cardDat
     notes: cardData?.notes.length ?? 0,
     sticky: Boolean(cardData?.sticky.trim()),
     schemes: schemes?.schemes.length ?? 0,
+    countdown: Boolean(cardData?.countdown.date),
   }
 }
 
@@ -133,7 +137,7 @@ export function parseBackup(raw: string, reg: ModuleRegistry): ParsedBackup {
 
     const cardData = sanitizeCardData(obj.cardData, emptyCardData())
     if (obj.cardData !== undefined && !Array.isArray((obj.cardData as CardData | undefined)?.todos)) {
-      warnings.push('卡片内容形状不对，已按空内容处理（便签清空、待办与速记为空）')
+      warnings.push('卡片内容形状不对，已按空内容处理（便签清空、待办 / 速记 / 倒数日为空）')
     }
 
     return { kind: 'backup', layout: layoutResult.doc, schemes, cardData, warnings, summary: summarize(layoutResult.doc, schemes, cardData) }

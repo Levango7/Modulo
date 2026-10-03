@@ -818,8 +818,13 @@ it.skipIf(skip)('添加卡片：只列不在版面上的模块，点一下加进
   await clickTool(page, '添加卡片')
   await settle(200)
   const items = await page.evaluate(() => [...document.querySelectorAll('.add-menu [role="menuitem"]')].map((b) => (b.textContent || '').trim()))
-  expect(items.length, '出厂版面上没有的只剩天气').toBe(1)
-  expect(items[0]).toContain('天气')
+  // 出厂版面 = 核心 5 张；其余 5 张都该出现在菜单里（这不是"还剩天气一张"的时代了）
+  expect(items.length, '可添加的卡应有 5 张').toBe(5)
+  for (const title of ['天气', '月历', '时间进度', '世界时钟', '倒数日']) {
+    expect(items.some((t) => t.includes(title)), `菜单里应有「${title}」`).toBe(true)
+  }
+  // 每项都带一句"这张卡是干什么的"：光有名字没法选
+  expect(items.every((t) => t.length > 3), '菜单项应有说明文字').toBe(true)
 
   await page.keyboard.press('Escape')
   await settle(150)
@@ -837,8 +842,15 @@ it.skipIf(skip)('添加卡片：只列不在版面上的模块，点一下加进
   expect(card, '天气卡渲染出来了').not.toBeNull()
   expect(card!).toMatch(/正在取天气|取不到天气|点右上角取一次天气|°/)
 
-  const disabled = await page.evaluate(() => document.querySelector<HTMLButtonElement>('button[title^="所有卡片"]')?.title ?? null)
-  expect(disabled, '全在版面上时按钮禁用并说明原因').toContain('都已在版面上')
+  // 加了一张之后菜单少一项，但按钮还能用（剩下的还得能继续加）
+  await clickTool(page, '添加卡片')
+  await settle(200)
+  expect(
+    await page.evaluate(() => document.querySelectorAll('.add-menu [role="menuitem"]').length),
+    '加过的那张不再列出来',
+  ).toBe(4)
+  await page.keyboard.press('Escape')
+  await settle(150)
 
   await page.keyboard.down('Control')
   await page.keyboard.press('KeyZ')
@@ -846,4 +858,55 @@ it.skipIf(skip)('添加卡片：只列不在版面上的模块，点一下加进
   await settle(400)
   expect(await count(), '一步撤销退回 5 张').toBe(5)
   await page.close()
+})
+
+/**
+ * 十张卡同屏：出厂 5 张 + 可添加的 5 张（天气 / 月历 / 时间进度 / 世界时钟 / 倒数日）。
+ *
+ * 为什么单拎这一条：新卡既不进出厂版面、也不进 8 张模板，**没有这条它们在任何视口下的表现
+ * 都没人测过** —— 而"不裁字、不溢出、最小字号 ≥11px"是这个项目对每张卡的公开承诺。
+ * 坐标全给 (0,0)：**故意撞车**，让 `sanitizeItems` 的"重叠让位"把它们依次安置（w/h 缺省 = ideal）；
+ * 这样夹具只需要列 id —— 手排十张卡的坐标只会变成一份没人维护的假数据。
+ */
+const ALL_MODULES_DOC = {
+  schemaVersion: 1,
+  cols: 12,
+  items: ['clock', 'sticky', 'todo', 'notes', 'recent', 'weather', 'calendar', 'progress', 'worldclock', 'countdown'].map((id) => ({ id, x: 0, y: 0 })),
+}
+
+it.skipIf(skip)('十张卡全上版：三档视口不溢出、不裁字、最小字号 ≥11px', async () => {
+  const cases = [
+    { w: 1440, cols: 12 },
+    { w: 720, cols: 4 },
+    { w: 390, cols: 1 },
+  ]
+  for (const c of cases) {
+    const page = await freshPageWithDoc(c.w, 900, ALL_MODULES_DOC)
+    expect(await page.evaluate(() => document.querySelectorAll('.grid .cell').length), '十张卡都在').toBe(10)
+    // 一张都不缺时，「添加卡片」按钮该禁用并把原因写在 title 里（点了没反应的按钮最糟）
+    const addBtn = await page.evaluate(() => {
+      const b = document.querySelector<HTMLButtonElement>('button[title^="所有卡片"]')
+      return b ? { disabled: b.disabled, title: b.title } : null
+    })
+    expect(addBtn, '全在版面上时按钮存在且禁用').not.toBeNull()
+    expect(addBtn!.disabled).toBe(true)
+    expect(addBtn!.title).toContain('都已在版面上')
+    const m = await page.evaluate(() => {
+      const grid = document.querySelector('.grid')
+      const texts = [...document.querySelectorAll('.cell *')].filter(
+        (e) => e.children.length === 0 && (e.textContent || '').trim(),
+      )
+      return {
+        cols: grid ? getComputedStyle(grid).gridTemplateColumns.split(' ').length : 0,
+        hScroll: document.documentElement.scrollWidth > window.innerWidth + 1,
+        clipped: texts.filter((e) => e.scrollWidth - e.clientWidth > 2).length,
+        minFont: Math.min(...texts.map((e) => parseFloat(getComputedStyle(e).fontSize))),
+      }
+    })
+    expect(m.cols, `${c.w}px 列数`).toBe(c.cols)
+    expect(m.hScroll, `${c.w}px 横向溢出`).toBe(false)
+    expect(m.clipped, `${c.w}px 文字被裁`).toBe(0)
+    expect(m.minFont, `${c.w}px 最小字号`).toBeGreaterThanOrEqual(11)
+    await page.close()
+  }
 })

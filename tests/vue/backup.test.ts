@@ -26,6 +26,7 @@ const cardData: CardData = {
     { id: 't2', text: '买咖啡豆', done: true },
   ],
   notes: [{ id: 'n1', title: '想法', body: '把投影抽成包', at: 5 }],
+  countdown: { label: '元旦', date: '2027-01-01' },
 }
 
 function makePayload(over: Partial<Parameters<typeof buildBackup>[0]> = {}) {
@@ -41,20 +42,28 @@ describe('buildBackup：三样东西必须都在里面', () => {
     expect(back.cardData?.sticky).toBe('别忘了交房租')
     expect(back.cardData?.todos.map((t) => t.text)).toEqual(['写周报', '买咖啡豆'])
     expect(back.cardData?.notes.map((n) => n.title)).toEqual(['想法'])
+    expect(back.cardData?.countdown).toEqual({ label: '元旦', date: '2027-01-01' })
   })
 
   it('summary 报的是事实，导入前的确认框靠它说话', () => {
     const back = parseBackup(backupToJson(makePayload()), REGISTRY)
-    expect(back.summary).toEqual({ modules: 2, todos: 2, notes: 1, sticky: true, schemes: 1 })
+    expect(back.summary).toEqual({ modules: 2, todos: 2, notes: 1, sticky: true, schemes: 1, countdown: true })
+  })
+
+  it('没设过倒数日时 summary 如实说不（确认框不该凭空多一句）', () => {
+    const back = parseBackup(backupToJson(makePayload({ cardData: { ...cardData, countdown: { label: '', date: '' } } })), REGISTRY)
+    expect(back.summary.countdown).toBe(false)
   })
 
   it('深拷贝：导出后用户新敲的字不会跟着进包', () => {
-    const live: CardData = { sticky: '原样', todos: [{ id: 't1', text: '一', done: false }], notes: [] }
+    const live: CardData = { sticky: '原样', todos: [{ id: 't1', text: '一', done: false }], notes: [], countdown: { label: '原样', date: '2027-01-01' } }
     const payload = makePayload({ cardData: live })
     live.sticky = '后来改的'
     live.todos.push({ id: 't9', text: '后来加的', done: false })
+    live.countdown.label = '后来改的名字'
     expect(payload.cardData.sticky).toBe('原样')
     expect(payload.cardData.todos).toHaveLength(1)
+    expect(payload.cardData.countdown.label).toBe('原样')
   })
 
   it('kind 与 version 是这份包自己的元数据，不与版面 schemaVersion 混用', () => {

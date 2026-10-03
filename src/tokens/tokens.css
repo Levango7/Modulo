@@ -213,11 +213,18 @@ input[type='checkbox'] {
 }
 
 /* ---- 模块身份色：每张卡的表头/图标带自己的颜色，跨 skin 复用 ---- */
+/* 新增卡（天气/月历/时间进度/世界时钟/倒数日）**复用这 5 色**，不为一个身份色再扩令牌集 ——
+   §5 记着"令牌集只有 5 色"，多一种颜色要多三套 skin 各配一次，收益不抵成本 */
 [data-module='clock'] { --mod: var(--c-blue); }
 [data-module='sticky'] { --mod: var(--c-amber); }
 [data-module='todo'] { --mod: var(--c-green); }
 [data-module='notes'] { --mod: var(--c-purple, #8b5cf6); }
 [data-module='recent'] { --mod: var(--text-3); }
+[data-module='weather'] { --mod: var(--brand-500); }
+[data-module='calendar'] { --mod: var(--c-blue); }
+[data-module='progress'] { --mod: var(--c-green); }
+[data-module='worldclock'] { --mod: var(--c-purple, #8b5cf6); }
+[data-module='countdown'] { --mod: var(--c-amber); }
 .card-head svg {
   color: var(--mod, var(--brand-500));
 }

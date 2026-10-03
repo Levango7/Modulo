@@ -1,4 +1,5 @@
 import { reactive, watch } from 'vue'
+import { isValidDate } from '@modulo/engine'
 import { browserStorage } from './store'
 
 export interface Todo {
@@ -13,10 +14,22 @@ export interface Note {
   at: number
 }
 
+/**
+ * 倒数日：**用户写的内容**（名字 + 日子），所以它放在这里、跟着完整备份一起走。
+ * 判断标准就一句：用户敲进去的东西进 `cardData`（因此进备份）；"选哪个城市/皮肤"这类偏好
+ * 留在各自的 key（换机器重选一次即可）—— 与 §7 的取舍同一条线。
+ */
+export interface CountdownSetting {
+  label: string
+  /** `YYYY-MM-DD`，空串 = 还没设 */
+  date: string
+}
+
 export interface CardData {
   sticky: string
   todos: Todo[]
   notes: Note[]
+  countdown: CountdownSetting
 }
 
 const KEY = 'modulo.carddata.v1'
@@ -75,10 +88,20 @@ export function sanitizeCardData(raw: unknown, fallback: CardData): CardData {
     }
   }
 
+  const cdRaw = o.countdown as Partial<CountdownSetting> | undefined
+  const countdown: CountdownSetting = cdRaw && typeof cdRaw === 'object' && !Array.isArray(cdRaw)
+    ? {
+        // 名字截短：它只在一张卡上显示，24 个字足够；日期必须真存在（2026-02-30 一律当没设）
+        label: textOf(cdRaw.label, 24).trim(),
+        date: typeof cdRaw.date === 'string' && isValidDate(cdRaw.date) ? cdRaw.date : '',
+      }
+    : fallback.countdown
+
   return {
     sticky: textOf(o.sticky, 4000),
     todos: Array.isArray(o.todos) ? todos : fallback.todos,
     notes: Array.isArray(o.notes) ? notes : fallback.notes,
+    countdown,
   }
 }
 
@@ -91,6 +114,8 @@ export function createCardData(storage = browserStorage()) {
       { id: 't3', text: '把周报草稿发出去', done: false },
     ],
     notes: [{ id: 'n1', title: '先扔进来的念头', body: '开会时冒出来的一句话，不整理也没关系，回头再收。', at: Date.now() }],
+    // 示例内容只给"待办/速记"这两张默认在版面上的卡；倒数日给人留空，让它显示"点一下设个日子"
+    countdown: { label: '', date: '' },
   }
   let initial = fallback
   try {

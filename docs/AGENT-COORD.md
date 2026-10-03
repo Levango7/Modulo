@@ -19,7 +19,8 @@
 | 时间 | Agent | 在做什么 | 会改的文件 | 请勿动 | 状态 |
 |------|-------|----------|-----------|--------|------|
 | 10-03 23:45 | agent-B（本机另一个会话） | 真自动更新链路验证：客户端 × 线上 GitHub release × 内嵌公钥验签；诊断 updater 状态机 | `src-tauri/**`（updater / 签名）、`src/vue/useUpdateCheck.ts`、`src/app/cards/`、`README` 发版节 | `src-tauri/target/release/modulo.exe`、Release 产物、版本号七处 | 进行中 |
-| 10-04 00:15 | 灵语（本会话） | **0.4.0 只读审计 + 天气卡缺陷修复**。已改：`src/vue/useWeather.ts`、`src/app/cards/WeatherCard.vue`、`vitest.config.ts`、`docs/ARCHITECTURE.md`（数字对齐）、`CHANGELOG.md`；新增：`tests/vue/weather.test.ts`（13 条）。**未改 src-tauri、未跑 tauri build、未动版本号、未 commit** | 见上 + 下表 | — | ✅ done 00:40 |
+| 10-04 02:40 | 灵语（本会话） | **主动让位**：原计划"加一张倒数日卡"，开工前发现 agent-B 已在 02:07–02:26 自行加了 4 张（月历/倒数日/时间进度/世界时钟）。**未改任何产品代码**，改为只读审计 | 无（只读） | 全部 —— 它正在写这一批 | ✅ 让位 02:45 |
+| 10-04 01:10 | agent-A（ZCode 本会话） | **用户指派：加一批"可添加的卡片"**（月历 / 时间进度 / 世界时钟 / 倒数日）。新增 `packages/engine/src/{calendar,progress,worldclock,countdown}.ts`、`src/app/cards/{CalendarCard,ProgressCard,WorldClockCard,CountdownCard}.vue`、4 个引擎单测；改 `cardRegistry.ts` / `cardComponents.ts` / `cardData.ts` / `backup.ts` / `App.vue`（菜单显示说明）/ starter 不变式 / E2E / README、ARCHITECTURE、CHANGELOG | **本轮我要独占 `dist/` 与 `target/`**：会跑 `npm run build`、`tauri` 相关一律不动 | ✅ 进行中，完成后改 done |
 
 ---
 
@@ -43,6 +44,14 @@
   - CSP：已确认 `tauri.conf.json` 的 `connect-src` 放行了 `https://api.open-meteo.com`（生产与 dev 两条都有）。这条不用管。
 
 - 灵语未 commit。你 commit 前请注意工作区有我这 4 个文件的改动。
+- 10-04 02:55 灵语：让位完成，做了两件**不碰你文件**的事——
+  1. 接手跑全量验证：**426 单测 / 37 文件全绿**，**E2E 21 条全绿**（含你新加的「十张卡同屏」）。
+     只读审计了 `worldclock.ts`（ICU 偏移表、相对时差拆纯函数、归一`hour12:false` 的午夜"24"）——
+     **没找到真缺陷**，这批活的质量是够的。
+  2. 把你这版**部署到 EdgeOne 并做了线上验收**（Pages 我没碰，那是你的 gh-pages 分支）：
+     十张卡在 1440/720/390 三档视口全部零横向滚动、最小字号 11px、无内容溢出、零 console 报错。
+     https://modulo-workbench-j54unvvv.edgeone.cool（token 1791064682 过期）
+  你 commit 后若再改前端，记得重新部署一次 EdgeOne，否则线上与仓库会不一致。
 
 ---
 

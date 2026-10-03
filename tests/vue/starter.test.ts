@@ -25,24 +25,26 @@ const holeCells = (doc: LayoutDoc) => {
 }
 
 /**
- * 出厂版面 = 注册表里**除了"网络模块"之外**的全部模块。
+ * 出厂版面 = **核心 5 张**（时钟 / 便签 / 待办 / 速记 / 最近改动）—— 其余模块都是「添加卡片」里按需加的。
  *
- * 为什么天气卡不摆进来：出厂版面是每个新用户首启看到的那一张 —— 把要联网的卡摆在里面，
- * 等于每次首启都有一个请求飞出去，与"启动不联网"的克制（`useWeather.ts` 开头写着）直接冲突。
- * 它由「添加卡片」入口按需加进版面：把卡加进来 = 用户明确要它，加进来之后才首次请求。
+ * 这条原来写的是"注册表里有几张就摆几张"；加了天气与四张新卡之后它不成立了，就地改正。
+ * 一起改掉的还有"网络模块不摆进首启版面"那份排除清单：现在**除核心 5 张之外一律不预设**，
+ * 理由也更普适 —— 出厂版面是每个新用户看到的第一眼，它只放"不需要任何输入就成立"的卡。
  */
-const NETWORK_MODULES = ['weather']
+const CORE_MODULES = ['clock', 'sticky', 'todo', 'notes', 'recent']
 
 describe('起步版面', () => {
-  it('注册表里的每个非网络模块，出厂都摆了一张', () => {
+  it('出厂版面 = 核心 5 张', () => {
     const d = starter()
-    const want = REGISTRY.map((m) => m.id).filter((id) => !NETWORK_MODULES.includes(id)).sort()
-    expect(d.items.map((i) => i.id).sort()).toEqual(want)
+    expect(d.items.map((i) => i.id).sort()).toEqual([...CORE_MODULES].sort())
   })
 
-  it('网络模块不进出厂版面（首启不该有请求飞出去）', () => {
+  it('注册表里其余的卡一张都不预设（它们是「添加卡片」里的选项）', () => {
     const d = starter()
-    for (const id of NETWORK_MODULES) {
+    const extras = REGISTRY.map((m) => m.id).filter((id) => !CORE_MODULES.includes(id))
+    // 防空转：一张可添加的都没有的话，下面那句 for 什么都没测
+    expect(extras.length, '至少要有一张可添加的卡').toBeGreaterThan(0)
+    for (const id of extras) {
       expect(d.items.some((i) => i.id === id), `${id} 不该出现在出厂版面里`).toBe(false)
     }
   })

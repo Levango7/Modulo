@@ -25,7 +25,7 @@ const backup = inject<BackupApi>('backup')!
     -->
     <div v-if="backup.pending.value" class="confirm" role="group" aria-label="确认恢复">
       <p class="muted">
-        这份备份里有 <strong>{{ backup.pending.value.modules }}</strong> 个模块、<strong>{{ backup.pending.value.todos }}</strong> 条待办、<strong>{{ backup.pending.value.notes }}</strong> 条速记<template v-if="backup.pending.value.sticky">、有便签正文</template>，<strong>{{ backup.pending.value.schemes }}</strong> 套版面方案。
+        这份备份里有 <strong>{{ backup.pending.value.modules }}</strong> 个模块、<strong>{{ backup.pending.value.todos }}</strong> 条待办、<strong>{{ backup.pending.value.notes }}</strong> 条速记<template v-if="backup.pending.value.sticky">、有便签正文</template><template v-if="backup.pending.value.countdown">、设过倒数日</template>，<strong>{{ backup.pending.value.schemes }}</strong> 套版面方案。
       </p>
       <p class="muted">恢复会覆盖当前的版面与卡片内容。版面可 Ctrl+Z 退回，文字与方案不能。</p>
       <div class="row">
@@ -34,7 +34,7 @@ const backup = inject<BackupApi>('backup')!
       </div>
     </div>
     <p class="hint">
-      备份文件装着<b>版面、方案册和卡片内容</b>（便签 / 待办 / 速记的正文）—— 换机器或重装时靠它。
+      备份文件装着<b>版面、方案册和卡片内容</b>（便签 / 待办 / 速记的正文、倒数日）—— 换机器或重装时靠它。
       下面那两枚只搬版面与方案，不含文字。
     </p>
     <ul v-if="backup.notices.value.length" class="notices">

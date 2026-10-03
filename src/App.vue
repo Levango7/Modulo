@@ -201,8 +201,8 @@ function onGlobalKey(e: KeyboardEvent) {
             </button>
             <div v-if="addOpen" class="add-menu" role="menu" aria-label="可添加的卡片">
               <button v-for="m in missingModules" :key="m.id" role="menuitem" @click="addCard(m.id)">
-                <span>{{ m.title }}</span>
-                <span class="v">{{ m.variants.find((x) => x.id === m.defaultVariant)?.name }}</span>
+                <span class="t">{{ m.title }}</span>
+                <span class="v">{{ m.blurb }}</span>
               </button>
             </div>
           </span>
@@ -336,7 +336,8 @@ function onGlobalKey(e: KeyboardEvent) {
   top: calc(100% + 6px);
   right: 0;
   z-index: var(--z-menu);
-  min-width: 172px;
+  min-width: 208px;
+  max-width: 260px;
   padding: var(--space-1);
   display: flex;
   flex-direction: column;
@@ -348,9 +349,9 @@ function onGlobalKey(e: KeyboardEvent) {
 }
 .add-menu [role='menuitem'] {
   display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: var(--space-3);
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 1px;
   width: 100%;
   padding: var(--space-2) var(--space-3);
   background: transparent;
@@ -364,8 +365,13 @@ function onGlobalKey(e: KeyboardEvent) {
 .add-menu [role='menuitem']:focus-visible {
   background: var(--bg-card-soft);
 }
+.add-menu .t {
+  font-size: 13px;
+  color: var(--text-1);
+}
 .add-menu .v {
-  font-size: 12px;
+  font-size: 11px;
+  line-height: 1.4;
   color: var(--text-3);
 }
 .pill {
