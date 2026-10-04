@@ -6,7 +6,9 @@ import {
   MAX_CENTS,
   MAX_MINUTES,
   normalizeHhmm,
+  sanitizeLinks,
   sanitizeMeetingCityIds,
+  type QuickLink,
 } from '@modulo/engine'
 import { browserStorage } from './store'
 
@@ -127,6 +129,14 @@ export interface TimerStore {
   breath: { patternId: string; accumulatedMs: number; startedAt: number | null }
 }
 
+/** 值班表：名单 + 轮转锚点（班次用引擎的默认三班，不给用户配 —— 可配置的排班规则是另一个产品） */
+export interface DutySetting {
+  /** 按顺序轮转的姓名 */
+  roster: string[]
+  /** 轮转起点 `YYYY-MM-DD` */
+  anchor: string
+}
+
 export interface CardData {
   sticky: string
   todos: Todo[]
@@ -143,6 +153,11 @@ export interface CardData {
   }
   meeting: MeetingSetting
   timers: TimerStore
+  /** 快捷链接：点一下复制（不做"打开"—— 那要 opener 插件，见 links.ts 文件头） */
+  links: QuickLink[]
+  /** 固定整数位计算的输入草稿；结果全在引擎算，这里只存两个输入 */
+  fixed: { base: string; rate: string; symbol: string }
+  duty: DutySetting
 }
 
 const KEY = 'modulo.carddata.v1'
@@ -401,6 +416,35 @@ const pickSeen = new Set<string>()
     },
     meeting,
     timers: tmRaw && typeof tmRaw === 'object' && !Array.isArray(tmRaw) ? sanitizeTimers(tmRaw, fallback.timers) : fallback.timers,
+    // 快捷链接走引擎的 `sanitizeLinks`：协议白名单、去重、排序、id 唯一都在那边，
+    // 这里**不重复实现一遍** —— 两份清单迟早不一致，而不一致之后没人知道哪份对
+    links: Array.isArray(o.links) ? sanitizeLinks(o.links as { id?: unknown; label?: unknown; href?: unknown }[]) : fallback.links,
+    fixed: {
+      base: typeof o.fixed === 'object' && o.fixed !== null && !Array.isArray(o.fixed) ? textOf((o.fixed as Record<string, unknown>).base, 20).trim() : fallback.fixed.base,
+      rate: typeof o.fixed === 'object' && o.fixed !== null && !Array.isArray(o.fixed) ? textOf((o.fixed as Record<string, unknown>).rate, 12).trim() : fallback.fixed.rate,
+      symbol:
+        typeof o.fixed === 'object' && o.fixed !== null && !Array.isArray(o.fixed) && typeof (o.fixed as Record<string, unknown>).symbol === 'string' && String((o.fixed as Record<string, unknown>).symbol).trim()
+          ? textOf((o.fixed as Record<string, unknown>).symbol, 4).trim()
+          : fallback.fixed.symbol,
+    },
+    duty: {
+      // 名单去重保序：同一个人排两次会让轮转表出现重复行，而用户不会知道是去重还是真排了两班
+      roster: Array.isArray((o.duty as Record<string, unknown> | undefined)?.roster)
+        ? [
+            ...new Set(
+              ((o.duty as Record<string, unknown>).roster as unknown[])
+                .filter((x): x is string => typeof x === 'string')
+                .map((x) => x.trim().slice(0, 16))
+                .filter(Boolean),
+            ),
+          ].slice(0, 30)
+        : fallback.duty.roster,
+      anchor:
+        typeof (o.duty as Record<string, unknown> | undefined)?.anchor === 'string' &&
+        isValidDate(String((o.duty as Record<string, unknown>).anchor))
+          ? String((o.duty as Record<string, unknown>).anchor)
+          : fallback.duty.anchor,
+    },
   }
 }
 
@@ -431,6 +475,9 @@ export function createCardData(storage = browserStorage()) {
       interval: { presetId: 'pomodoro', completedFocus: 0, phaseIndex: 0, accumulatedMs: 0, startedAt: null },
       breath: { patternId: 'box', accumulatedMs: 0, startedAt: null },
     },
+    links: [],
+    fixed: { base: '', rate: '', symbol: '¥' },
+    duty: { roster: [], anchor: '' },
   }
   let initial = fallback
   try {
@@ -449,6 +496,8 @@ export function createCardData(storage = browserStorage()) {
       birthdays: [...state.birthdays],
       pickList: [...state.pickList],
       'ledger.entries': state.ledger.entries.map((r) => ({ ...r })),
+      links: [...state.links],
+      'duty.roster': [...state.duty.roster],
       timers: {
         stopwatch: { ...state.timers.stopwatch },
         countdown: { ...state.timers.countdown },
@@ -579,6 +628,31 @@ export function createCardData(storage = browserStorage()) {
       state.timers.breath.patternId = patternId
       state.timers.breath.accumulatedMs = 0
       state.timers.breath.startedAt = null
+    },
+    addLink(label: string, href: string) {
+      const next = sanitizeLinks([...state.links, { label, href }])
+      // `sanitizeLinks` 会重排去重，所以"加一条"要把**整份**结果写回，不能只 push
+      if (next.length === state.links.length && !next.some((l) => l.href === href.trim())) return
+      state.links = next
+    },
+    removeLink(id: string) {
+      state.links = state.links.filter((l) => l.id !== id)
+    },
+    setFixed(base: string, rate: string) {
+      state.fixed.base = base.slice(0, 20)
+      state.fixed.rate = rate.slice(0, 12)
+    },
+    addDuty(name: string) {
+      const n = name.trim().slice(0, 16)
+      if (!n || state.duty.roster.length >= 30 || state.duty.roster.includes(n)) return
+      state.duty.roster = [...state.duty.roster, n]
+    },
+    removeDuty(index: number) {
+      state.duty.roster = state.duty.roster.filter((_, i) => i !== index)
+    },
+    setDutyAnchor(anchor: string) {
+      // 空串是合法输入：它表示"以今天为轮转起点"，由界面在读取时补
+      state.duty.anchor = anchor === '' || isValidDate(anchor) ? anchor : ''
     },
   }
 }

@@ -18,6 +18,9 @@ const fallback: CardData = {
     interval: { presetId: 'pomodoro', completedFocus: 0, phaseIndex: 0, accumulatedMs: 0, startedAt: null },
     breath: { patternId: 'box', accumulatedMs: 0, startedAt: null },
   },
+  links: [],
+  fixed: { base: '', rate: '', symbol: '¥' },
+  duty: { roster: [], anchor: '' },
 }
 
 describe('sanitizeCardData：盘上数据先清洗再用', () => {
@@ -35,6 +38,9 @@ describe('sanitizeCardData：盘上数据先清洗再用', () => {
       ledger: { symbol: '¥', entries: [] },
       meeting: fallback.meeting,
       timers: fallback.timers,
+      links: [],
+      fixed: fallback.fixed,
+      duty: fallback.duty,
     })
   })
 
@@ -92,7 +98,7 @@ describe('sanitizeCardData：盘上数据先清洗再用', () => {
   it('__proto__ 之类的键不会漏进状态：只认白名单字段', () => {
     const r = sanitizeCardData(JSON.parse('{"__proto__":{"polluted":1},"sticky":"ok"}'), fallback)
     expect(Object.keys(r).sort()).toEqual([
-      'birthdays', 'countdown', 'elapsed', 'habit', 'ledger', 'meeting', 'notes', 'pickList', 'sticky', 'timers', 'todos',
+      'birthdays', 'countdown', 'duty', 'elapsed', 'fixed', 'habit', 'ledger', 'links', 'meeting', 'notes', 'pickList', 'sticky', 'timers', 'todos',
     ])
     expect({} as Record<string, unknown>).not.toHaveProperty('polluted')
   })
@@ -382,6 +388,73 @@ describe('sanitizeCardData：盘上数据先清洗再用', () => {
       it('预设 id / 节奏 id 不是字符串 → 兜底（引擎那边认不出也是落回默认，两边一致）', () => {
         expect(timers({ interval: { presetId: 42 } }).interval.presetId).toBe(fallback.timers.interval.presetId)
         expect(timers({ breath: { patternId: null } }).breath.patternId).toBe(fallback.timers.breath.patternId)
+      })
+    })
+    describe('快捷链接：协议白名单与去重交给引擎，清洗层不重复实现', () => {
+      const links = (o: unknown) => sanitizeCardData({ links: o }, fallback).links
+
+      it('正常条目原样留，并按标签排序（拼音序：仓 cang < 新 xin）', () => {
+        expect(links([{ id: 'l1', label: '仓库', href: 'https://github.com' }, { id: 'l2', label: '新闻', href: 'https://news.test' }])).toEqual([
+          { id: 'l1', label: '仓库', href: 'https://github.com' },
+          { id: 'l2', label: '新闻', href: 'https://news.test' },
+        ])
+      })
+
+      it('**javascript: 一律拒收** —— 黑名单永远漏得掉下一个危险协议，所以用白名单', () => {
+        expect(links([{ label: 'x', href: 'javascript:alert(1)' }])).toEqual([])
+        expect(links([{ label: 'x', href: 'data:text/html,<script>' }])).toEqual([])
+      })
+
+      it('无协议按 https 补齐；同名同链去重', () => {
+        const out = links([{ label: 'A', href: 'example.com' }, { label: 'A', href: 'https://example.com' }])
+        expect(out).toHaveLength(1)
+        expect(out[0].href).toBe('https://example.com')
+      })
+
+      it('缺 id 会补出唯一 id（删一条按 id 找，撞号会连坐）', () => {
+        expect(new Set(links([{ href: 'a.test' }, { href: 'b.test' }, { href: 'c.test' }]).map((l) => l.id)).size).toBe(3)
+      })
+
+      it('整块缺失或形状不对 → 回退兜底，绝不抛', () => {
+        expect(sanitizeCardData({ sticky: 'a' }, fallback).links).toEqual([])
+        for (const bad of [null, 'x', 42, {}, true]) {
+          expect(links(bad), String(bad)).toEqual([])
+        }
+      })
+    })
+
+    describe('整数位计算与值班表', () => {
+      it('两个草稿字段去空白并截断；符号超长截断', () => {
+        const out = sanitizeCardData({ fixed: { base: '  1,280.00  ', rate: ' 6% ', symbol: '人民币元' } }, fallback).fixed
+        expect(out).toEqual({ base: '1,280.00', rate: '6%', symbol: '人民币元'.slice(0, 4) })
+      })
+
+      it('fixed 形状不对 → 逐字段回退兜底，绝不抛', () => {
+        for (const bad of [null, 'x', 42, [], true]) {
+          expect(sanitizeCardData({ fixed: bad }, fallback).fixed, String(bad)).toEqual(fallback.fixed)
+        }
+      })
+
+      it('值班名单：去重保序（同名排两次会让轮转表出现重复行）', () => {
+        const out = sanitizeCardData({ duty: { roster: [' 甲 ', '乙', '甲', '', '  ', 42] } }, fallback).duty
+        expect(out.roster).toEqual(['甲', '乙'])
+      })
+
+      it('轮转锚点必须是真日期；空串合法（表示"从今天起轮"）', () => {
+        expect(sanitizeCardData({ duty: { anchor: '2026-01-01' } }, fallback).duty.anchor).toBe('2026-01-01')
+        expect(sanitizeCardData({ duty: { anchor: '' } }, fallback).duty.anchor).toBe('')
+        for (const bad of ['2026-02-30', 'x', 42, null]) {
+          expect(sanitizeCardData({ duty: { anchor: bad } }, fallback).duty.anchor, String(bad)).toBe('')
+        }
+      })
+
+      it('值班名单砍到 30 人；duty 形状不对 → 回退兜底', () => {
+        const many = Array.from({ length: 60 }, (_, i) => `人${i}`)
+        expect(sanitizeCardData({ duty: { roster: many } }, fallback).duty.roster).toHaveLength(30)
+        for (const bad of [null, 'x', 42, [], true]) {
+          expect(sanitizeCardData({ duty: bad }, fallback).duty, String(bad)).toEqual(fallback.duty)
+        }
+        expect(sanitizeCardData({ sticky: 'a' }, fallback).duty).toEqual(fallback.duty)
       })
     })    })
   })

@@ -19,6 +19,10 @@ import StopwatchCard from '../app/cards/StopwatchCard.vue'
 import TimerCard from '../app/cards/TimerCard.vue'
 import IntervalCard from '../app/cards/IntervalCard.vue'
 import BreathCard from '../app/cards/BreathCard.vue'
+import HeatmapCard from '../app/cards/HeatmapCard.vue'
+import LinksCard from '../app/cards/LinksCard.vue'
+import FixedCard from '../app/cards/FixedCard.vue'
+import DutyCard from '../app/cards/DutyCard.vue'
 import LedgerCard from '../app/cards/LedgerCard.vue'
 import PickCard from '../app/cards/PickCard.vue'
 import CalculatorCard from '../app/cards/CalculatorCard.vue'
@@ -56,6 +60,10 @@ export const CARD_COMPONENTS: Record<string, Component> = {
   timer: TimerCard,
   interval: IntervalCard,
   breath: BreathCard,
+  heatmap: HeatmapCard,
+  links: LinksCard,
+  fixed: FixedCard,
+  duty: DutyCard,
   habit: HabitCard,
   birthday: BirthdayCard,
   focus: FocusCard,

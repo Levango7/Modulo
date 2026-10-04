@@ -51,6 +51,9 @@ const cardData: CardData = {
     interval: { presetId: 'fifty-ten', completedFocus: 2, phaseIndex: 5, accumulatedMs: 0, startedAt: null },
     breath: { patternId: 'relax-478', accumulatedMs: 3_000, startedAt: null },
   },
+  links: [{ id: 'l1', label: '仓库', href: 'https://github.com' }],
+  fixed: { base: '1,280.00', rate: '6%', symbol: '¥' },
+  duty: { roster: ['张三', '李四'], anchor: '2026-01-01' },
 }
 
 function makePayload(over: Partial<Parameters<typeof buildBackup>[0]> = {}) {
@@ -121,6 +124,9 @@ describe('buildBackup：三样东西必须都在里面', () => {
         interval: { presetId: 'pomodoro', completedFocus: 0, phaseIndex: 0, accumulatedMs: 0, startedAt: null },
         breath: { patternId: 'box', accumulatedMs: 0, startedAt: null },
       },
+      links: [{ id: 'l1', label: '原样', href: 'https://example.com' }],
+      fixed: { base: '100', rate: '10%', symbol: '¥' },
+      duty: { roster: ['原样'], anchor: '2026-01-01' },
     }
     const payload = makePayload({ cardData: live })
     live.sticky = '后来改的'

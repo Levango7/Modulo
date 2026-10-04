@@ -62,6 +62,9 @@ export function emptyCardData(): CardData {
       interval: { presetId: 'pomodoro', completedFocus: 0, phaseIndex: 0, accumulatedMs: 0, startedAt: null },
       breath: { patternId: 'box', accumulatedMs: 0, startedAt: null },
     },
+    links: [],
+    fixed: { base: '', rate: '', symbol: '' },
+    duty: { roster: [], anchor: '' },
   }
 }
 
@@ -96,6 +99,9 @@ export function buildBackup(input: BackupInput): BackupPayload {
         interval: { ...input.cardData.timers.interval },
         breath: { ...input.cardData.timers.breath },
       },
+      links: input.cardData.links.map((l) => ({ ...l })),
+      fixed: { ...input.cardData.fixed },
+      duty: { ...input.cardData.duty, roster: [...input.cardData.duty.roster] },
     },
   }
 }

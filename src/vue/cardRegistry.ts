@@ -140,6 +140,19 @@ export const REGISTRY: ModuleRegistry = [
     variants: [{ id: 'week', name: '一周打卡', minW: 3, minH: 2, idealW: 4, idealH: 3 }],
   },
   {
+    id: 'heatmap',
+    title: '月度热力图',
+    group: '记录',
+    blurb: '当月打卡深浅（相对深浅，不是好坏）',
+    defaultVariant: 'grid',
+    variants: [
+      // 6×7 网格 + 星期行 + 图例：4×4 起步
+      { id: 'grid', name: '整月网格', minW: 4, minH: 4, idealW: 5, idealH: 5 },
+      // 窄形态藏掉数字，只留格子
+      { id: 'dots', name: '只留格子', minW: 3, minH: 3, idealW: 4, idealH: 4 },
+    ],
+  },
+  {
     id: 'birthday',
     title: '生日提醒',
     group: '记录',
@@ -244,6 +257,40 @@ export const REGISTRY: ModuleRegistry = [
       { id: 'panel', name: '带权重', minW: 3, minH: 4, idealW: 4, idealH: 5 },
       // 极简形态只留「抽一下 + 输入框」，一行名单
       { id: 'quick', name: '只抽一次', minW: 2, minH: 2, idealW: 3, idealH: 3 },
+    ],
+  },
+  {
+    id: 'links',
+    title: '快捷链接',
+    group: '工具',
+    // 明说"复制"而不是"打开"：桌面壳要新依赖 opener 插件，且链接去哪不可控
+    blurb: '常用链接，点一下复制',
+    defaultVariant: 'list',
+    variants: [
+      { id: 'list', name: '可增删', minW: 3, minH: 3, idealW: 4, idealH: 5 },
+      { id: 'quick', name: '只复制', minW: 2, minH: 2, idealW: 3, idealH: 3 },
+    ],
+  },
+  {
+    id: 'fixed',
+    title: '整数位计算',
+    group: '工具',
+    blurb: '金额 × 率 / 税点（全程整数）',
+    defaultVariant: 'panel',
+    variants: [
+      { id: 'panel', name: '成套结果', minW: 3, minH: 4, idealW: 4, idealH: 5 },
+      { id: 'quick', name: '只出结果', minW: 2, minH: 3, idealW: 3, idealH: 4 },
+    ],
+  },
+  {
+    id: 'duty',
+    title: '值班表',
+    group: '时间',
+    blurb: '一份名单按周期轮值（可手算验证）',
+    defaultVariant: 'grid',
+    variants: [
+      { id: 'grid', name: '整月格子', minW: 3, minH: 4, idealW: 4, idealH: 5 },
+      { id: 'now', name: '只看此刻', minW: 2, minH: 2, idealW: 3, idealH: 3 },
     ],
   },
   // ---- 联网 ----
