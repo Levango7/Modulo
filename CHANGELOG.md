@@ -3,6 +3,41 @@
 格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，版本号遵循
 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## 0.5.0（2026-10-05）—— 批次四全部落地 + 一个发布阻断级修复
+
+### 修复
+
+- **CSP 漏了 Tauri 自己的 IPC 源，窗口控制命令全部静默失效（发布阻断）**。
+  `tauri.conf.json` 的 `connect-src` 被手写成了一串联网卡域名，漏掉 `ipc:` / `http://ipc.localhost`；
+  而 Tauri v2 的规则是"只要显式写了 CSP，就不再注入必需的那些源"。于是
+  `http://ipc.localhost/read_doc` 被自己的 CSP 拦掉，IPC 降级到 postMessage，
+  **最小化 / 最大化 / 双击标题栏 / 两条全局快捷键 / 关闭藏进托盘 / 关闭真退出全部没反应** ——
+  不报错、不抛异常。纯几何断言（启动尺寸、居中、逐轴夹取）不受影响，
+  因为它们不碰 IPC —— 这也是当初定位花了点时间的原因。
+  新增 `tests/release/csp.test.ts` 把这件事钉死：将来重写 CSP 时少一个源、
+  删掉一个联网卡域名、或把 dev server 泄进生产 CSP，门禁都会当场红。
+- **桌面探针的一处不可靠断言**：「ink 皮肤 + 朱砂强调色」断言的是首次启动默认值，
+  却读机器上真实的 `%APPDATA%` 外观文件 —— 谁改过一次外观，这台机器就永远红着。
+  现在探针只接管这一个文件：跑前备份并写成默认值，跑完原样还原；
+  **不清空整个数据目录**（同一次运行里「重启后勾选状态从磁盘读回来了」要的就是真实数据）。
+
+### 门禁
+
+发布前把从没在新增四批卡上跑过的真机探针跑了一遍：**40/49 → 48/49 → 49/49**。
+Rust 三门（`cargo fmt --check` / `clippy -D warnings` / 6 tests）全过。
+前端：vue-tsc + tsc 干净 · 820 单测（60 文件）· 受测层分支覆盖 95.05%（门禁 90）·
+build 通过 · E2E 22 条（38 张卡 × 三档视口）· docs:check 数字一致。
+
+版本号 0.4.0 → 0.5.0，7 处同源（package.json / package-lock / Cargo.toml / Cargo.lock /
+tauri.conf.json / useBackup.ts / packages/engine/package.json），由 `docs:check` 守。
+
+> **一个容易自己踩的坑**（记在 `docs/ARCHITECTURE.md` §10.26.3）：
+> 用 `cargo build --release` 直接出的 exe **没开 `custom-protocol` feature**，
+> 是一颗会去连 `localhost:1430` 的"开发二进制"，探针会卡在"连 CDP"——
+> 症状很像"这台机器 WebView2 不支持远调"，很容易误判成环境问题。
+> 判据是 `/json/list` 里的 `url`：空或 localhost 就是二进制不对，不是端口没开。
+> 出包要走 `npm run tauri:build -- --no-bundle`。
+
 ## 未发布 —— 批次 4-④：月度热力图 / 快捷链接 / 整数位计算 / 值班表（2026-10-04）
 
 注册表 34 → **38**，**批次四收官**。这一批的共同点是每张卡都在某处**主动放弃了

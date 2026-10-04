@@ -6,7 +6,9 @@
 
 **先试 30 秒（不用装任何东西）**：[网页版](https://levango7.github.io/Modulo/)。打开后**把窗口从宽拖到窄** —— 这就是这个产品的全部：12 列逻辑版面会按容器宽度投影成 12 / 8 / 6 / 4 / 1 列，卡片按形态降档而不是被压成碎片。数据存在浏览器 localStorage 里，与桌面版各存各的。
 
-**想要装起来用**：[Releases · v0.4.0](https://github.com/Levango7/Modulo/releases/tag/v0.4.0) 里有 Windows x64 的 NSIS 安装包（`Modulo_0.4.0_x64-setup.exe`）。**装过这一版之后，以后的新版本可以在设置页里直接更新**（下载 → 本地验签 → 重启安装）。安装包**没有代码签名**，首次运行 Windows SmartScreen 会提示「未知发布者」。数据落在 `%APPDATA%\app.modulo\data\*.json`，整个目录拷走就是备份。
+**想要装起来用**：[Releases](https://github.com/Levango7/Modulo/releases/latest) 里有 Windows x64 的 NSIS 安装包。**装过一次之后，以后的新版本可以在设置页里直接更新**（下载 → 本地验签 → 重启安装）。安装包**没有代码签名**，首次运行 Windows SmartScreen 会提示「未知发布者」。数据落在 `%APPDATA%\app.modulo\data\*.json`，整个目录拷走就是备份。
+
+> 链接指向 `latest` 而不是写死某个版本号 —— 写死的那个迟早和仓库里的版本对不上，而读者不会知道。仓库当前源码版本以 `package.json` 为准（版本号 7 处同源，`npm run docs:check` 守）。
 
 ![工作台：出厂版面就是铺满的 —— 12 列、行带之间不留中缝](docs/assets/workbench-starter-1440.png)
 
@@ -62,7 +64,7 @@ CHANGELOG.md           迭代变更历史
 
 ## 验证
 
-CI 两个 job：`verify` 跑五步（类型检查 → 单测与属性测试（**顺带卡受测层分支覆盖 ≥90%**）→ 构建 → E2E → 文档数字核对）；`desktop` 在 windows-latest 上跑 `cargo fmt --check` → `clippy -D warnings` → `cargo test` → 真打包出 exe。**桌面自检探针（`npm run desktop:probe`，49 项）不在 CI 跑** —— runner 上 WebView2 不把远调端口参数写进浏览器进程，探针停在"连 CDP"那一步，与产品好坏无关；它是**发布前的本机门禁**（见 `docs/ARCHITECTURE.md` §10.3 / §11.4）。
+CI 两个 job：`verify` 跑五步（类型检查 → 单测与属性测试（**顺带卡受测层分支覆盖 ≥90%**）→ 构建 → E2E → 文档数字核对）；`desktop` 在 windows-latest 上跑 `cargo fmt --check` → `clippy -D warnings` → `cargo test` → 真打包出 exe。**桌面自检探针（`npm run desktop:probe`，49 项）不在 CI 跑** —— runner 上 WebView2 不把远调端口参数写进浏览器进程，探针停在「连 CDP」那一步，与产品好坏无关；它是**发布前的本机门禁**（见 `docs/ARCHITECTURE.md` §10.3 / §11.4）。⚠️ 同一个症状还有另一个成因：用 `cargo build --release` 直接出的 exe 没开 `custom-protocol`，是一颗会去连 dev server 的「开发二进制」，判据是 `/json/list` 里页面的 `url`（空或 `localhost:1430` 就是二进制不对），出包要走 `npm run tauri:build -- --no-bundle` —— 见 §10.26.3。
 
 投影算法有**五条**断言（只读、幂等、无重叠、尺寸充分、分区完整），随机版面 × 7 档列数各 200 例。量化门禁：受测层（`packages/engine/src/**` + 7 个 vue 纯模块）分支覆盖 ≥90%（当前 **≥94%**）、真拖期间帧距中位数 ≤18.2ms。<!-- facts -->
 

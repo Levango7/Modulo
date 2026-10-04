@@ -1,5 +1,5 @@
 import { spawn, spawnSync } from 'node:child_process'
-import { appendFileSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { appendFileSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { join, resolve } from 'node:path'
 import { connect } from 'node:net'
 import puppeteer from 'puppeteer-core'
@@ -241,6 +241,46 @@ const waitUntil = async (pred, { timeout = 8000, step = 150 } = {}) => {
 
 rmSync(OUT, { recursive: true, force: true })
 mkdirSync(OUT, { recursive: true })
+
+/**
+ * 「首次启动时是墨纸皮肤 + 朱砂强调色」这条断言要成立，前提是**外观是默认值**。
+ *
+ * 原先它直接读机器上真实的 `%APPDATA%\app.modulo\data\modulo.appearance.v1.json`，
+ * 于是结果取决于这台机器上谁改过外观 —— 那是抛硬币，不是门禁：
+ * 别人设过一次亮彩，这台机器就永远红着，而代码其实没问题。
+ *
+ * 所以这里**只接管这一个文件**：跑前备份并写成文档化的默认值，跑完原样还原
+ * （原来没有这个文件的话，跑完删掉自己写的那份）。刻意**不去清空整个数据目录** ——
+ * 同一次运行里「重启后勾选状态从磁盘读回来了」那几条要的就是真实数据。
+ *
+ * 默认值取自 `src/vue/appearance.ts` 的 `DEFAULT_APPEARANCE`，两处必须一致；
+ * 下面的断言就是校验它，所以改了一处忘了另一处，这里会红。
+ */
+const APPEARANCE_FILE = join(process.env.APPDATA ?? '', 'app.modulo', 'data', 'modulo.appearance.v1.json')
+const DEFAULT_APPEARANCE_ON_DISK = { skin: 'ink', mode: 'system', accent: 'auto' }
+let appearanceBackup = null
+let appearanceExisted = false
+function seedAppearance() {
+  try {
+    appearanceExisted = existsSync(APPEARANCE_FILE)
+    if (appearanceExisted) appearanceBackup = readFileSync(APPEARANCE_FILE, 'utf8')
+    mkdirSync(join(APPEARANCE_FILE, '..'), { recursive: true })
+    writeFileSync(APPEARANCE_FILE, JSON.stringify(DEFAULT_APPEARANCE_ON_DISK))
+  } catch (e) {
+    // 接不上就算了：那条断言会红，而红的原因会写在报告里（皮肤/强调色是实际值）
+    console.log(`SEED-NOTE 没能预置外观文件：${e.message}`)
+  }
+}
+function restoreAppearance() {
+  try {
+    if (appearanceExisted) writeFileSync(APPEARANCE_FILE, appearanceBackup)
+    else rmSync(APPEARANCE_FILE, { force: true })
+  } catch (e) {
+    console.log(`RESTORE-NOTE 没能还原外观文件：${e.message}`)
+  }
+}
+
+seedAppearance()
 
 let app = null
 try {
@@ -716,6 +756,8 @@ try {
 } finally {
   if (clampApp) await stop(clampApp).catch(() => {})
 }
+
+restoreAppearance()
 
 const failed = report.filter((r) => !r.pass)
 console.log(`\n${report.length - failed.length}/${report.length} 通过`)
