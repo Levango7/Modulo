@@ -4,10 +4,10 @@
  * 内容（名字 + 起始日）存 `cardData` —— **跟着完整备份走**。
  * "第 N 天"= 已过天数 + 1（开始那天算第 1 天，这是这类卡片的通行口径）。
  */
-import { computed, inject, onBeforeUnmount, onMounted, ref } from 'vue'
+import { computed, inject, onBeforeUnmount, ref } from 'vue'
 import { formatDateLabel, isValidDate } from '@modulo/engine'
 import { CalendarClock, Pencil } from 'lucide-vue-next'
-import type { CardDataApi } from '../cardData'
+import type { CardDataApi } from '../../vue/cardData'
 
 const props = defineProps<{ variant: string }>()
 const cardData = inject<CardDataApi>('cardData')!

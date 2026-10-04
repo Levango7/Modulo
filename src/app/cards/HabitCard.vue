@@ -3,10 +3,10 @@
  * 习惯打卡：一周格子 + 连续天数。**内容（名字 + 打卡记录）存 `cardData`，跟着完整备份走。**
  * streak 口径在引擎（`habit.ts`）：今天没打卡不归零，锚点取"今天或昨天"里更晚的那个。
  */
-import { computed, inject, onBeforeUnmount, onMounted, ref } from 'vue'
+import { computed, inject, onBeforeUnmount, ref } from 'vue'
 import { lastNDays, streakDays } from '@modulo/engine/habit'
 import { Pencil } from 'lucide-vue-next'
-import type { CardDataApi } from '../cardData'
+import type { CardDataApi } from '../../vue/cardData'
 
 const props = defineProps<{ variant: string }>()
 const cardData = inject<CardDataApi>('cardData')!

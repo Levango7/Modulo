@@ -6,10 +6,10 @@
  * 用户敲进去的字属于内容，偏好属于本机。算术在引擎（`@modulo/engine/countdown`，
  * 含闰日与"看着像日子但不是"的拒收）。
  */
-import { computed, inject, onBeforeUnmount, onMounted, ref } from 'vue'
+import { computed, inject, onBeforeUnmount, ref } from 'vue'
 import { countdownText, daysUntil, formatDateLabel, isValidDate } from '@modulo/engine/countdown'
 import { CalendarClock, Pencil } from 'lucide-vue-next'
-import type { CardDataApi } from '../cardData'
+import type { CardDataApi } from '../../vue/cardData'
 
 const props = defineProps<{ variant: string }>()
 const cardData = inject<CardDataApi>('cardData')!

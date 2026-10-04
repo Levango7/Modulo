@@ -2,6 +2,7 @@ import { existsSync } from 'node:fs'
 import { afterAll, beforeAll, expect, it } from 'vitest'
 import puppeteer from 'puppeteer-core'
 import type { Browser, Page } from 'puppeteer-core'
+import { REGISTRY } from '../../src/vue/cardRegistry'
 
 let browser: Browser
 let url: string
@@ -818,12 +819,17 @@ it.skipIf(skip)('添加卡片：只列不在版面上的模块，点一下加进
   await clickTool(page, '添加卡片')
   await settle(200)
   const items = await page.evaluate(() => [...document.querySelectorAll('.add-menu [role="menuitem"]')].map((b) => (b.textContent || '').trim()))
-  // 出厂版面 = 核心 5 张；其余 19 张按分组排在菜单里
-  expect(items.length, `可添加的卡应有 19 张：${items.join(' | ')}`).toBe(19)
-  for (const title of ['天气', '月历', '时间进度', '世界时钟', '倒数日', '计算器', '单位换算', '习惯打卡', '汇率', '月相']) {
+  // 菜单条数**从注册表算**，不写死数字：这条断言要守的是"只列不在版面上的那些"，
+  // 写死 19 就等于每加一张卡都要来改一次断言，而改的人往往顺手把数字改成"当前值"——
+  // 那样它再也拦不住"某张卡没进菜单"或"已在版面上的卡又出现一次"。
+  // 出厂版面 5 张，因此期望值 = 注册表条数 − 5。
+  expect(items.length, `可添加的卡应是 ${REGISTRY.length} − 出厂 5 = ${REGISTRY.length - 5} 张：${items.join(' | ')}`).toBe(
+    REGISTRY.length - 5,
+  )
+  for (const title of ['天气', '月历', '时间进度', '世界时钟', '倒数日', '计算器', '单位换算', '习惯打卡', '汇率', '月相', '生日提醒', '每日聚焦', '月度统计', '随机抽签', '会议规划', '记账', '秒表', '倒计时', '间歇计时', '呼吸计时']) {
     expect(items.some((t) => t.includes(title)), `菜单里应有「${title}」`).toBe(true)
   }
-  // 分组标题在（19 张卡翻平铺列表没法用）
+  // 分组标题在（二十多张卡翻平铺列表没法用）
   expect(await page.evaluate(() => document.querySelectorAll('.add-menu .gh').length), '菜单应有分组标题').toBeGreaterThan(0)
   // 每项都带一句"这张卡是干什么的"：光有名字没法选
   expect(items.every((t) => t.length > 3), '菜单项应有说明文字').toBe(true)
@@ -865,19 +871,38 @@ it.skipIf(skip)('添加卡片：只列不在版面上的模块，点一下加进
 })
 
 /**
- * 全部卡同屏（出厂 5 张 + 可添加的 19 张）× 三档视口：
+ * 全部卡同屏（出厂 5 张 + 可添加的那些）× 三档视口：
  * 不溢出、不裁字、最小字号 ≥11px。
  *
  * 为什么单拎这一条：新卡既不进出厂版面、也不进 8 张模板，**没有这条它们在任何视口下的表现
  * 都没人测过** —— 而上面三项是这个项目对每张卡的公开承诺。它已经抓到过两个真缺陷：
  * 字号下限低于 11px（天气卡 3 处 + 新卡若干处）与月历内部 .cell/.grid 类名撞"卡片"选择器的车。
  * 版式交给 `sanitizeItems`（重叠让位 + 按 ideal 尺寸落位），所以夹具只需要列 id。
+ *
+ * **这份 id 清单必须与注册表一致**，少一张就等于给那张卡放行。`docs:check` 之外，
+ * 这里由下面那条"清单与注册表同源"的断言兜住 —— 加卡却忘了加进这个数组，E2E 会当场红。
  */
+const ALL_MODULE_IDS = [
+  'clock', 'sticky', 'todo', 'notes', 'recent', 'weather', 'calendar', 'progress',
+  'worldclock', 'meeting', 'countdown', 'dtools', 'elapsed', 'habit', 'birthday', 'focus', 'monthstat',
+  'calc', 'unitconv', 'colorconv', 'textstat', 'randomnum', 'baseconv', 'pick',
+  'fx', 'air', 'repo', 'hn', 'moon', 'ledger',
+  'stopwatch', 'timer', 'interval', 'breath',
+]
+
 const ALL_MODULES_DOC = {
   schemaVersion: 1,
   cols: 12,
-  items: ['clock', 'sticky', 'todo', 'notes', 'recent', 'weather', 'calendar', 'progress', 'worldclock', 'countdown', 'dtools', 'elapsed', 'habit', 'calc', 'unitconv', 'colorconv', 'textstat', 'randomnum', 'baseconv', 'fx', 'air', 'repo', 'hn', 'moon'].map((id) => ({ id, x: 0, y: 0 })),
+  items: ALL_MODULE_IDS.map((id) => ({ id, x: 0, y: 0 })),
 }
+
+it.skipIf(skip)('夹具与注册表同源：注册表每张卡都在「全部卡上版」清单里', () => {
+  const inFixture = new Set(ALL_MODULE_IDS)
+  const missing = REGISTRY.map((m) => m.id).filter((id) => !inFixture.has(id))
+  const stale = ALL_MODULE_IDS.filter((id) => !REGISTRY.some((m) => m.id === id))
+  expect(missing, `注册表新增了卡但 ALL_MODULE_IDS 漏了：${missing.join(', ')}`).toEqual([])
+  expect(stale, `ALL_MODULE_IDS 里有注册表已删的卡：${stale.join(', ')}`).toEqual([])
+})
 
 it.skipIf(skip)('全部卡上版：三档视口不溢出、不裁字、最小字号 ≥11px', async () => {
   const cases = [

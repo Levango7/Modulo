@@ -27,6 +27,15 @@ const backup = inject<BackupApi>('backup')!
       <p class="muted">
         这份备份里有 <strong>{{ backup.pending.value.modules }}</strong> 个模块、<strong>{{ backup.pending.value.todos }}</strong> 条待办、<strong>{{ backup.pending.value.notes }}</strong> 条速记<template v-if="backup.pending.value.sticky">、有便签正文</template><template v-if="backup.pending.value.countdown">、设过倒数日</template>，<strong>{{ backup.pending.value.schemes }}</strong> 套版面方案。
       </p>
+      <!--
+        来历摆在覆盖之前。一份备份会跟着用户换机器、换版本到处搬，
+        「哪一版、哪天导出的」答不上来时，覆盖就是在赌。
+      -->
+      <p v-if="backup.pending.value.parsed.meta" class="muted meta">
+        导出自 <strong>Modulo {{ backup.pending.value.parsed.meta.app || '未知版本' }}</strong>
+        <template v-if="backup.pending.value.parsed.meta.createdAt">（{{ backup.pending.value.parsed.meta.createdAt }}）</template>
+        <template v-if="backup.pending.value.parsed.meta.version !== null">，备份格式 v{{ backup.pending.value.parsed.meta.version }}</template>。
+      </p>
       <p class="muted">恢复会覆盖当前的版面与卡片内容。版面可 Ctrl+Z 退回，文字与方案不能。</p>
       <div class="row">
         <button class="primary" @click="backup.confirmRestore()">确认恢复</button>
@@ -57,6 +66,10 @@ const backup = inject<BackupApi>('backup')!
   margin: 0;
   font-size: 12px;
   line-height: 1.6;
+}
+.confirm p.meta {
+  color: var(--text-3);
+  font-variant-numeric: tabular-nums;
 }
 .confirm strong {
   font-weight: 500;

@@ -58,6 +58,19 @@ export const REGISTRY: ModuleRegistry = [
     ],
   },
   {
+    id: 'meeting',
+    title: '会议规划',
+    group: '时间',
+    blurb: '我说几点开 · 各城几点该不该开',
+    defaultVariant: 'rows',
+    variants: [
+      // rows 形态：时间行 + 最多 4 行对照 + 一句总评，3×4 起步
+      { id: 'rows', name: '对照表', minW: 3, minH: 4, idealW: 4, idealH: 5 },
+      // 窄形态砍掉城市选择按钮，只留时间 + 两行最关键的对照
+      { id: 'mini', name: '只看时间', minW: 2, minH: 2, idealW: 3, idealH: 3 },
+    ],
+  },
+  {
     id: 'countdown',
     title: '倒数日',
     group: '时间',
@@ -126,6 +139,51 @@ export const REGISTRY: ModuleRegistry = [
     defaultVariant: 'week',
     variants: [{ id: 'week', name: '一周打卡', minW: 3, minH: 2, idealW: 4, idealH: 3 }],
   },
+  {
+    id: 'birthday',
+    title: '生日提醒',
+    group: '记录',
+    blurb: '下一次是谁；填出生年才算年龄',
+    defaultVariant: 'list',
+    variants: [
+      { id: 'list', name: '最近几位', minW: 3, minH: 3, idealW: 4, idealH: 4 },
+      // 只报下一个：名字 + "还有 N 天" + 年龄，三行以内，2×2 装得下
+      { id: 'next', name: '只报下一个', minW: 2, minH: 2, idealW: 3, idealH: 3 },
+    ],
+  },
+  {
+    id: 'focus',
+    title: '每日聚焦',
+    group: '专注',
+    blurb: '待办里第一条没做完的（读同一份清单）',
+    defaultVariant: 'task',
+    variants: [
+      // task 形态要给一句话留 4 行 + 一行统计，3×2 起步
+      { id: 'task', name: '一句话', minW: 3, minH: 2, idealW: 4, idealH: 3 },
+      { id: 'list', name: '带完成数', minW: 2, minH: 2, idealW: 3, idealH: 3 },
+    ],
+  },
+  {
+    id: 'monthstat',
+    title: '月度统计',
+    group: '记录',
+    blurb: '本月完成率与欠账（按完成时刻算）',
+    defaultVariant: 'panel',
+    variants: [{ id: 'panel', name: '完成率', minW: 2, minH: 3, idealW: 3, idealH: 4 }],
+  },
+  {
+    id: 'ledger',
+    title: '记账',
+    group: '记录',
+    blurb: '本月花费与分类占比（金额存分，不碰浮点）',
+    defaultVariant: 'panel',
+    variants: [
+      // panel 形态带分类条 + 14 天趋势 + 8 条明细，格子要多
+      { id: 'panel', name: '带明细', minW: 3, minH: 4, idealW: 4, idealH: 6 },
+      // 极简形态：总额 + 三类占比，2×3 装得下
+      { id: 'sum', name: '只看总额', minW: 2, minH: 3, idealW: 3, idealH: 4 },
+    ],
+  },
   // ---- 工具 ----
   {
     id: 'calc',
@@ -175,6 +233,19 @@ export const REGISTRY: ModuleRegistry = [
     defaultVariant: 'panel',
     variants: [{ id: 'panel', name: '转换器', minW: 2, minH: 3, idealW: 3, idealH: 4 }],
   },
+  {
+    id: 'pick',
+    title: '随机抽签',
+    group: '工具',
+    blurb: '一份名单抽一个，可加权（不联网）',
+    defaultVariant: 'panel',
+    variants: [
+      // panel 形态带名单 + 每项权重输入框，3 行起步
+      { id: 'panel', name: '带权重', minW: 3, minH: 4, idealW: 4, idealH: 5 },
+      // 极简形态只留「抽一下 + 输入框」，一行名单
+      { id: 'quick', name: '只抽一次', minW: 2, minH: 2, idealW: 3, idealH: 3 },
+    ],
+  },
   // ---- 联网 ----
   {
     id: 'weather',
@@ -196,6 +267,54 @@ export const REGISTRY: ModuleRegistry = [
     blurb: '自某个日子起，今天第 N 天',
     defaultVariant: 'days',
     variants: [{ id: 'days', name: '大数字', minW: 2, minH: 2, idealW: 3, idealH: 3 }],
+  },
+  {
+    id: 'stopwatch',
+    title: '秒表',
+    group: '专注',
+    blurb: '从零往上数（后台不掉时间）',
+    defaultVariant: 'clock',
+    variants: [
+      // HH:MM:SS 至少 5 个字符 + 按钮一行，2×2 起步
+      { id: 'clock', name: '大数字', minW: 2, minH: 2, idealW: 3, idealH: 3 },
+      { id: 'bar', name: '横条', minW: 3, minH: 1, idealW: 6, idealH: 2 },
+    ],
+  },
+  {
+    id: 'timer',
+    title: '倒计时',
+    group: '专注',
+    blurb: '定 N 分钟，往下数到 0',
+    defaultVariant: 'panel',
+    variants: [
+      // panel 带 6 个快捷时长 + ±5，两个数行 → 3 行起步
+      { id: 'panel', name: '带快捷', minW: 3, minH: 3, idealW: 4, idealH: 4 },
+      { id: 'clock', name: '只报剩余', minW: 2, minH: 2, idealW: 3, idealH: 3 },
+    ],
+  },
+  {
+    id: 'interval',
+    title: '间歇计时',
+    group: '专注',
+    // 刻意不叫"番茄钟"：那是一套预设值，不是一种计时机制。要番茄就选这里的「番茄 25/5」预设
+    blurb: '专注一段休一段；含「番茄 25/5」预设',
+    defaultVariant: 'panel',
+    variants: [
+      { id: 'panel', name: '带预设切换', minW: 3, minH: 3, idealW: 4, idealH: 4 },
+      { id: 'bar', name: '只看进度', minW: 3, minH: 2, idealW: 4, idealH: 3 },
+    ],
+  },
+  {
+    id: 'breath',
+    title: '呼吸计时',
+    group: '专注',
+    blurb: '方箱 4-4-4-4 / 助眠 4-7-8 / 平缓 4-6',
+    defaultVariant: 'panel',
+    variants: [
+      // 要放下一个正圆 + 一行提示，3×3 起步
+      { id: 'panel', name: '带节奏切换', minW: 3, minH: 3, idealW: 4, idealH: 4 },
+      { id: 'orb', name: '只留圆', minW: 2, minH: 2, idealW: 3, idealH: 3 },
+    ],
   },
   {
     id: 'fx',

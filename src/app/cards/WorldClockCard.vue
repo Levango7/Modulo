@@ -6,7 +6,7 @@
  * 同一口径；用户写的字才进 `cardData`。时区算术全在引擎（`Intl` 是唯一权威，不手写偏移表），
  * 这里只把绝对事实翻成"比本地早/晚几小时"。
  */
-import { computed, inject, onBeforeUnmount, onMounted, ref } from 'vue'
+import { computed, inject, onBeforeUnmount, ref } from 'vue'
 import {
   MAX_WORLD_CITIES,
   WORLD_CITIES,
@@ -16,7 +16,7 @@ import {
   worldCityById,
 } from '@modulo/engine/worldclock'
 import { X } from 'lucide-vue-next'
-import type { StorageAdapter } from '../store'
+import type { StorageAdapter } from '../../vue/store'
 
 const props = defineProps<{ variant: string }>()
 const storage = inject<StorageAdapter>('storage') ?? { get: () => null, set: () => {} }

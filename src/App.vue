@@ -1,6 +1,8 @@
 <script setup lang="ts">
 import { computed, inject, onBeforeUnmount, onMounted, provide, ref } from 'vue'
 import { LayoutGrid, LayoutTemplate, Maximize2, Minimize2, Plus, Redo2, Settings, SlidersHorizontal, Sparkles, TriangleAlert, Undo2, Wand2 } from 'lucide-vue-next'
+import { useElementWidth } from './vue/useElementWidth'
+import { useProjection } from './vue/useProjection'
 import { measureWantedRows } from './vue/useDensity'
 import * as E from '@modulo/engine'
 import type { LayoutStore } from './vue/store'
@@ -75,28 +77,16 @@ function onDocMousedown(e: MouseEvent): void {
   if (addOpen.value && addWrap.value && !addWrap.value.contains(e.target as Node)) addOpen.value = false
 }
 const stageEl = ref<HTMLElement | null>(null)
-const stageW = ref(1200)
+const stageW = useElementWidth(stageEl, 1200)
+const { cols, rowPx, gap, projection, mode } = useProjection(store, stageW)
 
-const cols = computed(() => E.physicalCols(stageW.value))
-const rowPx = computed(() => E.rowHeight(stageW.value))
-const gap = 16
-const projection = computed(() => E.project(store.doc.value, reg, cols.value))
-const mode = computed(() => E.editorMode(stageW.value))
-
-let ro: ResizeObserver | null = null
 onMounted(() => {
-  ro = new ResizeObserver(() => {
-    const el = stageEl.value
-    if (el) stageW.value = el.clientWidth
-  })
-  if (stageEl.value) ro.observe(stageEl.value)
   window.addEventListener('keydown', onGlobalKey)
   document.addEventListener('mousedown', onDocMousedown)
   /** 首启（没有存档、也没挑过模板）自动开一次选择器 —— 这正是"选项"该出现的地方 */
   if (store.firstRun) templatesOpen.value = true
 })
 onBeforeUnmount(() => {
-  ro?.disconnect()
   window.removeEventListener('keydown', onGlobalKey)
   document.removeEventListener('mousedown', onDocMousedown)
 })

@@ -40,3 +40,42 @@ export function rollDice(sides: number, count: number, rng: () => number): numbe
   if (!Number.isInteger(sides) || sides < 2 || !Number.isInteger(count) || count < 1 || count > 100) return null
   return Array.from({ length: count }, () => intIn(rng, 1, sides))
 }
+
+export interface PickItem {
+  /** 稳定标识：抽签要能报出"抽中的是哪一条"，所以不能只给下标 */
+  id: string
+  label: string
+  /** 权重，≥ 0。0 = 永远抽不到（不是"等概率"） */
+  weight?: number
+}
+
+/**
+ * 加权抽一个。
+ *
+ * 为什么用"累计 + 线性扫描"而不是别名表（alias method）：名单只有几十条，一次 O(n) 可以忽略，
+ * 而别名表要预计算一份状态、多一个能写错的地方。**权重相等时退化成均匀**，这是最常见的用法。
+ *
+ * 全 0 权重 / 空名单 / 权重是 NaN → 返回 null（界面显示"没有可抽的"，不返回第一条）。
+ */
+export function pickWeighted<T extends PickItem>(items: readonly T[], rng: () => number): T | null {
+  let total = 0
+  for (const it of items) {
+    const w = it.weight ?? 1
+    if (typeof w !== 'number' || Number.isNaN(w) || w < 0) return null
+    total += w
+  }
+  if (items.length === 0 || total <= 0) return null
+  // rng() 取 [0,1)，乘 total 后落进累计区间；取不到就退到最后一个正权重项，
+  // 免得 rng 恰好返回 1（或因浮点误差落在 total 上）时返回 null —— 那是"抽到了"，不是"抽不了"
+  let roll = rng() * total
+  if (!(roll >= 0)) roll = 0
+  let acc = 0
+  let lastPositive: T | null = null
+  for (const it of items) {
+    const w = it.weight ?? 1
+    if (w > 0) lastPositive = it
+    acc += w
+    if (roll < acc) return it
+  }
+  return lastPositive
+}

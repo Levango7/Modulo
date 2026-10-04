@@ -20,7 +20,6 @@ export const APP_VERSION = '0.4.0'
 export interface PendingRestore extends BackupSummary {
   parsed: ParsedBackup
 }
-
 export function useBackup(store: LayoutStore, schemes: SchemesApi, cardData: () => CardData) {
   /** 待确认的恢复动作；非 null 时设置面板显示确认块 */
   const pending = ref<PendingRestore | null>(null)
@@ -32,6 +31,7 @@ export function useBackup(store: LayoutStore, schemes: SchemesApi, cardData: () 
       schemes: schemes.book.value,
       cardData: cardData(),
       app: APP_VERSION,
+      now: () => new Date(),
     })
     downloadText(`modulo-backup-${stamp()}.json`, backupToJson(payload))
     notices.value = [

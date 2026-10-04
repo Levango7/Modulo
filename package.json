@@ -4,7 +4,9 @@
   "private": true,
   "license": "Apache-2.0",
   "type": "module",
-  "workspaces": ["packages/*"],
+  "workspaces": [
+    "packages/*"
+  ],
   "scripts": {
     "dev": "vite",
     "build": "vite build",
@@ -20,7 +22,7 @@
     "desktop:probe": "node scripts/desktop-probe.mjs",
     "engine:build": "npm run build --workspace @modulo/engine",
     "engine:pack": "npm pack --workspace @modulo/engine",
-    "typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p tsconfig.e2e.json"
+    "typecheck": "vue-tsc --noEmit -p tsconfig.json && tsc --noEmit -p tsconfig.e2e.json"
   },
   "devDependencies": {
     "@tauri-apps/cli": "^2.12.1",
@@ -32,7 +34,8 @@
     "typescript": "~6.0.2",
     "vite": "^8.2.0",
     "vitest": "^3.2.4",
-    "vue": "^3.5.40"
+    "vue": "^3.5.40",
+    "vue-tsc": "^3.3.12"
   },
   "dependencies": {
     "@modulo/engine": "*",

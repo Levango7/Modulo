@@ -1,11 +1,28 @@
-import { reactive, watch } from 'vue'
-import { isValidDate } from '@modulo/engine'
+﻿import { reactive, watch } from 'vue'
+import {
+  isValidBirthday,
+  isValidDate,
+  LEDGER_CATEGORIES,
+  MAX_CENTS,
+  MAX_MINUTES,
+  normalizeHhmm,
+  sanitizeMeetingCityIds,
+} from '@modulo/engine'
 import { browserStorage } from './store'
+
+/** 四个计时器在 `timers` 里的键名。动作共用一份实现（状态形状一样），所以键名也集中一处 */
+export type TimerKey = 'stopwatch' | 'countdown' | 'interval' | 'breath'
 
 export interface Todo {
   id: string
   text: string
   done: boolean
+  /**
+   * 标记完成那一刻的毫秒时间戳。**可选、向后兼容**：v1 数据与旧备份里没有它，
+   * 月度统计据此只统计"知道自己何时完成"的那些条目，而不是猜一个月。
+   * 取消勾选要清掉它 —— 否则"完成时间"会指向一个不再成立的过去。
+   */
+  doneAt?: number
 }
 export interface Note {
   id: string
@@ -37,6 +54,79 @@ export interface HabitSetting {
   days: string[]
 }
 
+/**
+ * 生日提醒：**用户写的内容**（名字 + 月日 + 可选出生年），所以进 `cardData`、跟着完整备份走。
+ * 与倒数日分开存而不是复用它：生日是"每年一次"、没有年，混进 `countdown` 会让那张卡多一套分支。
+ */
+export interface StoredBirthday {
+  id: string
+  name: string
+  /** 1–12 */
+  month: number
+  /** 1–31 */
+  day: number
+  /** 可选；填了才显示年龄 */
+  year?: number
+}
+
+/** 抽签名单：用户写的内容，进备份。权重 ≥ 0，0 = 永远抽不到 */
+export interface PickItem {
+  id: string
+  label: string
+  weight: number
+}
+
+/** 记账条目：**金额存「分」的整数**，不用小数 —— 一个月几十笔浮点加下来会让总额差几分钱 */
+export interface LedgerRow {
+  id: string
+  /** `YYYY-MM-DD` */
+  date: string
+  /** 单位「分」。整数，永不为负 */
+  cents: number
+  category: string
+  note: string
+}
+
+/**
+ * 会议规划器：参会城市 + 会议在**本地**的墙上时间与时长。
+ *
+ * 只存"我说几点开"，不存每个城市几点 —— 后者是算出来的，存下来就会与夏令时变更对不上。
+ * 偏好（城市选择、时间、时长）本不进备份，但这份列表是用户自己一组人，反复重选很烦，
+ * 因此按"用户输入过的东西进备份"的同一条线存下来。
+ */
+export interface MeetingSetting {
+  /** 参会城市 id（`worldclock.ts` 的候选表内），最多 4 个 */
+  cityIds: string[]
+  /** 本地墙上时间 `HH:mm` */
+  at: string
+  /** 时长（分钟） */
+  minutes: number
+  title: string
+}
+
+/**
+ * 计时器的持久化形状。
+ *
+ * **只存「计时器的设定 + 上次停在哪」，不存"当前已跑多少秒"**。
+ * 已跑量由 `startedAt` 这个时间戳 + 打开时的 `Date.now()` 算出来 ——
+ * 这样跨重启、跨休眠、换机器导入备份之后，时间都是对的；
+ * 存一个累加值则永远只对"写它的那一瞬间"成立。
+ *
+ * `startedAt` 是 epoch 毫秒。诚实说明：**这一版不做跨重启恢复运行态** ——
+ * 读回来时把它当 0 处理（钟停在设定值、显示"开始"）。理由写进 CHANGELOG，
+ * 因为"看起来该有其实没有"比"没有"更糟。
+ */
+export interface TimerStore {
+  /** 秒表：上次停在哪（毫秒）与上次启动时刻 */
+  stopwatch: { accumulatedMs: number; startedAt: number | null }
+  /** 倒计时：设定时长（分钟）与进度 */
+  countdown: { minutes: number; accumulatedMs: number; startedAt: number | null }
+  /** 间歇计时：预设 id + 已完成段数 + 本段进度 */
+  interval: { presetId: string; completedFocus: number; phaseIndex: number; accumulatedMs: number; startedAt: number | null }
+  /** 呼吸计时：节奏 id + 进度 */
+  breath: { patternId: string; accumulatedMs: number; startedAt: number | null }
+}
+
 export interface CardData {
   sticky: string
   todos: Todo[]
@@ -44,6 +134,15 @@ export interface CardData {
   countdown: CountdownSetting
   elapsed: ElapsedSetting
   habit: HabitSetting
+  birthdays: StoredBirthday[]
+  pickList: PickItem[]
+  ledger: {
+    /** 币种符号，用户填一次全表跟着走 */
+    symbol: string
+    entries: LedgerRow[]
+  }
+  meeting: MeetingSetting
+  timers: TimerStore
 }
 
 const KEY = 'modulo.carddata.v1'
@@ -51,8 +150,44 @@ const KEY = 'modulo.carddata.v1'
 /** 一个几百 MB 的坏文件不该把首屏冻住；单条文本也截断 */
 const MAX_ITEMS = 200
 const MAX_TEXT = 2000
+/** 生日卡最多认这么多条：再多就该用别的工具管人，而不是一张工作台卡片 */
+const MAX_BIRTHDAYS = 100
+/** 抽签名单同理；权重夹在 0–99（不是 0–∞）：99 已经是"几乎必中"，再大没有意义 */
+const MAX_PICKS = 60
+const MAX_PICK_WEIGHT = 99
+/** 记账：一个月的条目量级。超了说明这是账本软件，不是工作台卡片 */
+const MAX_LEDGER_ROWS = 2000
+/** 分类截短；不在候选表里的一律回「其他」，免得汇总里冒出一堆只出现一次的类 */
+const MAX_CATEGORY = 12
+/**
+ * 计时器累计量上限（约 7 天）。一个"累计 3 年的秒表"多半是脏数据，不该原样落盘。
+ * 放在模块顶层而不是清洗函数里：`timerPause` 也要用它夹，两个作用域都用得到。
+ */
+const MAX_TIMER_MS = 599 * 60_000 * 7
+
+/**
+ * 清洗计时器的持久化块。四个分支形状一样，所以共用一个 `sanitizeRun` 而不是四段几乎相同的代码 ——
+ * 四份复制意味着"改了一处忘了另一处"，而这种 bug 平时根本不响。
+ *
+ * `startedAt` 只接受"有限且为正"的毫秒数；其余一律 null（= 停着）。
+ */
 
 const textOf = (v: unknown, max = MAX_TEXT): string => (typeof v === 'string' ? v.slice(0, max) : '')
+
+/**
+ * 分类必须在候选表里，不在就回「其他」。
+ * 自由文本分类会让"按类汇总"退化成一堆只出现一次的类，而那张卡回答的是"钱去哪了"。
+ */
+function knownCategory(v: unknown): string {
+  const s = typeof v === 'string' ? v.trim().slice(0, MAX_CATEGORY) : ''
+  return (LEDGER_CATEGORIES as readonly string[]).includes(s) ? s : '其他'
+}
+
+/** 权重必须是 0–99 的整数；`undefined`（没写）= 等概率 1，坏值也回 1 而不是 0（0 意味着"永远抽不到"） */
+function clampWeight(v: unknown): number {
+  if (typeof v !== 'number' || !Number.isFinite(v)) return 1
+  return Math.min(MAX_PICK_WEIGHT, Math.max(0, Math.round(v)))
+}
 
 /** id 必须唯一：toggleTodo / removeTodo 都是按 id find/filter，撞号会连坐改错条目 */
 function uniqueId(seen: Set<string>, want: unknown, prefix: string, i: number): string {
@@ -83,7 +218,15 @@ export function sanitizeCardData(raw: unknown, fallback: CardData): CardData {
     for (const entry of o.todos.slice(0, MAX_ITEMS)) {
       const e = entry as Partial<Todo> | null
       if (!e || typeof e.text !== 'string' || !e.text.trim()) continue
-      todos.push({ id: uniqueId(todoSeen, e.id, 't', todos.length), text: textOf(e.text), done: e.done === true })
+      // doneAt 只在"已完成且时间戳合法"时留下：未完成的条目带着一个完成时刻没有意义，
+      // 而一个坏时间戳会让月度统计按 NaN 比较，静默少算一条 —— 不如当作没有。
+      const doneAt = e.done === true && typeof e.doneAt === 'number' && Number.isFinite(e.doneAt) ? e.doneAt : undefined
+      todos.push({
+        id: uniqueId(todoSeen, e.id, 't', todos.length),
+        text: textOf(e.text),
+        done: e.done === true,
+        ...(doneAt === undefined ? {} : { doneAt }),
+      })
     }
   }
 
@@ -129,6 +272,120 @@ export function sanitizeCardData(raw: unknown, fallback: CardData): CardData {
       }
     : fallback.habit
 
+  const bdSeen = new Set<string>()
+  const birthdays: StoredBirthday[] = []
+  if (Array.isArray(o.birthdays)) {
+    for (const entry of o.birthdays.slice(0, MAX_BIRTHDAYS)) {
+      const e = entry as Partial<StoredBirthday> | null
+      if (!e || typeof e.name !== 'string' || !e.name.trim()) continue
+      if (!isValidBirthday({ month: e.month as number, day: e.day as number })) continue
+      birthdays.push({
+        id: uniqueId(bdSeen, e.id, 'b', birthdays.length),
+        name: textOf(e.name, 24).trim(),
+        month: e.month as number,
+        day: e.day as number,
+        // 年份非法（0 / 负数 / 3000）就不带 —— 引擎会把没有年份当作"不算年龄"，这里只保证不写垃圾进去
+        ...(typeof e.year === 'number' && Number.isInteger(e.year) && e.year > 0 && e.year <= 9999 ? { year: e.year } : {}),
+      })
+    }
+  }
+
+  const rowSeen = new Set<string>()
+  const entries: LedgerRow[] = []
+  const ledRaw =
+    typeof o.ledger === 'object' && o.ledger !== null && !Array.isArray(o.ledger)
+      ? (o.ledger as { symbol?: unknown; entries?: unknown })
+      : undefined
+  const ledEntries = Array.isArray(ledRaw?.entries) ? (ledRaw.entries as unknown[]) : []
+  for (const entry of ledEntries.slice(0, MAX_LEDGER_ROWS)) {
+    const e = entry as Partial<LedgerRow> | null
+    if (!e || typeof e.date !== 'string' || !isValidDate(e.date)) continue
+    // 金额必须是**非负整数分**。小数 / NaN / 负数 / 字符串一律丢这条 ——
+    // 半条账比错账更危险：错账能看出来，半条账会让"总额"悄悄少一块。
+    if (typeof e.cents !== 'number' || !Number.isSafeInteger(e.cents) || e.cents < 0 || e.cents > MAX_CENTS) continue
+    entries.push({
+      id: uniqueId(rowSeen, e.id, 'e', entries.length),
+      date: e.date,
+      cents: e.cents,
+      category: knownCategory(e.category),
+      note: textOf(e.note, 40).trim(),
+    })
+  }
+
+  const mtRaw = o.meeting as Partial<MeetingSetting> | undefined
+  const meeting: MeetingSetting =
+    mtRaw && typeof mtRaw === 'object' && !Array.isArray(mtRaw)
+      ? {
+          cityIds: Array.isArray(mtRaw.cityIds) ? sanitizeMeetingCityIds(mtRaw.cityIds.filter((x): x is string => typeof x === 'string')) : fallback.meeting.cityIds,
+          at: typeof mtRaw.at === 'string' ? (normalizeHhmm(mtRaw.at) ?? fallback.meeting.at) : fallback.meeting.at,
+          minutes: typeof mtRaw.minutes === 'number' && Number.isFinite(mtRaw.minutes) ? Math.min(600, Math.max(5, Math.round(mtRaw.minutes))) : fallback.meeting.minutes,
+          title: textOf(mtRaw.title, 24).trim(),
+        }
+      : fallback.meeting
+
+  const tmRaw = o.timers as Record<string, unknown> | undefined
+
+
+  /**
+ * 清洗计时器的持久化块。四个分支形状一样，所以写一个小循环而不是四段几乎相同的代码 ——
+ * 四份复制意味着"改了一处忘了另一处"，而这种 bug 平时根本不响。
+ *
+ * `startedAt` 只接受"有限且非负"的毫秒数；其余一律 null（= 停着）。
+ * 累加量夹在 0–MAX_TIMER_MS（约 7 天）：一个"累计 3 年的秒表"多半是脏数据。
+ */
+function sanitizeRun(o: unknown, fallback: { accumulatedMs: number; startedAt: number | null }) {
+  const r = (typeof o === 'object' && o !== null && !Array.isArray(o) ? o : {}) as Record<string, unknown>
+  const acc = typeof r.accumulatedMs === 'number' && Number.isFinite(r.accumulatedMs) ? Math.min(MAX_TIMER_MS, Math.max(0, r.accumulatedMs)) : fallback.accumulatedMs
+  const st = typeof r.startedAt === 'number' && Number.isFinite(r.startedAt) && r.startedAt > 0 ? r.startedAt : null
+  return { accumulatedMs: acc, startedAt: st }
+}
+
+function sanitizeTimers(o: Record<string, unknown>, fallback: TimerStore): TimerStore {
+  const sub = (k: string): Record<string, unknown> =>
+    typeof o[k] === 'object' && o[k] !== null && !Array.isArray(o[k]) ? (o[k] as Record<string, unknown>) : {}
+  const iv = sub('interval')
+  const cnt = typeof iv.completedFocus === 'number' && Number.isFinite(iv.completedFocus) ? Math.min(9999, Math.max(0, Math.round(iv.completedFocus))) : fallback.interval.completedFocus
+  const idx = typeof iv.phaseIndex === 'number' && Number.isFinite(iv.phaseIndex) ? Math.min(9999, Math.max(0, Math.round(iv.phaseIndex))) : fallback.interval.phaseIndex
+  return {
+    stopwatch: sanitizeRun(o.stopwatch, fallback.stopwatch),
+    // 时长单独处理：它不是"跑了多少"，是一个设定值，且要按分钟单位夹
+    countdown: {
+      ...sanitizeRun(o.countdown, fallback.countdown),
+      minutes:
+        typeof (o.countdown as Record<string, unknown> | undefined)?.minutes === 'number' &&
+        Number.isFinite((o.countdown as Record<string, unknown>).minutes)
+          ? Math.min(MAX_MINUTES, Math.max(1, Math.round((o.countdown as Record<string, number>).minutes)))
+          : fallback.countdown.minutes,
+    },
+    interval: {
+      // 预设 id 认不出的 → 番茄（引擎那边也是同一套落法，两边一致）
+      presetId: typeof iv.presetId === 'string' ? iv.presetId : fallback.interval.presetId,
+      completedFocus: cnt,
+      phaseIndex: idx,
+      ...sanitizeRun(iv, fallback.interval),
+    },
+    breath: {
+      patternId: typeof sub('breath').patternId === 'string' ? (sub('breath').patternId as string) : fallback.breath.patternId,
+      ...sanitizeRun(o.breath, fallback.breath),
+    },
+  }
+}
+
+const pickSeen = new Set<string>()
+  const pickList: PickItem[] = []
+  if (Array.isArray(o.pickList)) {
+    for (const entry of o.pickList.slice(0, MAX_PICKS)) {
+      const e = entry as Partial<PickItem> | null
+      if (!e || typeof e.label !== 'string' || !e.label.trim()) continue
+      pickList.push({
+        id: uniqueId(pickSeen, e.id, 'p', pickList.length),
+        label: textOf(e.label, 24).trim(),
+        // 缺省权重 1（等概率）。NaN / 负数 / 非整数一律夹回 1 —— 一个坏权重会让整张卡抽不出东西
+        weight: clampWeight(e.weight),
+      })
+    }
+  }
+
   return {
     sticky: textOf(o.sticky, 4000),
     todos: Array.isArray(o.todos) ? todos : fallback.todos,
@@ -136,6 +393,14 @@ export function sanitizeCardData(raw: unknown, fallback: CardData): CardData {
     countdown,
     elapsed,
     habit,
+    birthdays: Array.isArray(o.birthdays) ? birthdays : fallback.birthdays,
+    pickList: Array.isArray(o.pickList) ? pickList : fallback.pickList,
+    ledger: {
+      symbol: typeof ledRaw?.symbol === 'string' && ledRaw.symbol.trim() ? textOf(ledRaw.symbol, 4).trim() : fallback.ledger.symbol,
+      entries,
+    },
+    meeting,
+    timers: tmRaw && typeof tmRaw === 'object' && !Array.isArray(tmRaw) ? sanitizeTimers(tmRaw, fallback.timers) : fallback.timers,
   }
 }
 
@@ -152,6 +417,20 @@ export function createCardData(storage = browserStorage()) {
     countdown: { label: '', date: '' },
     elapsed: { label: '', date: '' },
     habit: { name: '', days: [] },
+    birthdays: [],
+    pickList: [],
+    ledger: { symbol: '¥', entries: [] },
+    // 示例会议：三个跨时区城市 + 一个体面的本地时间。第一次打开就有东西看，
+    // 而"全空的会议卡"演示不出这张卡到底解决什么问题
+    meeting: { cityIds: ['shanghai', 'london', 'new-york'], at: '20:00', minutes: 60, title: '' },
+    // 四个计时器都给空档：钟停在起点、显示「开始」，
+    // 而不是替用户预设一个"已经在跑"的计时 —— 一个自己会走的钟是最容易让人怀疑的界面
+    timers: {
+      stopwatch: { accumulatedMs: 0, startedAt: null },
+      countdown: { minutes: 25, accumulatedMs: 0, startedAt: null },
+      interval: { presetId: 'pomodoro', completedFocus: 0, phaseIndex: 0, accumulatedMs: 0, startedAt: null },
+      breath: { patternId: 'box', accumulatedMs: 0, startedAt: null },
+    },
   }
   let initial = fallback
   try {
@@ -163,7 +442,20 @@ export function createCardData(storage = browserStorage()) {
 
   const state = reactive<CardData>(initial)
   watch(
-    () => ({ ...state, todos: [...state.todos], notes: [...state.notes] }),
+    () => ({
+      ...state,
+      todos: [...state.todos],
+      notes: [...state.notes],
+      birthdays: [...state.birthdays],
+      pickList: [...state.pickList],
+      'ledger.entries': state.ledger.entries.map((r) => ({ ...r })),
+      timers: {
+        stopwatch: { ...state.timers.stopwatch },
+        countdown: { ...state.timers.countdown },
+        interval: { ...state.timers.interval },
+        breath: { ...state.timers.breath },
+      },
+    }),
     (v) => storage.set(KEY, JSON.stringify(v)),
     { deep: true },
   )
@@ -177,13 +469,116 @@ export function createCardData(storage = browserStorage()) {
     },
     toggleTodo(id: string) {
       const t = state.todos.find((x) => x.id === id)
-      if (t) t.done = !t.done
+      if (!t) return
+      t.done = !t.done
+      // 打勾记完成时刻，取消勾就抹掉 —— 否则"完成时间"会指向一个不再成立的过去，
+      // 月度统计也会把这条算进一个它并没有完成的月份。
+      if (t.done) t.doneAt = Date.now()
+      else delete t.doneAt
     },
     removeTodo(id: string) {
       state.todos = state.todos.filter((x) => x.id !== id)
     },
     addNote(title: string, body: string) {
       state.notes.unshift({ id: `n${Date.now()}`, title: title.trim() || '无标题', body, at: Date.now() })
+    },
+    addBirthday(name: string, month: number, day: number, year?: number) {
+      const n = name.trim()
+      if (!n || !isValidBirthday({ month, day })) return
+      if (state.birthdays.length >= MAX_BIRTHDAYS) return
+      state.birthdays.push({
+        id: `b${Date.now()}`,
+        name: n.slice(0, 24),
+        month,
+        day,
+        ...(typeof year === 'number' && Number.isInteger(year) && year > 0 && year <= 9999 ? { year } : {}),
+      })
+    },
+    removeBirthday(id: string) {
+      state.birthdays = state.birthdays.filter((b) => b.id !== id)
+    },
+    addPick(label: string) {
+      const l = label.trim()
+      if (!l || state.pickList.length >= MAX_PICKS) return
+      state.pickList.push({ id: `p${Date.now()}`, label: l.slice(0, 24), weight: 1 })
+    },
+    setPickWeight(id: string, weight: number) {
+      const p = state.pickList.find((x) => x.id === id)
+      if (p) p.weight = clampWeight(weight)
+    },
+    removePick(id: string) {
+      state.pickList = state.pickList.filter((p) => p.id !== id)
+    },
+    addLedger(date: string, cents: number, category: string, note: string) {
+      if (!isValidDate(date)) return
+      if (!Number.isSafeInteger(cents) || cents < 0 || cents > MAX_CENTS) return
+      if (state.ledger.entries.length >= MAX_LEDGER_ROWS) return
+      state.ledger.entries.push({
+        id: `e${Date.now()}`,
+        date,
+        cents,
+        category: knownCategory(category),
+        note: note.trim().slice(0, 40),
+      })
+    },
+    removeLedger(id: string) {
+      state.ledger.entries = state.ledger.entries.filter((r) => r.id !== id)
+    },
+    toggleMeetingCity(id: string) {
+      const list = state.meeting.cityIds
+      const at = list.indexOf(id)
+      if (at >= 0) state.meeting.cityIds = list.filter((x) => x !== id)
+      // 最多 4 个：第五个不是"再加一个"，而是"先去掉一个" —— 静默丢弃更让人困惑
+      else if (list.length < 4) state.meeting.cityIds = [...list, id]
+    },
+    setMeetingTime(at: string, minutes: number) {
+      const norm = normalizeHhmm(at)
+      if (norm) state.meeting.at = norm
+      if (Number.isFinite(minutes)) state.meeting.minutes = Math.min(600, Math.max(5, Math.round(minutes)))
+    },
+    setMeetingTitle(title: string) {
+      state.meeting.title = title.trim().slice(0, 24)
+    },
+    /** 计时器：四个钟共用三个动作 —— 状态形状一样，所以这里也只有一份实现 */
+    timerStart(which: TimerKey) {
+      const t = state.timers[which]
+      if (!t.startedAt) t.startedAt = Date.now()
+    },
+    timerPause(which: TimerKey) {
+      const t = state.timers[which]
+      if (t.startedAt === null) return
+      t.accumulatedMs = Math.min(MAX_TIMER_MS, t.accumulatedMs + Math.max(0, Date.now() - t.startedAt))
+      t.startedAt = null
+    },
+    timerReset(which: TimerKey) {
+      const t = state.timers[which]
+      t.accumulatedMs = 0
+      t.startedAt = null
+    },
+    setCountdownMinutes(min: number) {
+      state.timers.countdown.minutes = Math.min(MAX_MINUTES, Math.max(1, Math.round(Number.isFinite(min) ? min : 25)))
+    },
+    /** 换预设：进度保留，但已完成段数与相位归零 —— 换了节奏还停在"番茄的第 3 段"没有意义 */
+    setIntervalPreset(presetId: string) {
+      state.timers.interval.presetId = presetId
+      state.timers.interval.completedFocus = 0
+      state.timers.interval.phaseIndex = 0
+      state.timers.interval.accumulatedMs = 0
+      state.timers.interval.startedAt = null
+    },
+    /** 引擎的 `intervalView` 是纯计算；切段后由界面把结果写回来。不写的话暂停再继续会弹回上一段 */
+    setIntervalPhase(phaseIndex: number, completedFocus: number) {
+      const iv = state.timers.interval
+      iv.phaseIndex = Math.max(0, Math.round(Number.isFinite(phaseIndex) ? phaseIndex : 0))
+      iv.completedFocus = Math.max(0, Math.round(Number.isFinite(completedFocus) ? completedFocus : 0))
+      // 换段 = 本段已跑完，进度归零
+      iv.accumulatedMs = 0
+      iv.startedAt = null
+    },
+    setBreathPattern(patternId: string) {
+      state.timers.breath.patternId = patternId
+      state.timers.breath.accumulatedMs = 0
+      state.timers.breath.startedAt = null
     },
   }
 }

@@ -16,7 +16,9 @@ Modulo 是一个**逻辑网格恒定、物理列数随屏幕投影**的卡片式
 | 键盘可达 | `.le-cell[tabindex]` = **0** | 全键盘完成增/移/缩/切形态/删/撤销 |
 | 可回退 | 无 undo/redo（只有"整场放弃"） | 50 步历史栈，拖拽/缩放各自成一条历史 |
 
-**MVP 只留核心闭环**：布局引擎 + 编辑器 + 4 张卡 + 本地持久化。不做扩展系统、AI、剪贴板、账号、浮窗、托盘、桌面打包。
+**MVP 只留核心闭环**（设计时口径）：布局引擎 + 编辑器 + 4 张卡 + 本地持久化；明确不做扩展系统、AI、剪贴板、账号、浮窗。
+
+> **2026-10-04 复核**：上面这句是**立项时的范围声明**，落地时越了两条线 —— ① 桌面壳（Tauri 2、托盘、全局快捷键、应用内更新）已按 §11 落地并随 v0.4.0 发布；② 卡片从 4 张长到 34 张。**仍然成立**的是"不做扩展系统 / AI / 账号 / 浮窗"这四条：不造插件机制、不接模型、不做登录态、不做多窗口浮层。范围纪律没有被破坏，破坏的是"不做桌面打包"这一条 —— 它当时被判断为最贵的一个坑（WebView2 运行期建窗），后来用"桌面探针作为发布前本机门禁"把它变成可控成本，见 §10.3 / §11.4。
 
 ---
 
@@ -43,6 +45,9 @@ F:\Nexus\Modulo\
 │  │  ├─ worldclock.ts countdown.ts ★ 世界时钟（偏移交 Intl，本地时区由界面问）与倒数日（按日历日算差）
 │  │  ├─ calc.ts baseconv.ts convert.ts color.ts    ★ 计算器（无 eval 的递归下降）、进制（BigInt）、单位表、颜色三表示 + WCAG
 │  │  ├─ textstat.ts habit.ts dtools.ts             ★ 文本统计（字素簇）、习惯 streak、日期工具（复用倒数日口径）
+│  │  ├─ birthday.ts focus.ts          ★ 下一次生日（含闰日落 28、没年份就不算年龄）+ 待办的两个读法（聚焦 / 月度）
+│  │  ├─ ledger.ts meeting.ts          ★ 记账（金额一律整数分，parseAmount 走字符串切分）+ 会议规划（偏移/星期交 Intl）
+│  │  ├─ timer.ts                     ★ 计时的一张引擎四种投影（秒表 / 倒计时 / 间歇 / 呼吸）。时间戳而非累加器
 │  │  ├─ fx.ts air.ts ghrepo.ts hn.ts moon.ts       ★ 联网卡的收窄层（汇率 / 空气质量 / 仓库 / HN）+ 月相（本地）
 │  │  ├─ validate.ts       盘上数据解析、钳制、重叠消解（不信任存储）
 │  │  ├─ serialize.ts      JSON schema；schemaVersion 偏高只告警并按 v1 读；**迁移表 MIGRATIONS 有真调用方**（`parseLayout` 每次读盘都过）
@@ -53,20 +58,25 @@ F:\Nexus\Modulo\
 │  │  ├─ appearance.ts useAppearance.ts
 │  │  ├─ fileStorage.ts fileIo.ts useShell.ts useSchemes.ts
 │  │  ├─ useDensity.ts useFocusTrap.ts
-│  │  └─ components\       TitleBar · BrandMark · GridLayout · CanvasEditor · StackEditor · SettingsPanel · TemplatePicker
+│  │  ├─ useCanvasDrag.ts keyboard.ts chord.ts   ★ 拖拽状态机 / 键盘意图（纯函数）/ 组合键判定
+│  │  ├─ useProjection.ts useElementWidth.ts useCellFocus.ts   ★ 2026-10-04 从 App.vue / CanvasEditor 抽出
+│  │  ├─ backup.ts useBackup.ts useRemote.ts useWeather.ts useUpdateCheck.ts
+│  │  └─ components\       TitleBar · BrandMark · GridLayout · CanvasEditor · StackEditor · SettingsPanel · TemplatePicker · BackupSection · SchemesSection · VersionSection
 │  ├─ app\                 视图装配：工作台 / 编辑器 / 设置 / 卡片
 │  │  └─ cards\   Clock / Sticky / Todo / Notes / Weather / Calendar / Progress / WorldClock / Countdown / DateTools / Elapsed / Habit / Calculator / Unit / Color / TextStat / Random / Base / Fx / Air / Repo / Hn / Moon（全部接容器查询）
 │  ├─ tokens\              设计令牌（纯 CSS 变量，亮/暗两套）
 ├─ tests\
-│  ├─ engine\              单测（15 个文件，每个纯函数）
+│  ├─ engine\              单测（50 个文件，每个纯函数）
 │  ├─ property\            fast-check：投影不变量 I1–I4 + 分区完整（共 5 条断言）
-│  ├─ vue\                 适配层单测（store / fileStorage / cardData / appearance / shell / starter）
+│  ├─ vue\                 适配层单测（store / fileStorage / cardData / appearance / shell / starter / backup）
 │  ├─ engine-purity.test.ts  逐文件守住「引擎零框架 / DOM 依赖」
-│  └─ e2e\                 puppeteer-core 驱动系统 Chrome：16 条真浏览器断言
+│  └─ e2e\                 puppeteer-core 驱动系统 Chrome：21 条真浏览器断言
 └─ docs\ARCHITECTURE.md
 ```
 
 > **2026-10-02 复核**：上面这棵树此前记的是设计时的**计划**结构，和落地的代码差了十几个名字 —— 没有 `useDrag.ts` / `useKeyboard.ts` / `useFlip.ts` / `GridCell.vue`，也没有 `src/persist/`（拖拽与键盘编排直接长在 `CanvasEditor.vue` 与 `App.vue` 里，没单独抽 composable；让位动效是 `GridLayout.vue` 的 `TransitionGroup`），E2E 用的是 puppeteer-core 而不是 Playwright。已按实际文件重写。
+>
+> **2026-10-04 第二次复核**：上面「没单独抽 composable」那句已过时 —— 拖拽状态机已在 `useCanvasDrag.ts`、键盘意图判定已是纯函数 `keyboard.ts`；组合键判定在 `chord.ts`。本轮又补三个：`useProjection.ts`（投影派生从 App.vue 抽出）、`useElementWidth.ts`（ResizeObserver 样板）、`useCellFocus.ts`（编辑器焦点跟随）。`store.ts` 仍按一个工厂收历史 + 持久化，未做进一步拆分。
 
 **引擎纯度由两条防线守着**：`tests/engine-purity.test.ts` 扫 `packages/engine/src/**/*.ts` 的 import，出现 `vue`、`@tauri`、`document`、`window` 即失败（也不许用 `../` 往包外伸手）；`packages/engine` 自己的构建（`tsconfig.build.json` 的 `lib` 只有 ES2022、不含 DOM）是更硬的那一条 —— 真碰 DOM，编译就过不去。不引 eslint 插件。
 
@@ -240,13 +250,13 @@ MVP 先做 A1，A2 留一个 `projection.a2.test.ts` 做对照实验。不在没
 | 图标 | lucide-vue-next 按需引入 | 同代成熟，颜色继承 currentColor |
 | 单测 | vitest | 引擎纯函数直接测 |
 | 属性测试 | **fast-check** | 投影 I1–I4 天然适合随机布局 × 5 档 N |
-| E2E | Playwright | 键盘全流程 + 拖拽 + 断点截图（也是"更好看"的取证工具） |
-| 持久化 | IndexedDB（idb-keyval）+ localStorage 兜底 | **字段级补丁写**，绕开 x-hub"整份配置覆盖冲掉后端字段"那个坑 |
-| 动效 | Web Animations API 自写 FLIP | 不引动画库 |
+| E2E | Playwright（初选）→ **puppeteer-core 驱动系统 Chrome**（落地） | 键盘全流程 + 拖拽 + 断点截图（也是"更好看"的取证工具） |
+| 持久化 | IndexedDB（idb-keyval）+ localStorage 兜底（初选）→ **`localStorage` / `%APPDATA%` 下一 key 一文件**（落地，见 §7） | 原打算"字段级补丁写"绕开 x-hub"整份配置覆盖冲掉后端字段"那个坑；落地走整份 JSON，代价是并发写覆盖，靠导入前校验与备份兜住 |
+| 动效 | Web Animations API 自写 FLIP（初选）→ **Vue `<TransitionGroup>`**（落地，见 §4.2） | 不引动画库 |
 | 不引 | reka-ui、Tailwind、Milkdown、任何网格库（gridstack / react-grid-layout） | 网格库只解决"不重叠+压实"，**不解决"内容装不装得下"**（形态 min/ideal 语义），而后者才是体验核心；且引库会把坐标系与压实策略锁死，而投影正是要动坐标系的部分 |
 | 桌面壳 | 第二轮再上 Tauri 2 | 引擎层零改动即可包；现在避开 WebView2 运行期建窗挂死那类最贵的坑 |
 
-> **2026-10-02 复核：这张表里有四行是"当时的选择"，不是"现在的实现"** —— ① 持久化没走 IndexedDB / idb-keyval，也没有"字段级补丁写"，实际是 `localStorage`（网页版）与 `%APPDATA%\app.modulo\data\` 下一 key 一文件的**整份 JSON**（桌面版，见 §7）；② E2E 用 puppeteer-core 驱动系统 Chrome，没引 Playwright；③ 让位动效是 Vue `TransitionGroup`，不是自写 WAAPI FLIP（见 §4.2）；④ 属性测试是 **7 档**列数 × 200 例、**5 条**断言（I1–I4 + 分区完整），不是"5 档 N × I1–I4"。保留原表是因为它记的是取舍理由，理由今天仍然成立 —— 但落地结果以 §10 为准。
+> **2026-10-02 复核：上表已就地改成"初选 → 落地"双写**，理由仍记在这里 —— ① 持久化没走 IndexedDB / idb-keyval，也没有"字段级补丁写"，实际是 `localStorage`（网页版）与 `%APPDATA%\app.modulo\data\` 下一 key 一文件的**整份 JSON**（桌面版，见 §7）；② E2E 用 puppeteer-core 驱动系统 Chrome，没引 Playwright；③ 让位动效是 Vue `TransitionGroup`，不是自写 WAAPI FLIP（见 §4.2）；④ 属性测试是 **7 档**列数 × 200 例、**5 条**断言（I1–I4 + 分区完整），不是"5 档 N × I1–I4"。保留原理由是因为取舍依据今天仍然成立 —— 但**实现口径以各行的"落地"一侧与 §10 为准**。
 
 ---
 
@@ -347,7 +357,7 @@ MVP 先做 A1，A2 留一个 `projection.a2.test.ts` 做对照实验。不在没
 
 另外去掉了一处观感缺陷：编辑器标签条与卡片自身表头重复显示同一个名字（"便签 / 便签"），改为卡片在编辑态走 `chromeless`，每格只保留一层头部。
 
-当前状态（2026-10-04 复核）：**前端单测 542 条（50 个文件）+ E2E 21 条 + Rust 单测 6 条**全绿，`tsc --noEmit` 干净，受测层分支覆盖 **≥94%**（engine 94.81% + vue 纯模块 96.14%，门禁 90），无 console 报错。`vite build` 同日重跑：**JS 233.04 kB / gzip 81.90 kB（主包 232.01 + 更新插件面 1.03），CSS 54.29 kB / gzip 9.34 kB**（比上一版记的 41.0 kB 大得多，因为多了桌面壳设置页、卡片内容、版面模板选择器、完整备份、更新插件与 24 种卡的 JS/CSS 面；桌面探针 49 项见 §11.3）。<!-- facts -->
+当前状态（2026-10-04 复核）：**前端单测 728 条（55 个文件）+ E2E 22 条 + Rust 单测 6 条**全绿，`vue-tsc` 与 `tsc --noEmit` 都干净，受测层分支覆盖 **≥95%**（engine 94.62% + vue 纯模块 97.16%，门禁 90），无 console 报错。`vite build` 同日重跑：**JS 280.17 kB / gzip 97.05 kB（主包 279.14 + 更新插件面 1.03），CSS 74.60 kB / gzip 11.62 kB**（比上一版记的 41.0 kB 大得多，因为多了桌面壳设置页、卡片内容、版面模板选择器、完整备份、更新插件与 34 种卡的 JS/CSS 面；桌面探针 49 项见 §11.3）。<!-- facts -->
 
 ### 10.3 验证固化进 CI（2026-10-01）
 
@@ -585,6 +595,10 @@ MVP 先做 A1，A2 留一个 `projection.a2.test.ts` 做对照实验。不在没
 - 习惯 streak 的口径：**今天没打卡不归零**（锚点取今天或昨天里更晚的）。
 - 倒数日 / 正计时 / 习惯的内容都在 `cardData`，因此**都跟着完整备份走**；
   世界时钟的城市与天气的城市同口径（偏好，自己的 key）。
+- 备份包带**来历**：`app`（导出时的应用版本）+ `createdAt`（ISO 8601，时钟由 `BackupInput.now`
+  注入，所以"包里带导出时刻"这件事本身可测）。恢复确认框在覆盖之前把这两条摊出来 ——
+  一份备份会跟着用户换机器、换版本到处搬，「哪一版、哪天导出的」答不上来时覆盖就是在赌。
+  v1 旧包没有 `createdAt`：`meta.createdAt` 报 `null` 并留一句 warning，**不当成坏包**。
 - 通往 40 张的下两批（联网卡 + 月相 × 5、需更多设计的 × 14）在目录里排好了批次与前置条件
   （联网卡 = 天气同款模式 + 每张一条 CSP 的账）。
 
@@ -613,6 +627,104 @@ MVP 先做 A1，A2 留一个 `projection.a2.test.ts` 做对照实验。不在没
 2. ~~方案册 UI 的缺口：暂无"新建空白方案"与拖拽排序~~ → **已补**：`createBlankScheme` + `moveScheme` 两个纯函数，UI 上给「新建空白」按钮、拖把手排序、`Alt+↑/↓` 键盘排序。
    顺带修掉一个会咬人的规则：`parseBook` 原来对 `items` 为空的方案直接丢弃，于是**用户刚建的空白方案会在下次启动时被悄悄吃掉**。现在区分两种空 —— doc 本来就空（合法，保留）vs 有内容但清洗后一条不剩（外来数据里的未知模块，仍然丢弃并给 warning）。
 3. ~~数据落地：localStorage → 数据根目录下的 JSON~~ → **已做**，见 §7 与 §11.3。
+
+### 10.19 批次四之一：四张零新架构的卡，与一处被逼出来的数据模型改动（2026-10-04）
+
+注册表 24 → **28**。这一批的排法本身就是一条决策，见 `docs/CARD-CATALOG.md` 的批次 4-② 表：
+**番茄钟是唯一需要新状态机与新持久化口径的卡，因此不先做它** —— 先交付四张零架构成本的卡，
+是为了让"先做什么"不被单张最贵的卡绑架（与 §3.5「不在没数据前选复杂方案」同一条纪律）。
+
+- **`birthday.ts`（新）**：下一次生日。**没有复用 `countdown.ts`**，理由写进文件头 ——
+  生日没有年，硬塞进 `countdown` 就要在引擎里造一个"随便挑个平年"的假年份，
+  闰日与年龄两个坑会一起被带进来。三条口径由引擎钉死：没出生年 → `turns = null`；
+  2 月 29 日在平年落 28 日；跨年只比月日不比"还剩几天"。
+  `Birthday` 带 `id?` 是有意的：引擎不用它算任何东西，但**必须带出来** ——
+  界面删一条要按 id 找，引擎把 id 吞掉就只能拿"月日 + 名字"猜，同月同日同名就删错了。
+- **`focus.ts`（新）**：待办的三个读法（`nextUp` / `focusToday` / `monthStat`），无新结构。
+  两条口径：**不重排**（顺序是用户排的）；**月度分母不是全部待办**，
+  而是"本月完成的 + 本月还欠着的"—— 否则一条上月写、本月没碰的待办会稀释本月完成率。
+- **`random.ts` 加 `pickWeighted`**：累计 + 线性扫描，**不用别名表**（几十条名单一次 O(n) 可忽略，
+  别名表要多一份能写错的状态）。权重相等时退化成均匀。`rng()` 落在 [0,1) 之外时退到最后一个正权重项 ——
+  那是"抽到了"，不是"抽不了"。
+- **数据模型：`Todo` 加 `doneAt?: number`**。月度统计需要完成时刻，而原先只有 `done: boolean`。
+  做成**可选**是关键：v1 数据与旧备份读得进来，读不出完成时刻的条目**不进任何月份**，
+  卡上如实写"有 N 条旧记录没算"，而不是给一个看起来很确定的百分比。取消勾选要删掉它。
+- **这一轮抓到的两个真 bug**：① `isValidBirthday({month:2, day:29})` 因"按平年判上限"被误拒 ——
+  闰日该放行，平年由 `nextBirthday` 落 28；② 同日排序的测试断言按输入顺序写，
+  而 `localeCompare('zh-Hans-CN')` 排的是拼音序（李 li < 张 zhang）—— 实现是对的、断言是错的，
+  改成钉死拼音序并补一条"反序输入得同一结果"。
+
+### 10.20 一道新门禁：`.vue` 也要被类型检查（2026-10-04）
+
+`typecheck` 原先是 `tsc --noEmit`，而 `tsconfig` 的 `include` 只覆盖 `**/*.ts` ——
+**26 个 `.vue` 文件从未进入过类型检查**。接上 `vue-tsc` 的第一件事就是抓到四处坏 import 路径：
+
+| 文件 | 原来引的是 | 实际在 |
+|---|---|---|
+| `CountdownCard.vue` / `ElapsedCard.vue` / `HabitCard.vue` | `'../cardData'` | `src/vue/cardData.ts`（应 `'../../vue/cardData'`） |
+| `WorldClockCard.vue` | `'../store'` | `src/vue/store.ts`（应 `'../../vue/store'`） |
+
+四行全是 `import type` —— **构建时被擦除、运行时永远碰不到**，所以从落地到今天一次都没炸过。
+这正是"没有门禁的错误比有门禁的错误更贵"的样本：它不响，只是让下一个读代码的人以为那里有个模块。
+
+顺带清掉 10 处未使用的 import（`onMounted` × 8、`inject` × 1、`schemes` × 1）。
+
+### 10.21 批次四之二：会议规划 + 记账，两条"宁可少算也不猜"的取舍（2026-10-04）
+
+注册表 28 → **30**。两张卡，一句话共同点：**它们都拒绝了"先存一个看起来像答案的值"**。
+
+- **`meeting.ts`（新）**：一次会议（本地墙上时间 + 时长）在各参会城市的当地读数与"该不该开"。
+  复用 `worldclock` 的城市表与 `tzOffsetMinutes` —— **不维护第二份城市表**，两份迟早不一致，
+  而不一致之后没人知道哪份对。星期几同样交给 `Intl`，不从 `MM-DD` 反推。
+  - **只存"我说几点开"**，不存各城几点：后者是算出来的，存下来就会与夏令时变更对不上。
+  - 排序按"离本地时差从小到大"：与本地同时的排最前，那是最不需要操心的那个。
+  - `slotVerdict` 周末优先于时段：周六上午 10 点在"工作时间"区间内，但它显然不是工作时间。
+  - `normalizeHhmm` 而不是 `padStart`：`'9:5'` 补长度会得到 `'009:5'` ——
+    一个**比非法输入更糟的东西**（它看着像时间）。归一化必须按小时与分钟分别补。
+- **`ledger.ts`（新）**：金额**一律整数「分」**。`0.1 + 0.2 !== 0.3`，一个月几十笔浮点加下来
+  总额会差出几分钱，而"账对不上"是这类工具唯一不可原谅的失败。所以存储、传输、求和、比较
+  全在整数域，只在显示时除以 100。
+  - `parseAmount` 用**字符串切分**：`"12.30"` 用 parseFloat 会得到 `12.3`，
+    `* 100 | 0` 得到 1229（少一分）；字符串切分给出 1230。
+  - 千分位**先验格式再剥**：直接 `replace(/,/g,'')` 会把 `12,34`（分组写错）变成合法的 `1234`，
+    于是用户敲错的东西被悄悄当成另一个金额记进去 —— 账目对不上时没人知道自己敲错过。
+  - 第三位小数直接拒收而不是四舍五入：记账场景下"我不知道该不该进位"比"这条输了"更糟。
+  - 分类固定 8 类：自由文本会让"按类汇总"退化成一堆只出现一次的类，
+    而这张卡回答的是"钱去哪了"。要记到科目级，那是另一个工具的事。
+- **清洗层丢条目而不是丢半个**：金额不是非负整数分（小数 / 负数 / NaN / 字符串）就丢**那一条** ——
+  错账能看出来，半条账会让"总额"悄悄少一块，更难查。
+
+### 10.22 一道门禁的第二个用途：让"清单与注册表同源"不必等人跑 E2E（2026-10-04）
+
+批次 4-① 把 E2E 夹具里写死的 24 个 id 改成 `ALL_MODULE_IDS` + 一条"夹具与注册表同源"断言，
+那条断言**不开浏览器**（直接在 spec 里 import `REGISTRY`）。批次 4-② 加两张卡时它的作用立刻显形：
+不加 id 就在跑 E2E 之前先红，而不是等 100 秒跑完 22 条才发现漏了一张。
+
+### 10.23 批次四之三：四个钟共用一套机制，以及"番茄钟"为什么不是一张卡（2026-10-04）
+
+注册表 30 → **34**。这一批里最值得记的不是四张卡，而是**一次命名决策**。
+
+- **「番茄钟」被降级成一个预设。** 番茄工作法是一套预设值（专注 25 / 短休 5 / 每 4 段长休 15），
+  不是一种计时机制 —— 它的机制就是"倒计时 + 到点自动切段"，那正是「间歇计时」。
+  给一套预设单独发一张卡，卡片的承诺就超过了它保证的范围：用户会以为它默认 25/5、
+  能数番茄、四个一循环，而这些都不该由一张工作台卡片担保。
+  于是它成了间歇计时里的一个预设；要 50/10、90/15 是改预设表的一行，不是再发一张卡。
+  这个判断**反过来也修正了排序**：本目录早先把"番茄钟"标成"最贵、最后做"，而它其实**最便宜**
+  —— 机制与倒计时共用，只差一个相位表。
+- **一套机制，四种投影。** 四个钟共用 `RunState = { running, startedAt, accumulatedMs }`，
+  剩下全是投影：正计时显示 `elapsed`；倒计时显示 `duration - elapsed`；间歇与呼吸是
+  "倒计时 + 到点换一段"。分四套实现意味着四份计时偏差、四份恢复逻辑、四个"为什么这张卡跳了一秒"。
+- **硬纪律：存时间戳，不存累加计数器。**
+  `setInterval(1000)` 每秒 `acc += 1000` 在后台标签页会被节流到一分钟一次，
+  于是它记的时间比真实时间少一大截 —— 用户回来发现"我明明过了十分钟"。
+  `setInterval` 只负责重绘，不负责计时；累加值只在**暂停**时写回。
+  持久化也只存 `startedAt` + `accumulatedMs`，不存"当前已跑多少秒" ——
+  后者只对"写它的那一瞬间"成立。
+- **一处诚实说明**：这一版**不做跨重启恢复运行态** —— 读回来时把 `startedAt` 当 0 处理，
+  钟停在设定值、显示「开始」。理由是要正确恢复得处理"运行时改系统时钟""跨休眠"等情况，
+  那是需要真机验证的一块；宁可先给一个明确的行为，也不要"看起来该有"的行为。
+- 呼吸节奏的拍子由"已跑多久"映射而来，不自己推进，所以**后台被节流也不会走错拍**。
+  动效只驱动 `transform`（走合成层），`prefers-reduced-motion` 由全局样式关掉。
 
 ---
 

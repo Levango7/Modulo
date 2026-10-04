@@ -10,12 +10,10 @@ import BackupSection from './BackupSection.vue'
 import SchemesSection from './SchemesSection.vue'
 import VersionSection from './VersionSection.vue'
 import type { AppearanceApi } from '../useAppearance'
-import type { SchemesApi } from '../useSchemes'
 
 defineEmits<{ (e: 'close'): void }>()
 const appearance = inject<AppearanceApi>('appearance')!
 const a = appearance.state
-const schemes = inject<SchemesApi>('schemes')!
 const shell = inject<ShellApi>('shell')!
 const panelEl = ref<HTMLElement | null>(null)
 useFocusTrap(panelEl)
@@ -69,7 +67,7 @@ onBeforeUnmount(stopRecord)
   <div class="scrim" @click.self="$emit('close')">
     <div ref="panelEl" class="panel" role="dialog" aria-modal="true" aria-label="设置" tabindex="-1">
       <header class="head">
-        <h2>外观</h2>
+        <h2>设置</h2>
         <button class="x" title="关闭 (Esc)" @click="$emit('close')"><X :size="16" /></button>
       </header>
 

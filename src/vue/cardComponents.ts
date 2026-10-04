@@ -7,10 +7,20 @@ import WeatherCard from '../app/cards/WeatherCard.vue'
 import CalendarCard from '../app/cards/CalendarCard.vue'
 import ProgressCard from '../app/cards/ProgressCard.vue'
 import WorldClockCard from '../app/cards/WorldClockCard.vue'
+import MeetingCard from '../app/cards/MeetingCard.vue'
 import CountdownCard from '../app/cards/CountdownCard.vue'
 import DateToolsCard from '../app/cards/DateToolsCard.vue'
 import ElapsedCard from '../app/cards/ElapsedCard.vue'
 import HabitCard from '../app/cards/HabitCard.vue'
+import BirthdayCard from '../app/cards/BirthdayCard.vue'
+import FocusCard from '../app/cards/FocusCard.vue'
+import MonthStatCard from '../app/cards/MonthStatCard.vue'
+import StopwatchCard from '../app/cards/StopwatchCard.vue'
+import TimerCard from '../app/cards/TimerCard.vue'
+import IntervalCard from '../app/cards/IntervalCard.vue'
+import BreathCard from '../app/cards/BreathCard.vue'
+import LedgerCard from '../app/cards/LedgerCard.vue'
+import PickCard from '../app/cards/PickCard.vue'
 import CalculatorCard from '../app/cards/CalculatorCard.vue'
 import UnitCard from '../app/cards/UnitCard.vue'
 import ColorCard from '../app/cards/ColorCard.vue'
@@ -38,16 +48,26 @@ export const CARD_COMPONENTS: Record<string, Component> = {
   calendar: CalendarCard,
   progress: ProgressCard,
   worldclock: WorldClockCard,
+  meeting: MeetingCard,
   countdown: CountdownCard,
   dtools: DateToolsCard,
   elapsed: ElapsedCard,
+  stopwatch: StopwatchCard,
+  timer: TimerCard,
+  interval: IntervalCard,
+  breath: BreathCard,
   habit: HabitCard,
+  birthday: BirthdayCard,
+  focus: FocusCard,
+  monthstat: MonthStatCard,
+  ledger: LedgerCard,
   calc: CalculatorCard,
   unitconv: UnitCard,
   colorconv: ColorCard,
   textstat: TextStatCard,
   randomnum: RandomCard,
   baseconv: BaseCard,
+  pick: PickCard,
   fx: FxCard,
   air: AirCard,
   repo: RepoCard,

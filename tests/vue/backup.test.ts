@@ -29,6 +29,28 @@ const cardData: CardData = {
   countdown: { label: '元旦', date: '2027-01-01' },
   elapsed: { label: '不喝奶茶', date: '2026-10-01' },
   habit: { name: '早起', days: ['2026-10-15', '2026-10-16'] },
+  birthdays: [
+    { id: 'b1', name: '妈妈', month: 3, day: 5, year: 1962 },
+    { id: 'b2', name: '老陈', month: 11, day: 30 },
+  ],
+  pickList: [
+    { id: 'p1', label: '取快递', weight: 3 },
+    { id: 'p2', label: '浇花', weight: 1 },
+  ],
+  ledger: {
+    symbol: '¥',
+    entries: [
+      { id: 'e1', date: '2026-10-02', cents: 2550, category: '餐饮', note: '午饭' },
+      { id: 'e2', date: '2026-10-03', cents: 1200, category: '交通', note: '地铁' },
+    ],
+  },
+  meeting: { cityIds: ['shanghai', 'london'], at: '20:00', minutes: 60, title: '双周同步' },
+  timers: {
+    stopwatch: { accumulatedMs: 12_345, startedAt: null },
+    countdown: { minutes: 15, accumulatedMs: 0, startedAt: null },
+    interval: { presetId: 'fifty-ten', completedFocus: 2, phaseIndex: 5, accumulatedMs: 0, startedAt: null },
+    breath: { patternId: 'relax-478', accumulatedMs: 3_000, startedAt: null },
+  },
 }
 
 function makePayload(over: Partial<Parameters<typeof buildBackup>[0]> = {}) {
@@ -52,6 +74,30 @@ describe('buildBackup：三样东西必须都在里面', () => {
     expect(back.summary).toEqual({ modules: 2, todos: 2, notes: 1, sticky: true, schemes: 1, countdown: true })
   })
 
+  it('包里带导出时刻，且时钟是注入的 —— 导出这刻因此可测', () => {
+    const payload = makePayload({ now: () => new Date('2026-10-04T08:30:00.000Z') })
+    expect(payload.createdAt).toBe('2026-10-04T08:30:00.000Z')
+    const back = parseBackup(backupToJson(payload), REGISTRY)
+    expect(back.meta).toEqual({ app: '0.2.0', version: BACKUP_VERSION, createdAt: '2026-10-04T08:30:00.000Z' })
+  })
+
+  it('v1 旧包没有 createdAt：meta 如实说 null，并留一句 warning，不当成坏包', () => {
+    const raw = backupToJson(makePayload())
+    const obj = JSON.parse(raw) as Record<string, unknown>
+    delete obj.createdAt
+    const back = parseBackup(JSON.stringify(obj), REGISTRY)
+    expect(back.kind).toBe('backup')
+    expect(back.meta).toEqual({ app: '0.2.0', version: BACKUP_VERSION, createdAt: null })
+    expect(back.warnings.some((w) => w.includes('没有记录导出时间'))).toBe(true)
+  })
+
+  it('旧版布局 / 方案册导出没有 meta —— 它们本来就不是备份包', () => {
+    const layoutOnly = parseBackup(JSON.stringify(layout), REGISTRY)
+    expect(layoutOnly.kind).toBe('layout')
+    expect(layoutOnly.meta).toBeNull()
+    expect(parseBackup(JSON.stringify(book), REGISTRY).meta).toBeNull()
+  })
+
   it('没设过倒数日时 summary 如实说不（确认框不该凭空多一句）', () => {
     const back = parseBackup(backupToJson(makePayload({ cardData: { ...cardData, countdown: { label: '', date: '' } } })), REGISTRY)
     expect(back.summary.countdown).toBe(false)
@@ -65,6 +111,16 @@ describe('buildBackup：三样东西必须都在里面', () => {
       countdown: { label: '原样', date: '2027-01-01' },
       elapsed: { label: '原样', date: '2026-10-01' },
       habit: { name: '原样', days: ['2026-10-15'] },
+      birthdays: [{ id: 'b1', name: '原样', month: 3, day: 5 }],
+      pickList: [{ id: 'p1', label: '原样', weight: 2 }],
+      ledger: { symbol: '¥', entries: [{ id: 'e1', date: '2026-10-01', cents: 100, category: '其他', note: '原样' }] },
+      meeting: { cityIds: ['shanghai'], at: '09:00', minutes: 30, title: '原样' },
+      timers: {
+        stopwatch: { accumulatedMs: 1000, startedAt: null },
+        countdown: { minutes: 5, accumulatedMs: 0, startedAt: null },
+        interval: { presetId: 'pomodoro', completedFocus: 0, phaseIndex: 0, accumulatedMs: 0, startedAt: null },
+        breath: { patternId: 'box', accumulatedMs: 0, startedAt: null },
+      },
     }
     const payload = makePayload({ cardData: live })
     live.sticky = '后来改的'

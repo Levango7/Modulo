@@ -6,7 +6,7 @@
  * 算术在引擎（`@modulo/engine/progress`，含闰年与"还剩几小时"的边界）；这里 30 秒一跳，
  * 只为让百分比跟着走 —— 没必要每秒重画。
  */
-import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
+import { computed, onBeforeUnmount, ref } from 'vue'
 import { formatPct, progressOf } from '@modulo/engine/progress'
 
 const props = defineProps<{ variant: string }>()

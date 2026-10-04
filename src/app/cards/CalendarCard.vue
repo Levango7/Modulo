@@ -5,7 +5,7 @@
  * 日期算术全在引擎（`@modulo/engine/calendar`）—— 那层有闰年/跨年/补位的单测，
  * 这里只剩"视图状态 + 每分钟让'今天'别过期"。60 秒一跳是为了跨零点：卡片常开着。
  */
-import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
+import { computed, onBeforeUnmount, ref } from 'vue'
 import { monthGrid, shiftMonth } from '@modulo/engine/calendar'
 import { ChevronLeft, ChevronRight } from 'lucide-vue-next'
 

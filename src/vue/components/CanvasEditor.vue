@@ -1,9 +1,10 @@
 <script setup lang="ts">
-import { computed, inject, nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
+import { computed, inject, onBeforeUnmount, onMounted, ref } from 'vue'
 import * as E from '@modulo/engine'
 import { Lock, LockOpen, Shuffle, X, LayoutGrid, Trash2 } from 'lucide-vue-next'
 import type { LayoutStore } from '../store'
 import { useCanvasDrag } from '../useCanvasDrag'
+import { useCellFocus } from '../useCellFocus'
 import { cellIntent, globalIntent, isEditableTarget, shouldPrevent } from '../keyboard'
 
 const store = inject<LayoutStore>('store')!
@@ -42,26 +43,7 @@ function cellStyle(p: E.Placement) {
 }
 
 /* ---- 焦点跟随：删除/移动后焦点不能丢进 body，聚焦的格子要滚进视口 ---- */
-const cellEls = new Map<string, HTMLElement>()
-function setCellRef(id: string, el: unknown) {
-  if (el) cellEls.set(id, el as HTMLElement)
-  else cellEls.delete(id)
-}
-function focusCell(id: string) {
-  nextTick(() => {
-    const el = cellEls.get(id)
-    if (!el) return
-    el.focus()
-    el.scrollIntoView({ block: 'nearest', inline: 'nearest' })
-  })
-}
-function focusNearest(candidates: E.Placement[], from: E.Rect) {
-  if (!candidates.length) return
-  const cx = from.x + from.w / 2
-  const cy = from.y + from.h / 2
-  const dist = (p: E.Placement) => Math.hypot(p.x + p.w / 2 - cx, p.y + p.h / 2 - cy)
-  focusCell([...candidates].sort((a, b) => dist(a) - dist(b))[0].id)
-}
+const { setCellRef, focusNearest } = useCellFocus()
 
 function clearSel() {
   sel.value = new Set()

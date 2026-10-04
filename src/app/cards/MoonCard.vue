@@ -3,7 +3,7 @@
  * 月相：纯本地计算（朔望月近似，±半天上下），不联网、不加 CSP。
  * 卡片上写 **≈** —— 要精确到小时那是天文年历的事。动画只用一个圆 + 阴影的近似画法。
  */
-import { computed, inject, onBeforeUnmount, onMounted, ref } from 'vue'
+import { computed, onBeforeUnmount, ref } from 'vue'
 import { daysToFullMoon, moonPhase } from '@modulo/engine/moon'
 
 const props = defineProps<{ variant: string }>()
