@@ -38,6 +38,23 @@ tauri.conf.json / useBackup.ts / packages/engine/package.json），由 `docs:che
 > 判据是 `/json/list` 里的 `url`：空或 localhost 就是二进制不对，不是端口没开。
 > 出包要走 `npm run tauri:build -- --no-bundle`。
 
+### 构建产物与签名现状（2026-10-05 本地构建）
+
+- NSIS 安装包已由 `npm run tauri:build` 产出：
+  `src-tauri/target/release/bundle/nsis/Modulo_0.5.0_x64-setup.exe`
+  （2,843,078 字节，SHA-256 `B2854476313ECF8752B0F5801229FDB2818815D82C4C921526F1B04F26EB79EE`）。
+- 同一次构建在「更新器签名」这一步退出码 1：构建机上**没有** `TAURI_SIGNING_PRIVATE_KEY`，
+  所以更新清单 `latest.json` 与 `.sig` 没有生成。**应用内自动更新需要它。**
+  不要用新私钥顶替老的、或临时去掉 `tauri.conf.json` 里的公钥 —— 两种都会让
+  已安装 0.4.0 的客户端**无法再验签升级**。
+  拿到私钥后，重新执行即可（签名完成后会自动接着签最更新的 manifest）：
+  ```
+  TAURI_SIGNING_PRIVATE_KEY=<私钥路径或内容> npm run tauri:build
+  node scripts/make-latest-json.mjs
+  ```
+  `make-latest-json.mjs` 会自检 `.sig` 是否带 `version:` 绑定（防降级）及版本是否与
+  `package.json` 对齐；不过关不出清单。
+
 ## 未发布 —— 批次 4-④：月度热力图 / 快捷链接 / 整数位计算 / 值班表（2026-10-04）
 
 注册表 34 → **38**，**批次四收官**。这一批的共同点是每张卡都在某处**主动放弃了
