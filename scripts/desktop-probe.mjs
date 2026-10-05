@@ -730,6 +730,28 @@ try {
       wall.ok && wall.url.startsWith('https://www.bing.com/th?id=') && wall.url.length > 32 && /^\d{8}$/.test(wall.startDate),
       wall,
     )
+
+    // 网页监控的边界：命令在，私网地址被挡住了，明文 http 也被挡住。
+    // 这三条正是这张卡承诺的东西，所以必须在真壳里验 —— 前端那份校验可以被 XSS 绕过，
+    // Rust 那份才是安全边界。
+    const mon = await page.evaluate(async () => {
+      const ask = async (url) => {
+        try {
+          const r = await window.__TAURI_INTERNALS__.invoke('web_probe', { url })
+          return { url, error: r?.error ?? '', elapsed: r?.elapsedMs ?? -1 }
+        } catch (e) {
+          return { url, error: `invoke 失败: ${String(e)}`, elapsed: -1 }
+        }
+      }
+      return {
+        blocked: await ask('https://127.0.0.1/'),
+        blockedMeta: await ask('https://169.254.169.254/latest/meta-data/'),
+        plaintext: await ask('http://example.com/'),
+      }
+    })
+    check('网页监控：私网回环地址被边界挡住', mon.blocked.error !== '' && mon.blocked.elapsed === 0, mon.blocked)
+    check('网页监控：云元数据端点被边界挡住', mon.blockedMeta.error !== '', mon.blockedMeta)
+    check('网页监控：明文 http 被边界挡住', mon.plaintext.error !== '', mon.plaintext)
   }
 
   await stop(app)

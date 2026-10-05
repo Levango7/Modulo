@@ -23,6 +23,7 @@ import HeatmapCard from '../app/cards/HeatmapCard.vue'
 import LinksCard from '../app/cards/LinksCard.vue'
 import FixedCard from '../app/cards/FixedCard.vue'
 import DailyImageCard from '../app/cards/DailyImageCard.vue'
+import WebMonitorCard from '../app/cards/WebMonitorCard.vue'
 import YearCalendarCard from '../app/cards/YearCalendarCard.vue'
 import DutyCard from '../app/cards/DutyCard.vue'
 import LedgerCard from '../app/cards/LedgerCard.vue'
@@ -68,6 +69,7 @@ export const CARD_COMPONENTS: Record<string, Component> = {
   duty: DutyCard,
   yearcalendar: YearCalendarCard,
   dailyimage: DailyImageCard,
+  webmonitor: WebMonitorCard,
   habit: HabitCard,
   birthday: BirthdayCard,
   focus: FocusCard,

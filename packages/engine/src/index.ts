@@ -27,6 +27,8 @@ export * from './meeting.js'
 export * from './timer.js'
 export * from './heatmap.js'
 export * from './links.js'
+
+export * from './watch.js'
 export * from './fixed.js'
 export * from './shift.js'
 export * from './yearcalendar.js'

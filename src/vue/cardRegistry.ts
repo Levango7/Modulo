@@ -316,6 +316,17 @@ export const REGISTRY: ModuleRegistry = [
       { id: 'strip', name: '横条', minW: 3, minH: 2, idealW: 4, idealH: 3 },
     ],
   },
+  {
+    id: 'webmonitor',
+    title: '网页监控',
+    group: '联网',
+    blurb: '探活一份 https 名单（不碰私有网段）',
+    defaultVariant: 'rows',
+    variants: [
+      { id: 'rows', name: '逐条', minW: 2, minH: 3, idealW: 3, idealH: 5 },
+      { id: 'compact', name: '紧凑', minW: 3, minH: 2, idealW: 4, idealH: 3 },
+    ],
+  },
   // ---- 联网 ----
   {
     id: 'weather',

@@ -63,6 +63,7 @@ export function emptyCardData(): CardData {
       breath: { patternId: 'box', accumulatedMs: 0, startedAt: null },
     },
     links: [],
+  watch: [],
     fixed: { base: '', rate: '', symbol: '' },
     duty: { roster: [], anchor: '' },
   }
@@ -100,6 +101,7 @@ export function buildBackup(input: BackupInput): BackupPayload {
         breath: { ...input.cardData.timers.breath },
       },
       links: input.cardData.links.map((l) => ({ ...l })),
+  watch: input.cardData.watch.map((w) => ({ ...w })),
       fixed: { ...input.cardData.fixed },
       duty: { ...input.cardData.duty, roster: [...input.cardData.duty.roster] },
     },

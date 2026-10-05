@@ -1,4 +1,4 @@
-﻿import { describe, expect, it } from 'vitest'
+import { describe, expect, it } from 'vitest'
 import { sanitizeCardData, type CardData } from '../../src/vue/cardData'
 
 const fallback: CardData = {
@@ -19,6 +19,7 @@ const fallback: CardData = {
     breath: { patternId: 'box', accumulatedMs: 0, startedAt: null },
   },
   links: [],
+  watch: [],
   fixed: { base: '', rate: '', symbol: '¥' },
   duty: { roster: [], anchor: '' },
 }
@@ -39,6 +40,7 @@ describe('sanitizeCardData：盘上数据先清洗再用', () => {
       meeting: fallback.meeting,
       timers: fallback.timers,
       links: [],
+  watch: [],
       fixed: fallback.fixed,
       duty: fallback.duty,
     })
@@ -98,7 +100,7 @@ describe('sanitizeCardData：盘上数据先清洗再用', () => {
   it('__proto__ 之类的键不会漏进状态：只认白名单字段', () => {
     const r = sanitizeCardData(JSON.parse('{"__proto__":{"polluted":1},"sticky":"ok"}'), fallback)
     expect(Object.keys(r).sort()).toEqual([
-      'birthdays', 'countdown', 'duty', 'elapsed', 'fixed', 'habit', 'ledger', 'links', 'meeting', 'notes', 'pickList', 'sticky', 'timers', 'todos',
+      'birthdays', 'countdown', 'duty', 'elapsed', 'fixed', 'habit', 'ledger', 'links', 'meeting', 'notes', 'pickList', 'sticky', 'timers', 'todos', 'watch',
     ])
     expect({} as Record<string, unknown>).not.toHaveProperty('polluted')
   })

@@ -1,4 +1,4 @@
-﻿import { reactive, watch } from 'vue'
+import { reactive, watch } from 'vue'
 import {
   isValidBirthday,
   isValidDate,
@@ -6,9 +6,12 @@ import {
   MAX_CENTS,
   MAX_MINUTES,
   normalizeHhmm,
+  normalizeUrl,
   sanitizeLinks,
+  sanitizeWatch,
   sanitizeMeetingCityIds,
   type QuickLink,
+  type Watch,
 } from '@modulo/engine'
 import { browserStorage } from './store'
 
@@ -155,6 +158,8 @@ export interface CardData {
   timers: TimerStore
   /** 快捷链接：点一下复制（不做"打开"—— 那要 opener 插件，见 links.ts 文件头） */
   links: QuickLink[]
+  /** 网页监控的名单。边界（只 https、不许私网 IP）见 watch.ts 文件头 */
+  watch: Watch[]
   /** 固定整数位计算的输入草稿；结果全在引擎算，这里只存两个输入 */
   fixed: { base: string; rate: string; symbol: string }
   duty: DutySetting
@@ -419,6 +424,15 @@ const pickSeen = new Set<string>()
     // 快捷链接走引擎的 `sanitizeLinks`：协议白名单、去重、排序、id 唯一都在那边，
     // 这里**不重复实现一遍** —— 两份清单迟早不一致，而不一致之后没人知道哪份对
     links: Array.isArray(o.links) ? sanitizeLinks(o.links as { id?: unknown; label?: unknown; href?: unknown }[]) : fallback.links,
+    // 同理走引擎的 `sanitizeWatch`。它比 sanitizeLinks 多做一件事：**丢弃不合规的条目并计数**。
+    // 那是边界 5（导入别人的备份时不该把私网地址带进来）—— 被挡掉的条数要回显给用户，
+    // 否则他只会看到自己的名单莫名其妙少了几条。
+    watch: (() => {
+      if (!Array.isArray(o.watch)) return fallback.watch
+      const r = sanitizeWatch(o.watch as { id?: unknown; label?: unknown; url?: unknown }[])
+      if (r.rejected > 0) console.warn(`导入的网页监控名单里有 ${r.rejected} 条不合规（不是 https，或指向私有网段），已丢弃`)
+      return r.watch
+    })(),
     fixed: {
       base: typeof o.fixed === 'object' && o.fixed !== null && !Array.isArray(o.fixed) ? textOf((o.fixed as Record<string, unknown>).base, 20).trim() : fallback.fixed.base,
       rate: typeof o.fixed === 'object' && o.fixed !== null && !Array.isArray(o.fixed) ? textOf((o.fixed as Record<string, unknown>).rate, 12).trim() : fallback.fixed.rate,
@@ -476,6 +490,7 @@ export function createCardData(storage = browserStorage()) {
       breath: { patternId: 'box', accumulatedMs: 0, startedAt: null },
     },
     links: [],
+  watch: [],
     fixed: { base: '', rate: '', symbol: '¥' },
     duty: { roster: [], anchor: '' },
   }
@@ -497,6 +512,7 @@ export function createCardData(storage = browserStorage()) {
       pickList: [...state.pickList],
       'ledger.entries': state.ledger.entries.map((r) => ({ ...r })),
       links: [...state.links],
+  watch: [...state.watch],
       'duty.roster': [...state.duty.roster],
       timers: {
         stopwatch: { ...state.timers.stopwatch },
@@ -637,6 +653,21 @@ export function createCardData(storage = browserStorage()) {
     },
     removeLink(id: string) {
       state.links = state.links.filter((l) => l.id !== id)
+    },
+    /**
+     * 加一条监控。`normalizeUrl` 先在**前端**过一遍边界，用户敲错时立刻有反馈；
+     * 但这**不是**安全边界 —— 页面能被 XSS 改，真正的判定在 Rust 侧（`net.rs`），
+     * 两边各判一次是有意的冗余，不是重复实现。
+     */
+    addWatch(label: string, url: string) {
+      const clean = normalizeUrl(url)
+      if (!clean) return
+      const r = sanitizeWatch([...state.watch, { label, url: clean }])
+      if (r.watch.length === state.watch.length && !r.watch.some((w) => w.url === clean)) return
+      state.watch = r.watch
+    },
+    removeWatch(id: string) {
+      state.watch = state.watch.filter((w) => w.id !== id)
     },
     setFixed(base: string, rate: string) {
       state.fixed.base = base.slice(0, 20)

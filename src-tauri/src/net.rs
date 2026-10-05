@@ -104,20 +104,36 @@ pub fn split_target(url: &str) -> Result<(String, String), String> {
         &rest[slash..]
     };
 
-    // authority 形如 host 或 host:port。端口不参与边界判定，但空 host 要拒绝。
-    let host_port = authority.split('@').next_back().unwrap_or(authority);
-    let host = host_port
-        .split(':')
-        .next()
-        .unwrap_or("")
-        .trim()
-        .trim_start_matches('[')
-        .trim_end_matches(']');
+    // authority 形如 host、host:port 或 [v6]:port。
+    // 先去掉 userinfo（`user:pass@`）—— 它不该被当成主机名的一部分。
+    let authority = authority.split('@').next_back().unwrap_or(authority);
+
+    // **IPv6 字面量必须先按方括号处理，不能直接 split(':')**：地址里到处是冒号，
+    // 按冒号切会把 `2001:db8::1` 截成 `2001`，而 `fc00::1` 会变成 `fc00` ——
+    // 那是个能解析成功的 IPv4 形状等于「不在私网段里」，等于把边界漏了。
+    let (host, port_str) = if let Some(rest) = authority.strip_prefix('[') {
+        match rest.split_once(']') {
+            Some((inside, after)) => (inside, after.strip_prefix(':')),
+            None => return Err(format!("IPv6 字面量缺右方括号：{url}")),
+        }
+    } else {
+        match authority.split_once(':') {
+            Some((h, p)) => (h, Some(p)),
+            None => (authority, None),
+        }
+    };
+
+    let host = host.trim();
     if host.is_empty() {
         return Err(format!("URL 里没有主机名：{url}"));
     }
     if host.contains(char::is_whitespace) {
         return Err(format!("主机名里有空白字符：{url}"));
+    }
+    if let Some(p) = port_str {
+        if p.is_empty() || !p.bytes().all(|b| b.is_ascii_digit()) {
+            return Err(format!("端口不是数字：{url}"));
+        }
     }
     if let Some(reason) = blocked_ip_reason(host) {
         return Err(format!("{reason}（{host}）"));
@@ -139,7 +155,11 @@ fn blocked_ip_reason(host: &str) -> Option<&'static str> {
         if (ip.octets()[0] & 0xFE) == 0xFC {
             return Some("拒绝 fc00::/7（唯一本地地址）");
         }
-        if (ip.octets()[0] & 0xC0) == 0x80 {
+        // fe80::/10：前 10 位是 1111111010，跨了两个字节 ——
+        // 只看头一个字节的话 fe80 的头字节是 0xfe，得同时要求第二字节高两位为 10。
+        // 写成 `(o[0] & 0xC0) == 0x80` 会漏掉整个 fe80::/10（0xfe & 0xc0 = 0xc0 ≠ 0x80）。
+        let o = ip.octets();
+        if o[0] == 0xFE && (o[1] & 0xC0) == 0x80 {
             return Some("拒绝 fe80::/10（链路本地）");
         }
         // IPv4-mapped（::ffff:a.b.c.d）要看被映射的那个 v4，否则 ::ffff:127.0.0.1 会漏网
@@ -216,11 +236,20 @@ mod tests {
             split_target("https://example.com:8443/x").unwrap(),
             ("example.com".into(), "/x".into())
         );
-        // IPv6 字面量带方括号
+        // IPv6 字面量带方括号 —— 这里最容易写错：按冒号切会把地址截断，
+        // 而截断出来的 `fc00` 是个能解析成功的 IPv4 形状，等于把私网边界漏了
         assert_eq!(
             split_target("https://[2001:db8::1]/x").unwrap(),
             ("2001:db8::1".into(), "/x".into())
         );
+        assert_eq!(
+            split_target("https://[2001:db8::1]:8443/x").unwrap(),
+            ("2001:db8::1".into(), "/x".into())
+        );
+        // 方括号没闭合 / 端口不是数字，都该明确报错而不是猜
+        assert!(split_target("https://[2001:db8::1/x").is_err());
+        assert!(split_target("https://example.com:8a3/x").is_err());
+        assert!(split_target("https://example.com:/x").is_err());
     }
 
     /// 边界 2 的核心断言。这些网段每一个都对应一类真实攻击或真实误伤。
@@ -238,7 +267,8 @@ mod tests {
             "https://100.64.0.1/", // CGNAT 下沿
             "https://[::1]/",
             "https://[fc00::1]/",
-            "https://[fe80::1]/",
+            "https://[fe80::1]/",          // 链路本地
+            "https://[febf:ffff::1]/",     // fe80::/10 的上沿
             "https://[::ffff:127.0.0.1]/", // IPv4-mapped 绕过
         ] {
             let r = split_target(bad);
@@ -258,6 +288,8 @@ mod tests {
             "https://9.255.255.255/",
             "https://1.1.1.1/",
             "https://[2606:4700::1111]/",
+            "https://[fec0::1]/", // fe80::/10 的后一格，必须放行
+            "https://[fbff::1]/", // fc00::/7 的上沿后一格
         ] {
             assert!(split_target(ok).is_ok(), "{ok} 不该被拒");
         }

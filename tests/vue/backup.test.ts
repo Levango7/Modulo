@@ -52,6 +52,7 @@ const cardData: CardData = {
     breath: { patternId: 'relax-478', accumulatedMs: 3_000, startedAt: null },
   },
   links: [{ id: 'l1', label: '仓库', href: 'https://github.com' }],
+  watch: [],
   fixed: { base: '1,280.00', rate: '6%', symbol: '¥' },
   duty: { roster: ['张三', '李四'], anchor: '2026-01-01' },
 }
@@ -125,6 +126,7 @@ describe('buildBackup：三样东西必须都在里面', () => {
         breath: { patternId: 'box', accumulatedMs: 0, startedAt: null },
       },
       links: [{ id: 'l1', label: '原样', href: 'https://example.com' }],
+  watch: [],
       fixed: { base: '100', rate: '10%', symbol: '¥' },
       duty: { roster: ['原样'], anchor: '2026-01-01' },
     }

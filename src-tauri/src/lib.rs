@@ -8,6 +8,7 @@ use std::sync::Mutex;
  * （STATUS_ENTRYPOINT_NOT_FOUND），一个测试都跑不了。已排除的原因见 `src/web.rs`
  * 里 winhttp 模块的注释。纯解析函数不受影响，仍在测试壳里正常跑单测。
  */
+pub mod monitor;
 pub mod net;
 pub mod web;
 
@@ -359,7 +360,8 @@ pub fn run() {
             storage::read_doc,
             storage::write_doc,
             storage::data_dir,
-            web::bing_daily
+            web::bing_daily,
+            monitor::web_probe
         ])
         .on_window_event(|window, event| {
             if let WindowEvent::CloseRequested { api, .. } = event {
