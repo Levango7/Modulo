@@ -219,7 +219,7 @@ function shiftTime(deltaMin: number): void {
 }
 .day {
   font-style: normal;
-  font-size: 0.85em;
+  font-size: clamp(11px, 2cqw, 13px);
   color: var(--text-3);
 }
 .cv {
