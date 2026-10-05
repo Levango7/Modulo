@@ -2,7 +2,15 @@ name: CI
 
 on:
   push:
+    branches: ['**']
+    tags: ['v*']
   pull_request:
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: '发布标签，如 v0.5.0（不填则仅跑常规 CI，不打安装包）'
+        required: false
+        type: string
 
 jobs:
   verify:
@@ -79,4 +87,79 @@ jobs:
         with:
           name: modulo-windows-x64-exe
           path: src-tauri/target/release/modulo.exe
+          if-no-files-found: error
+
+  # 发布：打 v* 标签（或手动触发 workflow_dispatch + 有 release-tag 输入）才跑。
+  # 设计意图：PR/分支推送**不打安装包**（那一步要 30+ 分钟），只走 verify/desktop；
+  # 打 tag 才走 release，把安装包 + 签名 + 更新清单一起产出并挂到 GitHub Release。
+  release:
+    name: 发布（v* 标签）
+    # 只有 tag 推送（或手动触发且显式填了 release_tag）才进来；PR 与分支推送都不跑
+    if: >
+      (github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')) ||
+      (github.event_name == 'workflow_dispatch' && inputs.release_tag != '')
+    runs-on: windows-latest
+    timeout-minutes: 60
+    # 需要写权限才能用 gh 创建 Release；Secrets 里得先配 TAURI_SIGNING_PRIVATE_KEY
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+      - run: npm ci
+
+      # 版本号三处对齐先挡一次：tag 必须等于 package.json 里的版本，否则 `make-latest-json`
+      # 的 signedVersion 校验也会在出清单前挡。这里少挡一层就是发布一个张冠李戴的版本
+      - name: 校验 tag 与 package.json 版本一致
+        shell: pwsh
+        run: |
+          $tag = '${{ github.event.inputs.release_tag }}'
+          if (-not $tag) { $tag = '${{ github.ref_name }}' }
+          $version = (node -p "require('./package.json').version")
+          $expect = $tag -replace '^v', ''
+          if ($version -ne $expect) {
+            Write-Error "tag 是 v$expect，但 package.json 版本是 $version，两处不一致，拒绝发布"
+            exit 1
+          }
+
+      # 与本机出包同一条命令；tauri build 会签名更新产物（.sig），并跑 NSIS 出安装包
+      - name: 出包并签名（产物：安装包 + exe.sig）
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+        run: npm run tauri:build
+
+      - name: 生成更新清单 latest.json（含 signedVersion 自检）
+        run: node scripts/make-latest-json.mjs
+
+      # 直接用 runner 自带的 gh CLI 挂到 Release，不引入额外第三方 action
+      - name: 挂 GitHub Release（安装包 + .sig + latest.json）
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ github.event.inputs.release_tag || github.ref_name }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $nsis = "src-tauri\target\release\bundle\nsis"
+          # 文件名里的版本要从 package.json 读，不要写死
+          $v = (node -p "require('./package.json').version")
+          $exe = "$nsis\Modulo_${v}_x64-setup.exe"
+          if (-not (Test-Path $exe)) { Write-Error "出包没出成功：$exe 不在"; exit 1 }
+          if (-not (Test-Path "$nsis\Modulo_${v}_x64-setup.exe.sig")) { Write-Error "签名没出来，检查 TAURI_SIGNING_PRIVATE_KEY"; exit 1 }
+          if (-not (Test-Path "$nsis\latest.json")) { Write-Error "latest.json 没出来，检查 make-latest-json 是否通过"; exit 1 }
+          gh release create "$env:TAG" "$exe" "$nsis\Modulo_${v}_x64-setup.exe.sig" "$nsis\latest.json" --title "Modulo $env:TAG" --draft --generate-notes
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: 保留产物（发布失败时也能从 artifact 拿到）
+        uses: actions/upload-artifact@v4
+        with:
+          name: modulo-release-nsis
+          path: |
+            src-tauri/target/release/bundle/nsis/
           if-no-files-found: error
