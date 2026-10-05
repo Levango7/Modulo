@@ -12,29 +12,36 @@
   闰年与世纪年按真实日历规则算；`daysInMonthOf` 直接复用 `heatmap` 那份，
   不重写第二遍历法（世纪年 1900/2000 的断言也一并挪进 heatmap 的单测）。
   这张卡**只读**：在年历上标注要等便签/待办长出日期维度。
-
-### 明确不做
-
-- **每日一图 / 网页监控**：目录里最后两张，都**没有开工**。理由分别是：
-  - 网页监控：任意 URL 的网页监控就是 SSRF 的标准入口 —— 内网地址、云元数据端点、
-    只在内网可达的管理页面都在射程内。正解是先有代理 + 域名白名单 + 频率限制，
-    而不是放一个输入框让用户填 URL 再由桌面端去请求。
-  - 每日一图：Bing 的 `HPImageArchive.aspx` 不返回 ACAO，WebView2 的前端 `fetch`
-    必然被 CORS 拦；社区接口（oioweb / thinkercn / vvhan / moing）在本机分别是
-    TLS 失败、DNS 失败、超时。走桌面侧 Rust 取数是正解，但**本项目当前链接不出来**：
-    给 `modulo` 加上 `reqwest` 依赖后（`Cargo.lock` 只多一行、没有引入任何新 crate），
-    lib 的测试二进制在 windows-gnu 下会加载失败 —— `STATUS_ENTRYPOINT_NOT_FOUND`
-    （0xC0000139），`cargo test` 一个测试都跑不了。已定位到触发条件是链接结果的
-    临界跳变（同一份源码只差一个 `const &str` 的写法就从能跑变成不能跑），
-    不是语义问题，也没找到能从项目侧修掉的办法。
-    在没有 HTTP 客户端可用之前，这张卡停在目录里。
+- **每日一图**（第 41 张卡）：Bing 每日壁纸 + 版权文案，可手动刷新。
+- **Rust 命令 `bing_daily` + `src-tauri/src/web.rs`**：取数走桌面侧，**不引入任何新 crate** ——
+  Windows 上直接用系统自带的 WinHTTP（`#[link(name = "winhttp")]`）。
+  这是这张卡能成立的前提：Bing 的 `HPImageArchive.aspx` 不返回 ACAO，WebView2 的前端
+  `fetch` 必然被 CORS 拦；曾试过的社区接口（oioweb / thinkercn / vvhan / moing）
+  在本机分别 TLS 失败、DNS 失败、超时，Wikimedia 官方接口也超时。
+  CSP 只在 `img-src` 放行 bing，`connect-src` **刻意不放行**（取数面已不在前端）。
+- `tests/bing_live.rs`：三条 `#[ignore]` 的网络实打测试（默认不跑），
+  验的不只是「今天有图」，还有「取不到时确实报错」「只接受 https」。
 
 ### 门禁
 
-- 前端：vue-tsc + tsc 干净 · **828 单测（61 文件）**· 受测层分支覆盖 ≥95%（门禁 90）·
-  build 通过 · E2E 22 条（**39 张卡** × 三档视口）· docs:check 数字一致。
-- Rust：`cargo fmt --check` / `clippy -D warnings` / 6 tests 全过。
-- 真机探针 49/49。
+- 前端：vue-tsc + tsc 干净 · **829 单测（61 文件）**· 受测层分支覆盖 ≥95%（门禁 90）·
+  build 通过 · E2E 22 条（**40 张卡** × 三档视口）· docs:check 数字一致。
+- Rust：`cargo fmt --check` / `clippy -D warnings` 全过 · 真机探针 **49/49**。
+- ⚠️ **`cargo test` 在开发机上加载失败**（`0xC0000139 STATUS_ENTRYPOINT_NOT_FOUND`），
+  详见下方「未解决」。CI 上是否同样失败**尚未验证**。
+
+### 未解决
+
+- `cargo test` 的测试二进制只要引用 `web` 模块就加载失败。已实测排除：
+  二进制体积（98.9 MB 也失败、119 MB 通过）、`[profile.test] debug = 1`、
+  `CARGO_INCREMENTAL=0`、静态导入（用 ctypes 逐个验证全部可解析）、
+  `WebView2Loader.dll` 不在 `deps/`、PATH 上的 mingw 版本冲突、`cargo clean` 后重编。
+  进一步的现象：只加 `#[link(name="winhttp")] extern` + 11 个函数声明 + 实际调用**能通过**，
+  换成完整实现就失败；而 `LoadLibraryExW` 能加载那个失败的 exe（导入没问题），
+  直接运行却失败 —— 卡在入口点执行阶段。**根因未定位，判断为本机环境级问题。**
+- **网页监控**：任意 URL 的网页监控就是 SSRF 的标准入口 —— 内网地址、云元数据端点、
+  只在内网可达的管理页面都在射程内。正解是先有代理 + 域名白名单 + 频率限制，
+  而不是放一个输入框让用户填 URL 再由桌面端去请求。需求边界定下来之前不开工。
 
 ## 0.5.0（2026-10-05）—— 批次四全部落地 + 一个发布阻断级修复
 

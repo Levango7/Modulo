@@ -1,4 +1,9 @@
-use std::sync::Mutex;
+﻿use std::sync::Mutex;
+
+/// `pub` 是为了让 `tests/` 里的集成测试能直接调 `bing_daily`：
+/// lib 的测试壳在这个 crate 上加载不起来（见 CHANGELOG「每日一图」），
+/// integration test 是另一个二进制，能正常跑，于是网络实打验证只能放这儿。
+pub mod web;
 
 use tauri::{AppHandle, Manager, WindowEvent};
 
@@ -347,7 +352,8 @@ pub fn run() {
             set_shortcut,
             storage::read_doc,
             storage::write_doc,
-            storage::data_dir
+            storage::data_dir,
+            web::bing_daily
         ])
         .on_window_event(|window, event| {
             if let WindowEvent::CloseRequested { api, .. } = event {

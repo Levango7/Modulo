@@ -22,6 +22,7 @@ import BreathCard from '../app/cards/BreathCard.vue'
 import HeatmapCard from '../app/cards/HeatmapCard.vue'
 import LinksCard from '../app/cards/LinksCard.vue'
 import FixedCard from '../app/cards/FixedCard.vue'
+import DailyImageCard from '../app/cards/DailyImageCard.vue'
 import YearCalendarCard from '../app/cards/YearCalendarCard.vue'
 import DutyCard from '../app/cards/DutyCard.vue'
 import LedgerCard from '../app/cards/LedgerCard.vue'
@@ -66,6 +67,7 @@ export const CARD_COMPONENTS: Record<string, Component> = {
   fixed: FixedCard,
   duty: DutyCard,
   yearcalendar: YearCalendarCard,
+  dailyimage: DailyImageCard,
   habit: HabitCard,
   birthday: BirthdayCard,
   focus: FocusCard,
