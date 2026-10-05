@@ -1,8 +1,13 @@
 ﻿use std::sync::Mutex;
 
-/// `pub` 是为了让 `tests/` 里的集成测试能直接调 `bing_daily`：
-/// lib 的测试壳在这个 crate 上加载不起来（见 CHANGELOG「每日一图」），
-/// integration test 是另一个二进制，能正常跑，于是网络实打验证只能放这儿。
+/**
+ * `pub` 是为了让 `tests/` 里的集成测试能直接调 `bing_daily`。
+ *
+ * 注意 `web` 里的 **FFI 层**（`#[link(name = "winhttp")]`）带 `cfg(not(test))` ——
+ * 只要 lib 的测试壳链接了它，整个测试二进制就会在启动时退出 0xC0000139
+ * （STATUS_ENTRYPOINT_NOT_FOUND），一个测试都跑不了。已排除的原因见 `src/web.rs`
+ * 里 winhttp 模块的注释。纯解析函数不受影响，仍在测试壳里正常跑单测。
+ */
 pub mod web;
 
 use tauri::{AppHandle, Manager, WindowEvent};

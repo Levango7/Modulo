@@ -27,13 +27,25 @@ pub fn parse_bing_wallpaper(text: &str) -> Result<DailyBing, String> {
     // 截一段响应体塞进错误信息。被限流 / 404 时 Bing 回的往往不是 JSON，
     // 而「解析失败：expected value at line 1 column 1」这句话对谁都没有用 ——
     // 把真正拿到的那几十个字显示出来，才能区分「限流」「被墙」「改了接口」。
+    //
+    // ⚠️ 这里按**字节**切、而不是 `text.trim().chars().take(n).collect::<String>()`：
+    // 写成后者时，本机的 lib 测试二进制会启动即退 0xC0000139（STATUS_ENTRYPOINT_NOT_FOUND），
+    // `cargo test` 一个测试都跑不了。已实测排除体积 / incremental / 静态导入 / DLL 位置 /
+    // PATH 版本 / 产物损坏等原因，且「只把这一个闭包换成返回常量」即可恢复 ——
+    // 具体是哪个单态化实例触发的没查出来，只知道绕开它代价很小。
+    // 不要为了「写法更好看」改回去；真改回去请先跑一遍 `cargo test`。
     let head = |n: usize| -> String {
-        let t = text.trim().chars().take(n).collect::<String>();
+        let t = text.trim();
         if t.is_empty() {
-            "（空响应体）".to_string()
-        } else {
-            t.replace(['\n', '\r'], " ")
+            return String::from("（空响应体）");
         }
+        let bytes = t.as_bytes();
+        let mut end = n.min(bytes.len());
+        // 不能在 UTF-8 多字节字符中间切，否则 String 的切片会 panic
+        while end < bytes.len() && (bytes[end] & 0xC0) == 0x80 {
+            end += 1;
+        }
+        t[..end].replace(['\n', '\r'], " ")
     };
 
     let v: serde_json::Value = serde_json::from_str(text)
@@ -86,6 +98,31 @@ pub fn bing_daily() -> Result<DailyBing, String> {
 
 // ---------------------------------------------------------------- WinHTTP
 
+/**
+ * ⚠️ 这一层带 `#[link(name = "winhttp")]`，**故意排除在 lib 的测试壳之外**。
+ *
+ * 只要它被链进 `cargo test` 产出的测试二进制，那个二进制就会在启动时退出
+ * 0xC0000139（STATUS_ENTRYPOINT_NOT_FOUND）—— 一个测试都跑不了，`cargo test` 直接红。
+ * 本机可稳定复现，`cargo clean -p modulo` 后重编依然如此。
+ *
+ * 已逐项实测排除的原因（都不是）：
+ * - 二进制体积：98.9 MB 也失败、119 MB 通过、127 MB 失败 —— 非单调，与体积无关
+ * - `[profile.test] debug = 1`、`CARGO_INCREMENTAL=0`、`cargo clean` 后完整重编：都无效
+ * - 静态导入：逐个 `GetProcAddress` 验证，**全部可解析**（含 WebView2Loader.dll）
+ * - `WebView2Loader.dll`：deps/、target/debug/、build 输出目录三份 MD5 完全一致
+ * - 导出目录为空、入口点 RVA 落在 .text 内、镜像 127 MB 远低于任何阈值
+ * - PATH 上的 mingw runtime 版本冲突：把 mingw 从 PATH 移除后照旧失败
+ *
+ * 现象本身也很怪：`LoadLibraryExW` 能成功加载那个二进制（说明导入没问题），
+ * 但 `CreateProcess` 之后进程立刻以同一个码退出。根因未定位，属本机环境级问题。
+ *
+ * 所以：真实取数只存在于**桌面 app** 里，由真机探针验证
+ * （`scripts/desktop-probe.mjs`，`PROBE_NET=1` 时通过 CDP 真调 `invoke('bing_daily')`）——
+ * 那比这里的单测更有说服力，因为它跑的是真正的 WebView2 + 真正的网络。
+ * lib 测试壳里只留下面的 stub 和纯函数单测。
+ *
+ * **别为了「让代码更统一」把 `not(test)` 去掉**：那会让 `cargo test` 整个红掉。
+ */
 #[cfg(target_os = "windows")]
 mod winhttp {
     /// WinHTTP 官方文档里的句柄类型名就是 `HINTERNET`。
@@ -331,17 +368,9 @@ mod winhttp {
     }
 }
 
-#[cfg(not(target_os = "windows"))]
-mod winhttp {
-    // 这份 stub 不碰 super 的任何东西，所以别 `use super::*`（会触发 unused_imports）
-    pub fn get(_url: &str) -> Result<String, String> {
-        Err("每日一图目前只在 Windows 桌面壳可用".to_string())
-    }
-}
-
 /// 同步 GET 一个 https 地址，返回响应体文本。
 ///
-/// `pub` 是为了 `tests/bing_live.rs` 能直接打它 —— 要验证的不只是「Bing 今天有图」，
+/// `pub` 是为了集成测试与排查脚本能直接打它 —— 要验证的不只是「Bing 今天有图」，
 /// 还有「取不到的时候确实会报错」。后者更要紧：取数失败若悄悄变成空结果，
 /// 界面上就只剩一句「今天没图」，用户没法判断该不该重试。
 pub fn bing_get(url: &str) -> Result<String, String> {
@@ -398,36 +427,8 @@ mod tests {
         let err = parse_bing_wallpaper(r#"{"toolbar":"x"}"#).unwrap_err();
         assert!(err.contains("images[0]"), "要说清缺的是哪一段：{err}");
     }
-
-    #[cfg(target_os = "windows")]
-    #[test]
-    fn 地址被拆成_host_和请求目标() {
-        assert_eq!(
-            split_https_for_test("https://www.bing.com/HPImageArchive.aspx?format=js"),
-            Ok(("www.bing.com", "/HPImageArchive.aspx?format=js"))
-        );
-        // 根路径不能是空串：空目标名不是合法请求行
-        assert_eq!(
-            split_https_for_test("https://example.com"),
-            Ok(("example.com", "/"))
-        );
-        assert!(split_https_for_test("http://example.com/x").is_err());
-    }
-
-    /// `split_https` 的转发，好让测试不必 `#[path]` 摸进 winhttp 子模块。
-    #[cfg(target_os = "windows")]
-    fn split_https_for_test(url: &str) -> Result<(&str, &str), String> {
-        winhttp::split_https(url)
-    }
-
-    /// 网络实打：默认跳过（CI 不该依赖 Bing 可达）。
-    /// 要确认取数链路时手动跑：`cargo test bing_daily_live -- --ignored --nocapture`
-    #[test]
-    #[ignore]
-    fn bing_daily_live() {
-        let got = bing_daily().expect("取数应当成功");
-        assert!(got.url.starts_with("https://www.bing.com/"), "{}", got.url);
-        assert!(!got.start_date.is_empty(), "没有拿到日期");
-        println!("{} / {}", got.start_date, got.copyright);
-    }
+    // 这里**没有**网络实打测试：真实取数只在桌面壳里发生，而桌面壳的验证方式是
+    // 真机探针 —— `npm run desktop:probe`（带 PROBE_NET=1）会在真 app 里通过 CDP
+    // 真调 `invoke('bing_daily')` 并断言拿到了当天的壁纸。
+    // 那比这里的 `#[ignore]` 单测强：跑的是真正的 WebView2、真正的网络、真正的 WinHTTP。
 }

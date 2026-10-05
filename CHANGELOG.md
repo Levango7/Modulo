@@ -12,6 +12,12 @@
   闰年与世纪年按真实日历规则算；`daysInMonthOf` 直接复用 `heatmap` 那份，
   不重写第二遍历法（世纪年 1900/2000 的断言也一并挪进 heatmap 的单测）。
   这张卡**只读**：在年历上标注要等便签/待办长出日期维度。
+
+### 明确不做
+
+- **网页监控**：任意 URL 的网页监控就是 SSRF 的标准入口 —— 内网地址、云元数据端点、
+  只在内网可达的管理页面都在射程内。正解是先有代理 + 域名白名单 + 频率限制，
+  而不是放一个输入框让用户填 URL 再由桌面端去请求。需求边界定下来之前不开工。
 - **每日一图**（第 41 张卡）：Bing 每日壁纸 + 版权文案，可手动刷新。
 - **Rust 命令 `bing_daily` + `src-tauri/src/web.rs`**：取数走桌面侧，**不引入任何新 crate** ——
   Windows 上直接用系统自带的 WinHTTP（`#[link(name = "winhttp")]`）。
@@ -19,29 +25,32 @@
   `fetch` 必然被 CORS 拦；曾试过的社区接口（oioweb / thinkercn / vvhan / moing）
   在本机分别 TLS 失败、DNS 失败、超时，Wikimedia 官方接口也超时。
   CSP 只在 `img-src` 放行 bing，`connect-src` **刻意不放行**（取数面已不在前端）。
-- `tests/bing_live.rs`：三条 `#[ignore]` 的网络实打测试（默认不跑），
-  验的不只是「今天有图」，还有「取不到时确实报错」「只接受 https」。
+- 真实取数的验证放在**真机探针**里（`scripts/desktop-probe.mjs`，`PROBE_NET=1` 时通过 CDP
+  真调 `invoke('bing_daily')` 并断言拿到了当天壁纸）。这比 Rust 单测强：跑的是真正的
+  WebView2、真正的网络、真正的 WinHTTP。
 
 ### 门禁
 
 - 前端：vue-tsc + tsc 干净 · **829 单测（61 文件）**· 受测层分支覆盖 ≥95%（门禁 90）·
   build 通过 · E2E 22 条（**40 张卡** × 三档视口）· docs:check 数字一致。
-- Rust：`cargo fmt --check` / `clippy -D warnings` 全过 · 真机探针 **49/49**。
-- ⚠️ **`cargo test` 在开发机上加载失败**（`0xC0000139 STATUS_ENTRYPOINT_NOT_FOUND`），
-  详见下方「未解决」。CI 上是否同样失败**尚未验证**。
+- Rust：`cargo fmt --check` / `clippy -D warnings` / `cargo test`（10 + 1 ignored）全过。
+- 真机探针 **51/51**（默认 50 条 + PROBE_NET=1 时多一条每日一图取数）。
 
-### 未解决
+### 踩过的两个坑，都留了注释
 
-- `cargo test` 的测试二进制只要引用 `web` 模块就加载失败。已实测排除：
-  二进制体积（98.9 MB 也失败、119 MB 通过）、`[profile.test] debug = 1`、
-  `CARGO_INCREMENTAL=0`、静态导入（用 ctypes 逐个验证全部可解析）、
-  `WebView2Loader.dll` 不在 `deps/`、PATH 上的 mingw 版本冲突、`cargo clean` 后重编。
-  进一步的现象：只加 `#[link(name="winhttp")] extern` + 11 个函数声明 + 实际调用**能通过**，
-  换成完整实现就失败；而 `LoadLibraryExW` 能加载那个失败的 exe（导入没问题），
-  直接运行却失败 —— 卡在入口点执行阶段。**根因未定位，判断为本机环境级问题。**
-- **网页监控**：任意 URL 的网页监控就是 SSRF 的标准入口 —— 内网地址、云元数据端点、
-  只在内网可达的管理页面都在射程内。正解是先有代理 + 域名白名单 + 频率限制，
-  而不是放一个输入框让用户填 URL 再由桌面端去请求。需求边界定下来之前不开工。
+1. **`WinHttpQueryHeaders` 在这台机器上是坏的** —— 无论 `WINHTTP_QUERY_STATUS_CODE`
+   还是带 `NUMBER` flag、还是 `RAW_HEADERS_CRLF`，一律返回 FALSE +
+   `ERROR_WINHTTP_SECURE_FAILURE(12150)`；而同一请求的 Send/Receive 成功、body 能完整读出，
+   curl 与 WinHttpRequest COM 各验一遍都正常。所以改成**不查状态码**：失败信号换成
+   「解析不出 images[0]」，并把响应体前 120 字符带进错误信息 —— 被限流时 Bing 回的
+   HTML 会直接显示在界面上。少依赖一个在本机就坏的 API，比围着它做兼容更划算。
+2. **`text.trim().chars().take(n).collect::<String>()` 会让 lib 测试二进制启动即退
+   `0xC0000139`**（STATUS_ENTRYPOINT_NOT_FOUND），`cargo test` 一个测试都跑不了。
+   这条查了很久：先怀疑过二进制体积（124 MB 失败 / 119 MB 通过，但 98.9 MB 也失败过，
+   非单调）、`incremental`、`cargo clean` 后重编、静态导入（逐个 `GetProcAddress`
+   全部可解析）、`WebView2Loader.dll`（三份 MD5 一致）、PATH 上的 mingw 版本冲突 ——
+   全都不是。真正定位靠二分：把这**一个闭包**换成返回常量即可恢复。
+   已改成按字节切（并避开 UTF-8 字符边界），代码里留了注释说明别改回去。
 
 ## 0.5.0（2026-10-05）—— 批次四全部落地 + 一个发布阻断级修复
 

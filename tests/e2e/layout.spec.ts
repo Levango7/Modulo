@@ -827,7 +827,7 @@ it.skipIf(skip)('添加卡片：只列不在版面上的模块，点一下加进
     REGISTRY.length - 5,
   )
   for (const title of ['天气', '月历', '时间进度', '世界时钟', '倒数日', '计算器', '单位换算', '习惯打卡', '汇率', '月相', '生日提醒', '每日聚焦', '月度统计', '随机抽签', '会议规划', '记账', '秒表', '倒计时', '间歇计时', '呼吸计时',
-  '月度热力图', '快捷链接', '整数位计算', '值班表', '年历']) {
+  '月度热力图', '快捷链接', '整数位计算', '值班表', '年历', '每日一图']) {
     expect(items.some((t) => t.includes(title)), `菜单里应有「${title}」`).toBe(true)
   }
   // 分组标题在（二十多张卡翻平铺列表没法用）
@@ -890,7 +890,7 @@ const ALL_MODULE_IDS = [
   'fx', 'air', 'repo', 'hn', 'moon', 'ledger',
   'stopwatch', 'timer', 'interval', 'breath',
   'heatmap', 'links', 'fixed', 'duty',
-  'yearcalendar',
+  'yearcalendar', 'dailyimage',
 ]
 
 const ALL_MODULES_DOC = {
