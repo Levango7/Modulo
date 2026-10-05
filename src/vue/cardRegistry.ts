@@ -305,17 +305,6 @@ export const REGISTRY: ModuleRegistry = [
       { id: 'grid', name: '2 列概览', minW: 3, minH: 5, idealW: 4, idealH: 7 },
     ],
   },
-  {
-    id: 'dailyimage',
-    title: '每日一图',
-    group: '时间',
-    blurb: 'Bing 每日壁纸（桌面壳取数）',
-    defaultVariant: 'poster',
-    variants: [
-      { id: 'poster', name: '海报', minW: 3, minH: 4, idealW: 4, idealH: 6 },
-      { id: 'strip', name: '横条', minW: 3, minH: 2, idealW: 4, idealH: 3 },
-    ],
-  },
   // ---- 联网 ----
   {
     id: 'weather',

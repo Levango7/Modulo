@@ -41,11 +41,6 @@ const API_DOMAINS = [
   'https://hacker-news.firebaseio.com',
 ]
 
-// 每日一图用 <img> 加载 Bing 壁纸，必须列在 img-src 里。
-// 连接取数走桌面侧（src-tauri/src/web.rs 的 WinHTTP），所以 **不能** 出现在 connect-src ——
-// 前端已经不该有任何理由直连 bing，放进去只是多开一个面。
-const IMG_ONLY_DOMAINS = ['https://www.bing.com']
-
 describe('tauri.conf.json 的 CSP', () => {
   it('**connect-src 必须含 Tauri 的 IPC 源**，否则窗口控制命令静默失效', () => {
     // 漏掉任意一个的表现完全一样：IPC 被拦 → 降级 postMessage → 按钮点了没反应
@@ -67,20 +62,6 @@ describe('tauri.conf.json 的 CSP', () => {
       const src = directive(csp, 'connect-src')
       for (const d of API_DOMAINS) expect(src, `${which} 少了 ${d}`).toContain(d)
       expect(src, `${which} 少了 'self'`).toContain("'self'")
-    }
-  })
-
-  it('img-src 放行 Bing 壁纸域名，connect-src 不放行', () => {
-    for (const [which, csp] of [
-      ['csp', conf.app.security.csp],
-      ['devCsp', conf.app.security.devCsp],
-    ] as const) {
-      const img = directive(csp, 'img-src')
-      const src = directive(csp, 'connect-src')
-      for (const d of IMG_ONLY_DOMAINS) {
-        expect(img, `${which} img-src 少了 ${d}`).toContain(d)
-        expect(src, `${which} 把 ${d} 放进了 connect-src`).not.toContain(d)
-      }
     }
   })
 
