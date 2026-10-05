@@ -124,7 +124,7 @@ function step(delta: number): void {
   gap: 2px;
 }
 .wd span {
-  font-size: clamp(9px, 1.8cqw, 10px);
+  font-size: clamp(11px, 1.8cqw, 12px);
   color: var(--text-3);
   text-align: center;
   line-height: 1.2;
@@ -149,7 +149,7 @@ function step(delta: number): void {
 }
 .cell em {
   font-style: normal;
-  font-size: clamp(9px, 1.8cqw, 10px);
+  font-size: clamp(11px, 1.8cqw, 12px);
   color: var(--text-3);
   line-height: 1;
 }

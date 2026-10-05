@@ -144,7 +144,7 @@ async function copy(href: string, id: string): Promise<void> {
   min-width: 0;
 }
 .ghost {
-  font-size: clamp(10px, 1.8cqw, 10px);
+  font-size: clamp(11px, 1.8cqw, 12px);
   color: var(--text-3);
   padding-block-start: 2px;
 }

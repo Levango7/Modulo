@@ -145,7 +145,7 @@ function add(): void {
   gap: 1px;
 }
 .wd span {
-  font-size: clamp(9px, 1.6cqw, 10px);
+  font-size: clamp(11px, 1.6cqw, 12px);
   color: var(--text-3);
   text-align: center;
   line-height: 1.2;
@@ -156,7 +156,7 @@ function add(): void {
   border-radius: 2px;
   background: color-mix(in srgb, var(--mod, var(--brand-500)) 14%, transparent);
   color: var(--text-2);
-  font-size: clamp(9px, 1.8cqw, 10px);
+  font-size: clamp(11px, 1.8cqw, 12px);
   display: grid;
   place-items: center;
   overflow: hidden;
