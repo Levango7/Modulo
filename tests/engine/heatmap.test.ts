@@ -19,6 +19,9 @@ describe('monthHeatmap：6×7 固定网格 + 相对色阶', () => {
     expect(blanks).toBe(42 - 28)
     expect(daysInMonthOf(2026, 2)).toBe(28)
     expect(daysInMonthOf(2024, 2)).toBe(29)
+    // 世纪年是「400 年一闰」的那条规则，1900/2000 一起断言才拦得住「每 4 年就闰」的写法
+    expect(daysInMonthOf(1900, 2)).toBe(28)
+    expect(daysInMonthOf(2000, 2)).toBe(29)
   })
 
   it('标出今天，且只标一个', () => {

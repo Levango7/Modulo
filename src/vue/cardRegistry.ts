@@ -293,6 +293,18 @@ export const REGISTRY: ModuleRegistry = [
       { id: 'now', name: '只看此刻', minW: 2, minH: 2, idealW: 3, idealH: 3 },
     ],
   },
+  {
+    id: 'yearcalendar',
+    title: '年历',
+    group: '时间',
+    blurb: '整年 12 个 mini 月历',
+    defaultVariant: 'year',
+    variants: [
+      // 12 个 mini 月历按 3 列排，每格 4×4 才够：3 列 × 3 行 ≈ 需要 6 行高
+      { id: 'year', name: '整年视图', minW: 4, minH: 6, idealW: 6, idealH: 8 },
+      { id: 'grid', name: '2 列概览', minW: 3, minH: 5, idealW: 4, idealH: 7 },
+    ],
+  },
   // ---- 联网 ----
   {
     id: 'weather',
