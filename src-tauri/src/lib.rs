@@ -1,4 +1,4 @@
-﻿use std::sync::Mutex;
+use std::sync::Mutex;
 
 /**
  * `pub` 是为了让 `tests/` 里的集成测试能直接调 `bing_daily`。
@@ -8,6 +8,7 @@
  * （STATUS_ENTRYPOINT_NOT_FOUND），一个测试都跑不了。已排除的原因见 `src/web.rs`
  * 里 winhttp 模块的注释。纯解析函数不受影响，仍在测试壳里正常跑单测。
  */
+pub mod net;
 pub mod web;
 
 use tauri::{AppHandle, Manager, WindowEvent};

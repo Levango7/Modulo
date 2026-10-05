@@ -38,3 +38,16 @@ strip = true
 # 不是另写一套自娱自乐 —— 判定口径逐行对应插件的 verify_signature()。
 minisign-verify = "0.2"
 base64 = "0.22"
+
+# 测试二进制不带完整调试信息。
+#
+# 背景：这台机器上 `cargo test` 产出的 lib 测试壳会启动即退 0xC0000139
+# （STATUS_ENTRYPOINT_NOT_FOUND），且触发点无法预测 —— 已定位过一次真凶是某段
+# 无害代码（`chars().take().collect::<String>()`），换掉就好了；但之后每加一段
+# 常规代码又会复现。体积 / incremental / 静态导入 / DLL 位置 / PATH 版本 /
+# 产物损坏全部排除过，机制仍未查明（CI 的 windows-latest 上一直正常）。
+#
+# 断点调试走 `[profile.dev]`（IDE 调试用的是 dev profile，不受这里影响）；
+# 测试二进制只需要能跑起来，不需要 DWARF。
+[profile.test]
+debug = 1
