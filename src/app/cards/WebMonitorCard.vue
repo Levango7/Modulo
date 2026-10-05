@@ -60,9 +60,12 @@ const draftWhy = computed(() => {
   const raw = draftUrl.value.trim()
   if (/^[a-z][a-z0-9+.-]*:/i.test(raw) && !/^https:/i.test(raw)) return '只支持 https'
   try {
-    const host = new URL(/^[a-z][a-z0-9+.-]*:/i.test(raw) ? raw : `https://${raw}`).hostname
-    const why = blockedReason(host)
-    if (why) return `不监控${why}的地址`
+    // 引擎里不能用 `new URL`（它的 tsconfig 不放 DOM），这里也用正则保持一致
+const m = /^[a-z][a-z0-9+.-]*:\/\/(?:[^@/?#]*@)?\[?([^\]/?:#]*)\]?/i.exec(
+  /^[a-z][a-z0-9+.-]*:/i.test(raw) ? raw : `https://${raw}`,
+)
+const why = m ? blockedReason(m[1]) : null
+if (why) return `不监控${why}的地址`
   } catch {
     /* 落到下面的通用文案 */
   }

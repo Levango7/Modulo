@@ -124,11 +124,35 @@ export function blockedReason(host: string): string | null {
 }
 
 /**
+ * `scheme://[userinfo@]host[:port][/path][?query][#frag]`
+ *
+ * **自己解析而不用 `new URL`**：引擎的 tsconfig 只放 `lib: ["ES2022"]`，**不放 DOM 是
+ * 刻意的**（见该文件注释）—— 一旦碰 `URL` 或任何浏览器全局对象，`npm run engine:build`
+ * 就编译不过。顺带一提：`tests/engine-purity.test.ts` 是用正则扫源码的，所以**连注释里
+ * 提到那些名字都会红**（本行当年就因此改过一次措辞）。
+ * `links.ts` 当年也是因为这个才用正则的，这里保持一致。
+ */
+const URL_RE = /^([a-z][a-z0-9+.-]*):\/\/([^/?#]*)([^?#]*)(?:\?[^#]*)?(?:#.*)?$/i
+
+/** 从 authority 里取出 host。IPv6 字面量带方括号，要连括号一起摘掉。 */
+function hostOf(authority: string): { host: string; port: string | null } {
+  const noUserinfo = authority.split('@').pop() ?? authority
+  if (noUserinfo.startsWith('[')) {
+    const end = noUserinfo.indexOf(']')
+    if (end < 0) return { host: noUserinfo.slice(1), port: null }
+    const after = noUserinfo.slice(end + 1)
+    return { host: noUserinfo.slice(1, end), port: after.startsWith(':') ? after.slice(1) : null }
+  }
+  const i = noUserinfo.indexOf(':')
+  return i < 0 ? { host: noUserinfo, port: null } : { host: noUserinfo.slice(0, i), port: noUserinfo.slice(i + 1) }
+}
+
+/**
  * 认一个监控 URL。返回 null 表示不收。
  *
  * 补齐规则：用户敲 `example.com` 是常态，所以无 scheme 的输入按 `https://` 补。
- * 但**只收 https** —— 不会像快捷链接那样放行 http/mailto/ftp：
- * 那张卡只是复制一段文字，这张卡会让程序真的去请求它。
+ * 但**只收 https** —— 不会像快捷链接那样放行 http/mailto/ftp：那张卡只是复制一段文字，
+ * 这张卡会让程序真的去请求它。
  */
 export function normalizeUrl(input: string): string | null {
   const s = input.trim()
@@ -136,34 +160,33 @@ export function normalizeUrl(input: string): string | null {
   if (/^[a-z][a-z0-9+.-]*:/i.test(s)) {
     // 显式给了 scheme：只认 https，其余（http/ftp/file/javascript:）一律拒
     if (!/^https:/i.test(s)) return null
-  } else {
+  } else if (/\s/.test(s)) {
     // 没给 scheme：可能被冒用成 `evil.com\t@127.0.0.1` 这种，所以拒绝任何空白字符
-    if (/\s/.test(s)) return null
-  }
-  let url: URL
-  try {
-    url = new URL(/^[a-z][a-z0-9+.-]*:/i.test(s) ? s : `https://${s}`)
-  } catch {
     return null
   }
-  if (url.protocol !== 'https:') return null
-  if (!url.hostname) return null
-  if (blockedReason(url.hostname)) return null
+  const withScheme = /^[a-z][a-z0-9+.-]*:/i.test(s) ? s : `https://${s}`
+  const m = URL_RE.exec(withScheme)
+  if (!m) return null
+  if (m[1].toLowerCase() !== 'https') return null
+
+  const { host, port } = hostOf(m[2])
+  if (!host) return null
+  if (port !== null && (!/^\d{1,5}$/.test(port) || Number(port) > 65535)) return null
   // userinfo（https://user:pass@host/）会把凭据带进备份，也会让主机名看起来像别的东西
-  if (url.username || url.password) return null
-  url.hash = ''
-  const out = url.toString()
+  if (m[2].includes('@')) return null
+  if (blockedReason(host)) return null
+
+  // 片段（#section）对探活毫无意义，去掉，省得备份里存一堆没用的锚点
+  const out = `https://${host}${port ? `:${port}` : ''}${m[3] || '/'}`
   return out.length <= MAX_URL ? out : null
 }
 
 export function normalizeWatchLabel(input: string, url: string): string {
   const t = input.trim().slice(0, MAX_WATCH_LABEL)
   if (t) return t
-  try {
-    return new URL(url).hostname.slice(0, MAX_WATCH_LABEL)
-  } catch {
-    return '未命名'
-  }
+  const m = URL_RE.exec(url)
+  const host = m ? hostOf(m[2]).host : ''
+  return (host || '未命名').slice(0, MAX_WATCH_LABEL)
 }
 
 /**
