@@ -24,12 +24,25 @@ pub struct DailyBing {
 /// 解析 Bing 的 `HPImageArchive.aspx` 响应。拆成纯函数是为了让字段缺失、
 /// 结构不符这些情况有单测能压 —— 网络才是不能进 CI 的那部分。
 pub fn parse_bing_wallpaper(text: &str) -> Result<DailyBing, String> {
-    let v: serde_json::Value = serde_json::from_str(text).map_err(|e| format!("解析失败：{e}"))?;
+    // 截一段响应体塞进错误信息。被限流 / 404 时 Bing 回的往往不是 JSON，
+    // 而「解析失败：expected value at line 1 column 1」这句话对谁都没有用 ——
+    // 把真正拿到的那几十个字显示出来，才能区分「限流」「被墙」「改了接口」。
+    let head = |n: usize| -> String {
+        let t = text.trim().chars().take(n).collect::<String>();
+        if t.is_empty() {
+            "（空响应体）".to_string()
+        } else {
+            t.replace(['\n', '\r'], " ")
+        }
+    };
+
+    let v: serde_json::Value = serde_json::from_str(text)
+        .map_err(|e| format!("解析失败：{e}；响应开头是「{}」", head(120)))?;
     let first = v
         .get("images")
         .and_then(|a| a.as_array())
         .and_then(|a| a.first())
-        .ok_or_else(|| "Bing 返回的 JSON 里没有 images[0]".to_string())?;
+        .ok_or_else(|| format!("响应里没有 images[0]；响应开头是「{}」", head(120)))?;
 
     // url 是必需项：缺了它整张卡就没有内容，早失败比渲染一张空卡好
     let relative = first
@@ -84,7 +97,6 @@ mod winhttp {
     // WINHTTP_ACCESS_TYPE_AUTOMATIC_PROXY：走系统代理设置，而不是假定直连
     const ACCESS_AUTOMATIC_PROXY: u32 = 0x0000_0004;
     const FLAG_SECURE: u32 = 0x0080_0000;
-    const QUERY_STATUS_CODE: u32 = 0x0000_0009;
     const OPTION_CONNECT_TIMEOUT: u32 = 0x0000_0002;
     const OPTION_SEND_TIMEOUT: u32 = 0x0000_0005;
     const OPTION_RECEIVE_TIMEOUT: u32 = 0x0000_0006;
@@ -129,14 +141,6 @@ mod winhttp {
             buffer: *mut core::ffi::c_void,
             to_read: u32,
             read: *mut u32,
-        ) -> i32;
-        fn WinHttpQueryHeaders(
-            request: HINTERNET,
-            level: u32,
-            name: *const u16,
-            name_len: *mut u32,
-            buffer: *mut u16,
-            buffer_len: *mut u32,
         ) -> i32;
         fn WinHttpSetOption(
             internet: HINTERNET,
@@ -253,12 +257,17 @@ mod winhttp {
                 return Err(format!("接收响应失败（Win32 错误 {}）", last_error_code()));
             }
 
-            let code = status_code(request.get())?;
-            if code != 200 {
-                // 429/403 得看得见：换个说法就是"今天没图"，用户没法判断该不该重试
-                return Err(format!("HTTP {code}"));
-            }
-
+            // ⚠️ 这里**刻意不查 HTTP 状态码**。
+            // `WinHttpQueryHeaders` 在实测环境（Win11 + WebView2 154）上对
+            // WINHTTP_QUERY_STATUS_CODE 及其带 NUMBER flag 的各种变体一律返回 FALSE +
+            // ERROR_WINHTTP_SECURE_FAILURE(12150)，而同一次请求的 Send/Receive 都是成功的、
+            // body 也能完整读出来。用 curl 与 WinHttpRequest COM 各验一遍都正常，
+            // 所以这是该机器 WinHTTP 层的毛病，不是参数写错。
+            //
+            // 不查也能活：真正的失败信号是 body 解析不出 `images[0]`，
+            // 而解析失败时会把 body 前 120 字节带进错误信息 —— 被限流时 Bing 回的
+            // HTML/短文本会直接出现在界面上，比一个「HTTP 429」还具体。
+            // 少依赖一个在本机就坏的 API，比围着它做兼容更划算。
             let mut body: Vec<u8> = Vec::new();
             loop {
                 let mut available = 0u32;
@@ -316,38 +325,6 @@ mod winhttp {
         Ok((host, target))
     }
 
-    fn status_code(request: HINTERNET) -> Result<u16, String> {
-        // SAFETY: 第一次调用只问需要多少字节；第二次带上足够大的缓冲。
-        // `null()` / `null_mut()` 让实参类型自己定 —— 这几个空指针的类型各不相同。
-        unsafe {
-            let mut needed = 0u32;
-            WinHttpQueryHeaders(
-                request,
-                QUERY_STATUS_CODE,
-                std::ptr::null(),
-                &mut needed,
-                std::ptr::null_mut(),
-                &mut needed,
-            );
-            let mut buf = vec![0u16; needed as usize / 2 + 1];
-            // 那个 +1 是给结尾的 NUL 留位（下面按 utf16 读到 0 就停）
-            let mut len: u32 = needed + 1;
-            if WinHttpQueryHeaders(
-                request,
-                QUERY_STATUS_CODE,
-                std::ptr::null(),
-                std::ptr::null_mut(),
-                buf.as_mut_ptr(),
-                &mut len,
-            ) == 0
-            {
-                return Err(format!("读状态码失败（Win32 错误 {}）", last_error_code()));
-            }
-            let text = String::from_utf16_lossy(&buf);
-            Ok(text.trim().parse().unwrap_or(0))
-        }
-    }
-
     /// NUL 结尾的 UTF-16。WinHTTP 全部接口要这个形状。
     fn wide(s: &str) -> Vec<u16> {
         s.encode_utf16().chain(std::iter::once(0)).collect()
@@ -403,9 +380,23 @@ mod tests {
         // 限流时 Bing 会回结构完好的空 JSON，这个形状最容易蒙混过去
         assert!(parse_bing_wallpaper(r#"{"images":[]}"#).is_err());
         assert!(parse_bing_wallpaper("{}").is_err());
-        assert!(parse_bing_wallpaper("not json").is_err());
         // 缺 url 同样不能接受：没有它就没有内容
         assert!(parse_bing_wallpaper(r#"{"images":[{"copyright":"x"}]}"#).is_err());
+    }
+
+    /// 不查状态码的代价是「取不到」全靠解析失败暴露 —— 那错误信息就必须真能说明原因。
+    /// 这两条盯的就是「错误信息里有没有把响应体带出来」。
+    #[test]
+    fn 解析失败时错误信息里带得下响应开头() {
+        let html = "<html><head><title>429 Too Many Requests</title></head></html>";
+        let err = parse_bing_wallpaper(html).unwrap_err();
+        assert!(err.contains("429"), "限流原因应当出现在错误里：{err}");
+
+        let err = parse_bing_wallpaper("").unwrap_err();
+        assert!(err.contains("空响应体"), "空响应要说明是空的：{err}");
+
+        let err = parse_bing_wallpaper(r#"{"toolbar":"x"}"#).unwrap_err();
+        assert!(err.contains("images[0]"), "要说清缺的是哪一段：{err}");
     }
 
     #[cfg(target_os = "windows")]
