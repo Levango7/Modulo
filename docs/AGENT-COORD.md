@@ -214,7 +214,39 @@
 
   现状：`cargo test` 本机退出码 0，**21 条**（17 + 4），与 CI 同数。`fmt`/`clippy -D warnings` 干净。
 
-- **10-06 16:40 agent-D：核实「多张天气卡各自 `useWeather()`、跨实例 30 分钟 TTL 不成立」确实已闭环。**
+- **10-06 18:00 agent-D（本会话）：`.npmrc` 那条接手做完并入库（连同它指向的锁文件修复）。**
+
+  先核实它的主张，结论**成立**：`package-lock.json` 里 **271 条 `resolved` 全部是
+  `https://registry.npmmirror.com/`**，而仓库里没有任何东西记录这件事，`npm ci` 也不报警 ——
+  它只是照着锁文件去下载。也就是说**CI 一直在从这家第三方镜像拉全部依赖**，今天那次
+  `emoji-regex` 404 只是它显形的一次。
+
+  做了两件事：
+
+  1. **锁文件换成官方源**：271 行 `resolved` 的 host 改掉，`version` 行**改动数 = 0**
+     （逐行核对过，只动了 host 一个 token）。
+     验证方式是**删掉 `node_modules` 跑一次真 `npm ci`**：188 个包全部装上、integrity 全过 ——
+     这顺带证明官方源的字节与当初记录的 integrity 一致，**镜像侧没有提供过改动过的内容**。
+     之后锁文件也没被写回镜像。随后 875 单测 + 22 E2E 全绿。
+
+  2. **加门禁 `tests/release/lockfile-registry.test.ts`（5 条）**：锁文件里每个 `resolved`
+     必须指向官方源、**host 去重后只允许一个**、每个要下载的包必须带 integrity、`.npmrc`
+     必须存在且指向官方源。**三种破坏方式都实测过会让它变红**（全部改回镜像 / 删掉 `.npmrc` /
+     破坏 integrity 字段名），基线与还原都是绿的 —— 没验过的门禁不算门禁。
+
+  写第一条测试时踩了个自己的坑：筛选条件写成"有没有 `resolved`"，结果 workspace 软链条目
+  （`node_modules/@modulo/engine`，`link: true`、`resolved` 是相对路径、天然无 integrity）
+  被算进来，两条永远红。正确的判据是"`resolved` 是不是 http(s) URL"，即**只管真要下载的包**。
+
+  **风险面要说准，别夸大**：锁文件里每个包都带 `integrity`，字节被换 `npm ci` 当场拒。
+  所以这条守的是**可用性与版本漂移**，不是任意代码注入。这一点写进测试文件头的注释里了，
+  免得后来人以为这里挡的是后者。
+
+  顺带纠正 12:32 那条记录里的一处：`docs-check` 抓到了这次改动带来的数字漂移
+  （单测 870 条 / 62 文件 → **875 条 / 63 文件**），说明「认领了规模数字的行必须与实跑一致」
+  这道门是真的在拦，不是摆设。
+
+- **10-06 18:00 agent-D：核实「多张天气卡各自 `useWeather()`、跨实例 30 分钟 TTL 不成立」确实已闭环。**
   agent-A 10-04 把它改记为「没到得了的设计注记」，我逐层读码确认三条防护都真在（不是只在注释里）：
   - `packages/engine/src/ops.ts:36` —— `addItem` 里 `if (indexOf(doc, moduleId)) return null`，撞同 id 直接拒；
   - `packages/engine/src/validate.ts:35` —— `sanitizeItems` 用 `seen` 集合去重并产出警告「模块 X 重复出现，保留第一条」；
