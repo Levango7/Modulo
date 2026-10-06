@@ -294,3 +294,71 @@ describe('normalizeUrl：保留主机名带端口/路径/userinfo 时仍被拒',
     }
   })
 })
+/**
+ * 保留网段清单里**只在一边测过**的那几条。
+ *
+ * Rust 侧（`src-tauri/src/net.rs`）从 0.7.0 起就按四元组匹配拒 `192.0.0/24`、
+ * `198.51.100/24`、`203.0.113/24` 与组播，而前端这份镜像当时一条都没测 ——
+ * 于是它写的是 `a === 192 && b === 0` 这种只看前两段的判据，实际拒掉的是 `/16`。
+ * 2026-10-07 升 vitest 5 时这几条以"未覆盖分支"的形式浮出来，补测才把分叉撞见。
+ *
+ * 两边的清单必须一致（两份实现各写一遍是刻意的冗余，不是重复劳动），所以这里既钉
+ * "这些要拒"，也钉"紧邻的公网地址不能误伤"。
+ */
+describe('保留网段：与 net.rs 同一条清单，不许只在一边测', () => {
+  const reserved: [string, string][] = [
+    ['192.0.0.1', '192.0.0/24'],
+    ['192.0.0.255', '192.0.0/24'],
+    ['198.18.0.1', '198.18/15（基准测试网段）'],
+    ['198.19.255.255', '198.18/15（基准测试网段）'],
+    ['198.51.100.7', '198.51.100/24（文档示例网段）'],
+    ['203.0.113.9', '203.0.113/24（文档示例网段）'],
+    ['224.0.0.1', '组播地址'],
+    ['239.255.255.255', '组播地址'],
+  ]
+  it.each(reserved)('%s 应当按「%s」拒掉', (ip, why) => {
+    expect(blockedReason(ip), ip).toBe(why)
+    expect(normalizeUrl(`https://${ip}/`), ip).toBeNull()
+  })
+
+  /** 误伤边界等于逼用户绕过边界：/24 之外的那一格必须是公网 */
+  it('紧邻这些 /24 与 /15 的公网地址必须放行', () => {
+    for (const ok of [
+      '192.0.1.1', // 192.0.0/24 的下一格
+      '192.1.0.1',
+      '198.17.0.1', // 198.18/15 的前一格
+      '198.20.0.1', // 198.18/15 的后一格
+      '198.51.101.1', // 198.51.100/24 的下一格
+      '203.0.114.1', // 203.0.113/24 的下一格
+      '203.1.113.1',
+      '223.255.255.255', // 组播段的前一格
+      '240.0.0.1', // 组播段的后一格
+    ]) {
+      expect(blockedReason(ok), ok).toBeNull()
+      expect(normalizeUrl(`https://${ok}/`), ok).not.toBeNull()
+    }
+  })
+
+  it('IPv6 字面量走方括号解析：带端口、缺右括号、大写都判得对', () => {
+    expect(normalizeUrl('https://[2001:db8::1]/')).not.toBeNull()
+    expect(normalizeUrl('https://[2001:db8::1]:8443/x')).not.toBeNull()
+    expect(normalizeUrl('https://[::1]/')).toBeNull() // 回环
+    expect(normalizeUrl('https://[FC00::1]/')).toBeNull() // 唯一本地，大写也算
+    expect(normalizeUrl('https://[2001:db8::1/')).not.toBeNull() // 括号没闭合：当普通主机名处理
+  })
+
+  it('带 userinfo 的地址不按主机名判，超长 URL 直接拒', () => {
+    // `user:pass@host` 里凭据不该被当成主机名，否则 `@127.0.0.1` 这种写法能绕开网段判定
+    expect(normalizeUrl('https://admin@127.0.0.1/')).toBeNull()
+    expect(normalizeUrl('https://example.com/' + 'a'.repeat(400))).toBeNull()
+    expect(normalizeUrl('https://EXAMPLE.com/')).not.toBeNull() // scheme 大小写不敏感
+  })
+
+  it('ipv6Bytes 对畸形输入返回 null，而不是猜一个字节表', () => {
+    for (const bad of ['1:2:3', 'fe80::1::2', 'gggg::1', '1:2:3:4:5:6:7:8:9']) {
+      expect(ipv6Bytes(bad), bad).toBeNull()
+    }
+    // 含冒号又不是 IPv6 的形状：按"不是 IP 字面量"处理，不该顺手拒掉
+    expect(blockedReason('a:b')).toBeNull()
+  })
+})
