@@ -16,22 +16,28 @@
 //! 2. **IP 字面量落在私有/保留网段就拒绝** —— `169.254.169.254`（云实例元数据端点，
 //!    拿到它等于拿到临时凭据）、`127.x`（本机服务）、`10/8`、`172.16/12`、`192.168/16`、
 //!    `100.64/10`（CGNAT）、`0.0.0.0`，以及 IPv6 的 `::1` / `fc00::/7` / `fe80::/10`。
-//! 3. **不跟随重定向** —— 3xx 原样报出。否则"一个看起来正常的公网 URL 302 到内网"
+//! 3. **保留主机名也拒绝** —— `localhost`、`*.localhost`、`*.local`、`*.internal`、
+//!    `*.home.arpa`。这一条补的是"填 IP 之前先填的是名字"：本机服务、路由器、云元数据
+//!    在输入框里通常以主机名出现，而它们都能解析到回环/链路本地。
+//! 4. **不跟随重定向** —— 3xx 原样报出。否则"一个看起来正常的公网 URL 302 到内网"
 //!    这条最常见的绕过路径就通了，也避免把请求扇出到用户没填过的 host。
-//! 4. **只有 URL** —— 没有自定义 header、没有方法可选、没有请求体、不带 Cookie 与
+//! 5. **只有 URL** —— 没有自定义 header、没有方法可选、没有请求体、不带 Cookie 与
 //!    Authorization。能力从"请求构造器"缩成"一个字符串"，可审计。
-//! 5. 10s 超时、响应体上限 1 MiB。
+//! 6. 10s 超时、响应体上限 1 MiB。
 //!
 //! ## 明确不挡的：DNS rebinding
 //!
-//! `evil.com` 解析到 `127.0.0.1` 这种，靠域名绕开第 2 条的情形，这里**不防**。
+//! `evil.com` 解析到 `127.0.0.1` 这种（名字不在第 3 条那五个清单里）情形，这里**不防**。
 //! 理由：请求本来就是以用户身份发出的，本机任何进程都能做同样的事，边际风险很小；
 //! 而真正会被误伤的是"顺手填了个内网地址"和"云元数据端点"这两类实际会踩的坑。
 //! 真要防就得自己解析 DNS、校验解析结果、再把 IP 钉进连接 —— 那要在 WinHTTP 上另开
 //! 一条自定义连接的路径，代价远大于收益。
 //!
-//! **代价要说清楚**：因为第 2 条，监控不了自家 NAS / 路由器。这是刻意的 —— 那是另一个
-//! 特性、另一套边界，不该顺手塞进来。
+//! 第 3 条是**按名字挡**、不查 DNS：它挡的是那几个固定名字，不构成对 rebinding 的防护，
+//! 也没有扩大到"解析出来是私网就拒"。
+//!
+//! **代价要说清楚**：因为第 2、3 条，监控不了自家 NAS / 路由器（`router.local` 也一样）。
+//! 这是刻意的 —— 那是另一个特性、另一套边界，不该顺手塞进来。
 
 use std::time::Instant;
 
@@ -48,7 +54,7 @@ use std::time::Instant;
  * **把整层 FFI 关在测试壳外面**，而不是继续赌下一段代码会不会踩中。
  *
  * 于是本文件的职责被切成两半：
- * - **边界判定（`split_target` / `blocked_ip_reason`）是纯函数，留在测试壳里** ——
+ * - **边界判定（`split_target` / `blocked_reason`）是纯函数，留在测试壳里** ——
  *   它才是最该被测的部分，下面十几条单测盯的就是它
  * - **取数本身（winhttp）只在桌面 app 里存在**，由真机探针验证
  *   （`scripts/desktop-probe.mjs`，`PROBE_NET=1`）：那跑的是真正的 WebView2、
@@ -87,7 +93,7 @@ pub struct HttpResult {
 #[cfg(all(target_os = "windows", not(test)))]
 const MAX_BODY: usize = 1024 * 1024;
 
-/// 取出 host 与请求目标，并套用上面第 1、2 条边界。
+/// 取出 host 与请求目标，并套用上面第 1、2、3 条边界。
 ///
 /// 纯函数，不碰网络 —— 所以这些边界能进单测，而边界是最该被测的部分。
 pub fn split_target(url: &str) -> Result<(String, String), String> {
@@ -135,16 +141,20 @@ pub fn split_target(url: &str) -> Result<(String, String), String> {
             return Err(format!("端口不是数字：{url}"));
         }
     }
-    if let Some(reason) = blocked_ip_reason(host) {
+    if let Some(reason) = blocked_reason(host) {
         return Err(format!("{reason}（{host}）"));
     }
     Ok((host.to_string(), path.to_string()))
 }
 
-/// 私有/保留网段给出理由；公网地址返回 `None`。
+/// 私有/保留网段、或保留主机名给出理由；正常公网地址与公网域名返回 `None`。
 ///
-/// 只对 **IP 字面量** 生效 —— 域名一律放行（DNS rebinding 不防，见文件头）。
-fn blocked_ip_reason(host: &str) -> Option<&'static str> {
+/// **两段判据缺一不可**：只挡 IP 字面量，就等于给「本机服务 / 路由器 / 云元数据」这些
+/// 最常被人顺手填成**名字**的地址留着门 —— 而它们都能解析到回环/链路本地。
+///
+/// 域名本身**不查 DNS**，只按固定名字挡（见 `blocked_name_reason`）——
+/// rebinding 仍然不防，那个结论没变。
+fn blocked_reason(host: &str) -> Option<&'static str> {
     if let Ok(ip) = host.parse::<std::net::Ipv4Addr>() {
         return blocked_v4(ip.octets());
     }
@@ -167,6 +177,39 @@ fn blocked_ip_reason(host: &str) -> Option<&'static str> {
             return blocked_v4(v4.octets());
         }
         return None;
+    }
+    blocked_name_reason(host)
+}
+
+/// 保留主机名给出理由；公网域名返回 `None`。
+///
+/// 清单就这五条，与前端 `packages/engine/src/watch.ts` 的那份**必须一致**：
+/// `localhost`、`*.localhost`、`*.local`、`*.internal`、`*.home.arpa`。
+///
+/// **按标签边界匹配，不按子串** —— `notlocalhost.example.com` 里含有 "localhost" 却是
+/// 个正经公网域名，按子串判会误伤一大片正常站点，而误伤边界等于逼用户绕过边界。
+/// 所以 `localhost.example.com`（localhost 在前面当标签）必须放行；`.local` 那类带点的
+/// 后缀则要求前面真有至少一个标签。
+///
+/// 三处最容易写漏：
+/// - **大小写不敏感** —— DNS 名字本来就不区分大小写，`Router.LOCAL` 与 `router.local`
+///   是同一个名字。不小写就是开着门。
+/// - **结尾那个可选的点要去掉** —— `localhost.` 是同一个名字的 FQDN 写法。
+/// - **不查 DNS** —— 单标签的机器名（`intranet` 这种）不在清单里，也就没有被纳入范围。
+///   要扩大清单得两边一起改，否则前后端判据会分叉。
+fn blocked_name_reason(host: &str) -> Option<&'static str> {
+    let name = host.trim().trim_end_matches('.').to_ascii_lowercase();
+    if name == "localhost" || name.ends_with(".localhost") {
+        return Some("拒绝 localhost / *.localhost（本机回环）");
+    }
+    if name.ends_with(".local") {
+        return Some("拒绝 *.local（mDNS / 局域网）");
+    }
+    if name.ends_with(".internal") {
+        return Some("拒绝 *.internal（内网专用名，含云元数据）");
+    }
+    if name.ends_with(".home.arpa") {
+        return Some("拒绝 *.home.arpa（家庭网络）");
     }
     None
 }
@@ -191,7 +234,7 @@ fn blocked_v4(o: [u8; 4]) -> Option<&'static str> {
 
 /// 同步 GET。桌面壳之外没有理由发这个请求，调用方自己会判 `isDesktop`。
 ///
-/// 边界 5 的响应体上限在这里生效（`MAX_BODY`），超了截断而不是报错 ——
+/// 边界 6 的响应体上限在这里生效（`MAX_BODY`），超了截断而不是报错 ——
 /// 监控只关心可达性，把一个正常但很大的页面判成失败是错的。
 pub fn get(url: &str) -> Result<HttpResult, String> {
     let (host, target) = split_target(url)?;
@@ -295,13 +338,68 @@ mod tests {
         }
     }
 
-    /// 域名一律放行 —— DNS rebinding 明确不防（见文件头），所以这里不该有例外。
+    /// 公网域名照常放行 —— 判据不是「是不是域名」，而是「是不是那几个保留名字」。
+    /// （DNS rebinding 仍然明确不防，见文件头。）
     #[test]
-    fn 域名不走_ip_判定() {
-        assert!(split_target("https://localhost/").is_ok());
-        assert!(split_target("https://router.local/").is_ok());
-        assert!(split_target("https://metadata.google.internal/").is_ok());
-        // 长得像 IP 也不是 IP 字面量
-        assert!(split_target("https://1.1.1.1.example.com/").is_ok());
+    fn 公网域名放行() {
+        for ok in [
+            "https://example.com/",
+            // 长得像 IP 也不是 IP 字面量
+            "https://1.1.1.1.example.com/",
+            "https://www.bing.com/HPImageArchive.aspx?format=js&idx=0",
+        ] {
+            assert!(split_target(ok).is_ok(), "{ok} 不该被拒");
+        }
+    }
+
+    /// 边界 3：保留主机名。这些是本机服务、局域网设备、云元数据在输入框里**最常出现的
+    /// 写法** —— 用户填的是名字，不是 IP，而它们全都解析到回环/链路本地。
+    #[test]
+    fn 保留主机名一律拒绝() {
+        for bad in [
+            "https://localhost/",     // 本机
+            "https://foo.localhost/", // *.localhost
+            "https://printer.local/", // *.local（mDNS）
+            "https://router.local/admin",
+            "https://metadata.google.internal/", // 云元数据（AWS/GCP 都这么叫）
+            "https://foo.internal/",
+            "https://a.b.internal/",
+            "https://gateway.home.arpa/", // *.home.arpa（RFC 8375 家庭网络）
+            "https://x.home.arpa/",
+            // 三处最容易漏的变形：结尾的点、大小写、带端口
+            "https://localhost./",
+            "https://foo.localhost./",
+            "https://LOCALHOST/",
+            "https://LocalHost./",
+            "https://api.LOCALHOST/",
+            "https://Router.LOCAL/",
+            "https://METADATA.GOOGLE.INTERNAL/",
+            "https://HOST.HOME.ARPA/",
+            "https://localhost:8443/admin",
+        ] {
+            let r = split_target(bad);
+            assert!(r.is_err(), "{bad} 应当被拒绝，实际 {r:?}");
+        }
+    }
+
+    /// 边界 3 最容易写错的地方：**按子串匹配会误伤**。
+    /// 清单定的是 `*.local` 这类后缀（前面得真有至少一个标签），不是「名字里含 local」。
+    #[test]
+    fn 长得像保留名字的公网域名必须放行() {
+        for ok in [
+            "https://notlocalhost.example.com/", // 含 "localhost" 但不是那个名字
+            "https://localhost.example.com/",    // localhost 只是个普通标签
+            "https://mylocal.example.com/",
+            "https://local.example.com/",
+            "https://not-internal.example.com/",
+            "https://internal.example.com/",
+            "https://home.arpa.example.com/",
+            "https://x.local.example.com/", // local 同样只是个普通标签
+            "https://myhome.arpa.example.com/",
+            // 清单定的是 `*.local`，裸 `local` 不在其中
+            "https://local/",
+        ] {
+            assert!(split_target(ok).is_ok(), "{ok} 不该被拒");
+        }
     }
 }
