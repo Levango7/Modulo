@@ -193,6 +193,16 @@ jobs:
         run: npm run build
         env:
           PUBLIC_BASE: /Modulo/
+      # 产物自己证自己：base 没带对时 index.html 引的是 `/assets/...`，站点在
+      # levango7.github.io 上会**白屏**，而 `npm run preview` 在本地永远是绿的（子路径这件事
+      # 只有部署之后才暴露 —— CHANGELOG 0.1.0 记过同一个坑）。所以推之前先 grep 一行。
+      # 顺带一条本机才有的坑：Git Bash 会把 `PUBLIC_BASE=/Modulo/` 里的前导斜杠当成 POSIX 路径
+      # 转换掉（实测变成 `/Users/<user>/.qoder/bin/git/Modulo/`），本地复跑这条构建要加
+      # `MSYS_NO_PATHCONV=1`；ubuntu runner 上是真 bash，没这个问题。
+      - name: 自检：产物必须带 /Modulo/ 前缀
+        run: |
+          grep -q '/Modulo/assets/' dist/index.html
+          echo "产物前缀正确：$(grep -oE 'src="[^"]*"' dist/index.html | head -1)"
       - name: 发布到 gh-pages
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
