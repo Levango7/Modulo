@@ -3,6 +3,50 @@
 格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，版本号遵循
 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## 未发布（待发）
+
+0.7.0 之后三笔修复已入库 master。**尚未发版**，且**刻意压着不发** —— 原因见下面最后一条。
+
+### 修复
+
+- **依赖来源钉回官方 registry**（影响所有自行构建的人，最该优先发的一条）。
+  `package-lock.json` 里 **271 条 `resolved` 全部是 `registry.npmmirror.com`** —— 那不是仓库里写的，
+  是某台机器的**全局 `~/.npmrc`** 设了国内加速镜像，本机 `npm install` 就把镜像地址写进了锁文件。
+  仓库里没有任何东西记录这件事，`npm ci` 也不报警，它只是照着锁文件下载 ——
+  于是 **CI 一直在从这家第三方镜像拉全部依赖**。0.7.0 打标签时 CI 直接红在拉不到
+  `emoji-regex`，而本机 `npm install` 一切正常，这个"本机全好、CI 随机红"的组合排查起来极贵。
+  修法：锁文件换回官方源（逐行核对过 `version` 行改动数为 0），并把 `.npmrc` **提交进仓库**
+  （registry 是每台机器各自的全局配置，也就是一个看不见的输入），再加门禁
+  `tests/release/lockfile-registry.test.ts`（5 条，三种破坏方式都实测过会让它变红）。
+  验证方式是删掉 `node_modules` 跑一次真 `npm ci`：188 个包全装上、integrity 全过 ——
+  这顺带证明官方源的字节与记录的 integrity 一致，**镜像侧没有提供过改动过的内容**。
+
+- **本机 `cargo test` 从「从未成功启动过」变成可跑**。此前记为「本机环境级问题、从项目侧改不动」，
+  **那个结论是错的**。链条是：`tauri → muda（托盘/原生菜单）→ windows crate` 静态导入
+  `comctl32.dll::TaskDialogIndirect`，而它**只由 comctl32 v6 导出**；绑到 v6 的唯一途径是应用清单
+  声明 `Microsoft.Windows.Common-Controls 6`，但 `tauri-build` 生成的 `resource.rc` 里明明有那段清单，
+  它只把资源链给了 **bin**（发的是 `cargo:rustc-link-arg-bins=`）。
+  （`comctl32` 是 KnownDLL，往 exe 同目录拷 v6 **无效** —— 这步最容易让人以为方向对了。）
+  修法一行，见 `src-tauri/build.rs`。Rust 单测 17 → **21 条**，本机与 CI 同数，
+  「以 CI 为准」的将就取消。
+
+- **真机探针的四类假红**（此前只写了注释说「偶发」）：dev 版二进制（`tauri-build` 的 context 被
+  cargo 按指纹缓存，裸跑过 `cargo` 后接着 `tauri:build` 会复用 dev 的）、二进制比输入旧、
+  **句柄跨 launch 泄漏**（`hwnd` 是模块级变量，夹取分支会在第一个实例还开着时再 launch 一次，
+  于是量的是前一个窗口）、`Find-MainWindow` 只取「面积最大的」而无下限（主窗口未创建时会挑中
+  4×4 的辅助窗口）。另有两处**断言本身**不够严，其中「藏起来的窗口可以恢复」原来判 `visible` ——
+  而图标态窗口的 `visible` 就是 `true`，等于被没还原干净的窗口骗过去。探针 55/55 连 5 轮。
+
+### 刻意压着不发的原因
+
+`packages/engine/src/watch.ts` 有一处在制品未提交：网页监控的**主机名**那半边边界还没补
+（`localhost` / `*.localhost` / `*.local` / `*.internal` / `*.home.arpa`）。现有单测甚至**断言
+`https://localhost/` 必须放行** —— 也就是最容易被人顺手填的那类回环/元数据主机名当前是开门的，
+IP 字面量那半边则守得很好。
+
+**在别人的在制品上跑发布构建，会把它没写完的代码编进产物。** 所以这一版等那条边界合进来一起发，
+而不是先发一版马上又要发第二版。
+
 ## 0.7.0（2026-10-06）—— 网页监控：把 SSRF 边界定下来，目录收官
 
 ### 新增
