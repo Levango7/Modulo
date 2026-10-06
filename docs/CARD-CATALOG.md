@@ -187,33 +187,42 @@ v1 数据与旧备份读得进来，读不出来的那些**不进任何月份**�
 
 代价与边界：这是一张**只读、只读一个固定来源**的卡。不能换源，也不能查任意网址 —— 那正是下一节的事。
 
-### 未解决的那一半：这台机器上 `cargo test` 跑不起来
+### 曾记为「未解决」：`cargo test` 在这台机器上跑不起来（2026-10-06 已修）
 
-每日一图的实现本身是完整的（fmt / clippy / 真机探针 49/49 都过，app 正常启动），
-但**只要 lib 引用了 `web` 模块，`cargo test` 的测试二进制就会加载失败**：
+当时的记录是：lib 引用 `web` 模块后测试二进制就加载失败，
 
 ```
 exit code: 0xC0000139, STATUS_ENTRYPOINT_NOT_FOUND
 ```
 
-已排除的原因（每一项都实测过）：
+排除过的原因（每一项都实测过）：
 
-| 怀疑 | 实测结果 |
-|---|---|
-| 二进制太大 | 98.9 MB 也失败、119 MB 通过，非单调 |
-| 完整 DWARF 调试信息 | 加 `[profile.test] debug = 1` 压到 98.9 MB，仍失败 |
-| incremental 编译 | `CARGO_INCREMENTAL=0` 仍失败 |
-| 静态导入解析不了 | 用 ctypes 逐个导入验证：**全部可解析** |
-| `WebView2Loader.dll` 不在 `deps/` | 复制过去后仍失败 |
-| mingw 在 PATH 上版本冲突 | 去掉 PATH 仍失败 |
-| 产物损坏 | `cargo clean -p modulo` 后完整重编，仍失败 |
+| 怀疑 | 当时的实测结果 | 2026-10-06 复核 |
+|---|---|---|
+| 二进制太大 | 98.9 MB 也失败、119 MB 通过，非单调 | 无关 |
+| 完整 DWARF 调试信息 | 加 `[profile.test] debug = 1` 压到 98.9 MB，仍失败 | 无关 |
+| incremental 编译 | `CARGO_INCREMENTAL=0` 仍失败 | 无关 |
+| **静态导入解析不了** | 用 ctypes 逐个导入验证：**全部可解析** | **就是它，但那次验证漏了它** |
+| `WebView2Loader.dll` 不在 `deps/` | 复制过去后仍失败 | 无关（它是 KnownDLL，拷贝本就无效） |
+| mingw 在 PATH 上版本冲突 | 去掉 PATH 仍失败 | 无关 |
+| 产物损坏 | `cargo clean -p modulo` 后完整重编，仍失败 | 无关 |
 
-进一步的现象把范围收得很窄：**同一份 lib.rs，只加 `#[link(name="winhttp")] extern`
-+ 11 个函数声明 + 实际调用 → 通过；换成完整实现 → 失败。** 而 `LoadLibraryExW` 能成功加载
-那个失败的 exe（说明导入没问题），直接运行却失败 —— 卡在入口点执行阶段，不是导入解析阶段。
+**当时的结论错了。** 原文写的是「本机环境级问题，根因未定位，从项目侧改不动，需要另一台机器来验证」——
+实际上就是项目侧一个缺失的应用清单。真正的链条：
 
-结论：**这是一个本机环境级问题，根因未定位，从项目侧改不动。**
-需要的是「另一台机器 / CI 上验证 `cargo test` 是否同样失败」—— 这是当前最缺的前置条件。
+```
+tauri → muda → windows crate → 测试壳静态导入 comctl32.dll::TaskDialogIndirect
+```
+
+`TaskDialogIndirect` 只由 **comctl32 v6** 导出，System32 的 v5 存根不导出。绑到 v6 的唯一途径是
+应用清单声明 `Microsoft.Windows.Common-Controls 6`（SxS 旁加载），而 `tauri-build` 生成的
+`resource.rc` 里**本来就有**那段清单 —— 只是它只把资源链给了 bin 目标
+（发的是 `cargo:rustc-link-arg-bins=`）。测试壳因此缺清单 → 绑 v5 → 缺入口 → 起不来。
+
+那次 ctypes 验证为什么漏：`TaskDialogIndirect` 是静态导入项，而逐个 `ctypes` 试的是**按需**
+`LoadLibrary`/`GetProcAddress` 的路径，两条路径的绑定结果不一样。
+
+修法与排除掉的两个想当然做法见 `src-tauri/build.rs` 的注释。现在本机 `cargo test` 直接可跑。
 
 ### 网页监控（第 41 张卡）：做，但把边界定死
 

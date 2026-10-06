@@ -359,7 +359,7 @@ MVP 先做 A1，A2 留一个 `projection.a2.test.ts` 做对照实验。不在没
 
 另外去掉了一处观感缺陷：编辑器标签条与卡片自身表头重复显示同一个名字（"便签 / 便签"），改为卡片在编辑态走 `chromeless`，每格只保留一层头部。
 
-当前状态（2026-10-06 复核，由 agent-C 在本机实跑）：**前端单测 870 条（62 个文件）+ E2E 22 条 + Rust 单测 17 条**全绿（另有 1 条 `#[ignore]` 的发布门禁 `release_signature`，CI 上没有安装包产物所以不跑），`vue-tsc` 与 `tsc --noEmit` 都干净，受测层分支覆盖 **≥94%**（门禁 ≥90%，本轮实测 94.32%），无 console 报错。`vite build` 同日重跑：**JS 309.14 kB / gzip 104.19 kB（主包 308.11 + 更新插件面 1.03），CSS 88.02 kB / gzip 13.05 kB**（比上一版记的 41.0 kB 大得多，因为多了桌面壳设置页、卡片内容、版面模板选择器、完整备份、更新插件与 41 种卡的 JS/CSS 面）。桌面探针的项数是条件量，见 README「验证」一节里那两个原始行与出处；口径与 §11.3。<!-- facts -->
+当前状态（2026-10-06 复核，由 agent-C 在本机实跑）：**前端单测 870 条（62 个文件）+ E2E 22 条 + Rust 单测 21 条**全绿（另有 1 条 `#[ignore]` 的发布门禁 `release_signature`，CI 上没有安装包产物所以不跑），`vue-tsc` 与 `tsc --noEmit` 都干净，受测层分支覆盖 **≥94%**（门禁 ≥90%，本轮实测 94.32%），无 console 报错。`vite build` 同日重跑：**JS 309.14 kB / gzip 104.19 kB（主包 308.11 + 更新插件面 1.03），CSS 88.02 kB / gzip 13.05 kB**（比上一版记的 41.0 kB 大得多，因为多了桌面壳设置页、卡片内容、版面模板选择器、完整备份、更新插件与 41 种卡的 JS/CSS 面）。桌面探针的项数是条件量，见 README「验证」一节里那两个原始行与出处；口径与 §11.3。<!-- facts -->
 
 覆盖率从上版的 95.08% 降到 94.49%，全部来自新加的 `watch.ts`：它有一批**防御性分支实际不可达** —— 例如 `if (url.protocol !== 'https:')`（构造出来的 URL 只可能是 `https:`）与 `if (!url.hostname)`（`new URL` 抛错时根本走不到这里）。这部分不打算用绕路的测试去凑数字：门禁是 90%，把不可达分支写成可达的假测试只会让覆盖率好看而让代码变脏。
 
@@ -858,7 +858,9 @@ Tauri 2 最小壳：`src-tauri/` 只声明一个主窗口（1280×800，最小 3
 注册失败本身是静默的，只在 stderr 打一行等于没有 —— 所以把结果存进状态、开一个 `global_shortcuts` 命令给设置页显示「已注册 / 被占用」。快捷键文案也因此只有一份（Rust 侧），前端不再抄一遍常量。
 
 **用户可改键**（2026-10-02）：`set_shortcut(kind, chord)` 先解旧再注册新，**新键注册失败就把旧键滚回去**，绝不留下「两条都没绑上」的状态。回调不再按 `shortcut.key` 猜是哪一条 —— 改键后两条完全可以共用字母、只换修饰键，所以多了一张 `kind → 当前 Shortcut` 的表来反查。持久化和「收进托盘」同一个套路：Rust 侧不落地，前端存在 `modulo.shell.v1` 里（一个 key 存两样东西，因此每次写回必须带全字段，否则拨一下开关就把改过的键抹了），启动时读到与默认档不一致的键再推回去。
-设置页每行一个「改键」按钮，按下后在 **document 捕获阶段**听 keydown 并 `stopPropagation` —— 挂在 bubble 上会先让应用自己的 Ctrl+Z / Esc 跑掉（Esc 还会顺手关掉设置面板）。裸键（`M`）被 `parse_chord` 拒绝：全局裸键会吞掉系统里所有该键的输入。这条**没有 Rust 单测**：一引用 `parse_chord`，windows-gnu 的测试二进制就 `STATUS_ENTRYPOINT_NOT_FOUND`（去掉立刻恢复），所以由探针端到端验。
+设置页每行一个「改键」按钮，按下后在 **document 捕获阶段**听 keydown 并 `stopPropagation` —— 挂在 bubble 上会先让应用自己的 Ctrl+Z / Esc 跑掉（Esc 还会顺手关掉设置面板）。裸键（`M`）被 `parse_chord` 拒绝：全局裸键会吞掉系统里所有该键的输入。
+
+这条原先记的是「**没有 Rust 单测**：一引用 `parse_chord`，windows-gnu 的测试二进制就 `STATUS_ENTRYPOINT_NOT_FOUND`（去掉立刻恢复）」。**那个因果是错的**，2026-10-06 更正：测试壳**从来就没能启动过**，与引用什么无关 —— `tauri → muda → windows crate` 的静态导入 `comctl32.dll::TaskDialogIndirect` 只由 comctl32 v6 导出，而测试壳没嵌声明 Common-Controls 6 的应用清单，loader 绑到 System32 的 v5 存根就缺入口（详见 §11 的「0xC0000139」与 `src-tauri/build.rs` 的注释）。修掉之后补了 **4 条** Rust 单测：裸键被拒、带修饰键解析得过、错误信息带得下原文，以及一条把「Win 键的写法是 `Super` 不是 `Win`」钉死的契约测试 —— 前端 `toChord` 发的是 `Super`（muda 只认 `COMMAND`/`CMD`/`SUPER`），这条防的是有人把 `toChord` 改成发 `Win` 后录制出来的键一律注册失败。
 
 **取消键的判定只认裸 Esc**（2026-10-03 修，0.1.0 起就带在身上）：录制态原先按 `key === 'Escape'` 一刀切取消，于是 `Ctrl+Alt+Esc` 这类组合**永远绑不上** —— 而"全局快捷键必须带修饰键"正是产品自己的规则，等于把这条规则允许的键挡在门外。现在 `toChord` / `isCancelEscape` 抽到 `src/vue/chord.ts`（**10 条单测**，含"带修饰的 Esc 拼成 `Ctrl+Alt+Shift+Escape`"与"裸 Esc 才算取消"两组正反用例），Rust 侧确认收得到：`global-hotkey 0.8.0` 的键名表里就有 `"ESCAPE" | "ESC"`（`hotkey.rs:319`）。真机那两条落在探针的录制块里（录进去 + 录完换回基线）。
 
