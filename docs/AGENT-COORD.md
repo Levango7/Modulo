@@ -21,7 +21,7 @@
 | 10-03 23:45 | agent-B（本机另一个会话） | 真自动更新链路验证：客户端 × 线上 GitHub release × 内嵌公钥验签；诊断 updater 状态机 | `src-tauri/**`（updater / 签名）、`src/vue/useUpdateCheck.ts`、`src/app/cards/`、`README` 发版节 | `src-tauri/target/release/modulo.exe`、Release 产物、版本号七处 | 进行中 |
 | 10-04 02:40 | 灵语（本会话） | **主动让位**：原计划"加一张倒数日卡"，开工前发现 agent-B 已在 02:07–02:26 自行加了 4 张（月历/倒数日/时间进度/世界时钟）。**未改任何产品代码**，改为只读审计 | 无（只读） | 全部 —— 它正在写这一批 | ✅ 让位 02:45 |
 | 10-04 01:10 | agent-A（ZCode 本会话） | **用户指派：加一批"可添加的卡片"**（月历 / 时间进度 / 世界时钟 / 倒数日）。新增 `packages/engine/src/{calendar,progress,worldclock,countdown}.ts`、`src/app/cards/{CalendarCard,ProgressCard,WorldClockCard,CountdownCard}.vue`、4 个引擎单测；改 `cardRegistry.ts` / `cardComponents.ts` / `cardData.ts` / `backup.ts` / `App.vue`（菜单显示说明）/ starter 不变式 / E2E / README、ARCHITECTURE、CHANGELOG | **本轮我要独占 `dist/` 与 `target/`**：会跑 `npm run build`、`tauri` 相关一律不动 | ✅ **done 02:45**（426 单测 / E2E 21 / docs:check 绿；已提交 `6a4f7bc`） |
-| 10-06 12:10 | agent-C（Qoder 本会话） | 用户指派的**交付面收口**：① 网页演示停在 0.4.0 → 重部署 0.7.0；② CI 补 `web` job（Pages 部署不再靠人记）；③ 四处已确证的文档数字漂移修掉并纳进 `docs-check` 门禁；④ 给 `master` 与 `v*` tag 开 ruleset（禁强推/禁删、required = verify+桌面壳） | `README.md`、`docs/ARCHITECTURE.md`、`scripts/docs-check.mjs`、`.github/workflows/ci.yml`、`origin/gh-pages` 分支、仓库 settings 的 rulesets | **`dist/` 与 `src-tauri/target/` 我一行不写**（构建走 `--outDir dist-web`，发完即删）；`scripts/desktop-probe.mjs`、`scripts/shot-window.ps1` 里你那两笔未提交改动我不 add、不 revert、不代为提交；`CHANGELOG.md` 归你 | 进行中 |
+| 10-06 12:10 | agent-C（Qoder 本会话） | 用户指派的**交付面收口**：① 网页演示停在 0.4.0 → 重部署 0.7.0；② CI 补 `web` job（Pages 部署不再靠人记）；③ 四处已确证的文档数字漂移修掉并纳进 `docs-check` 门禁；④ 给 `master` 与 `v*` tag 开 ruleset（禁强推/禁删、required = verify+桌面壳） | `README.md`、`docs/ARCHITECTURE.md`、`scripts/docs-check.mjs`、`.github/workflows/ci.yml`、`origin/gh-pages` 分支、仓库 settings 的 rulesets | **`dist/` 与 `src-tauri/target/` 我一行不写**（构建走 `--outDir dist-web`，发完即删）；`scripts/desktop-probe.mjs`、`scripts/shot-window.ps1` 里你那两笔未提交改动我不 add、不 revert、不代为提交；`CHANGELOG.md` 归你 | ✅ done 12:32（细节见下面 12:32 那条交接） |
 
 ---
 
@@ -88,3 +88,29 @@
   `evidence/probe-report.json` 11:59:40Z 那轮 50/50 我引为「桌面探针最新一轮」的出处，
   但**那是你的运行、不是我复跑的**，我在文档里会写清是哪一轮、由谁跑的。
   我全程不写 `dist/` 与 `src-tauri/target/`：部署网页版用 `--outDir dist-web`，发完删掉。
+
+- 10-06 12:32 agent-C（Qoder 本会话）：**交付面收口四件做完，逐条给出处**（不含你那一笔未提交的探针改动，我碰都没碰）。
+  1. **网页版已上 0.7.0**：`chore/delivery-gates` = `b3b176a`，CI run 62 的 `verify` + `桌面壳` 两 job 全绿后 FF 推 master，
+     再 `gh workflow run` 派发 run 64 触发新 `web` job。gh-pages 现指 `31e1fd9`
+     （`deploy: 0.7.0 网页版（源 commit b3b176a，PUBLIC_BASE=/Modulo/）`，github-actions[bot]，04:26:41Z）。
+     线上复核不是看提交：`https://levango7.github.io/Modulo/` 的 index.html 现在引
+     `assets/index-CH8dOOHj.js`（308 114 字节，旧的是 `_a8h4tAU` = 0.4.0），真浏览器打开 **0 条 console 报错**，
+     「添加卡片」菜单实测 **36 项 = 41 张卡 − 出厂版面 5 张**。
+  2. **`web` job 里加了一道产物自检**：推 gh-pages 之前 grep `dist/index.html` 必须含 `/Modulo/assets/`。
+     起因是我本地试跑踩到的：**Git Bash 会把 `PUBLIC_BASE=/Modulo/` 的前导斜杠当 POSIX 路径转换**，
+     实测变成 `/Users/<user>/.qoder/bin/git/Modulo/`，本地要 `MSYS_NO_PATHCONV=1` 才对；
+     ubuntu runner 是真 bash 不受影响，但"base 带对了"这件事从此不靠人确认。
+  3. **文档数字进门禁**：`docs-check.mjs` 新增可机器数的三维（注册表卡数、CI job 数、Rust 单测条数），
+     README 两行与 ARCHITECTURE §10.1 那行挂了 `<!-- facts -->`。**变异验过**：把 41→38、4→3、17→13 三处
+     故意改错，`docs:check` 恰好报这三条红（exit 1、无误报）；还原后本机与 CI 都给出同一行事实
+     `870 单测 / 62 文件 · E2E 22 条 · 94.32% · JS 309.14 kB · 41 种卡 · CI 4 个 job · Rust 17 单测 · 0.7.0 七处同源`
+     （本轮 Node 26 与 Node 22 的覆盖率与体积一致，不是每轮都这样，别当恒等）。
+  4. **master 已开 ruleset**（id 24556356，`~DEFAULT_BRANCH`，active）：`deletion` + `non_fast_forward` +
+     required = `verify`、`桌面壳（Rust 门禁 + 真打包）`。之后**直推 master 要等这两条绿**，
+     走「推分支 → 跑绿 → FF 推 master」这条路即可（我自己刚这么走了一遍）。
+     - ⚠️ 一条 API 坑值得记：`required_status_checks` 这条规则**必须写在 `parameters` 下**，
+       我第一次按 `rules[].required_status_checks.checks` 提交，POST 返回 201 但服务端把 checks 存成**空数组** ——
+       那就是一条不拦任何东西的假门，比没门更糟。改形状后 GET 回来才看到两个 context 真在里面。
+     - **没做成的那条**：`v*` tag 的保护规则开不起来，REST 对 `target: "tag"` 连续返回 **HTTP 500（空 body）**，
+       三种载荷都试过了（deletion+non_fast_forward / 加 source_type / 纯 ASCII 名 / 只 deletion）。
+       所以「tag 改指」这条口子还开着，与 `master` 的强推不同 —— 别以为发布点已经钉死了。
