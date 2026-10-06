@@ -1,5 +1,5 @@
 import { spawn, spawnSync } from 'node:child_process'
-import { appendFileSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { appendFileSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { join, resolve } from 'node:path'
 import { connect } from 'node:net'
 import puppeteer from 'puppeteer-core'
@@ -76,12 +76,84 @@ const webviewArgs = () => {
  * 起来了但 WebView2 缺席（webviewProcs 0，本机正常是 6+）、
  * 两边都正常而端口没人听（portOpen false ⇒ 远调参数没生效）。
  */
+/**
+ * 二进制是否比它的输入还旧。
+ *
+ * 这不是洁癖 —— 踩过的坑：tauri 的 build script 产物会被 cargo 缓存。改过
+ * `tauri.conf.json`（哪怕只动 CSP）之后直接 `npm run tauri:build`，编出来的二进制
+ * **仍然嵌着 devUrl**，于是 app 去连 `localhost:1430`，而探针等的是 `tauri.localhost`，
+ * 表现为「CDP 端口等了 30 秒没等到页面」。那会儿的现象和「探针坏了」几乎一样，
+ * 排查绕了很久。
+ *
+ * 所以：**每次跑之前先比时间戳**，比 mtime 可靠也比「读二进制里的字符串」可靠 ——
+ * devUrl 字符串本来就写在配置里、一定被编进二进制，靠字符串判断只会永远误报。
+ */
+const newestInput = (dir, acc = { path: '', mtime: 0 }) => {
+  if (!existsSync(dir)) return acc
+  for (const name of readdirSync(dir)) {
+    const p = join(dir, name)
+    let st
+    try {
+      st = statSync(p)
+    } catch {
+      continue
+    }
+    if (st.isDirectory()) newestInput(p, acc)
+    else if (st.mtimeMs > acc.mtime) Object.assign(acc, { path: p, mtime: st.mtimeMs })
+  }
+  return acc
+}
+
+const warnIfStale = () => {
+  if (!existsSync(EXE)) {
+    console.log(`STALE-NOTE  没有可探测的二进制：${EXE}（先 npm run tauri:build）`)
+    return
+  }
+  const exeMtime = statSync(EXE).mtimeMs
+  // 覆盖「改了会重编」的那些输入：tauri 配置（build script 读它）、Cargo 清单、Rust 源码
+  const watched = [
+    join('src-tauri', 'tauri.conf.json'),
+    join('src-tauri', 'Cargo.toml'),
+    join('src-tauri', 'Cargo.lock'),
+    newestInput(join('src-tauri', 'src')).path,
+  ].filter(Boolean)
+  const newest = watched.reduce((acc, p) => {
+    const m = existsSync(p) ? statSync(p).mtimeMs : 0
+    return m > acc.mtime ? { path: p, mtime: m } : acc
+  }, { path: '', mtime: 0 })
+
+  if (newest.mtime > exeMtime) {
+    console.log(
+      `STALE-NOTE  二进制比输入旧：${newest.path}\n` +
+        `           没重新打包就跑探针，量的是上一次的结果。重新 npm run tauri:build 即可。`,
+    )
+  }
+}
+
+/**
+ * 连不上 CDP 时，把**实际看到的 target 地址**取出来。
+ *
+ * 这是整个诊断里最值钱的一条：真值不是 tauri.localhost 时，基本只有两种可能 ——
+ * 二进制是 dev 版（去连 vite dev server 了），或者连上了上一个还没退干净的实例。
+ * 两者都和「产品有 bug」无关，但只看「等不到 tauri.localhost」这句话谁也分不出来。
+ */
+const pageTargets = async () => {
+  try {
+    const list = await (await fetch(`http://127.0.0.1:${PORT}/json/list`)).json()
+    return list.filter((t) => t.type === 'page').map((t) => t.url)
+  } catch {
+    return []
+  }
+}
+
 const diagnose = async (child, browserArgs) => ({
   childExit: child?.exitCode ?? null,
   childSignal: child?.signalCode ?? null,
   moduloProcs: countBy('modulo.exe'),
   webviewProcs: countBy('msedgewebview2.exe'),
   ...webviewArgs(),
+  /** 实际看到的页面地址 —— 见 pageTargets() 的注释，这一条最能定位问题 */
+  pageUrls: await pageTargets(),
   /** 必须 await：直接把 Promise 塞进 JSON.stringify 会打印成 {}，等于现场造假 */
   portOpen: await portOpen(),
   browserArgsPassed: browserArgs,
@@ -111,7 +183,7 @@ const state = () => {
   }
 }
 
-async function launch(extraEnv = {}) {
+async function launchOnce(extraEnv = {}) {
   const browserArgs = `--remote-debugging-port=${PORT}`
   const child = spawn(EXE, [], {
     env: { ...process.env, WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS: browserArgs, ...extraEnv },
@@ -123,6 +195,14 @@ async function launch(extraEnv = {}) {
     stdio: 'ignore',
   })
   pid = child.pid ?? 0
+  /**
+   * 句柄必须在每次 launch 前清零。hwnd 是模块级变量，而「夹取分支」会在第一个实例还开着
+   * 的时候再 launch 一次 —— 沿用上一个实例的句柄时，state() 会去读**前一个**窗口
+   * （托盘测试刚把它藏起来了：running=true、rect 还是 1280×800、iconic=false），
+   * 于是下面那个等待循环第一轮就判定「窗口已就绪」，整段夹取实测量的是别人的窗口。
+   * PID 已经换了，句柄必须跟着换。
+   */
+  hwnd = 0
   let ready = false
   for (let i = 0; i < 60 && !ready; i++) {
     await sleep(500)
@@ -136,7 +216,24 @@ async function launch(extraEnv = {}) {
   if (!ready) {
     const diag = await diagnose(child, browserArgs)
     child.kill('SIGTERM')
-    throw new Error(`CDP 端口 ${PORT} 等了 30 秒没等到 tauri.localhost 的页面。现场：${JSON.stringify(diag)}`)
+    // 区分「连到了别的地址」和「根本没连上」：前者是二进制过期/是 dev 版，
+    // 后者是 WebView2 没起来或远调参数没生效。两者的下一步完全不同。
+    const foreign = (diag.pageUrls ?? []).filter((u) => !/tauri\.localhost/.test(u))
+    if (foreign.length) {
+      throw new Error(
+        `CDP 连上了，但页面不是 tauri.localhost，而是 ${JSON.stringify(foreign)} —— 二进制是 dev 版。\n` +
+          `  成因：tauri-build 生成的 context 被 cargo 按指纹缓存了，而它分 dev / release 靠的是\n` +
+          `  「构建时有没有 Tauri CLI 的环境」。裸跑过 cargo build / check / test / clippy 之后，\n` +
+          `  紧接着 npm run tauri:build 会直接复用那份 **dev** 的 context，于是编出只会连 dev server 的包。\n` +
+          `  修法：cd src-tauri && cargo clean -p modulo && cd .. && npm run tauri:build\n` +
+          `  现场：${JSON.stringify(diag)}`,
+      )
+    }
+    throw new Error(
+      `CDP 端口 ${PORT} 等了 30 秒没等到 tauri.localhost 的页面。\n` +
+        `  pageUrls 为空 ⇒ WebView2 没起来或远调参数没生效；先确认 ${EXE} 能手工启动。\n` +
+        `  现场：${JSON.stringify(diag)}`,
+    )
   }
   const browser = await puppeteer.connect({ browserURL: `http://127.0.0.1:${PORT}`, defaultViewport: null })
   // 页面列表不紧跟 /json/list：重启那一轮曾随机挂在「连上了但找不到主页面」，所以这里要自己重试
@@ -172,6 +269,43 @@ async function launch(extraEnv = {}) {
     throw new Error(`启动后没拿到可见的主窗口，最后读到的是 ${JSON.stringify(s)}`)
   }
   return { child, browser, page }
+}
+
+/**
+ * 起一次，必要时重试一次。
+ *
+ * **只重试那些真的会自己好的**：
+ *   - 「压根没连上 CDP」（pageUrls 为空）
+ *   - 「启动后找不到主窗口」—— 上一轮残留的实例 / webview2 没退干净时，spawn 出来的进程
+ *     可能直接夭折，窗口压根没创建过。等 30 秒也没用，但把残留清干净重来一次就好了
+ *     （实测隔一轮复现一次）。
+ * **不重试**「页面不是 tauri.localhost」那种：那是 dev 版二进制，确定性的，
+ * 重试一万次也还是去连 vite，重试只是白等 30 秒 —— 直接报成因。
+ */
+const TRANSIENT = /pageUrls 为空|启动后找不到主窗口/
+
+async function launch(extraEnv = {}) {
+  try {
+    return await launchOnce(extraEnv)
+  } catch (e) {
+    const msg = String(e?.message ?? e)
+    if (!TRANSIENT.test(msg)) throw e
+    console.log(`RETRY   ${msg.slice(0, 24)}… 清掉残留进程与调试端口后再试一次（这类是真的偶发）`)
+    // 上一次 spawn 的子进程可能还占着端口/句柄；不清理的话第二次大概率照样失败
+    runPs(['-Out', 'x', '-State', '-Process', 'modulo'])
+    for (let i = 0; i < 20; i++) {
+      try {
+        await fetch(`http://127.0.0.1:${PORT}/json/version`)
+        await sleep(250)
+      } catch {
+        break
+      }
+    }
+    hwnd = 0
+    pid = 0
+    await sleep(1500)
+    return launchOnce(extraEnv)
+  }
 }
 
 const stop = async ({ child, browser }) => {
@@ -321,6 +455,7 @@ function restoreAppearance() {
 }
 
 seedAppearance()
+warnIfStale()
 
 let app = null
 try {
@@ -863,12 +998,34 @@ try {
    * 图标态（rect 是 -32000 那种垃圾值），于是既判不出「藏了」也拿不到可用的矩形。
    * 现在谓词是 PS 侧的 `hidden`，40ms 一跳，藏起来这个瞬态必然被抓住。
    */
+  /**
+   * 起点必须先摆正。判据是 `visible === false && iconic === false`，而窗口若本来就是
+   * 图标态（上一段的操作残留、或上次探针没退干净），点多少次关闭都不会满足 —— 报出来
+   * 的是「起点不对」，读起来却像「托盘功能坏了」。这里先等可操作态，等不到就还原一次。
+   */
+  let preReady = await waitUntil('ready', { timeout: 4000 })
+  if (!preReady.ok) {
+    runPs(['-Out', 'x', '-Restore', ...target()])
+    await sleep(700)
+    preReady = await waitUntil('ready', { timeout: 6000 })
+  }
+  check('点关闭前窗口处于可操作态（非图标态）', preReady.ok, {
+    waitedMs: preReady.waited,
+    samples: preReady.samples,
+    ...preReady.s,
+  })
+
   await clickIn(app.page, '.tb-btn[aria-label="关闭"]')
   const hidden = await waitUntil('hidden')
   check('拨开开关后点关闭是藏进托盘，进程不退出', hidden.ok, { waitedMs: hidden.waited, samples: hidden.samples, ...hidden.s })
 
   runPs(['-Out', 'x', '-Restore', ...target()])
-  const shownAgain = await waitUntil('visible', { timeout: 5000 })
+  /**
+   * 谓词用 `ready` 而不是 `visible`：**图标态窗口的 visible 是 true**（上面那条最小化断言
+   * `v0.visible === true` 就是这么成立的）。所以 `visible` 会被一个还没真正还原的图标态窗口
+   * 骗过去，这条断言等于白写。`ready` 才真的要求「还原成了一个能用的窗口」。
+   */
+  const shownAgain = await waitUntil('ready', { timeout: 5000 })
   check('藏起来的窗口可以恢复', shownAgain.ok, { waitedMs: shownAgain.waited, samples: shownAgain.samples, ...shownAgain.s })
 
   /**
