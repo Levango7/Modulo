@@ -247,12 +247,17 @@ const toSendKeys = (chord) => {
  * -32000 垃圾矩形，也会整个错过瞬态。这是「夹取尺寸 + 居中」「藏进托盘 + 真退出」
  * 几组成对变红的唯一原因：不是代码错，是**采样太稀**。
  *
- * 谓词是命名 token（`iconic` / `hidden` / `maximized` / `size` …）而不是回调：
- * 见 shot-window.ps1 里的说明。`onSample` 用于需要采样过程本身的场合
- * （比如「有没有真的翻转过可见性」，只比较末态会漏掉中途的变化）。
+ * ⚠️ 连不上 CDP 时**先怀疑二进制是旧的**：tauri 的 build script 产物会被 cargo 缓存，
+ * 改过 `tauri.conf.json`（哪怕只改 CSP）之后不 `cargo clean -p modulo` 就重新打包，
+ * 编出来的二进制可能仍嵌着 **devUrl**，于是 app 去连 `localhost:1430`，
+ * 这里等 `tauri.localhost` 自然永远等不到。现象与「探针坏了」几乎一样。
+ * 判据：探针报的现场里若 target 是 1430，多半就是这个，重新 `cargo clean -p modulo`
+ * 再打包即可（实测过一次）。
  *
- * @param onSample 若给出，返回的是「过程中出现过的最后一个不满足态之前的样本」，
- *                 用于区分「始终没变」与「变过又变回来」。
+ * 谓词是命名 token（`iconic` / `hidden` / `maximized` / `size` …）而不是回调：
+ * 见 shot-window.ps1 里的说明。`onSample` 用于需要采样过程本身的场合。
+ *
+ * @param onSample 若给出，返回的是采样结果，可用于自定义断言。
  */
 const waitUntil = async (name, { timeout = 8000, onSample, ...args } = {}) => {
   const r = runPs(['-Out', 'x', '-Until', name, '-TimeoutMs', String(timeout), ...target(), ...optsToArgs(args)])
