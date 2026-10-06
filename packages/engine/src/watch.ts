@@ -12,14 +12,19 @@
  * - **IP 字面量落在私有/保留网段就拒绝** —— `169.254.169.254`（云实例元数据端点，
  *   拿到它等于拿到临时凭据）、`127.x`、`10/8`、`172.16/12`、`192.168/16`、`100.64/10`、
  *   `::1`、`fc00::/7`、`fe80::/10`，以及 IPv4-mapped 的绕法
+ * - **保留主机名也拒绝** —— `localhost`、`*.localhost`、`*.local`、`*.internal`、`*.home.arpa`。
+ *   这一条补的是「填 IP 之前先填的是名字」：本机服务、路由器、云元数据在输入框里通常以
+ *   主机名出现，而它们都能解析到回环/链路本地
  * - **不跟随重定向** —— 3xx 原样报出，堵掉「公网 URL 302 到内网」这条路径
  * - **只有 URL** —— 无自定义 header、无方法可选、无请求体、不带 Cookie 与 Authorization
  * - **DNS rebinding 不防** —— `evil.com` 解析到 `127.0.0.1` 这种靠域名绕开的，挡不住。
  *   理由：请求本来就是以用户身份发出的，本机任何进程都能做同样的事，边际风险很小；
  *   而真正会被误伤的是「顺手填个内网地址」和「云元数据端点」这两类实际会踩的坑。
+ *   （上面主机名那条是**按名字挡**、不查 DNS：它挡的是那几个固定名字，既不构成对
+ *   rebinding 的防护，也没有扩大到「解析出来是私网就拒」）
  *
- * **代价要说清楚**：因为拒绝私网，这张卡**监控不了自家 NAS / 路由器**。这是刻意的 ——
- * 那是另一个特性、另一套边界，不该顺手塞进来。
+ * **代价要说清楚**：因为拒绝私网与保留主机名，这张卡**监控不了自家 NAS / 路由器**
+ * （`router.local` 也一样）。这是刻意的 —— 那是另一个特性、另一套边界，不该顺手塞进来。
  *
  * 这个模块只管「什么 URL 算数」；真正的请求在 `src-tauri/src/net.rs`，那里的判据与这里
  * **必须是同一套**，所以两边都各写了一份并各自单测 —— 前端这份是为了输入时立刻有反馈，
@@ -31,7 +36,7 @@ export interface Watch {
   id: string
   /** 展示名；空则取主机名 */
   label: string
-  /** 必须是 https 开头、且主机名不是私有 IP 字面量 */
+  /** 必须是 https 开头，且主机名既不是私有/保留 IP 字面量，也不是保留主机名 */
   url: string
 }
 
@@ -84,7 +89,12 @@ export function ipv6Bytes(input: string): number[] | null {
   return bytes
 }
 
-/** 私有/保留网段 → 拒绝理由。查不到（公网或域名）时返回 null。 */
+/**
+ * 私有/保留网段、或保留主机名 → 拒绝理由。查不到（正常公网 IP 或公网域名）时返回 null。
+ *
+ * **两段判据缺一不可**：只挡 IP 字面量，就等于给「本机服务 / 路由器 / 云元数据」这些
+ * 最常被人顺手**填成名字**的地址留着门 —— 而它们都能解析到回环/链路本地。
+ */
 export function blockedReason(host: string): string | null {
   const raw = host.replace(/^\[/, '').replace(/\]$/, '')
   if (raw.includes(':')) {
@@ -106,7 +116,7 @@ export function blockedReason(host: string): string | null {
   }
 
   const m = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/.exec(raw)
-  if (!m) return null
+  if (!m) return blockedNameReason(raw)
   const [a, b] = [Number(m[1]), Number(m[2])]
   if (a === 0) return '0.0.0.0/8'
   if (a === 10) return '10/8（私有网段）'
@@ -120,6 +130,33 @@ export function blockedReason(host: string): string | null {
   if (a === 198 && b === 51) return '198.51.100/24（文档示例网段）'
   if (a === 203 && b === 0) return '203.0.113/24（文档示例网段）'
   if (a >= 224 && a <= 239) return '组播地址'
+  return null
+}
+
+/**
+ * 保留主机名 → 拒绝理由。清单就这五条，与 `src-tauri/src/net.rs` 的那份**必须一致**：
+ * `localhost`、`*.localhost`、`*.local`、`*.internal`、`*.home.arpa`。
+ *
+ * **按标签边界匹配，不按子串** —— `notlocalhost.example.com` 里含有 "localhost" 却是个
+ * 正经公网域名，按子串判会误伤一大片正常站点，而误伤边界等于逼用户绕过边界。
+ * 所以 `localhost.example.com`（localhost 在前面当标签）必须放行，
+ * `.local` 那种带点的后缀则要求前面真有至少一个标签。
+ *
+ * 三处容易写漏的：
+ * - **大小写不敏感** —— DNS 名字本来就不区分大小写，`Router.LOCAL` 与 `router.local`
+ *   是同一个名字。不小写就是开着门。
+ * - **结尾那个可选的点要去掉** —— `localhost.` 是同一个名字的 FQDN 写法，
+ *   带点时必须照样拒。
+ * - **不查 DNS** —— 这是**按名字**挡，不是「解析出来是私网就拒」，所以它既挡不住
+ *   rebinding，也没有把单标签的机器名（`intranet` 这种）纳入范围。要扩大清单得两边
+ *   一起改，否则前后端判据会分叉。
+ */
+function blockedNameReason(host: string): string | null {
+  const name = host.trim().toLowerCase().replace(/\.+$/, '')
+  if (name === 'localhost' || name.endsWith('.localhost')) return '本机主机名（localhost）'
+  if (name.endsWith('.local')) return '局域网主机名（*.local）'
+  if (name.endsWith('.internal')) return '内网主机名（*.internal）'
+  if (name.endsWith('.home.arpa')) return '家庭网络主机名（*.home.arpa）'
   return null
 }
 
@@ -192,8 +229,8 @@ export function normalizeWatchLabel(input: string, url: string): string {
 /**
  * 清洗整份名单。
  *
- * **顺带做边界 5**：导入别人的备份时，名单里可能夹带私网地址 —— 那些条目在这里
- * 直接丢掉，而不是等到探活时才失败（那会变成「一条条报错」，看不出是被挡了）。
+ * **顺带做边界 5**：导入别人的备份时，名单里可能夹带私网地址或保留主机名 —— 那些条目
+ * 在这里直接丢掉，而不是等到探活时才失败（那会变成「一条条报错」，看不出是被挡了）。
  * 丢掉的数量由调用方回显，用户才知道自己的备份里有过什么。
  */
 export function sanitizeWatch(

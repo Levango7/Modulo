@@ -148,7 +148,7 @@ pub fn get(host: &str, target: &str, url: &str) -> Result<(Option<u16>, String),
 
         let verb = wide("GET");
         let target_w = wide(target);
-        // 不传 WINHTTP_FLAG_REDIRECT：重定向一律原样报出（边界 3）
+        // 不传 WINHTTP_FLAG_REDIRECT：重定向一律原样报出（边界 4）
         let request = Handle::acquire(
             WinHttpOpenRequest(
                 connect.get(),
