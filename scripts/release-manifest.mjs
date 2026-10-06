@@ -33,8 +33,9 @@
  *
  * 需要 `GITHUB_TOKEN`（CI 里自动有；本机跑校验时设一个 PAT 也行）。
  */
-import { readFileSync, writeFileSync } from 'node:fs'
-import { resolve } from 'node:path'
+import { existsSync, readFileSync, writeFileSync } from 'node:fs'
+import { join, resolve } from 'node:path'
+import { tmpdir } from 'node:os'
 
 const REPO = process.env.GH_REPO ?? 'Levango7/Modulo'
 const MANIFEST = resolve(process.cwd(), 'release-manifest.json')
@@ -114,8 +115,16 @@ const rulesets = async () => {
 
 if (process.argv.includes('--update')) {
   const live = await collect()
-  writeFileSync(MANIFEST, JSON.stringify({ updatedAt: new Date().toISOString(), releases: live }, null, 2) + '\n')
-  console.log(`已重写 ${Object.keys(live).length} 条发布记录 -> release-manifest.json`)
+  // **必须保留 legacyUnsignedTags**：这个字段是人写的（签名机制启用前发布的那些 tag），
+  // --update 只该刷新可以从远端读出来的部分。第一版忘了保留，结果更新一次台账就把白名单
+  // 整个抹掉，下一次校验立刻把 8 个历史 tag 全报成「未签名」—— 自己给自己造了一条假红。
+  const prev = existsSync(MANIFEST)
+    ? JSON.parse(readFileSync(MANIFEST, 'utf8')).legacyUnsignedTags
+    : undefined
+  const out = { updatedAt: new Date().toISOString(), releases: live }
+  if (prev) out.legacyUnsignedTags = prev
+  writeFileSync(MANIFEST, JSON.stringify(out, null, 2) + '\n')
+  console.log(`已重写 ${Object.keys(live).length} 条发布记录 -> release-manifest.json${prev ? `（保留 ${prev.length} 条白名单）` : ''}`)
 } else {
   const bad = []
   const note = (m) => bad.push(m)
@@ -202,10 +211,12 @@ if (process.argv.includes('--update')) {
   const legacy = new Set(manifest.legacyUnsignedTags ?? [])
   const git = (args) => spawnSync('git', args, { encoding: 'utf8' })
 
-  // 让 git 用仓库里那份公钥验签（allowedSignersFile 的格式："<email> <pubkey>"）
-  const signersFile = resolve(process.cwd(), 'tmp-allowed-signers')
-  const pubRaw = readFileSync(pubKey, 'utf8').trim()
-  writeFileSync(signersFile, `* ${pubRaw}\n`)
+// 让 git 用仓库里那份公钥验签（allowedSignersFile 的格式："<email> <pubkey>"）。
+// 写在系统临时目录，**不写进仓库** —— 第一版写在仓库根目录，于是每次校验都留下一个
+// `tmp-allowed-signers` untracked 文件：它会被误 add 进提交，也会让 git status 一直不干净。
+const signersFile = join(tmpdir(), 'modulo-allowed-signers')
+const pubRaw = readFileSync(pubKey, 'utf8').trim()
+writeFileSync(signersFile, `* ${pubRaw}\n`)
   git(['config', 'gpg.format', 'ssh'])
   git(['config', 'gpg.ssh.allowedSignersFile', signersFile])
 
