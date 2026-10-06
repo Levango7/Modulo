@@ -61,16 +61,43 @@
 不打算用绕路的测试去凑这个数字：门禁是 90%，把不可达分支写成可达的假测试只会让覆盖率
 好看而让代码变脏。
 
-### 未解决：本机 `cargo test` 跑不起来
+### 已修：本机 `cargo test` 跑不起来（此前记在「未解决」下）
 
 `cargo test` 的 lib 测试壳在这台机器上会启动即退 `0xC0000139`（STATUS_ENTRYPOINT_NOT_FOUND）。
-已定位过一次真凶是某段看起来无害的代码（`chars().take().collect::<String>()`），但之后每加
-一段常规代码又会复现，且与上一次**没有任何代码上的重合** —— 体积 / incremental / 静态导入 /
-DLL 位置 / PATH 版本 / 产物损坏全部排除过，机制仍未查明。
+早先把它归因到某段看起来无害的代码（`chars().take().collect::<String>()`），**那个归因是错的** ——
+纯 Rust 标准库调用不可能改变 loader 的导入解析。真因是一条完整的链：
 
-**CI 的 windows-latest 上一直是好的**（同样代码 `cargo test` 正常通过），所以 Rust 门禁以
-CI 为准。代价是那层单测在本机跑不到，因此另外做了两件事兜底：`watch.ts` 的边界判据在
-vitest 里有一份完整单测；真机探针用 `web_probe` 真调三次，验私网 / 元数据端点 / 明文 http
+```
+tauri → muda（托盘/原生菜单）→ windows crate
+  → 测试壳静态导入 comctl32.dll 的 TaskDialogIndirect
+```
+
+`TaskDialogIndirect` **只由 comctl32 v6 导出**，System32 里那个 v5 存根不导出。让 loader 绑到
+v6 的唯一途径是**应用清单**里声明对 `Microsoft.Windows.Common-Controls 6` 的依赖（SxS 旁加载）。
+而 `comctl32` 是 **KnownDLL**，由对象管理器直接映射、绕过常规搜索顺序 —— 所以往 exe 同目录放
+一份 v6 是没用的（实测拷进去仍然 `0xC0000139`）。
+
+清单本身一直都在：`tauri-build` 用 `tauri_winres` 生成 `resource.rc` 并编成 `OUT_DIR/libresource.a`，
+但那份资源**只链给了 bin 目标**（它发的是 `cargo:rustc-link-arg-bins=`）：
+
+```
+测试壳里搜 "Microsoft.Windows.Common-Controls" -> False
+release exe 里搜同样字符串        -> True
+```
+
+修法在 `src-tauri/build.rs`：把同一份已编好的资源再链给所有目标。顺带排除掉两个想当然的做法 ——
+`rustc-link-arg-tests` 后缀**不作用于 lib 单测壳**（加上它测试壳里仍然没有清单）；
+`--whole-archive` 也不是必需的。生效的是无后缀的 `cargo:rustc-link-arg`。
+副作用是 bin 上资源被链两次（`.rsrc` 从 18 KB 涨到 34 KB），真机探针 55/55 与安装包构建均正常。
+
+**Rust 单测现在本机可跑了**（21 条，与 CI 同数），「以 CI 为准」这个将就取消。
+补上了当年因为「一引用 `parse_chord` 测试壳就加载失败」而**故意不写**的那组单测 ——
+那条历史记录的因果是错的：测试壳从来就没能启动过，与引用什么无关。
+
+> 顺带一个此前没人记下的构建前提：**任何 Windows 构建都需要外部 `windres`**，
+> Rust 的 `x86_64-pc-windows-gnu` 工具链**不自带**它（只有 `rust-lld` / `rust-objcopy`）。
+> PATH 里没有 windres 时 `tauri-winres` 会 panic `NotAttempted("windres")`，
+> 连 `cargo build` 都起不来。CI 上 `windows-latest` 自带 MinGW 所以一直没暴露。
 确实被 Rust 侧挡下。
 
 

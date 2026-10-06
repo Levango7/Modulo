@@ -447,4 +447,53 @@ mod tests {
         assert_eq!(parse_size("0x800"), None);
         assert_eq!(parse_size("-1x800"), None);
     }
+
+    /// 这组曾经**写不了**：文档里记的是「一引用 `parse_chord`，windows-gnu 的测试二进制就
+    /// `STATUS_ENTRYPOINT_NOT_FOUND`，去掉立刻恢复」。
+    /// 真因与那条测试无关 —— 测试壳**从来没成功启动过**（见 build.rs 的注释：tauri → muda →
+    /// windows crate 静态导入 `comctl32.dll` 的 `TaskDialogIndirect`，而它只由 comctl32 v6
+    /// 导出；测试壳没嵌清单，loader 绑到 System32 的 v5 就缺入口）。补了 build.rs 的链接后
+    /// 就能写了，那条历史记录里的因果是错的。
+    #[test]
+    fn 裸键被拒_因为会吞掉系统里所有该键的输入() {
+        assert!(super::desktop::parse_chord("M").is_err());
+        assert!(super::desktop::parse_chord("  A  ").is_err());
+    }
+
+    #[test]
+    fn 带修饰键的组合解析得过() {
+        for raw in [
+            super::desktop::SUMMON,
+            super::desktop::ON_TOP,
+            "Ctrl+Alt+M",
+            "Super+Shift+T",
+        ] {
+            let got = super::desktop::parse_chord(raw)
+                .unwrap_or_else(|e| panic!("「{raw}」本该合法：{e}"));
+            // 有修饰键才允许注册，所以这里同时盯住 mods 非空
+            assert!(!got.mods.is_empty(), "「{raw}」解析出来却没有修饰键");
+        }
+    }
+
+    #[test]
+    fn 解析失败时错误信息里带得下原文() {
+        let err = super::desktop::parse_chord("Ctrl+ Nope").unwrap_err();
+        assert!(err.contains("Ctrl+ Nope"), "错误信息丢了原文：{err}");
+        let err = super::desktop::parse_chord("M").unwrap_err();
+        assert!(err.contains('M'), "裸键的拒绝理由里没有那个键：{err}");
+    }
+
+    /// 前后端对「Win 键叫什么」必须一致：前端 `chord.ts` 的 `toChord` 发的是 **`Super`**
+    /// （muda 只认 `COMMAND` / `CMD` / `SUPER`），**不认 `Win`**。
+    /// 这条钉住的是那个契约 —— 哪天有人把 `toChord` 改成发 `Win`，录制出来的组合会一律注册失败，
+    /// 而症状是设置页报一句「无法解析」，很难联想到是前端改了一个词。
+    #[test]
+    fn win_键的写法是_super_不是_win() {
+        assert!(super::desktop::parse_chord("Super+M").is_ok());
+        let err = super::desktop::parse_chord("Win+M").unwrap_err();
+        assert!(
+            err.contains("无法解析组合键"),
+            "「Win+M」本该解析失败（前端发的是 Super）：{err}"
+        );
+    }
 }

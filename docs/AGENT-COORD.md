@@ -173,6 +173,47 @@
   **现状：「tag 可被强推改指」这个口子在 GitHub 侧仍未钉死**，只能靠流程自律（发完 tag 不再 force push）。
   下一个想试的人：别只看 POST 返不返回 201，**一定要造一个会失败的推送去实测**。
 
+- **10-06 17:20 agent-D（本会话）：本机 `cargo test` 修好了，Rust 单测不必再「以 CI 为准」。**
+
+  这是上一条留给我的最后一项。**根因是一条完整的链，不是「本机环境问题」**（这条纠正了
+  CARD-CATALOG 与 CHANGELOG 里两处已归档的错误结论）：
+
+  ```
+  tauri → muda（托盘/原生菜单）→ windows crate
+    → 测试壳静态导入 comctl32.dll 的 TaskDialogIndirect
+  ```
+
+  `TaskDialogIndirect` 只由 **comctl32 v6** 导出，System32 的 v5 存根不导出。绑到 v6 的唯一
+  途径是**应用清单**声明 `Microsoft.Windows.Common-Controls 6`（SxS 旁加载）。而 `comctl32`
+  是 **KnownDLL**，对象管理器直接映射、绕过常规搜索顺序 —— 往 exe 同目录拷一份 v6 是**无效**的
+  （我实测拷进去仍 `0xC0000139`，这一条最容易让人以为方向对了）。
+
+  清单一直都在：`tauri-build` 的 `resource.rc` 里有那段 `1 24`（RT_MANIFEST），也编成了
+  `OUT_DIR/libresource.a`，但它发的是 `cargo:rustc-link-arg-bins=`，**只给 bin**。
+  证据是两行搜索：测试壳里搜 `Microsoft.Windows.Common-Controls` → False；release exe → True。
+
+  修法一行（`src-tauri/build.rs`），但有两个**想当然的做法是错的**，都实测过：
+  - `rustc-link-arg-tests` 后缀**不作用于 lib 单测壳** —— 加上它，指令确实发出去了，测试壳里仍然没有清单；
+  - `--whole-archive` 也不是必需的（归档里只有资源没符号，但 rustc 是整份传进去的）。
+  - 真正生效的是**无后缀**的 `cargo:rustc-link-arg`。副作用：bin 上资源链了两次，
+    `.rsrc` 18 KB → 34 KB；真机探针 55/55 与安装包构建都正常。
+
+  顺带两件事：
+  1. **一个此前没人记下的构建前提**：任何 Windows 构建都需要外部 **`windres`**，
+     Rust 的 `x86_64-pc-windows-gnu` 工具链**不自带**（只有 `rust-lld`/`rust-objcopy`）。
+     PATH 里没有时 `tauri-winres` panic `NotAttempted("windres")`，连 `cargo build` 都起不来。
+     CI 上 `windows-latest` 自带 MinGW 所以一直没暴露 —— 我是清掉 MSYS2 的 PATH 才撞到的。
+  2. **补上了当年「故意不写」的 4 条单测**。ARCHITECTURE 原先记「一引用 `parse_chord`
+     测试壳就 `STATUS_ENTRYPOINT_NOT_FOUND`（去掉立刻恢复）」—— **那个因果是错的**，
+     测试壳从来就没能启动过，与引用什么无关。
+     新增 4 条（裸键被拒 / 带修饰键解析得过 / 错误信息带得下原文 / **`Win` 键的写法是 `Super` 不是 `Win`**）。
+     最后那条钉的是前后端契约：前端 `chord.ts` 的 `toChord` 发 `Super`（muda 只认
+     `COMMAND`/`CMD`/`SUPER`）；谁把它改成发 `Win`，录制出来的键会一律注册失败，而症状是
+     设置页一句「无法解析」，很难联想到是前端改了一个词。
+     变异验证：撤掉 `mods.is_empty()` 护栏 → 2 条立刻红，已还原。
+
+  现状：`cargo test` 本机退出码 0，**21 条**（17 + 4），与 CI 同数。`fmt`/`clippy -D warnings` 干净。
+
 - **10-06 16:40 agent-D：核实「多张天气卡各自 `useWeather()`、跨实例 30 分钟 TTL 不成立」确实已闭环。**
   agent-A 10-04 把它改记为「没到得了的设计注记」，我逐层读码确认三条防护都真在（不是只在注释里）：
   - `packages/engine/src/ops.ts:36` —— `addItem` 里 `if (indexOf(doc, moduleId)) return null`，撞同 id 直接拒；
