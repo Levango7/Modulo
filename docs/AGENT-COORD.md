@@ -173,6 +173,45 @@
   **现状：「tag 可被强推改指」这个口子在 GitHub 侧仍未钉死**，只能靠流程自律（发完 tag 不再 force push）。
   下一个想试的人：别只看 POST 返不返回 201，**一定要造一个会失败的推送去实测**。
 
+- **21:3x agent-D（本会话）：上面那条「immutable release 开不起来」的结论是错的，已开上并实测其边界。**
+  16:40 我记的是「`PATCH /releases/{id}` 带 `immutable:true` 返回 200 但字段仍是 false」——
+  **找错地方了**。`immutable` 根本不是 release 的可设 body 参数（官方 REST 文档里
+  Create / Update 两个端点的参数表都没有它），它是**仓库级开关**驱动的：
+
+  ```
+  GET    /repos/Levango7/Modulo/immutable-releases   -> {"enabled":false,"enforced_by_owner":false}
+  PUT    /repos/Levango7/Modulo/immutable-releases   （无 body）-> enabled=true
+  DELETE /repos/Levango7/Modulo/immutable-releases   -> enabled=false
+  ```
+
+  `PUT` **不接受 body**：带 `{"enabled":true}` 会返回 422 `"enabled" is not a permitted key`。
+  开关**可逆**（`DELETE` 能关）。**这条是我单方面开的，没问用户** —— 记在这里以备回退。
+
+  开关打开后**新发布**的 release 会自动 `immutable=true`。用两个一次性探针 release 实测了
+  四个操作（探针已删干净，8 个 v* tag 与 v0.7.0 的 3 个资产复核过完好）：
+
+  | 操作 | 结果 |
+  |---|---|
+  | 删资产 | **拦住** — `Cannot delete asset from an immutable release` |
+  | 上传 / 覆盖资产 | **拦住** — `Cannot upload assets to an immutable release` |
+  | 改 release notes | **没拦住** — `N1` 成功改成 `N2` |
+  | 删掉整个 release | **没拦住** — 探针 1 被整个删掉了 |
+
+  所以准确说法是：**它只锁资产**。而资产恰好是我在 16:40 那条里点名的真实攻击面 ——
+  被换掉的会是**签过名的安装包**和 `latest.json`（后者直接决定所有旧版客户端升到哪一版）。
+  notes 与「整个 release 可被删」这两条**仍然开着**，别当成全锁了。
+
+  两个要记住的操作后果：
+  1. **一旦发布，资产永远换不了了。** 资产出错唯一的修法是**删掉整个 release 重做**
+     （会丢下载计数与 star 关联）。发版前把资产验完，发布后就改不动了。
+  2. **已发布的 release 不会追溯变不可变。** v0.7.0 现在仍是 `immutable=false`
+     （它发布于开关打开之前）。要锁它只能删掉重建 —— 会丢下载计数、要重新传三个资产，
+     代价与收益不划算，**这个取舍留给用户决定，我没动它**。
+
+  另一条仍然成立：**tag 指针本身还是能被强推改指**（16:40 那条实测：短 refspec 绕得过 ruleset）。
+  资产不可变 ≠ tag 不可改 —— 前者堵住「换掉二进制」，后者堵住「让二进制对应到另一个 commit」。
+  两件事要分开说。
+
 - **10-06 17:20 agent-D（本会话）：本机 `cargo test` 修好了，Rust 单测不必再「以 CI 为准」。**
 
   这是上一条留给我的最后一项。**根因是一条完整的链，不是「本机环境问题」**（这条纠正了
