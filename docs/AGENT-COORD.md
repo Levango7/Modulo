@@ -23,7 +23,7 @@
 | 10-04 01:10 | agent-A（ZCode 本会话） | **用户指派：加一批"可添加的卡片"**（月历 / 时间进度 / 世界时钟 / 倒数日）。新增 `packages/engine/src/{calendar,progress,worldclock,countdown}.ts`、`src/app/cards/{CalendarCard,ProgressCard,WorldClockCard,CountdownCard}.vue`、4 个引擎单测；改 `cardRegistry.ts` / `cardComponents.ts` / `cardData.ts` / `backup.ts` / `App.vue`（菜单显示说明）/ starter 不变式 / E2E / README、ARCHITECTURE、CHANGELOG | **本轮我要独占 `dist/` 与 `target/`**：会跑 `npm run build`、`tauri` 相关一律不动 | ✅ **done 02:45**（426 单测 / E2E 21 / docs:check 绿；已提交 `6a4f7bc`） |
 | 10-06 16:40 | agent-D（本会话，即 10-03 那条 agent-B 的后继） | **探针假红收口**：① 四类偶发失败逐条查清并修掉（dev 版二进制 / 二进制比输入旧 / 句柄跨 launch 泄漏 / `Find-MainWindow` 挑中 4×4 辅助窗口）；② 两条断言本身太弱已改严；③ **替 agent-C 补做 `v*` tag 保护规则的验证，结论是它建得起来但拦不住 —— 已删除，不留假门** | `scripts/desktop-probe.mjs`、`scripts/shot-window.ps1`、`docs/AGENT-COORD.md` | **`src-tauri/target/release/modulo.exe` 与已发布的 v0.7.0 资产、tag 一行不写**（验证 tag 规则时动过 tag，已原样复位）；`CHANGELOG.md` 归 agent-C | ✅ done 16:40（PR #1 → `2aed94d`；探针 55/55 连续 5 轮；详见下面两条交接） |
 | 10-06 12:10 | agent-C（Qoder 本会话） | 用户指派的**交付面收口**：① 网页演示停在 0.4.0 → 重部署 0.7.0；② CI 补 `web` job（Pages 部署不再靠人记）；③ 四处已确证的文档数字漂移修掉并纳进 `docs-check` 门禁；④ 给 `master` 与 `v*` tag 开 ruleset（禁强推/禁删、required = verify+桌面壳） | `README.md`、`docs/ARCHITECTURE.md`、`scripts/docs-check.mjs`、`.github/workflows/ci.yml`、`origin/gh-pages` 分支、仓库 settings 的 rulesets | **`dist/` 与 `src-tauri/target/` 我一行不写**（构建走 `--outDir dist-web`，发完即删）；`scripts/desktop-probe.mjs`、`scripts/shot-window.ps1` 里你那两笔未提交改动我不 add、不 revert、不代为提交；`CHANGELOG.md` 归你 | ✅ done 12:32（细节见下面 12:32 那条交接） |
-| 10-07 01:30 | agent-C（Qoder 会话续，压缩后接续） | ① 测试工具链 vitest 3.2.4 → 5.0.3，`npm audit` 5 条（3 critical）归零，并用真实用例把受测层分支覆盖从 89.18% 拉回 **94.94%**（不动阈值）；② 顺着补测撞出的**保留网段两侧判据分叉**修掉：引擎把三条 /24 写成 /16（误伤公网）、Rust 的 `198.18/15` 只覆盖 198.18/16（漏拒 198.19），两侧各补一组同表用例；③ `tests/release/lockfile-registry.test.ts` 那条写死的 `> 200` 在依赖树合法缩小（271→144）时假红，判据改成「不少于直接依赖数 + 点名必在场包」 | `package.json`、`package-lock.json`、`packages/engine/src/watch.ts`、`src-tauri/src/net.rs`、`tests/engine/watch.test.ts`、`tests/release/lockfile-registry.test.ts`、`tests/vue/{cardData-actions,store-paths}.test.ts`、`CHANGELOG.md`、`docs/ARCHITECTURE.md`、本文件 | **全程在私有 worktree `F:/Agent/Qoder/workspace/wt-v5` 里做，主工作树与它的 `dist/`、`src-tauri/target/` 我一行不写**；`release-signing-key.pub`（01:21 出现于主工作树、未跟踪）不是我造的，没动也没提交 | 进行中 |
+| 10-07 01:30 | agent-C（Qoder 会话续，压缩后接续） | ① 测试工具链 vitest 3.2.4 → 5.0.3，`npm audit` 5 条（3 critical）归零，并用真实用例把受测层分支覆盖从 89.18% 拉回 **94.94%**（不动阈值）；② 顺着补测撞出的**保留网段两侧判据分叉**修掉：引擎把三条 /24 写成 /16（误伤公网）、Rust 的 `198.18/15` 只覆盖 198.18/16（漏拒 198.19），两侧各补一组同表用例；③ `tests/release/lockfile-registry.test.ts` 那条写死的 `> 200` 在依赖树合法缩小（271→144）时假红，判据改成「不少于直接依赖数 + 点名必在场包」 | `package.json`、`package-lock.json`、`packages/engine/src/watch.ts`、`src-tauri/src/net.rs`、`tests/engine/watch.test.ts`、`tests/release/lockfile-registry.test.ts`、`tests/vue/{cardData-actions,store-paths}.test.ts`、`CHANGELOG.md`、`docs/ARCHITECTURE.md`、本文件 | **全程在私有 worktree `F:/Agent/Qoder/workspace/wt-v5` 里做，主工作树与它的 `dist/`、`src-tauri/target/` 我一行不写**；`release-signing-key.pub`（01:21 出现于主工作树、未跟踪）不是我造的，没动也没提交 | ✅ done 01:40（三笔已推分支等 CI；细节见下面 01:40 那条交接） |
 
 ---
 
@@ -400,3 +400,44 @@
   三层都按**模块 id** 堵着，所以同一模块不可能有两份实例，`useWeather` 每卡各持一份没问题。
   **但结论只在「单实例」这个前提下成立**：将来若放开同一模块多实例（例如两张不同城市的天气卡），
   就得按 agent-A 说的把状态提到 `provide` 层做单例。这条不要当成「已修复」，它是**当前不可达**。
+
+- **10-07 01:40 agent-C（Qoder 会话续）：补完 vitest 5 那条口径决策，顺带修掉一处两侧判据分叉。做完已置 done。**
+
+  **给后来人的三件事实**：
+
+  1. **保留网段这张清单此前两侧都没有测试**，所以分叉从 0.7.0 一路活到今天：引擎
+     `packages/engine/src/watch.ts` 的 `192.0.0/24`、`198.51.100/24`、`203.0.113/24` 只比前两段
+     → 实际拒 `/16`（`192.0.1.1` 这类正经公网被误伤）；Rust `src-tauri/src/net.rs` 那三条按四元组是对的，
+     但 `198.18/15` 写成 `[198, 18, _, _]` → **`198.19` 整段漏拒**，标签比实现宽。
+     现在两侧各修自己那半边，并各补一组用例，**两张表逐格是同一条清单**（8 条要拒 + 9 条紧邻公网必须放行）。
+     两侧都做过变异验证：引擎去掉 `&& c === 0` 红在 `192.0.1.1: expected '192.0.0/24' to be null`；
+     Rust 把 `18..=19` 改回 `18` 红在 `198.19.255.255`。
+     **别再只靠"读一遍两边代码"确认一致性** —— 这次是靠补测撞出来的，读代码读了两周没看见。
+  2. **`npm audit` 已归零**（vitest 3.2.4 → 5.0.3）。原来那 5 条全挂在 dev 工具链上，prod 31 条本来就干净。
+     代价是**覆盖率计数口径变了**：同一批代码受测层分支覆盖 94.32% → 89.18%，把自家 `branches ≥ 90` 打穿。
+     处置是不动阈值、补真实用例（`src/vue/store.ts` 此前只有 57.6%，`applyTemplate` 的 false 分支、
+     单形态模块的 `cycleVariant` 退出、批量锁定混进不在版面上的 id —— 全是真会走到却没测的路径），
+     现在实测 **94.94%**。**以后谁再升测试工具链，先重跑 `npm run cover:engine` 再谈"有没有回归"** ——
+     覆盖率在这个门上是认领值，不是回归值。
+  3. **`tests/release/lockfile-registry.test.ts` 那条「防空跑」判据原来是代理指标**：写死 `> 200` 条，
+     而 v5 让 esbuild 整棵子树退出依赖图（可下载条目 271 → 144），合法瘦身被判成红。
+     改成「≥ 直接依赖数」+ 点名 `vite`/`vue`/`vitest` 必须出现在解析结果里；
+     反向也验过：把过滤器改成永不匹配 → 红在 `可下载条目(0)不该少于直接依赖数(16)`。
+
+  **本机跑 Rust 的现实**：`8614b48` 修好的是测试二进制启动即退，但**在 Qoder 的 Git Bash 里 `cargo test` 编译阶段就挂**
+  —— windows-gnu 工具链不自带 dlltool/windres，PATH 上也没有任何 mingw，报 `error calling dlltool 'dlltool.exe': program not found`。
+  可行的抽验办法：`awk` 把 `fn blocked_v4` **逐字**抽出来 + `rustc --test` 单跑（纯函数测试壳能链接），
+  变异也打在抽取副本上；`rustfmt --edition 2021 --check <单个文件>` 可用。整包 Rust 验证仍以 CI 的 `桌面壳` job 为准。
+
+  **验证条件**（数字必须带条件才可信）：本机 node 26.8.2 / npm 12.2.0，删掉 `node_modules` 跑真 `npm ci`
+  （added 110 / audited 112 / **0 漏洞**），随后 typecheck、`cover:engine`（968 测 / 65 文件 / 分支 94.94%）、
+  `build`、`engine:build`、`test:e2e`（22 条）、`docs:check` 全绿；`node scripts/release-manifest.mjs` 本机带 token
+  预演通过（8 个发布点）。**CI 是 node 22**，以 CI 两条 required 为准。
+
+  **作业方式**：本批全程在私有 worktree（`git worktree add`，分支 `chore/test-toolchain-vitest5-and-range-parity`）里做，
+  **主工作树与它的 `dist/`、`src-tauri/target/` 一行未写**。主工作树里 10-07 01:21 出现的未跟踪 `release-signing-key.pub`
+  不是我造的，我没 add 也没删。
+
+  **仍开着的**（要用户拍，不是我能推的）：代码签名（SignPath 注册＋法定签署）、`@modulo/engine` 发 npm、
+  是否据此切 `v0.7.1`。CHANGELOG 的「未发布」段现在累计**六笔**。
+
