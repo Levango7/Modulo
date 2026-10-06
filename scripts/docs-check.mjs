@@ -12,8 +12,9 @@
  * 这条取舍本身也是项目的一条老教训的同款：判据要能证伪，不能靠人记。
  *
  * ## 它守住什么
- * 单测条数与文件数、E2E 条数、受测层分支覆盖率、构建产物体积、**版本号同源**。
- * 全部实跑，不接受任何"文档里写的"作为输入。
+ * 单测条数与文件数、E2E 条数、受测层分支覆盖率、构建产物体积、**注册表卡数**、
+ * **CI job 数**、**Rust 单测条数**、**版本号同源**。
+ * 全部实跑或实读文件，不接受任何"文档里写的"作为输入。
  * 其中覆盖率是**下限承诺**（`≥N%`）：同一份代码在不同 V8 / 平台间会差出 0.01 个百分点以上，
  * 等值核对会把环境抖动报成文档漂移（实测 CI 两次跑出 93.74 / 93.75，本机与 CI 的逐文件
  * 分支计数也不同）；**JS / CSS 体积同理**：rolldown 两次构建差过 50 字节（217.63 vs 217.68），
@@ -98,7 +99,73 @@ function bundleFacts() {
   return { jsKB: +(js / 1000).toFixed(2), cssKB: +(css / 1000).toFixed(2) };
 }
 
-const facts = { ...unitFacts(), e2e: e2eFacts(), coverage: coverageFact(), ...(bundleFacts() ?? {}) };
+/**
+ * 注册表卡数：数 `src/vue/cardRegistry.ts` 里**顶层**的 `id:`。
+ * 只数顶层：每个 variant 也带 `id:`，但它们写在同一行的 `variants: [{ id: ... }]` 里，
+ * 按「行首四个空格」筛就只剩卡的条目。口径与 `docs/CARD-CATALOG.md` 的「注册表 N」一致。
+ * 为什么要数它：README 那句「N 种卡」是人抄的，加了三批卡之后仍写着 38 —— 而注册表已经 41。
+ */
+function registryFacts() {
+  const p = resolve(root, 'src/vue/cardRegistry.ts');
+  if (!existsSync(p)) return { cards: null };
+  return { cards: (readFileSync(p, 'utf8').match(/^ {4}id: '/gm) ?? []).length };
+}
+
+/**
+ * CI 的 job 数：读 `.github/workflows/ci.yml` 中 `jobs:` 段里两空格缩进的键。
+ * 「CI 两个 job」这种**结构**数字比规模数字更容易烂 —— 加一个 job 是看不见的改动，
+ * 而 README 是读者的第一现场。
+ */
+function ciJobFacts() {
+  const p = resolve(root, '.github/workflows/ci.yml');
+  if (!existsSync(p)) return { jobs: null };
+  const lines = readFileSync(p, 'utf8').split(/\r?\n/);
+  const start = lines.findIndex((l) => /^jobs:\s*$/.test(l));
+  if (start < 0) return { jobs: null };
+  let jobs = 0;
+  for (let i = start + 1; i < lines.length; i++) {
+    if (/^[^\s#]/.test(lines[i])) break; // 顶格 ⇒ jobs 段结束
+    if (/^ {2}[\w-]+:\s*$/.test(lines[i])) jobs++;
+  }
+  return { jobs };
+}
+
+/**
+ * Rust 单测条数：`#[test]` 减去 `#[ignore]`，**两个都按行首锚定数**。
+ *
+ * 锚定不是洁癖：注释里会提到这两个属性（`web.rs:146`、`release_signature.rs:8` 各一处），
+ * 不锚定就会数出 ignored=3、于是给出 15 条，而 CI 的 `cargo test` 实跑 17 条 ——
+ * 又是本项目反复踩的那类「把旁白算进正文」。
+ *
+ * 必须扣：`tests/release_signature.rs` 那条是**发布门禁**，CI 上没有安装包产物、默认不跑，
+ * 而文档报的是 `cargo test` 实际执行的条数。不扣就和 CI 的输出对不上。
+ * 不递归、只走 `src-tauri/src` 与 `src-tauri/tests` 两个目录，也**绝不进 `src-tauri/target/`**
+ * （那底下有依赖源码副本，数进来会大一个数量级）。
+ */
+function rustFacts() {
+  let tests = 0;
+  let ignored = 0;
+  for (const dir of [resolve(root, 'src-tauri/src'), resolve(root, 'src-tauri/tests')]) {
+    if (!existsSync(dir)) continue;
+    for (const f of readdirSync(dir)) {
+      if (!f.endsWith('.rs')) continue;
+      const src = readFileSync(join(dir, f), 'utf8');
+      tests += (src.match(/^\s*#\[test\]/gm) ?? []).length;
+      ignored += (src.match(/^\s*#\[ignore\b/gm) ?? []).length;
+    }
+  }
+  return { rust: tests - ignored, rustIgnored: ignored };
+}
+
+const facts = {
+  ...unitFacts(),
+  e2e: e2eFacts(),
+  coverage: coverageFact(),
+  ...(bundleFacts() ?? {}),
+  ...registryFacts(),
+  ...ciJobFacts(),
+  ...rustFacts(),
+};
 
 /**
  * 版本号同源：版本现在散在 7 个文件里（抽 `@modulo/engine` 包之后又多一处），
@@ -182,6 +249,29 @@ const RULES = [
     want: () => facts.cssKB?.toFixed(2) ?? '?',
     tolKb: 1,
   },
+  {
+    // 产品规模的门面数字。README 那句曾长期写 38，而注册表已经 41 —— 加卡的人不会想起改它，
+    // 而没有一条断言会因此变红。
+    key: '注册表卡数',
+    kw: /\d+\s*种卡/,
+    want: () => String(facts.cards),
+    re: (v) => new RegExp(`(?:\\*\\*)?${v}(?:\\*\\*)?\\s*种卡`),
+  },
+  {
+    key: 'CI job 数',
+    kw: /\d+\s*个\s*job/,
+    want: () => String(facts.jobs),
+    re: (v) => new RegExp(`(?:\\*\\*)?${v}(?:\\*\\*)?\\s*个\\s*job`),
+  },
+  {
+    // 「Rust 单测 N 条」的写法要连着 Rust 才算这个维度，否则 ARCHITECTURE 那行里的
+    // 「前端单测 870 条」会被误判成 Rust 的数。注意这条与上面「单测条数」可以同处一行：
+    // 两者的判据都是"行里得出现实跑值"，所以一行同时认领两个维度时，两个数都得写对。
+    key: 'Rust 单测条数',
+    kw: /Rust[^\n]{0,8}单测[^\n]{0,10}条/,
+    want: () => String(facts.rust),
+    re: (v) => new RegExp(`Rust[^\\n]{0,8}单测\\s*(?:\\*\\*)?${v}(?:\\*\\*)?\\s*条`),
+  },
 ];
 
 let bad = 0;
@@ -231,7 +321,12 @@ if (versionSet.size > 1) {
   for (const { file, version } of versions) console.error(`    ${version ?? '(读不到)'}  ${file}`);
 }
 
-console.log(`实跑事实：${facts.tests} 单测 / ${facts.files} 文件 · E2E ${facts.e2e} 条 · 受测层分支覆盖 ${facts.coverage?.toFixed(2) ?? '?'}%${facts.jsKB ? ` · JS ${facts.jsKB} kB` : ''} · 版本 ${[...versionSet][0] ?? '?'}（${versions.length} 处同源）`);
+console.log(
+  `实跑事实：${facts.tests} 单测 / ${facts.files} 文件 · E2E ${facts.e2e} 条 · 受测层分支覆盖 ${facts.coverage?.toFixed(2) ?? '?'}%` +
+    `${facts.jsKB ? ` · JS ${facts.jsKB} kB` : ''} · ${facts.cards} 种卡 · CI ${facts.jobs} 个 job` +
+    ` · Rust ${facts.rust} 单测（另有 ${facts.rustIgnored} 条 #[ignore]，CI 不跑）` +
+    ` · 版本 ${[...versionSet][0] ?? '?'}（${versions.length} 处同源）`,
+);
 if (bad) {
   console.error(`\n${bad} 处对不上。改文档或改代码都算修，但别让两个数字长期各说各话。`);
   process.exit(1);

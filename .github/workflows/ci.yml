@@ -163,3 +163,57 @@ jobs:
           path: |
             src-tauri/target/release/bundle/nsis/
           if-no-files-found: error
+
+  # 网页版部署。**这条 job 存在的理由是它以前根本不存在**：README 的头号入口是
+  # https://levango7.github.io/Modulo/（"先试 30 秒，不用装任何东西"），而它一直靠人手 `git push` 到
+  # gh-pages —— 于是 0.5.0/0.6.0/0.7.0 三次发版都没人回来推，线上停在 0.4.0（注册表 6 张卡），
+  # 仓库里已经 41 张。部署不在任何门禁的射程内，所以它必然漂；把它接进 CI 才是修法，
+  # 而不是"下次记得推"。
+  web:
+    name: 网页版（gh-pages 部署）
+    # 与 release 同一档触发：打 tag 或手动派发才部署。分支推送与 PR 不动线上演示
+    if: >
+      (github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')) ||
+      (github.event_name == 'workflow_dispatch')
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      # 站点托管在子路径 /Modulo/ 下，base 必须由环境变量给（vite.config.ts 读 PUBLIC_BASE，默认 '/'）。
+      # 忘了带会怎样：网页版在 levango7.github.io 上**白屏**，而本地 `npm run preview` 永远是绿的 ——
+      # 这个坑 CHANGELOG 0.1.0 记过一次，所以它写进 CI 而不是只写进注释。
+      - name: 构建（PUBLIC_BASE=/Modulo/）
+        run: npm run build
+        env:
+          PUBLIC_BASE: /Modulo/
+      - name: 发布到 gh-pages
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          v="$(node -p "require('./package.json').version")"
+          git clone --quiet --branch gh-pages --single-branch \
+            "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" pages
+          cd pages
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          # 整份替换：不清干净的话，历次构建的 index-<hash>.js 会一层层堆在分支上
+          find . -mindepth 1 -not -path './.git*' -delete
+          cp -r ../dist/. .
+          # vite 不产 .nojekyll，而 Pages 的 Jekyll 流水线会吃掉以 `_` 开头的路径 —— 分支上一直带着它
+          : > .nojekyll
+          git add -A
+          if git diff --cached --quiet; then
+            echo "网页版已与 ${v} 的构建产物一致，跳过部署"
+            exit 0
+          fi
+          git commit -q -m "deploy: ${v} 网页版（源 commit ${GITHUB_SHA:0:7}，PUBLIC_BASE=/Modulo/）"
+          git push --quiet origin gh-pages
+          echo "已部署 ${v}：https://${GITHUB_REPOSITORY#*/}.github.io/${GITHUB_REPOSITORY#*/}/"

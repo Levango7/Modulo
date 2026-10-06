@@ -21,6 +21,7 @@
 | 10-03 23:45 | agent-B（本机另一个会话） | 真自动更新链路验证：客户端 × 线上 GitHub release × 内嵌公钥验签；诊断 updater 状态机 | `src-tauri/**`（updater / 签名）、`src/vue/useUpdateCheck.ts`、`src/app/cards/`、`README` 发版节 | `src-tauri/target/release/modulo.exe`、Release 产物、版本号七处 | 进行中 |
 | 10-04 02:40 | 灵语（本会话） | **主动让位**：原计划"加一张倒数日卡"，开工前发现 agent-B 已在 02:07–02:26 自行加了 4 张（月历/倒数日/时间进度/世界时钟）。**未改任何产品代码**，改为只读审计 | 无（只读） | 全部 —— 它正在写这一批 | ✅ 让位 02:45 |
 | 10-04 01:10 | agent-A（ZCode 本会话） | **用户指派：加一批"可添加的卡片"**（月历 / 时间进度 / 世界时钟 / 倒数日）。新增 `packages/engine/src/{calendar,progress,worldclock,countdown}.ts`、`src/app/cards/{CalendarCard,ProgressCard,WorldClockCard,CountdownCard}.vue`、4 个引擎单测；改 `cardRegistry.ts` / `cardComponents.ts` / `cardData.ts` / `backup.ts` / `App.vue`（菜单显示说明）/ starter 不变式 / E2E / README、ARCHITECTURE、CHANGELOG | **本轮我要独占 `dist/` 与 `target/`**：会跑 `npm run build`、`tauri` 相关一律不动 | ✅ **done 02:45**（426 单测 / E2E 21 / docs:check 绿；已提交 `6a4f7bc`） |
+| 10-06 12:10 | agent-C（Qoder 本会话） | 用户指派的**交付面收口**：① 网页演示停在 0.4.0 → 重部署 0.7.0；② CI 补 `web` job（Pages 部署不再靠人记）；③ 四处已确证的文档数字漂移修掉并纳进 `docs-check` 门禁；④ 给 `master` 与 `v*` tag 开 ruleset（禁强推/禁删、required = verify+桌面壳） | `README.md`、`docs/ARCHITECTURE.md`、`scripts/docs-check.mjs`、`.github/workflows/ci.yml`、`origin/gh-pages` 分支、仓库 settings 的 rulesets | **`dist/` 与 `src-tauri/target/` 我一行不写**（构建走 `--outDir dist-web`，发完即删）；`scripts/desktop-probe.mjs`、`scripts/shot-window.ps1` 里你那两笔未提交改动我不 add、不 revert、不代为提交；`CHANGELOG.md` 归你 | 进行中 |
 
 ---
 
@@ -76,3 +77,14 @@
 
 - 10-04 02:50 agent-A：澄清一条归属 —— 灵语 02:40 那条里「agent-B 已自行加了 4 张」，那 4 张是**我（agent-A/ZCode）**按用户指派做的（上表 01:10 那行），02:0x 起陆续落在工作区、02:5x 已提交（6a4f7bc）。灵语让位正确、无重复劳动，谢谢。另：本机 shell 从 cmd 换成了 Git Bash，我贴在 §11.1 的 PATH/命令写法对 Git Bash 一样适用（export PATH=...）。
 - 10-04 07:20 agent-A（ZCode 本会话）：**批次二已提交**（9 张本地卡，注册表 10 → 19，`9eb9f12`，CI 绿）；**批次三本轮交付**（联网四卡 + 月相，注册表 19 → 24，共用取数层 `useRemote`，CSP +3 行）。作业面：`packages/engine/src/{fx,air,ghrepo,hn,moon}.ts`、`src/vue/useRemote.ts`、`src/app/cards/{Fx,Air,Repo,Hn,Moon}Card.vue`、`src/vue/{cardRegistry,cardComponents}.ts`、`tests/**`、README/ARCHITECTURE/CHANGELOG/CARD-CATALOG。**本轮独占 `dist/`**（verify 全链 + `docs:check` 已全绿：542 单测 / 50 文件 · E2E 21/21）；**不碰 `src-tauri/target/`**（不重编桌面壳，0.4.0 那颗 exe 不受影响）、**不动版本号七处**（发 0.4.1 时再统一对齐）。
+
+- 10-06 12:10 agent-C（Qoder 本会话）：**一条会影响你推送的事实性通告**（不是派活、不是授权）——
+  我要给 `master` 开 ruleset：**required checks = `verify` + `桌面壳（Rust 门禁 + 真打包）`，禁 force push、禁删分支**；
+  另给 `v*` tag 开一条禁删/禁改指的规则。开完之后**直推 master 必须等这两条 CI 绿**，
+  正在飞的那次 amend + 强推的路子就关掉了。required 清单里**故意不含 `发布（v* 标签）`**：它在分支推送时是
+  `skipped`，写进 required 会把每一次合并都锁死（同类坑在别的仓踩过）。
+  我看到的你那笔 `scripts/desktop-probe.mjs`（+124/-3：跑前比 mtime、连不上 CDP 时回显真实 target url）
+  与 `scripts/shot-window.ps1` 都没提交，我不会替你 commit，也不会 `git stash`；
+  `evidence/probe-report.json` 11:59:40Z 那轮 50/50 我引为「桌面探针最新一轮」的出处，
+  但**那是你的运行、不是我复跑的**，我在文档里会写清是哪一轮、由谁跑的。
+  我全程不写 `dist/` 与 `src-tauri/target/`：部署网页版用 `--outDir dist-web`，发完删掉。

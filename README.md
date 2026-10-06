@@ -22,7 +22,7 @@
 | 可回退 | 50 步历史栈，一次拖拽 = 一步；紧凑等组合动作保留分步撤销 |
 | 版面工具 | 整理 / 撑满 / 收紧 / 紧凑（收紧+整理），全部可撤销 |
 | 版面模板 | 出厂默认 + 8 张推荐排法，首启自动弹一次；自己排的存进方案册 |
-| 添加卡片 | 工具条「添加卡片」把还没在版面上的卡加进来：**38 种卡**按分组排列，出厂版面只放 5 张；目录见 `docs/CARD-CATALOG.md` |
+| 添加卡片 | 工具条「添加卡片」把还没在版面上的卡加进来：**41 种卡**按分组排列，出厂版面只放 5 张；目录见 `docs/CARD-CATALOG.md` |<!-- facts -->
 | 计时 | **秒表**（往上数）、**倒计时**（往下数到 0）、**间歇计时**（专注一段休一段，内含「番茄 25/5」预设）、**呼吸计时**（方箱 4-4-4-4 / 助眠 4-7-8 / 平缓 4-6）—— 四个钟共用一套机制，时间不靠 `setInterval` 累加，所以**后台标签页被节流也不会少记时间** |
 | 卡片 | 联网卡（天气 / 空气 / 汇率 / GitHub 仓库 / HN，全部首次渲染才查、缓存、取不到保留上一份）、时间日期（月历 / 进度 / 世界时钟 / 倒数日 / 正计时 / 日期工具）、工具类（计算器无 eval / 单位换算 / 颜色 / 文本统计 / 随机数 / 进制 / 习惯打卡）、便签 / 待办 / 速记 / 最近改动 |
 | 备份 | 设置页「导出备份（含内容）」：版面、方案册和卡片正文打进一个 JSON；恢复前逐项确认 |
@@ -64,7 +64,7 @@ CHANGELOG.md           迭代变更历史
 
 ## 验证
 
-CI 两个 job：`verify` 跑五步（类型检查 → 单测与属性测试（**顺带卡受测层分支覆盖 ≥90%**）→ 构建 → E2E → 文档数字核对）；`desktop` 在 windows-latest 上跑 `cargo fmt --check` → `clippy -D warnings` → `cargo test` → 真打包出 exe。**桌面自检探针（`npm run desktop:probe`，49 项）不在 CI 跑** —— runner 上 WebView2 不把远调端口参数写进浏览器进程，探针停在「连 CDP」那一步，与产品好坏无关；它是**发布前的本机门禁**（见 `docs/ARCHITECTURE.md` §10.3 / §11.4）。⚠️ 同一个症状还有另一个成因：用 `cargo build --release` 直接出的 exe 没开 `custom-protocol`，是一颗会去连 dev server 的「开发二进制」，判据是 `/json/list` 里页面的 `url`（空或 `localhost:1430` 就是二进制不对），出包要走 `npm run tauri:build -- --no-bundle` —— 见 §10.26.3。
+CI 有 **4 个 job**：`verify` 跑六步（类型检查 → 单测与属性测试（**顺带卡受测层分支覆盖 ≥90%**）→ 构建 → 引擎包独立构建 → E2E → 文档数字核对）；`desktop` 在 windows-latest 上跑 `cargo fmt --check` → `clippy -D warnings` → `cargo test` → 真打包出 exe；`release` 只在 `v*` tag 上签名出包并挂 GitHub Release；`web` 只在 `v*` tag（或手动派发）上把网页版部署到 gh-pages。**桌面自检探针（`npm run desktop:probe`）不在 CI 跑**，而且它的**项数是条件量**、不是一个固定数字：`PROBE_NET=1` 才跑探针里那一段取数与边界断言（`scripts/desktop-probe.mjs:838` 那块，共 4 条：每日一图能真取到壁纸 + 网页监控的私网回环/云元数据端点/明文 http 三条边界），那一轮 54 项，不带就是 50 项（出处：`evidence/probe-report.json` 里 `2026-10-06T03:56:36Z 54/54` 与 `2026-10-06T03:59:40Z 50/50` 两行；`evidence/` 在 `.gitignore` 里，是**本机**证据、不随仓库分发）—— runner 上 WebView2 不把远调端口参数写进浏览器进程，探针停在「连 CDP」那一步，与产品好坏无关；它是**发布前的本机门禁**（见 `docs/ARCHITECTURE.md` §10.3 / §11.4）。⚠️ 同一个症状还有另一个成因：用 `cargo build --release` 直接出的 exe 没开 `custom-protocol`，是一颗会去连 dev server 的「开发二进制」，判据是 `/json/list` 里页面的 `url`（空或 `localhost:1430` 就是二进制不对），出包要走 `npm run tauri:build -- --no-bundle` —— 见 §10.26.3。<!-- facts -->
 
 投影算法有**五条**断言（只读、幂等、无重叠、尺寸充分、分区完整），随机版面 × 7 档列数各 200 例。量化门禁：受测层（`packages/engine/src/**` + 7 个 vue 纯模块）分支覆盖 ≥90%（当前 **≥94%**）、真拖期间帧距中位数 ≤18.2ms。<!-- facts -->
 
