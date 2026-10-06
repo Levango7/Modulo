@@ -46,6 +46,13 @@ jobs:
       - name: 文档数字核对（认领了规模数字的行必须与实跑一致）
         run: npm run docs:check
 
+      # 发布点门禁：验 `v*` tag 的 ruleset 还在、资产字节没变、tag 没被改指。
+      # 放在 verify 这个 job 里而不是新开一个 —— master 的 required checks 认的是
+      # `verify` 与 `桌面壳` 这两个 context，加 job 就得同步改 ruleset，多一处能忘的地方。
+      # 没有 GITHUB_TOKEN 时脚本会直接判失败（拒绝假装通过），所以这里不设 continue-on-error。
+      - name: 发布点门禁（tag 规则集 / 资产字节 / 出处台账）
+        run: node scripts/release-manifest.mjs
+
   # 桌面壳单独一个 job：它要 Windows runner，跑挂了不该把前端那条链一起标红，反之亦然。
   # 用了两个第三方 action（rust-toolchain / rust-cache），都是事实标准；如果不接受这个依赖，
   # 去掉 rust-cache 只是变慢，去掉 rust-toolchain 则要确认 runner 预装的工具链带 clippy+rustfmt。

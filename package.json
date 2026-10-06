@@ -20,6 +20,8 @@
     "verify": "npm run typecheck && npm run cover:engine && npm run build && npm run test:e2e",
     "docs:check": "node scripts/docs-check.mjs",
     "desktop:probe": "node scripts/desktop-probe.mjs",
+    "release:ledger": "node scripts/release-manifest.mjs",
+    "release:ledger:update": "node scripts/release-manifest.mjs --update",
     "engine:build": "npm run build --workspace @modulo/engine",
     "engine:pack": "npm pack --workspace @modulo/engine",
     "typecheck": "vue-tsc --noEmit -p tsconfig.json && tsc --noEmit -p tsconfig.e2e.json"
