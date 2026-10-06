@@ -191,6 +191,40 @@ if (process.argv.includes('--update')) {
     if (!(tag in (manifest.releases ?? {}))) note(`${tag}：远端有这个 release，但台账里没有 —— 跑一次 --update`)
   }
 
+  // ---- 第 4 条：v* tag 是否已签名 ----
+  // 用本地 git verify-tag，不依赖 GitHub API 的 verification 字段
+  // （那个字段在公钥未注册时返回 null，无法区分签名/未签名）。
+  // 公钥存 release-signing-key.pub（公钥本来就是公开的），CI 里配好 git 再逐个验。
+  // legacyUnsignedTags 是「已知未签名」的白名单 —— 只列签名机制启用之前发布的那些。
+  // 不在白名单里的 v* tag 必须已签名，否则这道门禁就是摆设。
+  const { spawnSync } = await import('node:child_process')
+  const pubKey = resolve(process.cwd(), 'release-signing-key.pub')
+  const legacy = new Set(manifest.legacyUnsignedTags ?? [])
+  const git = (args) => spawnSync('git', args, { encoding: 'utf8' })
+
+  // 让 git 用仓库里那份公钥验签（allowedSignersFile 的格式："<email> <pubkey>"）
+  const signersFile = resolve(process.cwd(), 'tmp-allowed-signers')
+  const pubRaw = readFileSync(pubKey, 'utf8').trim()
+  writeFileSync(signersFile, `* ${pubRaw}\n`)
+  git(['config', 'gpg.format', 'ssh'])
+  git(['config', 'gpg.ssh.allowedSignersFile', signersFile])
+
+  const allTags = git(['tag', '-l', 'v*']).stdout.trim().split(/\r?\n/).filter(Boolean)
+  const unsigned = []
+  for (const t of allTags) {
+    if (legacy.has(t)) continue
+    const r = git(['verify-tag', t])
+    if (r.status !== 0) unsigned.push(t)
+  }
+  if (unsigned.length) {
+    note(`这些 v* tag 未签名：${unsigned.join(', ')}\n    发版时必须用 git tag -s（签名密钥见 release-signing-key.pub 的说明）`)
+  }
+  // 白名单里的旧 tag 只提示，不判失败 —— 它们发布于签名机制启用之前
+  const legacyList = allTags.filter((t) => legacy.has(t))
+  if (legacyList.length) {
+    console.log(`  提示：${legacyList.length} 个旧 tag 未签名（签名机制启用前发布，已列入白名单）：${legacyList.join(', ')}`)
+  }
+
   if (bad.length) {
     console.error('发布点门禁不通过：\n')
     for (const m of bad) console.error(`  · ${m}`)
