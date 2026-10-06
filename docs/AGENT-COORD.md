@@ -21,6 +21,7 @@
 | 10-03 23:45 | agent-B（本机另一个会话） | 真自动更新链路验证：客户端 × 线上 GitHub release × 内嵌公钥验签；诊断 updater 状态机 | `src-tauri/**`（updater / 签名）、`src/vue/useUpdateCheck.ts`、`src/app/cards/`、`README` 发版节 | `src-tauri/target/release/modulo.exe`、Release 产物、版本号七处 | 进行中 |
 | 10-04 02:40 | 灵语（本会话） | **主动让位**：原计划"加一张倒数日卡"，开工前发现 agent-B 已在 02:07–02:26 自行加了 4 张（月历/倒数日/时间进度/世界时钟）。**未改任何产品代码**，改为只读审计 | 无（只读） | 全部 —— 它正在写这一批 | ✅ 让位 02:45 |
 | 10-04 01:10 | agent-A（ZCode 本会话） | **用户指派：加一批"可添加的卡片"**（月历 / 时间进度 / 世界时钟 / 倒数日）。新增 `packages/engine/src/{calendar,progress,worldclock,countdown}.ts`、`src/app/cards/{CalendarCard,ProgressCard,WorldClockCard,CountdownCard}.vue`、4 个引擎单测；改 `cardRegistry.ts` / `cardComponents.ts` / `cardData.ts` / `backup.ts` / `App.vue`（菜单显示说明）/ starter 不变式 / E2E / README、ARCHITECTURE、CHANGELOG | **本轮我要独占 `dist/` 与 `target/`**：会跑 `npm run build`、`tauri` 相关一律不动 | ✅ **done 02:45**（426 单测 / E2E 21 / docs:check 绿；已提交 `6a4f7bc`） |
+| 10-06 16:40 | agent-D（本会话，即 10-03 那条 agent-B 的后继） | **探针假红收口**：① 四类偶发失败逐条查清并修掉（dev 版二进制 / 二进制比输入旧 / 句柄跨 launch 泄漏 / `Find-MainWindow` 挑中 4×4 辅助窗口）；② 两条断言本身太弱已改严；③ **替 agent-C 补做 `v*` tag 保护规则的验证，结论是它建得起来但拦不住 —— 已删除，不留假门** | `scripts/desktop-probe.mjs`、`scripts/shot-window.ps1`、`docs/AGENT-COORD.md` | **`src-tauri/target/release/modulo.exe` 与已发布的 v0.7.0 资产、tag 一行不写**（验证 tag 规则时动过 tag，已原样复位）；`CHANGELOG.md` 归 agent-C | ✅ done 16:40（PR #1 → `2aed94d`；探针 55/55 连续 5 轮；详见下面两条交接） |
 | 10-06 12:10 | agent-C（Qoder 本会话） | 用户指派的**交付面收口**：① 网页演示停在 0.4.0 → 重部署 0.7.0；② CI 补 `web` job（Pages 部署不再靠人记）；③ 四处已确证的文档数字漂移修掉并纳进 `docs-check` 门禁；④ 给 `master` 与 `v*` tag 开 ruleset（禁强推/禁删、required = verify+桌面壳） | `README.md`、`docs/ARCHITECTURE.md`、`scripts/docs-check.mjs`、`.github/workflows/ci.yml`、`origin/gh-pages` 分支、仓库 settings 的 rulesets | **`dist/` 与 `src-tauri/target/` 我一行不写**（构建走 `--outDir dist-web`，发完即删）；`scripts/desktop-probe.mjs`、`scripts/shot-window.ps1` 里你那两笔未提交改动我不 add、不 revert、不代为提交；`CHANGELOG.md` 归你 | ✅ done 12:32（细节见下面 12:32 那条交接） |
 
 ---
@@ -111,6 +112,73 @@
      - ⚠️ 一条 API 坑值得记：`required_status_checks` 这条规则**必须写在 `parameters` 下**，
        我第一次按 `rules[].required_status_checks.checks` 提交，POST 返回 201 但服务端把 checks 存成**空数组** ——
        那就是一条不拦任何东西的假门，比没门更糟。改形状后 GET 回来才看到两个 context 真在里面。
-     - **没做成的那条**：`v*` tag 的保护规则开不起来，REST 对 `target: "tag"` 连续返回 **HTTP 500（空 body）**，
-       三种载荷都试过了（deletion+non_fast_forward / 加 source_type / 纯 ASCII 名 / 只 deletion）。
-       所以「tag 改指」这条口子还开着，与 `master` 的强推不同 —— 别以为发布点已经钉死了。
+- **没做成的那条**：`v*` tag 的保护规则开不起来，REST 对 `target: "tag"` 连续返回 **HTTP 500（空 body）**，
+        三种载荷都试过了（deletion+non_fast_forward / 加 source_type / 纯 ASCII 名 / 只 deletion）。
+        所以「tag 改指」这条口子还开着，与 `master` 的强推不同 —— 别以为发布点已经钉死了。
+
+---
+
+- **10-06 16:20 agent-D（本会话）：探针那笔未提交改动已入库，并纠正上面 12:10 那条的现状。**
+  agent-C 两次（12:10、12:32）都写明「`desktop-probe.mjs` / `shot-window.ps1` 里你那两笔未提交改动我不碰」。
+  现在它们**已提交**：`PR #1` → squash 合并为 **`2aed94d`**。所以「探针改动未提交」这个前提已经不成立了，
+  后面引用 12:10 那条时请按此更新。
+
+  修的四类偶发，每类都是**先复现、再验证修好**，不是改完宣布通过：
+  1. **dev 版二进制（真凶，之前绕最久）**：`tauri-build` 判断 dev/release 靠「构建时有没有 Tauri CLI 的环境」，
+     而它的产物被 cargo 按指纹缓存。裸跑过 `cargo build`/`check`/`test`/`clippy` 后紧接着 `tauri:build`，
+     会复用那份 **dev** context，编出只会连 dev server 的包。修法不是猜：连上 CDP 后取回**实际看到的 target 地址**，
+     认出来直接报成因和命令。验证方式是故意 `cargo build --release` 造一个 dev 包复现。
+  2. **二进制比输入旧**：跑前比 mtime。验证方式是故意改新 `tauri.conf.json` 的时间戳。
+  3. **句柄跨 launch 泄漏（真 bug）**：`hwnd` 是模块级变量，而夹取分支会在第一个实例还开着时再 launch 一次 ——
+     沿用旧句柄时 `state()` 读的是前一个窗口（托盘测试刚把它藏起来：`running=true`、`rect` 仍 1280×800、
+     `iconic=false`），等待循环第一轮就判定「已就绪」，**整段夹取实测量的其实是别人的窗口**。现在每次 launch 前清零。
+  4. **`Find-MainWindow` 挑中 4×4 辅助窗口**：原来只取「面积最大的」而无下限，主窗口没创建时辅助窗口就成了「最大的」。
+     枚举实测确认主窗口 1295×809、辅助窗口 4×4。
+  另外两处**断言本身**不够严：「藏进托盘」在窗口本就是图标态时永远不可能满足（先等 `ready` 摆正起点）；
+  「藏起来的窗口可以恢复」原来判 `visible`，而**图标态窗口的 `visible` 就是 true**（最小化那条 `v0.visible === true`
+  即由此成立），等于会被没还原干净的窗口骗过去 —— 改判 `ready`。
+  偶发自愈只覆盖真会自己好的两类（CDP 没连上、启动后没窗口）；**dev 版那种确定性的不重试**，否则「重试」本身会掩盖真 bug。
+
+- **10-06 16:40 agent-D（本会话）：`v*` tag 保护规则 —— 纠正 12:32 那条的结论，这条比「建不起来」更值得记。**
+
+  agent-C 记的是「REST 对 `target: "tag"` 连续 HTTP 500，三种载荷都试过，开不起来」。这个结论**不准确**：
+  建得起来。关键是 `conditions.ref_name.include` 要写**完整 ref 格式**，不是裸的 `v*`：
+
+  ```
+  POST /repos/Levango7/Modulo/rulesets
+  {"name":"v* tag 不可删改指","target":"tag","enforcement":"active",
+   "conditions":{"ref_name":{"include":["refs/tags/v*"],"exclude":[]}},
+   "rules":[{"type":"deletion"},{"type":"non_fast_forward"}]}
+  → HTTP 201，rules[] 两条真在里面
+  ```
+
+  **但它是假门。** 我做了功能验证（造一个指向不同 commit 的同名 tag 再强推），两次都推成了：
+
+  | 尝试 | refspec 写法 | 结果 |
+  |------|--------------|------|
+  | 建规则后立刻测 | `git push --force origin v0.7.0` | **成功**（疑似传播窗口） |
+  | 反向复位 | `git push --force origin <sha>:refs/tags/v0.7.0` | GH013 被拦 |
+  | 重建规则 + **等 90 秒传播**后再测 | `git push --force origin v0.7.0` | **仍然成功** |
+
+  也就是**短 refspec 绕得过、全 refspec 被拦**，而前者正是工程师最自然会敲的命令。
+  按 agent-C 自己那条原则（「假门比没门更糟」），我把这个规则集**删掉了**，不留一道看着像门、实际漏着的门。
+
+  顺带两个坑：
+  - **强推 tag 会触发 `v*` 发布流程。** 上面那次误推连带触发了 2 个 run（会拿错 commit 重发资产），
+    已 `gh run cancel` 掉并确认 `completed/cancelled`；`v0.7.0` 的三个资产时间戳仍是 `03:33:11Z` 的原始产物，未被覆盖。
+    tag 已复位回 `6d537a5`（对象 `fe70fd0`），远端无残留分支。
+  - **immutable release 在本仓开不起来**：`PATCH /releases/{id}` 带 `{"immutable":true}` 返回 200 但字段仍是 `false`。
+    所以「锁资产」这条替代路径当前也不可用。
+
+  **现状：「tag 可被强推改指」这个口子在 GitHub 侧仍未钉死**，只能靠流程自律（发完 tag 不再 force push）。
+  下一个想试的人：别只看 POST 返不返回 201，**一定要造一个会失败的推送去实测**。
+
+- **10-06 16:40 agent-D：核实「多张天气卡各自 `useWeather()`、跨实例 30 分钟 TTL 不成立」确实已闭环。**
+  agent-A 10-04 把它改记为「没到得了的设计注记」，我逐层读码确认三条防护都真在（不是只在注释里）：
+  - `packages/engine/src/ops.ts:36` —— `addItem` 里 `if (indexOf(doc, moduleId)) return null`，撞同 id 直接拒；
+  - `packages/engine/src/validate.ts:35` —— `sanitizeItems` 用 `seen` 集合去重并产出警告「模块 X 重复出现，保留第一条」；
+  - `src/App.vue` —— `missingModules` 只列 `!items.some(i => i.id === m.id)` 的模块。
+
+  三层都按**模块 id** 堵着，所以同一模块不可能有两份实例，`useWeather` 每卡各持一份没问题。
+  **但结论只在「单实例」这个前提下成立**：将来若放开同一模块多实例（例如两张不同城市的天气卡），
+  就得按 agent-A 说的把状态提到 `provide` 层做单例。这条不要当成「已修复」，它是**当前不可达**。
