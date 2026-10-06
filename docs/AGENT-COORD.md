@@ -173,6 +173,77 @@
   **现状：「tag 可被强推改指」这个口子在 GitHub 侧仍未钉死**，只能靠流程自律（发完 tag 不再 force push）。
   下一个想试的人：别只看 POST 返不返回 201，**一定要造一个会失败的推送去实测**。
 
+- **23:0x agent-D（本会话）：发布点从「半个方案」改成三层，并且我在这轮又弄坏了一次门。**
+
+  先答「当前是不是拖鞋方案」：**是**。master 有真门禁、release 资产已锁，但 `v*` tag 指针
+  当时是敞开的 —— 而且它敞开的真正原因是我**今天亲手制造的**：我为了清理一个自己误判的
+  「假门」把那条 tag ruleset 删了，然后忘了装回来。**一道能被悄悄拆掉的门等于没有门。**
+
+  ## 更正 16:40 那条结论（重要）
+
+  16:40 我写的是「tag 规则集**建得起来但不拦**，短 refspec 绕得过，只有全 refspec 被拦」，
+  并据此把规则集删了。**那个结论是错的，那次测试本身不成立。**
+
+  错在：那次「绕过」实验里，本机 tag 与远端指向同一个 commit，push 是**空操作**，
+  而我把「没报错」当成了「推成功了」。今天这一轮第三次栽在同一类地方 ——
+  `0xC0000139` 归因到 `chars().take().collect()`、tag 规则集归因到 refspec 写法、
+  现在这次归因到「空操作 = 绕过」。三次都是**拿一个失败或空操作当结论，没去查它为什么**。
+
+  重测（每个探针都刻意做成**会失败**的操作，且用不匹配 `v*` 的 tag 名避免触发发布流程）：
+
+  | 操作 | 结果 |
+  |---|---|
+  | 强推 `v*` tag 改指 | **拦住** `GH013` |
+  | 删 `v*` tag | **拦住** `GH013` |
+  | **新建** `v*` tag | **放行** ✔ 发版链路不受影响 |
+
+  所以这个缺口**本来就是能补的**。
+
+  ## 现在的三层
+
+  1. **tag ruleset**（`refs/tags/v*`，`deletion` + `non_fast_forward`）。已装，id 24592947。
+  2. **release 资产不可变**（仓库级开关）。之前那一轮做的。
+  3. **出处台账 + 校验**（新增 `release-manifest.json` 与 `scripts/release-manifest.mjs`，
+     接进 `verify` job）。这一层的作用是**让门自己也被门管**：
+     校验 tag 规则集还在不在、是不是 active、`non_fast_forward` 有没有被削掉、
+     tag 指向的 commit 有没有变、每个资产的 sha256 有没有变、台账有没有漏记或多记。
+
+   它不是凑数 —— 第 1 类事故**真的发生过**（见上），而当时仓库里没有任何东西会报警。
+   台账记的是 `tag → commit + 每个资产的 sha256 digest`（GitHub 的 release API 会给 digest，
+   这是能验「字节没被换过」的前提）。
+
+  `verify` 里刻意**不开新 job**：master 的 required checks 认的是 `verify` 与 `桌面壳` 两个
+  context，加 job 就得同步改 ruleset，多一处能忘的地方。
+
+  ## 变异验证（六种破坏方式都会变红）
+
+  | 变异 | 结果 |
+  |---|---|
+  | 台账里改 v0.7.0 的 commit | exit 1 ✔ |
+  | 台账里改一个资产的 digest | exit 1 ✔ |
+  | 台账里删掉 v0.6.0 整条 | exit 1 ✔ |
+  | **真的把 v* tag ruleset 删掉**（= 重现今天那个事故） | exit 1 ✔ |
+  | ruleset 被削成只剩 `deletion` | exit 1 ✔ |
+  | 不给 token | exit 1 ✔ 且**立刻停**，不报一堆假错误 |
+
+  最后一条是刻意的：读不到远端时继续跑只会把「读不到」误报成「每个 release 都不见了」，
+  假错误会把真信号淹掉 —— 而这道校验最不能出的错就是自己乱喊或假装通过。
+
+  ## ⚠️ 我在这轮把 master 的门也弄没了，如实记
+
+  清理探针时我连续发了几条 ruleset DELETE，其中一条因为 `$id` 解析失败变成了对空 id 的调用，
+  前后夹击之下**master 的 required-checks 规则集也被删掉了**。发现时 `GET /rulesets` 已返回 `[]`。
+  已按原样重建（id 24592943），并且**逐项回读确认**：`deletion` + `non_fast_forward` +
+  `required_status_checks`，两个 context（`verify`、`桌面壳（Rust 门禁 + 真打包）`）
+  **都真实存在**，不是 agent-C 记录过的那种「201 成功但 checks 存成空数组」的假门。
+  再用一次**真的**推送试探验证（空提交推到 master）→ `GH013` 被拦，远端 master 未变。
+  （第一回试探我用的是 `git push origin master`，而本地与远端同点、那是空操作不算证据 ——
+  这是同一天里第三次犯「空操作当证据」，一并记在这里。）
+
+  另一条 API 坑，写进了脚本注释：**`GET /rulesets`（列表）返回的每项里 `conditions` 与 `rules`
+  都是空对象**，字段在但没内容；按它判断会得出「没有 tag 规则集」的**误报**。
+  必须 `GET /rulesets/{id}` 逐个取。
+
 - **21:3x agent-D（本会话）：上面那条「immutable release 开不起来」的结论是错的，已开上并实测其边界。**
   16:40 我记的是「`PATCH /releases/{id}` 带 `immutable:true` 返回 200 但字段仍是 false」——
   **找错地方了**。`immutable` 根本不是 release 的可设 body 参数（官方 REST 文档里

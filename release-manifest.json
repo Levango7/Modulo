@@ -1,0 +1,77 @@
+{
+  "updatedAt": "2026-10-06T16:07:40.633Z",
+  "releases": {
+    "v0.7.0": {
+      "commit": "6d537a59c81d743068cdf4fe67c2b81cda96b1ef",
+      "immutable": true,
+      "draft": false,
+      "assets": {
+        "latest.json": "sha256:e0bfec29f5854551eae1d6952421b6cbfdd0297b622a78eaeb1f20d7c13cc669",
+        "Modulo_0.7.0_x64-setup.exe": "sha256:1e27d996f1e232b33f979192d295b0bf7e774d06676e378ed67de531844b5b5c",
+        "Modulo_0.7.0_x64-setup.exe.sig": "sha256:9b8f02209899928d549eb61680f59c182e9e34ec3c3b9d8162484dcaa438bd2e"
+      }
+    },
+    "v0.6.0": {
+      "commit": "8220e79075e282a9447798f5dcb04c788ccfc413",
+      "immutable": false,
+      "draft": false,
+      "assets": {
+        "latest.json": "sha256:95d0728192452bb1d0279577d55dd7433eabbbeef2c2129185a1a5099bfb8bdf",
+        "Modulo_0.6.0_x64-setup.exe": "sha256:34c39cbd665f6970f7c3ba2fb4c69e63e47c0c2c9b5f76a667fd040302a1d387",
+        "Modulo_0.6.0_x64-setup.exe.sig": "sha256:f2bc382a7e07debafa3123dbae3703f97af5f1f17a7d5bf205f22214285b119b"
+      }
+    },
+    "v0.5.0": {
+      "commit": "e2e3736cde3e0f48bba07d8d99d7cd35a13674fb",
+      "immutable": false,
+      "draft": false,
+      "assets": {
+        "latest.json": "sha256:3aadd1ee5a0b96ec31826ff8ced2e2d2ab23d8ccc4222e80c29a5404f2f8a602",
+        "Modulo_0.5.0_x64-setup.exe": "sha256:a3c0c42998532b388e4033a4deea49b1e5a67b80d65068889309bce7a0b15dca",
+        "Modulo_0.5.0_x64-setup.exe.sig": "sha256:7e8b257d8fc1628695bf65d208bb3f27317d604a9e17f021e5f75e750017d6ba"
+      }
+    },
+    "v0.4.0": {
+      "commit": "5fa2f21c2e95d96ef00337bbf9f9f9a9e9c347eb",
+      "immutable": false,
+      "draft": false,
+      "assets": {
+        "latest.json": "sha256:f9598d3e5716dc7dfa1afc8b88703c51345ec1b8a2a313cd84f81929672711d0",
+        "Modulo_0.4.0_x64-setup.exe": "sha256:53c431d5f7971bc8b17265042c1f6e33d35eaac10cff3542df3eaa1bf627ac18",
+        "Modulo_0.4.0_x64-setup.exe.sig": "sha256:08342547ecaf65a7c3efaa1caf0648bef715d5fe0ce8cc57dc41429f79bce155"
+      }
+    },
+    "v0.3.0": {
+      "commit": "4c5b54ca9039e51ce4647b9274baa01ee52e144f",
+      "immutable": false,
+      "draft": false,
+      "assets": {
+        "Modulo_0.3.0_x64-setup.exe": "sha256:0b879d72631a7a72d182e67fb31a460104b7365b696448e2a6e1b21ae18d6779"
+      }
+    },
+    "v0.2.0": {
+      "commit": "ef07a92891169293c463f8cbda01e2f62862ac22",
+      "immutable": false,
+      "draft": false,
+      "assets": {
+        "Modulo_0.2.0_x64-setup.exe": "sha256:f4ff0413510809c44cfbc75e9faad5436f68fcc715488cb42a71a8f528852559"
+      }
+    },
+    "v0.1.1": {
+      "commit": "53b0ed95a3ce8d9944bbc1f8c4015e8870d6fdc4",
+      "immutable": false,
+      "draft": false,
+      "assets": {
+        "Modulo_0.1.1_x64-setup.exe": "sha256:47aad05abc9c5ef2958cbf6252b780a23253acd616f69d18e6f4b7a4e73121c6"
+      }
+    },
+    "v0.1.0": {
+      "commit": "b0020b6de47b169b807bedc045348560ae1dbd90",
+      "immutable": false,
+      "draft": false,
+      "assets": {
+        "Modulo_0.1.0_x64-setup.exe": "sha256:4658ada982c7e439f5d5a238c2cb8a40ae0229c71281170466ffe49c3d8f2a15"
+      }
+    }
+  }
+}
