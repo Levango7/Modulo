@@ -80,20 +80,25 @@ const collect = async () => {
 }
 
 /**
- * 列出 ruleset。**必须逐个再 GET 一次**。
+ * 列出 ruleset。**必须逐个再 GET 一次**，而且**读不到与不存在要分开报**。
  *
- * 踩过的坑：`GET /repos/{o}/{r}/rulesets`（列表）返回的每一项里 `conditions` 与 `rules`
- * 都是**空对象** —— 字段存在但没内容，看起来像「这条规则没有 conditions，也没有 rules」。
- * 按它判断会得出「没有 tag ruleset」的**误报**，而实际上门好好地在那儿。
- * `GET /repos/{o}/{r}/rulesets/{id}`（单个）才给完整内容。
- * 这种坑正是这道校验最容易自己骗自己的地方，所以写在这里而不是留在脑子里。
+ * 两个坑，都踩过：
+ *
+ * 1. `GET /repos/{o}/{r}/rulesets`（列表）返回的每一项里 `conditions` 与 `rules`
+ *    都是**空对象** —— 字段存在但没内容，看起来像「这条规则没有 conditions，也没有 rules」。
+ *    按它判断会得出「没有 tag ruleset」的**误报**，而实际上门好好地在那儿。
+ *    `GET /repos/{o}/{r}/rulesets/{id}`（单个）才给完整内容。
+ *
+ * 2. **「读不到」绝不能当成「不存在」。** 权限不足、API 变更、网络抖动都会让请求失败；
+ *    把它当成「门没了」就是**诬告** —— 而这道校验的价值恰恰在于它平时是绿的，
+ *    乱报一次就会让人开始忽略它，那道门也就白设了。所以读不到时单列一条，并提示 token 权限。
  */
 const rulesets = async () => {
   let list
   try {
     list = await api(`/repos/${REPO}/rulesets`)
-  } catch {
-    return []
+  } catch (e) {
+    return { readable: false, reason: String(e.message ?? e), sets: [] }
   }
   const full = await Promise.all(
     list.map(async (s) => {
@@ -104,7 +109,7 @@ const rulesets = async () => {
       }
     }),
   )
-  return full
+  return { readable: true, reason: '', sets: full }
 }
 
 if (process.argv.includes('--update')) {
@@ -123,23 +128,39 @@ if (process.argv.includes('--update')) {
     process.exit(1)
   }
 
+  // 远端整体读不到（仓库名错、token 无权、网络断）时，也要给一句人话而不是一段栈。
+  // 这里的判据是「读不到」而不是「读到了但不对」—— 两者的处置完全不同。
+  let live
+  try {
+    live = await collect()
+  } catch (e) {
+    console.error('发布点门禁不通过：\n')
+    console.error(`  · 读不到远端 release：${String(e.message ?? e).slice(0, 200)}`)
+    console.error('    （检查 GH_REPO 拼写与 token 权限；这不是「门没了」，是「查不到」）')
+    process.exit(1)
+  }
+
   // ---- 第 1 条：tag ruleset 还在不在、还是不是 active、规则有没有被削 ----
-  const sets = await rulesets()
-  const tagRule = sets.find(
-    (s) => s.target === 'tag' && (s.conditions?.ref_name?.include ?? []).some((p) => /refs\/tags\/v\*$/.test(p)),
-  )
-  if (!tagRule) {
-    note('**没有** 覆盖 refs/tags/v* 的 tag ruleset —— tag 可被强推改指与删除')
+  const { readable, reason, sets } = await rulesets()
+  if (!readable) {
+    // 单列，且**不说「门没了」** —— 那是诬告。读者要能分清「查不到」与「确实没有」。
+    note(`读不到 rulesets（${reason}）。可能是 token 权限不足，需要能读仓库设置。`)
   } else {
-    if (tagRule.enforcement !== 'active') note(`tag ruleset 的 enforcement 是 ${tagRule.enforcement}，不是 active`)
-    const types = (tagRule.rules ?? []).map((r) => r.type)
-    if (!types.includes('non_fast_forward')) note('tag ruleset 里没有 non_fast_forward —— tag 可被强推改指')
-    if (!types.includes('deletion')) note('tag ruleset 里没有 deletion —— tag 可被删')
+    const tagRule = sets.find(
+      (s) => s.target === 'tag' && (s.conditions?.ref_name?.include ?? []).some((p) => /refs\/tags\/v\*$/.test(p)),
+    )
+    if (!tagRule) {
+      note('**没有** 覆盖 refs/tags/v* 的 tag ruleset —— tag 可被强推改指与删除')
+    } else {
+      if (tagRule.enforcement !== 'active') note(`tag ruleset 的 enforcement 是 ${tagRule.enforcement}，不是 active`)
+      const types = (tagRule.rules ?? []).map((r) => r.type)
+      if (!types.includes('non_fast_forward')) note('tag ruleset 里没有 non_fast_forward —— tag 可被强推改指')
+      if (!types.includes('deletion')) note('tag ruleset 里没有 deletion —— tag 可被删')
+    }
   }
 
   // ---- 第 2 条：发布资产是否还锁着、digest 是否齐全 ----
   const manifest = JSON.parse(readFileSync(MANIFEST, 'utf8'))
-  const live = await collect()
 
   for (const [tag, rec] of Object.entries(manifest.releases ?? {})) {
     const now = live[tag]
