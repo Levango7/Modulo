@@ -63,7 +63,13 @@ public static class Win32 {
       if (!IsWindowVisible(h) || IsIconic(h)) return true;
       RECT r;
       if (!GetWindowRect(h, out r)) return true;
-      long a = Math.Abs((long)(r.Right - r.Left) * (long)(r.Bottom - r.Top));
+      long w = (long)(r.Right - r.Left), hh = (long)(r.Bottom - r.Top);
+      // 必须有下限尺寸，不能只取「面积最大的那个」。
+      // 之前只比面积，于是主窗口尚未创建、进程里只剩一个 6×6 辅助窗口时，它就成了「最大的」而被钉住 ——
+      // 后面启动尺寸、夹取、居中三条全读这个 6×6，报出来像产品缺陷（实测隔一轮就复现一次）。
+      // 钉不下就返回 0，让调用方重试；此时主窗口还没成形，重试正是对的。
+      if (w <= 400 || hh <= 300) return true;
+      long a = w * hh;
       if (a > bestArea) { bestArea = a; best = h; }
       return true;
     }, IntPtr.Zero);
@@ -257,6 +263,11 @@ if ($Until) {
     $ok = switch ($Until) {
       'iconic'    { $s.iconic }
       'visible'   { $s.visible }
+      # 「可操作的正常态」：可见、非图标态、且矩形像个真窗口（不是 -32000 那种图标态垃圾值）。
+      # 有些检查（例如「点关闭会藏进托盘」判的是 visible=false **且** iconic=false）
+      # 对起点有隐含要求 —— 窗口若本来就是图标态，点关闭再多次也不会满足。
+      # 所以先等 ready 把起点摆正，再做那条断言；否则报出来的是「起点不对」而不是「功能坏了」。
+      'ready'     { $s.running -and $s.visible -and (-not $s.iconic) -and $s.rect -and $s.rect.w -gt 400 -and $s.rect.y -gt -1000 }
       'hidden'    { (-not $s.visible) -and (-not $s.iconic) }
       # 铺满工作区：两轴都贴到工作区，且比 MinW 更宽（排除「本来就等于工作区」的巧合）
       'maximized' { [Math]::Abs($r.w - $s.work.w) -le $Tol -and [Math]::Abs($r.h - $s.work.h) -le $Tol -and $r.w -gt $MinW }
