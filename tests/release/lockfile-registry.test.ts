@@ -55,10 +55,29 @@ const pkgs = lock.packages ?? {}
  */
 const downloaded = Object.entries(pkgs).filter(([, v]) => /^https?:\/\//.test(v.resolved ?? ''))
 
+/** 直接依赖数：用来给下面那条"防空跑"的判据当分母，而不是写死某一个天的条目数 */
+const directCount = (() => {
+  const pkg = JSON.parse(readFileSync(resolve(ROOT, 'package.json'), 'utf8')) as {
+    dependencies?: Record<string, string>
+    devDependencies?: Record<string, string>
+  }
+  return Object.keys(pkg.dependencies ?? {}).length + Object.keys(pkg.devDependencies ?? {}).length
+})()
+
 describe('依赖来源钉在官方 registry', () => {
   it('锁文件里每个 resolved 都指向官方 registry', () => {
-    // 先确认这个测试没有因为解析方式变化而"空跑"
-    expect(downloaded.length).toBeGreaterThan(200)
+    // 先确认这个测试没有因为解析方式变化而"空跑"。
+    // 这里原先写的是 `> 200`，那是挂在**条目数**上的代理指标：2026-10-07 升 vitest 5 时
+    // esbuild 整棵子树退出依赖图（连 25 条平台二进制一起消失，`npm ls esbuild` 已为空），
+    // 可下载条目从 271 掉到 144 —— 树变小是合法变更，写死的下限却把它报成"测试空跑"。
+    // 判据要挂在不变量上：传递闭包不可能比直接依赖更少，所以按直接依赖数兜底；
+    // 再点名认几个必然在场的包，防止解析方式变了却刚好抽出非空的一小撮。
+    expect(downloaded.length, `可下载条目(${downloaded.length})不该少于直接依赖数(${directCount})`).toBeGreaterThan(
+      directCount,
+    )
+    for (const must of ['node_modules/vite', 'node_modules/vue', 'node_modules/vitest']) {
+      expect(downloaded.some(([k]) => k === must), `${must} 没出现在解析结果里 —— 是解析方式变了，不是依赖没了`).toBe(true)
+    }
 
     const bad = downloaded
       .filter(([, v]) => !(v.resolved as string).startsWith(OFFICIAL))
