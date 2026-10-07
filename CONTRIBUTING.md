@@ -55,6 +55,56 @@ ci: 摘掉桌面自检那一步 —— 它在 runner 上量不到任何东西
 - 涉及视觉/交互的改动，附一张三档视口的图（1440 / 720 / 390）。`scripts/shoot.mjs` 是干这个的。
 - 一次 PR 只做一件事。跨三层的重构请拆开 —— 本项目的历史证明过「大杂烩式改动」会让 review 变成形式。
 
+## 发版
+
+### 版本号有七处，别手改
+
+`package.json`、`package-lock.json`、`src-tauri/Cargo.toml`、`src-tauri/Cargo.lock`、
+`src-tauri/tauri.conf.json`、`src/vue/useBackup.ts`（`APP_VERSION`）、`packages/engine/package.json`。
+
+`npm run docs:check` 会把它们逐个读出来比 —— 漏一处它直接报 `✗ 版本号不一致`。
+另外两条工具命令：`npm run release:ledger` 校验发布点、`npm run release:ledger:update` 在发版后刷新台账。
+
+**不要用字符串全局替换改版本号。** 出过一次事故：`replace('0.6.0','0.7.0')` 把依赖
+`emoji-regex@10.6.0` 也改成了不存在的 `10.7.0`，CI 在 `npm ci` 上 404。锁文件一律按结构定位。
+
+### tag 必须签名
+
+```bash
+git tag -s v0.8.0 -m "Modulo 0.8.0"   # 注意 -s，不是 -a
+git push origin v0.8.0
+```
+
+签名不是仪式，它补的是 ruleset 补不了的那半边：ruleset 保证「tag 不许被改」，但保证不了
+「打的时候就是对的」，也不给归属。签名让改指**可检测**、让 tag 有**署名**。
+
+`release-manifest.mjs` 会逐个 `git verify-tag`（公钥就在仓库里，`release-signing-key.pub`），
+未签名且不在 `legacyUnsignedTags` 白名单里的 `v*` tag 会让 `verify` job 变红。
+
+### 签名密钥
+
+- 私钥：`~/.ssh/modulo-release-signing`（**没有 passphrase** —— 为让发版构建不卡在交互提示上）
+- 公钥：`release-signing-key.pub`（入库，CI 用它验签）
+- **同时注册在 GitHub 账号上**：Settings → SSH and GPG keys，类型必须选 **Signing Key**
+
+> ⚠️ 加错成 **Authentication Key** 是很自然的一步错，而且症状很绕：tag 本地验得过、CI 也过，
+> 只有 GitHub 页面上一直不显示 Verified，API 给的 `reason` 是 `unknown_key`。
+> 更糟的是那把私钥**没有口令**，当认证公钥用等于多了一把可推送凭据 —— 它只该用来签名。
+> 验证：`gh api /users/<owner>/ssh_signing_keys` 有内容，`/users/<owner>/keys` 里没有它。
+
+换机器或轮换：重新 `ssh-keygen -t ed25519`，把新公钥替换 `release-signing-key.pub`、
+在 GitHub 上换掉 Signing Key，并且**旧 tag 不会因此失效**（各自的签名各自验）。
+
+### 发完版
+
+```bash
+npm run release:ledger:update   # 把新发布点写进 release-manifest.json
+git add release-manifest.json && git commit     # 这一步不能忘，否则下次 verify 报「台账里没有」
+```
+
+发布点现在是三层，改任何一层之前先读 `scripts/release-manifest.mjs` 的文件头：
+tag ruleset（禁删/禁改指）、release 资产 immutable（锁字节）、出处台账（让前两层自己也被管）。
+
 ## 许可
 
 代码与文档均为 [Apache-2.0](../LICENSE)。往 `src/` 里加代码即视为同意该许可。
