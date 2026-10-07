@@ -469,3 +469,15 @@
   v0.7.2 → verified、8 个旧 tag 仍走白名单；变异自检（白名单摘掉
   v0.4.0）→ 正确报 `v0.4.0（unsigned）` 退 1。分支
   fix/manifest-tag-verification-api。
+- 10-08 agent-A（ZCode 本会话）：**v0.7.2 发布完成**（发版收尾全链）：
+  draft 转正（`gh release edit v0.7.2 --draft=false`，三个资产齐全：
+  latest.json / 安装包 / .sig）；线上 updater 端点
+  `releases/latest/download/latest.json` 已开始吐 0.7.2 的签名清单
+  （pub_date 2026-10-07T16:15Z，windows-x86_64 带 signature）；
+  台账用 `release:ledger:update` 补录 v0.7.2 发布点（PR #18，
+  commit `fd6baf2`、immutable: true、draft: false、资产钉 sha256，
+  共 10 条）；门禁修复 PR #17 合并后，本地门禁跑「**发布点门禁
+  通过：10 个发布点，tag/资产字节/immutability 都对得上**」。
+  注：v0.7.2 tag 推送那次的 verify 运行在历史上仍是红的（当时跑
+  的还是旧门禁代码，libssh2 问题），修复落在此后的提交里；tag
+  受 ruleset 保护不能删改重推，属预期。
