@@ -400,6 +400,16 @@ function removeSelected() {
   place-items: center;
   padding: 2px 5px;
   border-radius: var(--radius-sm);
+  position: relative;
+}
+/* 视觉尺寸只有 13×18px，低于 24px 最小可点区，手指几乎点不中。
+   不改 padding（会把标签条撑变形），用伪元素把热区撑到 28×28 —— 命中区变大，视觉没变。 */
+.cbtn::after {
+  content: '';
+  position: absolute;
+  inset: -5px -8px;
+  min-width: 28px;
+  min-height: 28px;
 }
 .badge {
   position: absolute;
