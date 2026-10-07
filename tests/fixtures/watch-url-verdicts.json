@@ -1,0 +1,475 @@
+{
+  "note": "两侧判据的唯一事实源。前端 packages/engine/src/watch.ts 的 normalizeUrl、Rust src-tauri/src/net.rs 的 split_target 必须对每一条给出相同答案（accept 字段）。改任一侧的边界都必须让这张表继续全绿；新增边界请先加到这里，再改实现。覆盖四类：A 普通公网、B 私网/保留网段、C 保留主机名、D 协议/端口/格式。",
+  "cases": [
+    {
+      "url": "https://example.com/",
+      "accept": true,
+      "group": "A. 普通公网"
+    },
+    {
+      "url": "https://sub.domain.example.com/path?q=1",
+      "accept": true,
+      "group": "A. 普通公网"
+    },
+    {
+      "url": "https://example.com:443/",
+      "accept": true,
+      "group": "A. 普通公网"
+    },
+    {
+      "url": "https://example.com:65535/",
+      "accept": true,
+      "group": "A. 普通公网"
+    },
+    {
+      "url": "https://1.1.1.1/",
+      "accept": true,
+      "group": "A. 普通公网"
+    },
+    {
+      "url": "https://8.8.8.8/",
+      "accept": true,
+      "group": "A. 普通公网"
+    },
+    {
+      "url": "https://223.255.255.255/",
+      "accept": true,
+      "group": "A. 普通公网"
+    },
+    {
+      "url": "https://240.0.0.1/",
+      "accept": true,
+      "group": "A. 普通公网"
+    },
+    {
+      "url": "https://9.255.255.255/",
+      "accept": true,
+      "group": "A. 普通公网"
+    },
+    {
+      "url": "https://11.0.0.1/",
+      "accept": true,
+      "group": "A. 普通公网"
+    },
+    {
+      "url": "https://172.15.0.1/",
+      "accept": true,
+      "group": "A. 普通公网"
+    },
+    {
+      "url": "https://172.32.0.1/",
+      "accept": true,
+      "group": "A. 普通公网"
+    },
+    {
+      "url": "https://100.63.255.255/",
+      "accept": true,
+      "group": "A. 普通公网"
+    },
+    {
+      "url": "https://100.128.0.1/",
+      "accept": true,
+      "group": "A. 普通公网"
+    },
+    {
+      "url": "https://192.0.1.1/",
+      "accept": true,
+      "group": "A. 普通公网"
+    },
+    {
+      "url": "https://198.17.0.1/",
+      "accept": true,
+      "group": "A. 普通公网"
+    },
+    {
+      "url": "https://198.20.0.1/",
+      "accept": true,
+      "group": "A. 普通公网"
+    },
+    {
+      "url": "https://198.51.101.1/",
+      "accept": true,
+      "group": "A. 普通公网"
+    },
+    {
+      "url": "https://203.0.114.1/",
+      "accept": true,
+      "group": "A. 普通公网"
+    },
+    {
+      "url": "https://[2001:db8::1]/",
+      "accept": true,
+      "group": "A. 普通公网"
+    },
+    {
+      "url": "https://[2606:4700::1111]/",
+      "accept": true,
+      "group": "A. 普通公网"
+    },
+    {
+      "url": "https://[fec0::1]/",
+      "accept": true,
+      "group": "A. 普通公网"
+    },
+    {
+      "url": "https://[fbff::1]/",
+      "accept": true,
+      "group": "A. 普通公网"
+    },
+    {
+      "url": "https://[64:ff9b::7f00:1]/",
+      "accept": true,
+      "group": "A. 普通公网"
+    },
+    {
+      "url": "https://[::1.2.3.4]/",
+      "accept": true,
+      "group": "A. 普通公网"
+    },
+    {
+      "url": "https://notlocalhost.example.com/",
+      "accept": true,
+      "group": "A. 普通公网"
+    },
+    {
+      "url": "https://localhost.example.com/",
+      "accept": true,
+      "group": "A. 普通公网"
+    },
+    {
+      "url": "https://internal.example.com/",
+      "accept": true,
+      "group": "A. 普通公网"
+    },
+    {
+      "url": "https://home.arpa.example.com/",
+      "accept": true,
+      "group": "A. 普通公网"
+    },
+    {
+      "url": "https://local/",
+      "accept": true,
+      "group": "A. 普通公网"
+    },
+    {
+      "url": "https://x.local.example.com/",
+      "accept": true,
+      "group": "A. 普通公网"
+    },
+    {
+      "url": "https://mylocal.example.com/",
+      "accept": true,
+      "group": "A. 普通公网"
+    },
+    {
+      "url": "https://[2001:db8::1]:8443/x",
+      "accept": true,
+      "group": "A. 普通公网"
+    },
+    {
+      "url": "https://0.0.0.0/",
+      "accept": false,
+      "group": "B. 私网 / 保留网段"
+    },
+    {
+      "url": "https://10.0.0.5/",
+      "accept": false,
+      "group": "B. 私网 / 保留网段"
+    },
+    {
+      "url": "https://100.64.0.1/",
+      "accept": false,
+      "group": "B. 私网 / 保留网段"
+    },
+    {
+      "url": "https://127.0.0.1/",
+      "accept": false,
+      "group": "B. 私网 / 保留网段"
+    },
+    {
+      "url": "https://127.1.2.3/",
+      "accept": false,
+      "group": "B. 私网 / 保留网段"
+    },
+    {
+      "url": "https://169.254.169.254/",
+      "accept": false,
+      "group": "B. 私网 / 保留网段"
+    },
+    {
+      "url": "https://172.16.0.1/",
+      "accept": false,
+      "group": "B. 私网 / 保留网段"
+    },
+    {
+      "url": "https://172.31.255.254/",
+      "accept": false,
+      "group": "B. 私网 / 保留网段"
+    },
+    {
+      "url": "https://192.168.1.1/",
+      "accept": false,
+      "group": "B. 私网 / 保留网段"
+    },
+    {
+      "url": "https://192.0.0.1/",
+      "accept": false,
+      "group": "B. 私网 / 保留网段"
+    },
+    {
+      "url": "https://198.18.0.1/",
+      "accept": false,
+      "group": "B. 私网 / 保留网段"
+    },
+    {
+      "url": "https://198.19.255.255/",
+      "accept": false,
+      "group": "B. 私网 / 保留网段"
+    },
+    {
+      "url": "https://198.51.100.7/",
+      "accept": false,
+      "group": "B. 私网 / 保留网段"
+    },
+    {
+      "url": "https://203.0.113.9/",
+      "accept": false,
+      "group": "B. 私网 / 保留网段"
+    },
+    {
+      "url": "https://224.0.0.1/",
+      "accept": false,
+      "group": "B. 私网 / 保留网段"
+    },
+    {
+      "url": "https://239.255.255.255/",
+      "accept": false,
+      "group": "B. 私网 / 保留网段"
+    },
+    {
+      "url": "https://[::]/",
+      "accept": false,
+      "group": "B. 私网 / 保留网段"
+    },
+    {
+      "url": "https://[0:0:0:0:0:0:0:0]/",
+      "accept": false,
+      "group": "B. 私网 / 保留网段"
+    },
+    {
+      "url": "https://[::1]/",
+      "accept": false,
+      "group": "B. 私网 / 保留网段"
+    },
+    {
+      "url": "https://[fc00::1]/",
+      "accept": false,
+      "group": "B. 私网 / 保留网段"
+    },
+    {
+      "url": "https://[fd12:3456::1]/",
+      "accept": false,
+      "group": "B. 私网 / 保留网段"
+    },
+    {
+      "url": "https://[fe80::1]/",
+      "accept": false,
+      "group": "B. 私网 / 保留网段"
+    },
+    {
+      "url": "https://[febf:ffff::1]/",
+      "accept": false,
+      "group": "B. 私网 / 保留网段"
+    },
+    {
+      "url": "https://[::ffff:127.0.0.1]/",
+      "accept": false,
+      "group": "B. 私网 / 保留网段"
+    },
+    {
+      "url": "https://[::ffff:10.0.0.1]/",
+      "accept": false,
+      "group": "B. 私网 / 保留网段"
+    },
+    {
+      "url": "https://[::ffff:0.0.0.0]/",
+      "accept": false,
+      "group": "B. 私网 / 保留网段"
+    },
+    {
+      "url": "https://[::127.0.0.1]/",
+      "accept": false,
+      "group": "B. 私网 / 保留网段"
+    },
+    {
+      "url": "https://[::10.0.0.1]/",
+      "accept": false,
+      "group": "B. 私网 / 保留网段"
+    },
+    {
+      "url": "https://[::169.254.169.254]/",
+      "accept": false,
+      "group": "B. 私网 / 保留网段"
+    },
+    {
+      "url": "https://[::192.168.1.1]/",
+      "accept": false,
+      "group": "B. 私网 / 保留网段"
+    },
+    {
+      "url": "https://localhost/",
+      "accept": false,
+      "group": "C. 保留主机名"
+    },
+    {
+      "url": "https://localhost./",
+      "accept": false,
+      "group": "C. 保留主机名"
+    },
+    {
+      "url": "https://LOCALHOST/",
+      "accept": false,
+      "group": "C. 保留主机名"
+    },
+    {
+      "url": "https://LocalHost./",
+      "accept": false,
+      "group": "C. 保留主机名"
+    },
+    {
+      "url": "https://foo.localhost/",
+      "accept": false,
+      "group": "C. 保留主机名"
+    },
+    {
+      "url": "https://api.LOCALHOST/",
+      "accept": false,
+      "group": "C. 保留主机名"
+    },
+    {
+      "url": "https://printer.local/",
+      "accept": false,
+      "group": "C. 保留主机名"
+    },
+    {
+      "url": "https://Router.LOCAL/",
+      "accept": false,
+      "group": "C. 保留主机名"
+    },
+    {
+      "url": "https://router.local/admin",
+      "accept": false,
+      "group": "C. 保留主机名"
+    },
+    {
+      "url": "https://metadata.google.internal/",
+      "accept": false,
+      "group": "C. 保留主机名"
+    },
+    {
+      "url": "https://METADATA.GOOGLE.INTERNAL/",
+      "accept": false,
+      "group": "C. 保留主机名"
+    },
+    {
+      "url": "https://foo.internal/",
+      "accept": false,
+      "group": "C. 保留主机名"
+    },
+    {
+      "url": "https://a.b.internal/",
+      "accept": false,
+      "group": "C. 保留主机名"
+    },
+    {
+      "url": "https://gateway.home.arpa/",
+      "accept": false,
+      "group": "C. 保留主机名"
+    },
+    {
+      "url": "https://x.home.arpa/",
+      "accept": false,
+      "group": "C. 保留主机名"
+    },
+    {
+      "url": "https://HOST.HOME.ARPA/",
+      "accept": false,
+      "group": "C. 保留主机名"
+    },
+    {
+      "url": "https://localhost:8443/admin",
+      "accept": false,
+      "group": "C. 保留主机名"
+    },
+    {
+      "url": "https://foo.localhost:8443/",
+      "accept": false,
+      "group": "C. 保留主机名"
+    },
+    {
+      "url": "http://example.com/",
+      "accept": false,
+      "group": "D. 协议 / 端口 / 格式"
+    },
+    {
+      "url": "HTTP://example.com/",
+      "accept": false,
+      "group": "D. 协议 / 端口 / 格式"
+    },
+    {
+      "url": "ftp://example.com/",
+      "accept": false,
+      "group": "D. 协议 / 端口 / 格式"
+    },
+    {
+      "url": "file:///C:/Windows/",
+      "accept": false,
+      "group": "D. 协议 / 端口 / 格式"
+    },
+    {
+      "url": "ws://example.com/",
+      "accept": false,
+      "group": "D. 协议 / 端口 / 格式"
+    },
+    {
+      "url": "https://example.com:65536/",
+      "accept": false,
+      "group": "D. 协议 / 端口 / 格式"
+    },
+    {
+      "url": "https://example.com:99999999/",
+      "accept": false,
+      "group": "D. 协议 / 端口 / 格式"
+    },
+    {
+      "url": "https://example.com:8a3/",
+      "accept": false,
+      "group": "D. 协议 / 端口 / 格式"
+    },
+    {
+      "url": "https://example.com:/",
+      "accept": false,
+      "group": "D. 协议 / 端口 / 格式"
+    },
+    {
+      "url": "https://exa mple.com/",
+      "accept": false,
+      "group": "D. 协议 / 端口 / 格式"
+    },
+    {
+      "url": "https://user:pass@example.com/",
+      "accept": false,
+      "group": "D. 协议 / 端口 / 格式"
+    },
+    {
+      "url": "https://admin@127.0.0.1/",
+      "accept": false,
+      "group": "D. 协议 / 端口 / 格式"
+    },
+    {
+      "url": "https://[2001:db8::1/",
+      "accept": false,
+      "group": "D. 协议 / 端口 / 格式"
+    }
+  ]
+}

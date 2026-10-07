@@ -110,9 +110,14 @@ pub fn split_target(url: &str) -> Result<(String, String), String> {
         &rest[slash..]
     };
 
-    // authority 形如 host、host:port 或 [v6]:port。
-    // 先去掉 userinfo（`user:pass@`）—— 它不该被当成主机名的一部分。
-    let authority = authority.split('@').next_back().unwrap_or(authority);
+    // userinfo（`user:pass@`）一律拒绝，与前端 `watch.ts` 的 `m[2].includes('@')` 对齐。
+    // 原来这里是"剥掉 userinfo 继续判"，于是 `https://user:pass@example.com/` 被放行
+    // （前端拒、Rust 接受）。剥掉之后请求的目标确实就是 host 本身、边界仍然成立
+    // （`https://user:pass@169.254.169.254/` 照样被拒），但"带凭据的 URL 进备份"
+    // 这件事该在入口挡住，而不是靠剥。2026-10-07 扩表对照时发现。
+    if authority.contains('@') {
+        return Err(format!("URL 里带 userinfo（凭据），不收：{url}"));
+    }
 
     // **IPv6 字面量必须先按方括号处理，不能直接 split(':')**：地址里到处是冒号，
     // 按冒号切会把 `2001:db8::1` 截成 `2001`，而 `fc00::1` 会变成 `fc00` ——
@@ -139,6 +144,12 @@ pub fn split_target(url: &str) -> Result<(String, String), String> {
     if let Some(p) = port_str {
         if p.is_empty() || !p.bytes().all(|b| b.is_ascii_digit()) {
             return Err(format!("端口不是数字：{url}"));
+        }
+        // 上限与前端（`watch.ts` 的 `\d{1,5}` 且 ≤65535）对齐。不校验的话
+        // `https://example.com:99999999/` 是"前端拒、Rust 放行"—— 这种端口在 TCP 层
+        // 无效、不构成安全问题，但两侧清单写着"必须一致"，就不该留着这道缝。
+        if p.parse::<u32>().map_or(true, |n| n > 65535) {
+            return Err(format!("端口超出 1..=65535：{url}"));
         }
     }
     if let Some(reason) = blocked_reason(host) {
@@ -323,6 +334,8 @@ mod tests {
             "https://[fe80::1]/",          // 链路本地
             "https://[febf:ffff::1]/",     // fe80::/10 的上沿
             "https://[::ffff:127.0.0.1]/", // IPv4-mapped 绕过
+            "https://[::127.0.0.1]/",      // IPv4-compatible（to_ipv4() 也认这一支）
+            "https://[::10.0.0.1]/",       // 同上，私网
         ] {
             let r = split_target(bad);
             assert!(r.is_err(), "{bad} 应当被拒绝，实际 {r:?}");
@@ -348,8 +361,9 @@ mod tests {
             "https://9.255.255.255/",
             "https://1.1.1.1/",
             "https://[2606:4700::1111]/",
-            "https://[fec0::1]/", // fe80::/10 的后一格，必须放行
-            "https://[fbff::1]/", // fc00::/7 的上沿后一格
+            "https://[fec0::1]/",   // fe80::/10 的后一格，必须放行
+            "https://[fbff::1]/",   // fc00::/7 的上沿后一格
+            "https://[::1.2.3.4]/", // IPv4-compatible 的公网地址，不该误伤
         ] {
             assert!(split_target(ok).is_ok(), "{ok} 不该被拒");
         }
@@ -418,5 +432,68 @@ mod tests {
         ] {
             assert!(split_target(ok).is_ok(), "{ok} 不该被拒");
         }
+    }
+
+    /// 端口上限与前端对齐（2026-10-07 补）。
+    ///
+    /// 前端 `watch.ts` 要求 `\d{1,5}` 且 ≤65535，而这里原来只验"是数字" ——
+    /// 于是 `https://example.com:99999999/` 是"前端拒、Rust 放行"。这种端口在 TCP 层
+    /// 无效、不构成安全问题，但两侧清单写着"必须一致"，就不该留着这道缝。
+    #[test]
+    fn 端口上限与前端一致() {
+        for ok in [
+            "https://example.com:1/",
+            "https://example.com:443/",
+            "https://example.com:65535/",
+        ] {
+            assert!(split_target(ok).is_ok(), "{ok} 不该被拒");
+        }
+        for bad in [
+            "https://example.com:65536/",
+            "https://example.com:99999999/",
+            "https://example.com:99999999999999999999/",
+        ] {
+            let r = split_target(bad);
+            assert!(r.is_err(), "{bad} 应当被拒，实际 {r:?}");
+        }
+    }
+
+    /// 跨语言判据表：与前端 `watch.ts` 同源（`tests/fixtures/watch-url-verdicts.json`）。
+    ///
+    /// 边界在两处各写了一遍（前端那份为了输入时立刻有反馈，这份才是安全边界），
+    /// 冗余的代价是**会分叉** —— 已经分叉过两次，且两次都是**人工对照**才发现的。
+    /// 这条把它变成门禁：**任一侧单独改了边界，这里就会红。**
+    ///
+    /// 表在仓库根的 `tests/fixtures/` 下，两侧共读；新增边界请先加表，再改实现。
+    #[test]
+    fn 判据表与前端一致() {
+        let path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .expect("src-tauri 应当在仓库根下")
+            .join("tests/fixtures/watch-url-verdicts.json");
+        let text = std::fs::read_to_string(&path)
+            .unwrap_or_else(|e| panic!("读不到判据表 {}：{e}", path.display()));
+        let doc: serde_json::Value = serde_json::from_str(&text).expect("判据表不是合法 JSON");
+        let cases = doc["cases"].as_array().expect("判据表里没有 cases 数组");
+
+        let mut wrong = Vec::new();
+        for c in cases {
+            let url = c["url"].as_str().expect("url 不是字符串");
+            let accept = c["accept"].as_bool().expect("accept 不是布尔");
+            let got = split_target(url).is_ok();
+            if got != accept {
+                wrong.push(format!(
+                    "{url} 期望{}，实际{}",
+                    if accept { "接受" } else { "拒绝" },
+                    if got { "接受" } else { "拒绝" }
+                ));
+            }
+        }
+        assert!(
+            wrong.is_empty(),
+            "与判据表不符 {} 条：\n{}",
+            wrong.len(),
+            wrong.join("\n")
+        );
     }
 }
