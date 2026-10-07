@@ -34,8 +34,7 @@
  * 需要 `GITHUB_TOKEN`（CI 里自动有；本机跑校验时设一个 PAT 也行）。
  */
 import { existsSync, readFileSync, writeFileSync } from 'node:fs'
-import { join, resolve } from 'node:path'
-import { tmpdir } from 'node:os'
+import { resolve } from 'node:path'
 
 const REPO = process.env.GH_REPO ?? 'Levango7/Modulo'
 const MANIFEST = resolve(process.cwd(), 'release-manifest.json')
@@ -201,37 +200,45 @@ if (process.argv.includes('--update')) {
   }
 
   // ---- 第 4 条：v* tag 是否已签名 ----
-  // 用本地 git verify-tag，不依赖 GitHub API 的 verification 字段
-  // （那个字段在公钥未注册时返回 null，无法区分签名/未签名）。
-  // 公钥存 release-signing-key.pub（公钥本来就是公开的），CI 里配好 git 再逐个验。
-  // legacyUnsignedTags 是「已知未签名」的白名单 —— 只列签名机制启用之前发布的那些。
-  // 不在白名单里的 v* tag 必须已签名，否则这道门禁就是摆设。
-  const { spawnSync } = await import('node:child_process')
-  const pubKey = resolve(process.cwd(), 'release-signing-key.pub')
+  // 用 GitHub API 的 verification 字段（GET /repos/{o}/{r}/git/tags/{sha}），
+  // 不用本地 `git verify-tag`：那条路要求 git 编译时带 libssh2 —— 本机
+  // git-for-windows 自带所以一直绿，但 ubuntu-latest 的 git 没有，这道检查
+  // 在 CI 上从未真正跑通过（v0.7.1 / v0.7.2 两次 tag 推送都红在「未签名」，
+  // 而 tag 实际签得好好的，本地 verify-tag 全过；发版照常完成，红的是门禁）。
+  // API 这条判据的分辨力：已签名且密钥注册为账号的 Signing Key →
+  // {verified: true, reason: "valid"}；未签名 → {verified: false, reason:
+  // "unsigned"}；密钥没注册 → reason: "unknown_key"。公钥按 CONTRIBUTING
+  // 「签名密钥」一节的要求注册过了 —— 早先回避 API 字段的那个理由（「公钥
+  // 未注册时无法区分签名/未签名」）因此被消除。
+  // 顺带改掉一个覆盖问题：原来查的是本地 `git tag -l v*`，而 CI 的 checkout
+  // 在普通分支推送时不抓 tag —— 那条检查在 master 推送时是空转的；现在直接
+  // 列远端全部 tag 逐个验，任何一次推送都能看到全量 v* tag 的签名状态。
+  // （/tags 只取第一页 100 条——这个仓库的 tag 量级远不到，真到那天要补翻页。）
   const legacy = new Set(manifest.legacyUnsignedTags ?? [])
-  const git = (args) => spawnSync('git', args, { encoding: 'utf8' })
-
-// 让 git 用仓库里那份公钥验签（allowedSignersFile 的格式："<email> <pubkey>"）。
-// 写在系统临时目录，**不写进仓库** —— 第一版写在仓库根目录，于是每次校验都留下一个
-// `tmp-allowed-signers` untracked 文件：它会被误 add 进提交，也会让 git status 一直不干净。
-const signersFile = join(tmpdir(), 'modulo-allowed-signers')
-const pubRaw = readFileSync(pubKey, 'utf8').trim()
-writeFileSync(signersFile, `* ${pubRaw}\n`)
-  git(['config', 'gpg.format', 'ssh'])
-  git(['config', 'gpg.ssh.allowedSignersFile', signersFile])
-
-  const allTags = git(['tag', '-l', 'v*']).stdout.trim().split(/\r?\n/).filter(Boolean)
+  const remoteTags = await api(`/repos/${REPO}/tags?per_page=100`)
   const unsigned = []
-  for (const t of allTags) {
-    if (legacy.has(t)) continue
-    const r = git(['verify-tag', t])
-    if (r.status !== 0) unsigned.push(t)
+  const legacyList = []
+  for (const t of remoteTags) {
+    if (!t.name.startsWith('v')) continue
+    if (legacy.has(t.name)) {
+      legacyList.push(t.name)
+      continue
+    }
+    // 轻量 tag 的 ref 直接指向 commit，没有 tag 对象、天然无法签名 ——
+    // 单独报出来，不和「未签名」混在一起
+    const ref = await api(`/repos/${REPO}/git/ref/tags/${encodeURIComponent(t.name)}`)
+    if (ref.object?.type !== 'tag') {
+      unsigned.push(`${t.name}（轻量 tag 无法签名，请用 git tag -s）`)
+      continue
+    }
+    const tagObj = await api(`/repos/${REPO}/git/tags/${ref.object.sha}`)
+    const v = tagObj.verification
+    if (!v?.verified) unsigned.push(`${t.name}（${v?.reason ?? 'API 未返回 verification'}）`)
   }
   if (unsigned.length) {
     note(`这些 v* tag 未签名：${unsigned.join(', ')}\n    发版时必须用 git tag -s（签名密钥见 release-signing-key.pub 的说明）`)
   }
   // 白名单里的旧 tag 只提示，不判失败 —— 它们发布于签名机制启用之前
-  const legacyList = allTags.filter((t) => legacy.has(t))
   if (legacyList.length) {
     console.log(`  提示：${legacyList.length} 个旧 tag 未签名（签名机制启用前发布，已列入白名单）：${legacyList.join(', ')}`)
   }

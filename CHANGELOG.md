@@ -9,6 +9,29 @@
 > 留着它会让读者以为有没发出去的改动。**版本摘要一律以 `## x.y.z` 段为准**，
 > 「批次」段保留是因为每批的实现取舍写得比版本摘要细。
 
+## 未发布 —— 发布点门禁：tag 签名校验改走 GitHub API
+
+`scripts/release-manifest.mjs` 的「tag 是否已签名」原来用本地
+`git verify-tag`（`gpg.format=ssh`）。这条路要求 git 编译时带
+**libssh2**：本机 git-for-windows 自带，所以一直绿；但
+ubuntu-latest 的 git 没编译进来 —— 这道检查在 CI 上**从未真正
+跑通过**，v0.7.1 / v0.7.2 两次 tag 推送的 verify 都红在
+「未签名」（tag 实际签得好好的，本地全过；发版照常完成，
+红的是门禁）。
+
+改用 GitHub API 的 `verification` 字段
+（`GET /repos/{o}/{r}/git/ref/tags/{tag}` → `GET .../git/tags/{sha}`
+→ `.verification`）。密钥已注册为账号的 **Signing Key**，这是
+权威判据：已签名且密钥已注册 → `{verified: true, reason: "valid"}`；
+未签名 → `"unsigned"`；密钥没注册 → `"unknown_key"`。任何平台
+都跑得通。
+
+顺带修一个空转：原来查的是本地 `git tag -l v*`，而 CI 的 checkout
+在普通分支推送时不抓 tag —— 那条检查在 master 推送时什么也不验；
+现在直接列远端全部 v* tag 逐个验。变异自检：把 v0.4.0 从
+`legacyUnsignedTags` 白名单拿掉，门禁正确报出 `v0.4.0（unsigned）`
+并退出 1。
+
 ## 0.7.2（2026-10-07）—— 网页监控：引擎与 Rust 的 URL 判据对齐
 
 网页监控卡的两侧（`packages/engine/src/watch.ts` 与 `src-tauri/src/net.rs`）
