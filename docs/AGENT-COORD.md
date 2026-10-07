@@ -12,6 +12,38 @@
 - 不跑 `npm run build` / `tauri build` 除非你独占 —— 会重写 dist 与 target，污染别人正在验的那颗二进制。
 - 临时脚本统一 `tmp-*.mjs`，跑完即删，不 commit。
 
+### 不登记，别人就不敢碰你的文件
+
+**开工前必须在下面「作业面登记」表里加一行 `进行中`，写清「会改的文件」。** 没有这一行，
+别人看到你动过的文件只有两个选择：当成垃圾清掉（毁掉你在制品），或者干脆不敢动（活干不下去）。
+两个都更糟。
+
+这条不是形式主义。**2026-10-07 出过一次真实代价**：`fix/watch-url-parity`（PR #15）的作者在
+主工作树里改 `net.rs` / `watch.ts` / `watch.test.ts` 等 6 个文件，一路做到开 PR、CI 都绿了，
+**全程没有在板上留任何 `进行中` 条目**。结果是另一个 agent 只能靠翻进程命令行
+（`Get-CimInstance` 找 `pr checks 15 --watch`）才拼出真相，中途两次误判：
+
+- 看到 `net.rs` 两分钟前刚被写 → 推断「有 agent 正在改，是中间态」
+- 看到板上 `进行中` 为空 → 推断「没人认领，是不知名的在制品」
+
+两个推断都是错的。**而这批东西恰恰是最不该被抢的** —— `src-tauri/src/net.rs` 是 SSRF 安全边界，
+五处分叉修的是「前端拒、Rust 放行」的真实裂缝。让一个状态不明的改动去动安全边界，
+比让 bug 留着更糟。
+
+规则：
+
+1. **动文件前先登记**，状态 `进行中`，「会改的文件」逐个列全（不要写 `src-tauri/**` 这种粗粒度）。
+2. **提交 / 合并后改成 `✅ done`** 并带上 PR 号与门禁数字。留在 `进行中` 不改，
+   下一个人会以为你还在改。
+3. **在私有 worktree 里干活也要登记**（本文件已有先例：agent-C 全程在
+   `F:/Agent/Qoder/workspace/wt-v5`，并明确「主工作树一行不写」）。登记的重点是
+   **「我不会碰哪些文件」**，别让别人因为看不见你在哪而不敢动主工作树。
+4. **别人没登记就动了文件**：先只读排查（`Get-CimInstance` 看进程命令行、查有没有已开的 PR），
+   **不要 `git checkout -b` / `git commit` / `git reset`** 去"收拾"。误判成本高于等几分钟。
+5. **不要用 `git reset --hard` 清别人的在制品。** 同步自己的分支用
+   `git merge --ff-only origin/master` 或 `git reset --keep`；提交共享工作区里的文件用
+   `git commit --only <path>`，避免夹带别人的改动。
+
 ---
 
 ## 作业面登记
@@ -24,6 +56,7 @@
 | 10-06 16:40 | agent-D（本会话，即 10-03 那条 agent-B 的后继） | **探针假红收口**：① 四类偶发失败逐条查清并修掉（dev 版二进制 / 二进制比输入旧 / 句柄跨 launch 泄漏 / `Find-MainWindow` 挑中 4×4 辅助窗口）；② 两条断言本身太弱已改严；③ **替 agent-C 补做 `v*` tag 保护规则的验证，结论是它建得起来但拦不住 —— 已删除，不留假门** | `scripts/desktop-probe.mjs`、`scripts/shot-window.ps1`、`docs/AGENT-COORD.md` | **`src-tauri/target/release/modulo.exe` 与已发布的 v0.7.0 资产、tag 一行不写**（验证 tag 规则时动过 tag，已原样复位）；`CHANGELOG.md` 归 agent-C | ✅ done 16:40（PR #1 → `2aed94d`；探针 55/55 连续 5 轮；详见下面两条交接） |
 | 10-06 12:10 | agent-C（Qoder 本会话） | 用户指派的**交付面收口**：① 网页演示停在 0.4.0 → 重部署 0.7.0；② CI 补 `web` job（Pages 部署不再靠人记）；③ 四处已确证的文档数字漂移修掉并纳进 `docs-check` 门禁；④ 给 `master` 与 `v*` tag 开 ruleset（禁强推/禁删、required = verify+桌面壳） | `README.md`、`docs/ARCHITECTURE.md`、`scripts/docs-check.mjs`、`.github/workflows/ci.yml`、`origin/gh-pages` 分支、仓库 settings 的 rulesets | **`dist/` 与 `src-tauri/target/` 我一行不写**（构建走 `--outDir dist-web`，发完即删）；`scripts/desktop-probe.mjs`、`scripts/shot-window.ps1` 里你那两笔未提交改动我不 add、不 revert、不代为提交；`CHANGELOG.md` 归你 | ✅ done 12:32（细节见下面 12:32 那条交接） |
 | 10-07 01:30 | agent-C（Qoder 会话续，压缩后接续） | ① 测试工具链 vitest 3.2.4 → 5.0.3，`npm audit` 5 条（3 critical）归零，并用真实用例把受测层分支覆盖从 89.18% 拉回 **94.94%**（不动阈值）；② 顺着补测撞出的**保留网段两侧判据分叉**修掉：引擎把三条 /24 写成 /16（误伤公网）、Rust 的 `198.18/15` 只覆盖 198.18/16（漏拒 198.19），两侧各补一组同表用例；③ `tests/release/lockfile-registry.test.ts` 那条写死的 `> 200` 在依赖树合法缩小（271→144）时假红，判据改成「不少于直接依赖数 + 点名必在场包」 | `package.json`、`package-lock.json`、`packages/engine/src/watch.ts`、`src-tauri/src/net.rs`、`tests/engine/watch.test.ts`、`tests/release/lockfile-registry.test.ts`、`tests/vue/{cardData-actions,store-paths}.test.ts`、`CHANGELOG.md`、`docs/ARCHITECTURE.md`、本文件 | **全程在私有 worktree `F:/Agent/Qoder/workspace/wt-v5` 里做，主工作树与它的 `dist/`、`src-tauri/target/` 我一行不写**；`release-signing-key.pub`（01:21 出现于主工作树、未跟踪）不是我造的，没动也没提交 | ✅ done 01:40（三笔已推分支等 CI；细节见下面 01:40 那条交接） |
+| 10-07 15:28 | Levango7（主工作树 `F:/Nexus/Modulo`，**当时未登记**——促成下面「不登记，别人就不敢碰」那节） | **网页监控 URL 判据两侧对齐**（第三轮扩表）：① `userinfo`（`user:pass@`）由「剥掉继续判」改为**一律拒**（原为前端拒、Rust 放行）；② 端口补 `1..=65535` 上限（原来只验是数字，`example.com:99999999` 两侧不一致）；③ 补 IPv4-compatible 地址用例 | `packages/engine/src/watch.ts`、`src-tauri/src/net.rs`、`tests/engine/watch.test.ts`、`CHANGELOG.md`、`docs/ARCHITECTURE.md`、`docs/CARD-CATALOG.md` | 未登记，故无人知晓；好在另一 agent 只读排查后没有动手 | ✅ done 15:28（PR #15 → `1a01000b`；verify 2m1s、桌面壳 4m42s 全绿；两侧测试 86 / 25 条通过） |
 
 ---
 
