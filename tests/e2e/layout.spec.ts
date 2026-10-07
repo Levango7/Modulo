@@ -44,21 +44,69 @@ const snapshot = (page: Page) =>
       .join(' | '),
   )
 
+/** 切到布局编辑态。同 clickTool：找不到就抛 —— 静默失败会让后面一串断言在浏览态上瞎量。 */
 async function enterEditor(page: Page) {
-  await page.evaluate(() => {
-    ;[...document.querySelectorAll('button')].find((e) => (e.textContent || '').trim() === '布局编辑')?.click()
+  const hit = await page.evaluate(() => {
+    const el = [...document.querySelectorAll<HTMLElement>('.bar button')].find(
+      (e) => (e.textContent || '').trim() === '布局编辑',
+    )
+    el?.click()
+    return !!el
   })
+  if (!hit) throw new Error('顶栏上找不到「布局编辑」')
   await new Promise((r) => setTimeout(r, 500))
 }
 
 const settle = (ms = 400) => new Promise((r) => setTimeout(r, ms))
 
-const clickTool = (page: Page, label: string) =>
-  page.evaluate((t) => {
-    ;[...document.querySelectorAll<HTMLElement>('button')].find((e) => (e.textContent || '').trim() === t)?.click()
+/**
+ * 点顶栏上那枚工具按钮。
+ *
+ * **找不到就抛，绝不静默。** 这里原来是 `?.click()`：按钮不存在时什么也不做、也不报错，
+ * 断言就变成在"其实什么都没点"的页面上量数字。2026-10-08 真实踩过一次 —— 把
+ * 「整理 / 紧凑 / 收紧 / 撑满」四枚收进「排布」下拉之后，本文件 5 条断言全部静默失去意义
+ * （两条变成"在没变的版面上断言它变了"而报红，三条变成量恒等值而**假装通过**）。
+ * 会静默跳过自己的守卫比没有守卫更糟，这条教训在本项目出现过多次。
+ *
+ * 选择器收窄到 `.bar` 且排除 `role=menuitem`：菜单项也在顶栏里，不排除会误命中。
+ */
+const clickTool = async (page: Page, label: string): Promise<void> => {
+  const hit = await page.evaluate((t) => {
+    const el = [...document.querySelectorAll<HTMLElement>('.bar button:not([role="menuitem"])')].find(
+      (e) => (e.textContent || '').trim() === t,
+    )
+    el?.click()
+    return !!el
   }, label)
+  if (!hit) throw new Error(`顶栏上找不到按钮「${label}」`)
+}
 
-/** 数行轨数量：行轨是 1fr 会撑满视口，像素高度测不出聚拢效果 */
+/**
+ * 点「排布」下拉里的某一项：先展开，等一拍，再点。
+ *
+ * 判据读每项里 `.t` 那一行（标签），不是整项 `textContent` —— 每项还带一行 `.v` 说明，
+ * 拿整块文本比永远匹配不上，然后又是一次静默通过。
+ */
+const clickArrange = async (page: Page, label: string): Promise<void> => {
+  await clickTool(page, '排布')
+  await settle(120)
+  const hit = await page.evaluate((t) => {
+    const el = [...document.querySelectorAll<HTMLElement>('.arrange-menu [role="menuitem"]')].find(
+      (e) => (e.querySelector('.t')?.textContent || '').trim() === t,
+    )
+    el?.click()
+    return !!el
+  }, label)
+  if (!hit) throw new Error(`「排布」下拉里找不到「${label}」`)
+}
+
+/**
+ * 数行轨数量。判据取"轨数"而不是像素高度：轨数是版面的**结构量**，与断点行高无关
+ * ——`breakpoints.ts` 的 rowPx 按容器宽给 64/60/56/52/48 五档（且**刻意固定**：
+ * 「版面贴合内容高度，超出由页面滚动承接，不再用 1fr 拉伸」），于是同一份版面在不同视口下
+ * 像素高度不同、轨数却恒定。原先这里的理由是"行轨是 1fr 会撑满视口"，那是 rowPx 固定化
+ * 之前的说法，已经和引擎现状对不上了。
+ */
 const rowCount = (page: Page) =>
   page.evaluate(() => getComputedStyle(document.querySelector('.grid')!).gridTemplateRows.split(' ').length)
 
@@ -257,7 +305,7 @@ it.skipIf(skip)('整理：把喂进去的乱版面聚回 0 空洞，可一步撤
   expect(before.holes, '夹具本身就该带空洞（就是旧版出厂那份）').toBeGreaterThan(20)
   const rowsBefore = await rowCount(page)
 
-  await clickTool(page, '整理')
+  await clickArrange(page, '整理')
   await settle()
   const after = await layoutStats(page)
   /**
@@ -285,7 +333,7 @@ it.skipIf(skip)('撑满：首行带从缺角铺到满行，可一步撤销', asy
   const before = await bandCoverage(page)
   expect(before, '夹具的首行带该有明显中缝').toBeLessThan(0.8)
 
-  await clickTool(page, '撑满')
+  await clickArrange(page, '撑满')
   await settle()
   expect(await bandCoverage(page)).toBeGreaterThan(0.97)
 
@@ -457,7 +505,7 @@ it.skipIf(skip)('版面方案：另存为 → 改版面 → 应用旧方案可�
   const original = await snap()
   await page.keyboard.press('Escape')
   await new Promise((r) => setTimeout(r, 200))
-  await press('整理')
+  await clickArrange(page, '整理')
   await new Promise((r) => setTimeout(r, 400))
   expect(await snap()).not.toBe(original)
 
@@ -521,9 +569,7 @@ it.skipIf(skip)('收紧：按内容降低过高的卡片且不裁切内容，可
 
   const before = await probe()
   expect(before.span).toBeGreaterThanOrEqual(5)
-  await page.evaluate(() => {
-    ;[...document.querySelectorAll<HTMLElement>('button')].find((e) => (e.textContent || '').trim() === '收紧')?.click()
-  })
+  await clickArrange(page, '收紧')
   await new Promise((r) => setTimeout(r, 400))
   const after = await probe()
   expect(after.span).toBeLessThan(before.span)
@@ -538,9 +584,9 @@ it.skipIf(skip)('收紧：按内容降低过高的卡片且不裁切内容，可
 
   /** 收紧只改 span、整理才把空行合掉：两个动作正交，组合起来才减少总行数 */
   const rowsBefore = await rowCount(page)
-  await clickTool(page, '收紧')
+  await clickArrange(page, '收紧')
   await settle(300)
-  await clickTool(page, '整理')
+  await clickArrange(page, '整理')
   await settle()
   expect(await rowCount(page)).toBeLessThan(rowsBefore)
   expect(errs).toEqual([])
@@ -552,7 +598,7 @@ it.skipIf(skip)('紧凑：一键等于收紧+整理，两步可分别撤销', as
   const errs: string[] = []
   page.on('pageerror', (e: unknown) => errs.push(String(e)))
   const before = await rowCount(page)
-  await clickTool(page, '紧凑')
+  await clickArrange(page, '紧凑')
   await settle(500)
   const after = await rowCount(page)
   expect(after).toBeLessThan(before)
