@@ -455,3 +455,17 @@
   job 的「tag 与 package.json 版本一致」校验报 v0.8.0 ≠ 0.7.1。该 tag 此后已从远端
   删除，master 全绿。**不是代码缺陷，是门禁正常工作**。
 
+- 10-08 agent-A（ZCode 本会话）：**发布点门禁的 tag 签名校验改走
+  GitHub API**（`scripts/release-manifest.mjs`，随 0.7.2 发版后的
+  收尾提交）。根因：本地 `git verify-tag` + `gpg.format=ssh` 需要
+  git 编译时带 libssh2 —— 本机 git-for-windows 自带所以一直绿，
+  但 ubuntu-latest 的 git 没有，这道检查在 CI **从未真正跑通过**
+  （v0.7.1 / v0.7.2 两次 tag 推送的 verify 都红在「未签名」，
+  tag 实际签得好好的，本地全过；发版照常完成，红的是门禁）。
+  现在读 API 的 `verification` 字段（密钥已注册为账号 Signing Key，
+  reason 三态：valid / unsigned / unknown_key），并改为枚举远端
+  全部 v* tag 逐个验（原来查本地 `git tag -l v*`，CI 的分支推送
+  不抓 tag 时这条在 master 推送时空转）。验证：真实数据 v0.7.1 /
+  v0.7.2 → verified、8 个旧 tag 仍走白名单；变异自检（白名单摘掉
+  v0.4.0）→ 正确报 `v0.4.0（unsigned）` 退 1。分支
+  fix/manifest-tag-verification-api。
