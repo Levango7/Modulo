@@ -68,11 +68,11 @@ F:\Nexus\Modulo\
 │  │  └─ cards\   Clock / Sticky / Todo / Notes / Weather / Calendar / Progress / WorldClock / Countdown / DateTools / Elapsed / Habit / Calculator / Unit / Color / TextStat / Random / Base / Fx / Air / Repo / Hn / Moon（全部接容器查询）
 │  ├─ tokens\              设计令牌（纯 CSS 变量，亮/暗两套）
 ├─ tests\
-│  ├─ engine\              单测（50 个文件，每个纯函数）
+│  ├─ engine\              单测（47 个文件，每个纯函数）
 │  ├─ property\            fast-check：投影不变量 I1–I4 + 分区完整（共 5 条断言）
 │  ├─ vue\                 适配层单测（store / fileStorage / cardData / appearance / shell / starter / backup）
 │  ├─ engine-purity.test.ts  逐文件守住「引擎零框架 / DOM 依赖」
-│  └─ e2e\                 puppeteer-core 驱动系统 Chrome：21 条真浏览器断言
+│  └─ e2e\                 puppeteer-core 驱动系统 Chrome：22 条真浏览器断言
 └─ docs\ARCHITECTURE.md
 ```
 
@@ -300,7 +300,7 @@ MVP 先做 A1，A2 留一个 `projection.a2.test.ts` 做对照实验。不在没
 2. ✅ 纯键盘可完成移动 / 缩放 / 切形态 / 选入 / 撤销 —— 由「编辑器键盘可达」「键盘补完」「方案册键盘排序」三条 E2E 覆盖。
 3. ✅ **已补成测试**（2026-10-02）：`tests/e2e/layout.spec.ts` 里「拖动帧率实测」用 rAF 采样器在真拖期间记录帧距，断言**中位数 ≤ 18.2ms（≈55fps）**；本机 headless Chrome 实测 `median=16.7ms / p95=16.7ms / 103 帧`。注意这是 headless 的软合成节奏，只能当**下限**看，不代表低端实机。
 4. ✅ 属性测试全绿：随机 200 例 × **7 档**列数（原写 5 档）× **5 条**断言（I1–I4 + 分区完整）。
-5. ✅ **已补成门禁**：`npm run cover:engine`（v8 provider，`thresholds.branches = 90`），已并入 `verify` 的第二步，所以 CI 会拦。圈选范围 2026-10-03 从只圈 `src/engine/**` 扩到「engine 全量（现 `packages/engine/src/**`）+ `vitest.config.ts` 里 `GATED_VUE_MODULES` 那 6 个 vue 纯模块」，合数 93.85%。首跑实测 **87.29%** —— 也就是说这条判据从来没达成过；补了 13 条边界/失败分支用例后到 **90.95%**。剩下没覆盖到的多是防御性分支，例如 `spot.ts:25-26` 那个兜底 return 在数学上到不了（`bottom = maxRow(obstacles)`，循环到 `bottom` 时必然已空）—— 不为它编假测试。
+5. ✅ **已补成门禁**：`npm run cover:engine`（v8 provider，`thresholds.branches = 90`），已并入 `verify` 的第二步，所以 CI 会拦。圈选范围 2026-10-03 从只圈 `src/engine/**` 扩到「engine 全量（现 `packages/engine/src/**`）+ `vitest.config.ts` 里 `GATED_VUE_MODULES` 那 6 个 vue 纯模块（2026-10-04 补进 `useWeather.ts` 后为 **7 个**）」，合数 93.85%。首跑实测 **87.29%** —— 也就是说这条判据从来没达成过；补了 13 条边界/失败分支用例后到 **90.95%**。剩下没覆盖到的多是防御性分支，例如 `spot.ts:25-26` 那个兜底 return 在数学上到不了（`bottom = maxRow(obstacles)`，循环到 `bottom` 时必然已空）—— 不为它编假测试。
 6. ✅ 与 x-hub 同数据、同视口并排截图（见 §10.1）。
 
 > §9 第一条教训是「文档会烂 → 验收标准写成测试，不写成文档条目」。第 3、5 条曾经就是那条教训的现场 —— 判据停在纸面上，谁也没测过。2026-10-02 两条都补成了可执行的测试/门禁，六条判据现在全部有断言或工具背书。
@@ -359,7 +359,7 @@ MVP 先做 A1，A2 留一个 `projection.a2.test.ts` 做对照实验。不在没
 
 另外去掉了一处观感缺陷：编辑器标签条与卡片自身表头重复显示同一个名字（"便签 / 便签"），改为卡片在编辑态走 `chromeless`，每格只保留一层头部。
 
-当前状态（2026-10-07 复核，由 agent-C 在本机实跑；这一笔同时把测试工具链从 vitest 3.2.4 升到 5.0.3，单测条数与覆盖率随该升级与「保留网段两侧判据对齐」重跑过）：**前端单测 968 条（65 个文件）+ E2E 22 条 + Rust 单测 23 条**全绿（另有 1 条 `#[ignore]` 的发布门禁 `release_signature`，CI 上没有安装包产物所以不跑），`vue-tsc` 与 `tsc --noEmit` 都干净，受测层分支覆盖 **≥94%**（门禁 ≥90%，最近一次实测 94.94%），无 console 报错（由 E2E 里那条「拖拽与缩放全程无 console 报错」守着）。`vite build` 同日重跑：**JS 309.51 kB / gzip 106.08 kB（主包 308.47 + 更新插件面 1.03），CSS 88.02 kB / gzip 13.15 kB**（比上一版记的 41.0 kB 大得多，因为多了桌面壳设置页、卡片内容、版面模板选择器、完整备份、更新插件与 41 种卡的 JS/CSS 面）。桌面探针的项数是条件量，见 README「验证」一节里那两个原始行与出处；口径与 §11.3。<!-- facts -->
+当前状态（2026-10-07 复核，由 agent-C 在本机实跑；这一笔同时把测试工具链从 vitest 3.2.4 升到 5.0.3，单测条数与覆盖率随该升级与「保留网段两侧判据对齐」重跑过；其后修 `watch.ts` 的 IPv6 方括号丢失与五处两侧判据分叉，并把判据表抽成两侧共读的 `tests/fixtures/watch-url-verdicts.json`（前端 +2、Rust +2）：**前端单测 970 条（65 个文件）+ E2E 22 条 + Rust 单测 25 条**全绿（另有 1 条 `#[ignore]` 的发布门禁 `release_signature`，CI 上没有安装包产物所以不跑），`vue-tsc` 与 `tsc --noEmit` 都干净，受测层分支覆盖 **≥94%**（门禁 ≥90%，最近一次实测 94.94%），无 console 报错（由 E2E 里那条「拖拽与缩放全程无 console 报错」守着）。`vite build` 同日重跑：**JS 309.51 kB / gzip 106.08 kB（主包 308.47 + 更新插件面 1.03），CSS 88.02 kB / gzip 13.15 kB**（比上一版记的 41.0 kB 大得多，因为多了桌面壳设置页、卡片内容、版面模板选择器、完整备份、更新插件与 41 种卡的 JS/CSS 面）。桌面探针的项数是条件量，见 README「验证」一节里那两个原始行与出处；口径与 §11.3。<!-- facts -->
 
 覆盖率从上版的 95.08% 降到 94.49%，全部来自新加的 `watch.ts`：它有一批**防御性分支实际不可达** —— 例如 `if (url.protocol !== 'https:')`（构造出来的 URL 只可能是 `https:`）与 `if (!url.hostname)`（`new URL` 抛错时根本走不到这里）。这部分不打算用绕路的测试去凑数字：门禁是 90%，把不可达分支写成可达的假测试只会让覆盖率好看而让代码变脏。
 

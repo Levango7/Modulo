@@ -112,6 +112,14 @@ export function blockedReason(host: string): string | null {
     if (mapped) {
       return blockedReason(`${b[12]}.${b[13]}.${b[14]}.${b[15]}`)
     }
+    // IPv4-compatible（::a.b.c.d，第 6 段为 0）—— Rust 侧 `net.rs` 用的是
+    // `to_ipv4_mapped().or_else(|| ip.to_ipv4())`，而 `to_ipv4()` 也认这一支。
+    // 前端不补就会分叉：`[::127.0.0.1]` / `[::10.0.0.1]` 前端放行、Rust 拒绝
+    // （2026-10-07 逐条对照时实测）。`::` 与 `::1` 已在上面按回环拦掉，不会走到这里。
+    const compat = b.slice(0, 10).every((x) => x === 0) && b[10] === 0 && b[11] === 0
+    if (compat) {
+      return blockedReason(`${b[12]}.${b[13]}.${b[14]}.${b[15]}`)
+    }
     return null
   }
 
@@ -211,15 +219,33 @@ export function normalizeUrl(input: string): string | null {
   if (!m) return null
   if (m[1].toLowerCase() !== 'https') return null
 
+  // IPv6 字面量必须闭合：`https://[2001:db8::1/` 缺右括号时，Rust 侧
+  // （`split_once(']')` 返回 None）会拒，而前端原来会把它"修"成合法形式放行 ——
+  // 静默改写畸形输入等于猜用户意图，两侧判据也不一致。2026-10-07 扩表对照时发现。
+  if (m[2].startsWith('[') && !m[2].includes(']')) return null
+
   const { host, port } = hostOf(m[2])
   if (!host) return null
+  // 上面那条 `/\s/` 检查只在"没给 scheme"的分支里跑，显式 scheme 时管不到 ——
+  // 于是 `https://exa mple.com/` 前端会放行，而 Rust 侧（`net.rs` 的
+  // `host.contains(char::is_whitespace)`）会拒。两侧判据必须一致。
+  if (/\s/.test(host)) return null
   if (port !== null && (!/^\d{1,5}$/.test(port) || Number(port) > 65535)) return null
   // userinfo（https://user:pass@host/）会把凭据带进备份，也会让主机名看起来像别的东西
   if (m[2].includes('@')) return null
   if (blockedReason(host)) return null
 
   // 片段（#section）对探活毫无意义，去掉，省得备份里存一堆没用的锚点
-  const out = `https://${host}${port ? `:${port}` : ''}${m[3] || '/'}`
+  //
+  // **IPv6 字面量的方括号必须加回去**：`hostOf` 剥括号是为了把裸 host 交给
+  // `blockedReason` 判网段，但重建 URL 时少一层括号就不再是合法字面量 ——
+  // 产出的 `https://2001:db8::1/` 交给 Rust 侧（`net.rs` 的 `split_target`）会走到
+  // "端口不是数字"那一支被拒，于是这张卡对**任何** IPv6 地址都不可用。
+  // 2026-10-07 把两侧判据拿来逐条对照时实测到这条（原断言只验 `not.toBeNull()`，
+  // 所以它一直没被发现）。判据以 authority 是否带方括号为准，而不是看 host 里有没有
+  // 冒号 —— 后者会把"括号没闭合"这类畸形输入也一并改写。
+  const isV6 = m[2].startsWith('[')
+  const out = `https://${isV6 ? `[${host}]` : host}${port ? `:${port}` : ''}${m[3] || '/'}`
   return out.length <= MAX_URL ? out : null
 }
 

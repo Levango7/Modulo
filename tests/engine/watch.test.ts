@@ -1,5 +1,28 @@
 import { describe, expect, it } from 'vitest'
+import { readFileSync } from 'node:fs'
+import { resolve } from 'node:path'
 import { blockedReason, ipv6Bytes, normalizeWatchLabel, normalizeUrl, sanitizeWatch, MAX_WATCH } from '@modulo/engine/watch'
+
+/**
+ * 跨语言判据表（`tests/fixtures/watch-url-verdicts.json`）。
+ *
+ * ## 为什么要有它
+ *
+ * 边界在两处各写了一遍（前端 `watch.ts` 是为了输入时立刻有反馈，Rust `net.rs` 才是
+ * 安全边界），两份实现刻意冗余 —— 但冗余的代价是**会分叉**。事实上已经分叉过两次：
+ * ① 2026-10-07 补 `192.0.0/24` / `198.18/15` 的单测时，撞见前端写成了 `/16`；
+ * ② 同日把 `net.rs` 的纯函数区编译出来与 `watch.ts` 逐条对照，又撞见三处
+ *    （IPv4-compatible、端口上限、host 空白），扩到 94 例后还多出两处
+ *    （userinfo、缺右括号的 IPv6）。
+ *
+ * 前两次都是**人工对照**发现的 —— 没有门禁，就会继续复发。所以把判据表抽成
+ * 两侧共读的 fixture：**任何一侧单独改了边界，这条测试就会红。**
+ *
+ * 新增边界请先加进 JSON，再改实现。
+ */
+const VERDICTS = JSON.parse(
+  readFileSync(resolve(__dirname, '../fixtures/watch-url-verdicts.json'), 'utf8'),
+) as { cases: { url: string; accept: boolean; group: string }[] }
 
 /**
  * 边界就是这张卡全部的承诺，所以这些断言盯的就是边界本身。
@@ -340,11 +363,18 @@ describe('保留网段：与 net.rs 同一条清单，不许只在一边测', ()
   })
 
   it('IPv6 字面量走方括号解析：带端口、缺右括号、大写都判得对', () => {
-    expect(normalizeUrl('https://[2001:db8::1]/')).not.toBeNull()
-    expect(normalizeUrl('https://[2001:db8::1]:8443/x')).not.toBeNull()
+    // **这几条必须断言输出值**：方括号在 `hostOf` 里被剥掉，重建时若忘了加回，
+    // 产出的 `https://2001:db8::1/` 依然"非 null"，但交给 Rust 侧（`net.rs`）会被
+    // "端口不是数字"拒掉 —— 断言 `not.toBeNull()` 恰好放过这一类（原断言形式即如此，
+    // 2026-10-07 两侧判据逐条对照时才撞见）。
+    expect(normalizeUrl('https://[2001:db8::1]/')).toBe('https://[2001:db8::1]/')
+    expect(normalizeUrl('https://[2001:db8::1]:8443/x')).toBe('https://[2001:db8::1]:8443/x')
+    expect(normalizeUrl('https://[2606:4700::1111]/')).toBe('https://[2606:4700::1111]/')
     expect(normalizeUrl('https://[::1]/')).toBeNull() // 回环
     expect(normalizeUrl('https://[FC00::1]/')).toBeNull() // 唯一本地，大写也算
-    expect(normalizeUrl('https://[2001:db8::1/')).not.toBeNull() // 括号没闭合：当普通主机名处理
+    // 括号没闭合：畸形输入一律拒，与 Rust 侧（`split_once(']')` 返回 None）一致 ——
+    // 不"顺手修好"，那属于猜用户意图
+    expect(normalizeUrl('https://[2001:db8::1/')).toBeNull()
   })
 
   it('带 userinfo 的地址不按主机名判，超长 URL 直接拒', () => {
@@ -360,5 +390,50 @@ describe('保留网段：与 net.rs 同一条清单，不许只在一边测', ()
     }
     // 含冒号又不是 IPv6 的形状：按"不是 IP 字面量"处理，不该顺手拒掉
     expect(blockedReason('a:b')).toBeNull()
+  })
+
+  /**
+   * 2026-10-07 修完这三处后补的回归。
+   *
+   * 三条都是"两侧判据分叉"的现场：把 `net.rs` 的纯函数区编译出来、与 `watch.ts`
+   * 逐条对照才发现的 —— 原来的测试各测各的，谁也没覆盖这些形状。
+   */
+  it('与 net.rs 对齐的三处分叉：IPv4-compatible / 端口上限 / host 空白', () => {
+    // ① IPv4-compatible（::a.b.c.d）：Rust 的 to_ipv4() 认这一支，前端原来不判
+    expect(blockedReason('::127.0.0.1')).not.toBeNull()
+    expect(blockedReason('::10.0.0.1')).not.toBeNull()
+    expect(normalizeUrl('https://[::127.0.0.1]/')).toBeNull()
+    expect(normalizeUrl('https://[::10.0.0.1]/')).toBeNull()
+    // 公网的 IPv4-compatible 仍然放行 —— 对齐不等于把边界扩大
+    expect(blockedReason('::1.2.3.4')).toBeNull()
+    expect(normalizeUrl('https://[::1.2.3.4]/')).not.toBeNull()
+
+    // ② 端口上限：Rust 原来只验"是数字"，前端要求 \d{1,5} 且 ≤65535
+    expect(normalizeUrl('https://example.com:65535/')).not.toBeNull()
+    expect(normalizeUrl('https://example.com:65536/')).toBeNull()
+    expect(normalizeUrl('https://example.com:99999999/')).toBeNull()
+
+    // ③ 显式 scheme 时 host 含空白：Rust 拒，前端原来只在"无 scheme"分支查
+    expect(normalizeUrl('https://exa mple.com/')).toBeNull()
+    expect(normalizeUrl('exa mple.com')).toBeNull()
+  })
+})
+
+/**
+ * 门禁本体：逐条跑判据表，两侧必须同一答案。
+ *
+ * 用一条汇总断言而不是 `it.each` —— 94 条摊成 94 个用例会把失败信息冲散，
+ * 这里要的是"哪几条不符、期望什么、实际什么"一次说清。
+ */
+describe('跨语言判据表：与 net.rs 同源', () => {
+  it(`${VERDICTS.cases.length} 条 URL 的接受/拒绝都与判据表一致`, () => {
+    const wrong: string[] = []
+    for (const c of VERDICTS.cases) {
+      const got = normalizeUrl(c.url) !== null
+      if (got !== c.accept) {
+        wrong.push(`${c.url}（${c.group}）期望${c.accept ? '接受' : '拒绝'}，实际${got ? '接受' : '拒绝'}`)
+      }
+    }
+    expect(wrong, `与判据表不符 ${wrong.length} 条：\n${wrong.join('\n')}`).toEqual([])
   })
 })

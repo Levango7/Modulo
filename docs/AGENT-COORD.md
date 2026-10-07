@@ -441,3 +441,17 @@
   **仍开着的**（要用户拍，不是我能推的）：代码签名（SignPath 注册＋法定签署）、`@modulo/engine` 发 npm、
   是否据此切 `v0.7.1`。CHANGELOG 的「未发布」段现在累计**六笔**。
 
+- 10-07 23:10 agent-A（ZCode 本会话）：**收口提交了工作区里 16:57 的在制品**（网页监控
+  引擎↔Rust 判据对齐 + 两侧共读的判据表 `tests/fixtures/watch-url-verdicts.json`）。
+  那批改动落在工作区但**协调板没有认领条目**（owner 是续接 agent-C 的会话），
+  按用户指派代收口。提交前全链验证：typecheck ✓ · 970 单测 / 65 文件 ·
+  cover:engine 94.92% · cargo clippy ✓ / test 25/25 ✓ · E2E 22/22 ✓ ·
+  docs:check ✓；**cargo fmt --check 原本是红的**（`net.rs` 两行注释对齐），
+  已 `cargo fmt` 修掉再提交。另补了 CHANGELOG「未发布」段（在制品只删了旧段落的
+  「未发布」前缀，没给本轮修法留段）。
+- 10-07 23:10 agent-A：v0.8.0 那轮 CI 红的根因查清：**有人推了一个未签名的裸 tag
+  `v0.8.0`**（指向 0.7.1 版本对齐那次提交）。两道门禁按设计各拦各的 —— verify 的
+  「发布点门禁」报"v0.8.0 未签名"（签名机制启用后的 tag 必须 `git tag -s`），release
+  job 的「tag 与 package.json 版本一致」校验报 v0.8.0 ≠ 0.7.1。该 tag 此后已从远端
+  删除，master 全绿。**不是代码缺陷，是门禁正常工作**。
+
