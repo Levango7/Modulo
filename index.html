@@ -8,6 +8,36 @@
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <link rel="alternate icon" type="image/png" href="/favicon.png" />
     <title>Modulo</title>
+    <!-- 首屏防闪：必须在样式生效前同步把皮肤写到 <html> 上。
+         否则会先用 :root 的默认配色绘制一帧，等 Vue 挂载后 useAppearance 才改 data-skin，
+         用户看到的就是一次颜色跳变。弱网实测这段空窗能到 1.4 秒（慢速 3G），
+         且跳的正是 :root 那套冷色 —— 观感上就是"打开先看到一个别的产品，再变成 Modulo"。
+         逻辑与 src/vue/useAppearance.ts 的 apply() 保持一致：同样的键、同样的取值回退。
+         任何异常都吞掉：读不到存储就按 :root 默认走，不影响正常启动。 -->
+    <script>
+      ;(() => {
+        try {
+          const raw = localStorage.getItem('modulo.appearance.v1')
+          const o = raw ? JSON.parse(raw) : null
+          const a = o && typeof o === 'object' ? o : {}
+          const el = document.documentElement
+          /* 没有存储时也要写：首次访问若留给 :root，仍会跳一次。
+             这里的回退值必须与 src/vue/appearance.ts 的 DEFAULT_APPEARANCE 保持一致
+             （出厂皮肤是 aurora，而 aurora 恰好就是 :root 的隐含实现 ——
+              所以"没存过偏好"这条最常见的路径上，挂载前后是同一套值，连属性变化都是空操作）。 */
+          el.dataset.skin = a.skin === 'ink' || a.skin === 'aurora' || a.skin === 'candy' ? a.skin : 'aurora'
+          const dark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches
+          if (a.mode === 'dark' || a.mode === 'light') el.dataset.theme = a.mode
+          else el.dataset.theme = dark ? 'dark' : 'light'
+          /* accent 为 'auto' 时不写 inline，交回给皮肤自己的强调色 */
+          if (typeof a.accent === 'string' && /^#[0-9a-fA-F]{6}$/.test(a.accent)) {
+            el.style.setProperty('--accent', a.accent)
+          }
+        } catch {
+          /* 存储不可用则按 :root 默认配色启动 */
+        }
+      })()
+    </script>
   </head>
   <body>
     <div id="app"></div>
