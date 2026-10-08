@@ -367,7 +367,7 @@ it.skipIf(skip)('外观设置页：换皮肤会持久化，换强调色会写进
       return !!el
     }, t)
 
-  expect(await skinAttr()).toBe('ink')
+  expect(await skinAttr()).toBe('aurora')
   expect(await clickText('外观')).toBe(true)
   await new Promise((r) => setTimeout(r, 300))
   expect(await page.evaluate(() => !!document.querySelector('[role=dialog]'))).toBe(true)

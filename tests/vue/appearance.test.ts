@@ -8,9 +8,9 @@ import {
 } from '../../src/vue/appearance'
 
 describe('parseAppearance', () => {
-  it('无存档时用默认值（默认皮肤 ink、跟随系统、强调色跟随皮肤）', () => {
-    expect(parseAppearance(null)).toEqual({ skin: 'ink', mode: 'system', accent: ACCENT_AUTO })
-    expect(DEFAULT_APPEARANCE.skin).toBe('ink')
+  it('无存档时用默认值（默认皮肤 aurora、跟随系统、强调色跟随皮肤）', () => {
+    expect(parseAppearance(null)).toEqual({ skin: 'aurora', mode: 'system', accent: ACCENT_AUTO })
+    expect(DEFAULT_APPEARANCE.skin).toBe('aurora')
   })
 
   it('损坏 JSON 回退默认而不抛异常', () => {
@@ -21,7 +21,7 @@ describe('parseAppearance', () => {
 
   it('逐字段校验：非法字段回退默认，合法字段保留', () => {
     expect(parseAppearance(JSON.stringify({ skin: 'nope', mode: 'dark', accent: '#0d9488' }))).toEqual({
-      skin: 'ink',
+      skin: 'aurora',
       mode: 'dark',
       accent: '#0d9488',
     })
