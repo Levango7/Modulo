@@ -402,7 +402,7 @@ MVP 先做 A1，A2 留一个 `projection.a2.test.ts` 做对照实验。不在没
 
 ### 10.5 视觉方向与撑满模式（2026-10-01）
 
-**三套 skin 做成正式预设**（用户裁决：都保留，默认 `ink`）：`aurora 柔光`（原状，最接近 x-hub）/ `ink 墨纸`（高对比、无渐变、小圆角、等宽数字）/ `candy 亮彩`（暖底饱和、20px 大圆角、厚实落影）。全部只覆盖令牌层，组件零改动；另加**模块身份色** `--mod`（按 `data-module` 给表头图标上色，跨 skin 复用）。选择当时存 `localStorage['modulo.skin']`，顶栏「外观」循环切换。**这条已被 §10.6 取代**：皮肤/明暗/强调色现在统一存 `modulo.appearance.v1`，「外观」按钮是打开设置面板，不再是循环切换（`modulo.skin` 这个键已从代码里删净）。同数据截图：`evidence/skin-{aurora,ink,candy}{,-editor}.png`。
+**三套 skin 做成正式预设**（用户裁决：都保留，默认 `ink`；**默认皮肤于 2026-10-08 改为 `aurora`**，理由见 §12.7 —— `ink` 的卡片与页面底色太接近，"卡片是一张卡"的层次出不来，而 `aurora` 恰是 `:root` 的隐含实现，首屏因此连属性变化都不需要）：`aurora 柔光`（原状，最接近 x-hub）/ `ink 墨纸`（高对比、无渐变、小圆角、等宽数字）/ `candy 亮彩`（暖底饱和、20px 大圆角、厚实落影）。全部只覆盖令牌层，组件零改动；另加**模块身份色** `--mod`（按 `data-module` 给表头图标上色，跨 skin 复用）。选择当时存 `localStorage['modulo.skin']`，顶栏「外观」循环切换。**这条已被 §10.6 取代**：皮肤/明暗/强调色现在统一存 `modulo.appearance.v1`，「外观」按钮是打开设置面板，不再是循环切换（`modulo.skin` 这个键已从代码里删净）。同数据截图：`evidence/skin-{aurora,ink,candy}{,-editor}.png`。
 
 **撑满模式**（`src/engine/spread.ts`）：按**顶边 y 相同**的行分组（组内须两两横向不相交），按原比例放大到铺满 12 列。四条约束：只变宽不变窄（所以形态 `minW` 天然继续成立）、含锁定项的行跳过、放大后与组外卡片相撞则整行放弃、`spreadLayout = fillRows(tidyLayout(doc))`。效果见 `evidence/ink-default.png` → `ink-spread.png`：中部空洞消失。
 

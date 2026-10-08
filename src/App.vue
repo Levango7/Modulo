@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, inject, onBeforeUnmount, onMounted, provide, ref } from 'vue'
 import { LayoutGrid, LayoutTemplate, Plus, Redo2, Settings, SlidersHorizontal, TriangleAlert, Undo2, Wand2, ChevronDown } from 'lucide-vue-next'
-import { useElementWidth } from './vue/useElementWidth'
+import { useElementSize } from './vue/useElementSize'
 import { useProjection } from './vue/useProjection'
 import { measureWantedRows } from './vue/useDensity'
 import * as E from '@modulo/engine'
@@ -88,8 +88,9 @@ function onDocMousedown(e: MouseEvent): void {
   if (arrangeOpen.value && arrangeWrap.value && !arrangeWrap.value.contains(e.target as Node)) arrangeOpen.value = false
 }
 const stageEl = ref<HTMLElement | null>(null)
-const stageW = useElementWidth(stageEl, 1200)
-const { cols, rowPx, gap, projection, mode } = useProjection(store, stageW)
+/** 宽给 1200 / 高给 0：挂载前算出的列数与行高与改动前完全一致，尺寸到位后才有一次抬升 */
+const { width: stageW, height: stageH } = useElementSize(stageEl, 1200, 0)
+const { cols, rowPx, gap, projection, mode } = useProjection(store, stageW, stageH)
 
 onMounted(() => {
   window.addEventListener('keydown', onGlobalKey)
