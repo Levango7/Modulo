@@ -417,32 +417,40 @@ rmSync(OUT, { recursive: true, force: true })
 mkdirSync(OUT, { recursive: true })
 
 /**
- * 「首次启动时是墨纸皮肤 + 朱砂强调色」这条断言要成立，前提是**外观是默认值**。
+ * 「首次启动时是柔光皮肤 + 苔绿强调色」这条断言要成立，前提是**外观真的是默认值**。
  *
  * 原先它直接读机器上真实的 `%APPDATA%\app.modulo\data\modulo.appearance.v1.json`，
  * 于是结果取决于这台机器上谁改过外观 —— 那是抛硬币，不是门禁：
  * 别人设过一次亮彩，这台机器就永远红着，而代码其实没问题。
  *
- * 所以这里**只接管这一个文件**：跑前备份并写成文档化的默认值，跑完原样还原
- * （原来没有这个文件的话，跑完删掉自己写的那份）。刻意**不去清空整个数据目录** ——
- * 同一次运行里「重启后勾选状态从磁盘读回来了」那几条要的就是真实数据。
+ * 第一版修法是"跑前把文档化的默认值写进那个文件"，**但那是一条永远不会红的守卫**：
+ * 探针自己写 `ink`、再断言读到 `ink`，实际只覆盖了"存档能读回来"这条持久化路径；
+ * 它自称校验的 `DEFAULT_APPEARANCE` 改了它照样绿。2026-10-08 把出厂皮肤从 `ink`
+ * 改成 `aurora` 时就是这么发现的 —— 当时它已经绿了很久，而手里握的是过期期望值。
+ * 所以改成**把文件清掉**：这才是真实的首次启动，应用只能落到代码里的
+ * `DEFAULT_APPEARANCE`；下面的期望值是它的**手抄**，改一处忘另一处会当场红。
+ * （这台的实测值见下面那条 `check`：`mode` 出厂是 `system`，强调色随系统明暗走，
+ *   所以两档都收。）
  *
- * 默认值取自 `src/vue/appearance.ts` 的 `DEFAULT_APPEARANCE`，两处必须一致；
- * 下面的断言就是校验它，所以改了一处忘了另一处，这里会红。
+ * 仍然只接管这一个文件，跑完原样还原（原来没有的话，跑完不留自己写的）。
+ * 刻意**不去清空整个数据目录** —— 同一次运行里「重启后勾选状态从磁盘读回来了」
+ * 那几条要的就是真实数据。
  */
 const APPEARANCE_FILE = join(process.env.APPDATA ?? '', 'app.modulo', 'data', 'modulo.appearance.v1.json')
-const DEFAULT_APPEARANCE_ON_DISK = { skin: 'ink', mode: 'system', accent: 'auto' }
+/** 手抄自 `src/vue/appearance.ts` 的 `DEFAULT_APPEARANCE.skin`，两处必须一致 */
+const DEFAULT_SKIN = 'aurora'
+/** 同一处 `accent: 'auto'` 的落点 —— 柔光皮肤「跟随皮肤」：`:root` 亮色 / `[data-theme='dark']` 暗色 */
+const DEFAULT_ACCENTS = ['#35695c', '#6fae97']
 let appearanceBackup = null
 let appearanceExisted = false
-function seedAppearance() {
+function dropAppearance() {
   try {
     appearanceExisted = existsSync(APPEARANCE_FILE)
     if (appearanceExisted) appearanceBackup = readFileSync(APPEARANCE_FILE, 'utf8')
-    mkdirSync(join(APPEARANCE_FILE, '..'), { recursive: true })
-    writeFileSync(APPEARANCE_FILE, JSON.stringify(DEFAULT_APPEARANCE_ON_DISK))
+    rmSync(APPEARANCE_FILE, { force: true })
   } catch (e) {
-    // 接不上就算了：那条断言会红，而红的原因会写在报告里（皮肤/强调色是实际值）
-    console.log(`SEED-NOTE 没能预置外观文件：${e.message}`)
+    // 清不掉就算了：那条断言会红，而红的原因会写在报告里（皮肤/强调色是实际值）
+    console.log(`SEED-NOTE 没能清掉外观存档（这次就没在测首次启动）：${e.message}`)
   }
 }
 function restoreAppearance() {
@@ -454,7 +462,7 @@ function restoreAppearance() {
   }
 }
 
-seedAppearance()
+dropAppearance()
 warnIfStale()
 
 let app = null
@@ -494,7 +502,13 @@ try {
     dragRegion: dom.dragRegion,
     buttons: dom.buttons,
   })
-  check('ink 皮肤 + 朱砂强调色', dom.skin === 'ink' && dom.accent === '#c93c16', { skin: dom.skin, accent: dom.accent })
+  // 出厂肤色：断言的是**代码里的默认值**，靠上面把存档清掉来逼出它。
+  // 期望值两处手抄（`DEFAULT_SKIN` / `DEFAULT_ACCENTS`），改一处忘另一处这里会红。
+  check(
+    `首次启动是${DEFAULT_SKIN} 皮肤 + 苔绿强调色`,
+    dom.skin === DEFAULT_SKIN && DEFAULT_ACCENTS.includes(dom.accent),
+    { skin: dom.skin, accent: dom.accent, expect: { skin: DEFAULT_SKIN, accents: DEFAULT_ACCENTS } },
+  )
 
   const reg = await page.evaluate(async () => await window.__TAURI_INTERNALS__.invoke('global_shortcuts'))
   check(

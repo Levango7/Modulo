@@ -1,16 +1,20 @@
 /* Modulo 设计令牌 —— 亮色 :root / 暗色 [data-theme="dark"]，组件一律引用变量，禁止硬编码色值 */
+/* `:root` 同时是 aurora（柔光）的默认实现 —— 没写 data-skin 时用它。
+   配色刻意避开「蓝紫渐变 + 冷灰蓝 + 玻璃高光」这套组合：那个组合辨识度太高，
+   一打开会被认成别的产品（用户原话是"像 360 纳米AI"）。这里换成自然界的光色：
+   苔绿作强调、亚麻白作底、渐变取苔绿 / 亚麻黄 / 雾青，都是环境光的颜色而不是屏幕光的颜色。 */
 :root {
-  --accent: #5b5bf5;
-  --bg-page: #eceff6;
-  --bg-card: rgba(255, 255, 255, 0.74);
-  --bg-card-solid: rgba(255, 255, 255, 0.9);
-  --bg-card-soft: rgba(255, 255, 255, 0.55);
-  --input-bg: rgba(255, 255, 255, 0.86);
+  --accent: #35695c;
+  --bg-page: #f4f1e9;
+  --bg-card: rgba(255, 253, 249, 0.76);
+  --bg-card-solid: rgba(255, 253, 249, 0.92);
+  --bg-card-soft: rgba(255, 253, 249, 0.58);
+  --input-bg: rgba(255, 253, 249, 0.88);
   --frost-surface:
-    radial-gradient(120% 80% at 12% 0%, rgba(255, 255, 255, 0.85) 0%, transparent 60%),
-    radial-gradient(90% 70% at 100% 8%, rgba(255, 233, 240, 0.5) 0%, transparent 55%),
-    radial-gradient(80% 60% at 0% 100%, rgba(226, 236, 255, 0.55) 0%, transparent 60%),
-    linear-gradient(180deg, rgba(255, 255, 255, 0.74) 0%, rgba(248, 249, 253, 0.68) 100%);
+    radial-gradient(120% 80% at 12% 0%, rgba(255, 253, 249, 0.9) 0%, transparent 60%),
+    radial-gradient(90% 70% at 100% 8%, rgba(232, 208, 168, 0.38) 0%, transparent 55%),
+    radial-gradient(80% 60% at 0% 100%, rgba(168, 202, 184, 0.4) 0%, transparent 60%),
+    linear-gradient(180deg, rgba(255, 253, 249, 0.8) 0%, rgba(244, 241, 233, 0.72) 100%);
   --frost-edge: inset 0 1px 0 rgba(255, 255, 255, 0.85);
   --text-1: #26231d;
   --text-2: #57524a;
@@ -59,24 +63,25 @@
 
   --gap: var(--space-4);
   --app-bg:
-    radial-gradient(1100px 620px at 8% -10%, rgba(120, 130, 255, 0.16), transparent 60%),
-    radial-gradient(900px 520px at 100% 0%, rgba(255, 170, 200, 0.14), transparent 55%),
-    radial-gradient(800px 600px at 50% 110%, rgba(140, 210, 235, 0.12), transparent 60%),
+    radial-gradient(1100px 620px at 8% -10%, rgba(164, 198, 176, 0.28), transparent 60%),
+    radial-gradient(900px 520px at 100% 0%, rgba(226, 199, 152, 0.22), transparent 55%),
+    radial-gradient(800px 600px at 50% 110%, rgba(176, 202, 204, 0.18), transparent 60%),
     var(--bg-page);
   color-scheme: light;
 }
 
 [data-theme='dark'] {
-  --bg-page: #12131b;
-  --bg-card: rgba(28, 29, 41, 0.72);
-  --bg-card-solid: rgba(30, 31, 44, 0.94);
+  --accent: #6fae97;
+  --bg-page: #141714;
+  --bg-card: rgba(30, 33, 29, 0.72);
+  --bg-card-solid: rgba(32, 35, 31, 0.94);
   --bg-card-soft: rgba(255, 255, 255, 0.06);
-  --input-bg: #1d1e29;
+  --input-bg: #1b1e1b;
   --frost-surface:
-    radial-gradient(120% 80% at 12% 0%, rgba(255, 255, 255, 0.09) 0%, transparent 60%),
-    radial-gradient(90% 70% at 100% 8%, rgba(120, 110, 255, 0.12) 0%, transparent 55%),
-    radial-gradient(80% 60% at 0% 100%, rgba(60, 120, 200, 0.1) 0%, transparent 60%),
-    linear-gradient(180deg, rgba(30, 31, 44, 0.82) 0%, rgba(22, 23, 33, 0.78) 100%);
+    radial-gradient(120% 80% at 12% 0%, rgba(255, 255, 255, 0.085) 0%, transparent 60%),
+    radial-gradient(90% 70% at 100% 8%, rgba(196, 168, 116, 0.1) 0%, transparent 55%),
+    radial-gradient(80% 60% at 0% 100%, rgba(112, 158, 140, 0.1) 0%, transparent 60%),
+    linear-gradient(180deg, rgba(32, 35, 31, 0.82) 0%, rgba(22, 25, 22, 0.78) 100%);
   --frost-edge: inset 0 1px 0 rgba(255, 255, 255, 0.08);
   --text-1: #f2efe8;
   --text-2: #ccc8bf;
@@ -88,12 +93,18 @@
   --shadow-card: 0 1px 2px rgba(0, 0, 0, 0.4), 0 10px 28px rgba(0, 0, 0, 0.35);
   --shadow-hover: 0 2px 8px rgba(0, 0, 0, 0.5), 0 16px 40px rgba(0, 0, 0, 0.45);
   --app-bg:
-    radial-gradient(1100px 620px at 8% -10%, rgba(96, 108, 255, 0.2), transparent 60%),
-    radial-gradient(900px 520px at 100% 0%, rgba(255, 120, 170, 0.1), transparent 55%),
-    radial-gradient(800px 600px at 50% 110%, rgba(60, 160, 200, 0.12), transparent 60%),
+    radial-gradient(1100px 620px at 8% -10%, rgba(112, 168, 146, 0.16), transparent 60%),
+    radial-gradient(900px 520px at 100% 0%, rgba(196, 158, 106, 0.1), transparent 55%),
+    radial-gradient(800px 600px at 50% 110%, rgba(96, 140, 148, 0.1), transparent 60%),
     var(--bg-page);
   color-scheme: dark;
 }
+
+/* ---- skin: aurora 柔光 ----
+   没有独立声明块，它的值就是 :root（自然柔光）；柔光特征由 :root 的
+   --frost-surface（玻璃表面）+ --app-bg（环境光）承担。
+   刻意不给它建空块或覆写变量：任何 `[data-skin='aurora']` 规则都与
+   `[data-theme='dark']` 特异性相同（0,1,0）且位置更靠后，写什么都会连带盖掉暗色下的值。 */
 
 * {
   box-sizing: border-box;
