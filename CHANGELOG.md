@@ -25,7 +25,7 @@
 把格子压扁。测量走 `src/vue/useElementSize.ts`，宽高在同一个 ResizeObserver 回调里
 读全，不另开一个观察者。
 
-新单测 `tests/vue/rowUnit.test.ts`（12 条），重点咬边界而非只测正常值：参考窗及更矮、
+新单测 `tests/vue/rowUnit.test.ts`（10 条），重点咬边界而非只测正常值：参考窗及更矮、
 **挂载前量不到尺寸（0 / NaN / Infinity / 负数）按 1 处理**（首屏不能因为没量到就跳色）、
 更高窗口的线性抬升与封顶。
 
