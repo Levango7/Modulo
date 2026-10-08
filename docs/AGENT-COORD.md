@@ -130,6 +130,7 @@ git diff --stat origin/master <分支>
 | 10-08 09:10 | 灵语（本会话，第二个实例） | **发现共用工作区被回滚，改用 `git worktree` 隔离**（这条请同仓其他 agent 先读完再动 `F:/Nexus/Modulo`）。`git reflog` 原文时间线：**08:58:40** 从 `docs/coord-registration-rule` 切出 `feat/default-skin-aurora` → **08:58:42** 提交 `f722a9c` → **09:05:35** `reset HEAD~1` 撤销它 → **09:14:40** `git stash`（**含未跟踪文件**）把整个工作区收走 → **09:14:43** 切到 `master` → **09:14:57** `pull --ff-only` 推进到 `e6cbf77`。**后果**：工作区变回 master，而 master **既没有 07:53 那笔 `b936165`（顶栏整合）也没有本轮改动** —— `d6db96b` / `b936165` 只存在于本地分支 `docs/coord-registration-rule` 上，**从未推送**（`git branch --contains b936165` 只有它一个）。**没有丢失**：全部改动完整落在 `stash@{0}`（含未跟踪的 `rowUnit.ts` / `useElementSize.ts` / `rowUnit.test.ts`），已 `git stash apply` 取回并逐字复核。**措施**：`git worktree add -b feat/row-unit-height` 建独立工作树（依赖用目录联接指向主仓 `node_modules`），此后所有编辑与验证都在隔离树内完成，**主工作区一个文件都不再动** | 本文件、独立工作树 `…/2026-10-03-07-57-08/modulo-wt` | 主工作区 `F:/Nexus/Modulo` 的**全部文件**、`master`、`docs/coord-registration-rule`、其他分支 | ✅ done（**请勿在未约定时对该仓做 `reset` / `stash` / `checkout` / `clean`**：工作区里的未提交改动是别人的在建成果，不是"脏"。另：`stash@{0}` 与本轮复原的 `feat/row-unit-height` 请不要删，前者的悬空提交 `f722a9c` 里还留着一份同内容的备份） |
 | 10-07 15:28 | Levango7（主工作树 `F:/Nexus/Modulo`，**当时未登记**——促成下面「不登记，别人就不敢碰」那节） | **网页监控 URL 判据两侧对齐**（第三轮扩表）：① `userinfo`（`user:pass@`）由「剥掉继续判」改为**一律拒**（原为前端拒、Rust 放行）；② 端口补 `1..=65535` 上限（原来只验是数字，`example.com:99999999` 两侧不一致）；③ 补 IPv4-compatible 地址用例 | `packages/engine/src/watch.ts`、`src-tauri/src/net.rs`、`tests/engine/watch.test.ts`、`CHANGELOG.md`、`docs/ARCHITECTURE.md`、`docs/CARD-CATALOG.md` | 未登记，故无人知晓；好在另一 agent 只读排查后没有动手 | ✅ done 15:28（PR #15 → `1a01000b`；verify 2m1s、桌面壳 4m42s 全绿；两侧测试 86 / 25 条通过） |
 | 10-08 16:40 | 另一个主工作树会话 | **把「动文件前先登记」从纸面约定变成会红的检查**：`scripts/coord-gate.mjs` 三条判据（陈旧认领 / 未登记改动 / 本地独有分支），接进 `verify` job | `scripts/coord-gate.mjs`、`package.json`、`.github/workflows/ci.yml`、本文件 | `dist/`、`src-tauri/target/` 一行不写（0.8.0 产物已锁） | ✅ done（两条变异测试：未登记 → 退出码 1、逃生阀 → 0） |
+| 10-09 00:52 | 灵语（本会话） | **文档数字复查**（用户说「看一下项目」）：复查上一轮成果落地情况，并发现 3 处**逐文件单测条数**与实跑不符 —— 按 vitest json 的实报值修正（见下面交接记录）。顺带查清这类数字**当前没有任何门禁覆盖**：`docs-check` 的 `TARGETS` 只有 README / ARCHITECTURE（不含 CHANGELOG），而这几个数所在的行也都没挂 `<!-- facts -->` | `CHANGELOG.md`、`docs/ARCHITECTURE.md`、本文件 | 无 —— 全程在隔离工作树 `F:/Agent/workbuddy/workspace/2026-10-03-07-57-08/modulo-docfix`，**主工作树 `F:/Nexus/Modulo` 一行不写**；`src/**`、`packages/engine/**`、`scripts/**`、`tests/**`、`src-tauri/**`、`dist/`、`target/` 一律不碰 | ✅ done 00:52（3 处修正；**未擅自改 `scripts/docs-check.mjs`**，加门禁的方案写在交接记录里等拍） |
 
 ---
 
@@ -634,3 +635,46 @@ git diff --stat origin/master <分支>
   本会话遗留的 `docs/wrapup-2026-10-08`（指向 `35d4339`，内容已随 `#24` 入库）已删除。
   ④ 顺带修复上一条（#25 的 12:xx 条目）里反引号被转义损坏的排版，语义未改。
   主工作树已回 `master` 并保持干净。
+
+- **10-09 00:52 灵语（本会话）：用户「看一下项目」→ 复查结论 + 三处文档数字修正。**
+
+  **复查结论（先答用户最关心的那个问题）**：上一轮 `65cb1ff`（行高按窗口高度抬升 + 柔光出厂皮肤）
+  **已完整并入 master**。判据不是提交图，是内容 diff：
+  `git diff --stat 65cb1ff 618bbb7 -- src/vue/rowUnit.ts src/vue/useElementSize.ts src/vue/useProjection.ts
+  src/vue/appearance.ts tests/vue/rowUnit.test.ts index.html src/App.vue
+  src/vue/components/GridLayout.vue src/vue/components/CanvasEditor.vue` → **空**（逐字一致）。
+  经 `#21`（在制收口）→ `#22` 两笔入库，随 **v0.8.0** 发布；`anchor/feat-row-unit-height → 65cb1ff`
+  本地与远端各一份；版本号 0.8.0；CI 最近 6 次 run 全部 `success`。
+
+  **本轮改掉的三处**（一律用 **vitest json 的实报值**，不用 `grep` 数 —— 原因见下）：
+
+  | 位置 | 原写 | 改为 | 证据 |
+  |---|---|---|---|
+  | `CHANGELOG.md:28` | `rowUnit.test.ts`（**12 条**） | **10 条** | 该文件自 `6a21d95` 引入起历次都是 10 —— 「12」**从未成立**，是笔误 |
+  | `docs/ARCHITECTURE.md:1040` | `starter.test.ts` **7 条** | **8 条** + 补齐枚举 + 历史注记 | `85adcec` 引入时 7 条，`a50b68e` 加进最后一条 |
+  | `docs/ARCHITECTURE.md:496` | 8 张 × 5 + 全局 **2** + 反向 4（= 46 ≠ 47） | 全局 **3 条**（= 47） | 实测构成：8 张 × 5 = 40、「版面模板」直下 **3**、`validateTemplate` 4 |
+
+  **✗ 一条差点犯的错，比上面三处更值得记**：我先用 `grep -c '^\s*it('` 手数，
+  得出 `templates.test.ts` 只有 **12** 条，并据此准备把 ARCHITECTURE 的 47 判成错。
+  实际是 **47** —— `it.each` / `describe` 循环生成的用例 `grep` 数不到。
+  **逐文件条数只能读 vitest 的 json**：`raw.testResults[].assertionResults` 直接给每文件条数
+  （本轮实测那条命令：`npx vitest run <files> --reporter=json --outputFile=…`）。
+  这是本项目「把旁白算进正文」的镜像错误：**这次是把正文数成了旁白**。
+
+  **现状：这类数字没有任何门禁。** 但**别急着加全量扫描规则**，它会立刻变成误报机器：
+
+  - `CHANGELOG:1014` 写 `templates.test.ts` **37 条** —— 这个数**是对的**：那版只有 6 张模板
+    （6×5 + 3 + 4 = 37，提交标题就是「6 张推荐排法」），是准确的历史快照；今天 8 张 → 47。
+  - `CHANGELOG:475/505/554/733` 一类是「新增 N 条单测」的批次记录，天然是历史。
+  - 全量扫描会把上面每一处都报红 —— 正是 `docs-check.mjs` 头部注释里已经写过的那个坑。
+
+  **可用的收窄方案（本轮未实施，等用户拍）**：新规则**只在带 `<!-- facts -->` 的行上生效**，
+  且只核对**紧跟 `tests/…test.ts` 路径后的那个数**（`kw` = 行里出现该路径；取路径后 ≤4 字内的
+  `N 条`），每文件真值取自 `raw.testResults`。这样把 `ARCHITECTURE:441/496/1040` 三行挂上标记
+  就能被守住，而 CHANGELOG 的历史行**不挂标记、永不参与**。
+  本轮**没有动 `scripts/docs-check.mjs`** —— 该文件近两天由别的会话在动门禁（`coord-gate.mjs`
+  就是 10-08 16:40 才加的），避免撞车。
+
+  **两处现场遗留，我没动**：① 主工作区 `?? tmp-shot.ps1`（未跟踪，不是我建的，按规矩不清理别人的东西）；
+  ② 上一轮的 `modulo-wt/node_modules` **目录联接**仍在（`git worktree list` 里已无此工作树）——
+  **千万不要 `rm -rf`**，那会删掉仓库真实的 `node_modules`；要删请在资源管理器里删那个链接目录本身。
