@@ -141,7 +141,7 @@ git diff --stat origin/master <分支>
 
 | 时间 | Agent | 在做什么 | 会改的文件 | 请勿动 | 状态 |
 |------|-------|----------|-----------|--------|------|
-| 10-03 23:45 | agent-B（本机另一个会话） | 真自动更新链路验证：客户端 × 线上 GitHub release × 内嵌公钥验签；诊断 updater 状态机 | `src-tauri/**`（updater / 签名）、`src/vue/useUpdateCheck.ts`、`src/app/cards/`、`README` 发版节 | `src-tauri/target/release/modulo.exe`、Release 产物、版本号七处 | 进行中 |
+| 10-03 23:45 | agent-B（本机另一个会话） | 真自动更新链路验证：客户端 × 线上 GitHub release × 内嵌公钥验签；诊断 updater 状态机 | `src-tauri/**`（updater / 签名）、`src/vue/useUpdateCheck.ts`、`src/app/cards/`、`README` 发版节 | `src-tauri/target/release/modulo.exe`、Release 产物、版本号七处 | ⏹ 陈旧关闭（10-09 06:40 由本会话按判据 1 关：已挂 126 小时无动静；**原记录原样保留在本行**，该会话若仍需继续请另开一行。**没写成 ✅ done** —— 我不能替别的会话断言"做完了"，只能说它不再占着那个状态位。**注意：本行里不能出现「进行」+「中」这三个字** —— 判据 1 是按原文子串匹配的，写进解释里会让它自己再报一遍） |
 | 10-04 02:40 | 灵语（本会话） | **主动让位**：原计划"加一张倒数日卡"，开工前发现 agent-B 已在 02:07–02:26 自行加了 4 张（月历/倒数日/时间进度/世界时钟）。**未改任何产品代码**，改为只读审计 | 无（只读） | 全部 —— 它正在写这一批 | ✅ 让位 02:45 |
 | 10-04 01:10 | agent-A（ZCode 本会话） | **用户指派：加一批"可添加的卡片"**（月历 / 时间进度 / 世界时钟 / 倒数日）。新增 `packages/engine/src/{calendar,progress,worldclock,countdown}.ts`、`src/app/cards/{CalendarCard,ProgressCard,WorldClockCard,CountdownCard}.vue`、4 个引擎单测；改 `cardRegistry.ts` / `cardComponents.ts` / `cardData.ts` / `backup.ts` / `App.vue`（菜单显示说明）/ starter 不变式 / E2E / README、ARCHITECTURE、CHANGELOG | **本轮我要独占 `dist/` 与 `target/`**：会跑 `npm run build`、`tauri` 相关一律不动 | ✅ **done 02:45**（426 单测 / E2E 21 / docs:check 绿；已提交 `6a4f7bc`） |
 | 10-06 16:40 | agent-D（本会话，即 10-03 那条 agent-B 的后继） | **探针假红收口**：① 四类偶发失败逐条查清并修掉（dev 版二进制 / 二进制比输入旧 / 句柄跨 launch 泄漏 / `Find-MainWindow` 挑中 4×4 辅助窗口）；② 两条断言本身太弱已改严；③ **替 agent-C 补做 `v*` tag 保护规则的验证，结论是它建得起来但拦不住 —— 已删除，不留假门** | `scripts/desktop-probe.mjs`、`scripts/shot-window.ps1`、`docs/AGENT-COORD.md` | **`src-tauri/target/release/modulo.exe` 与已发布的 v0.7.0 资产、tag 一行不写**（验证 tag 规则时动过 tag，已原样复位）；`CHANGELOG.md` 归 agent-C | ✅ done 16:40（PR #1 → `2aed94d`；探针 55/55 连续 5 轮；详见下面两条交接） |
@@ -159,6 +159,7 @@ git diff --stat origin/master <分支>
 | 10-08 16:40 | 另一个主工作树会话 | **把「动文件前先登记」从纸面约定变成会红的检查**：`scripts/coord-gate.mjs` 三条判据（陈旧认领 / 未登记改动 / 本地独有分支），接进 `verify` job | `scripts/coord-gate.mjs`、`package.json`、`.github/workflows/ci.yml`、本文件 | `dist/`、`src-tauri/target/` 一行不写（0.8.0 产物已锁） | ✅ done（两条变异测试：未登记 → 退出码 1、逃生阀 → 0） |
 | 10-09 00:52 | 灵语（本会话） | **文档数字复查**（用户说「看一下项目」）：复查上一轮成果落地情况，并发现 3 处**逐文件单测条数**与实跑不符 —— 按 vitest json 的实报值修正（见下面交接记录）。顺带查清这类数字**当前没有任何门禁覆盖**：`docs-check` 的 `TARGETS` 只有 README / ARCHITECTURE（不含 CHANGELOG），而这几个数所在的行也都没挂 `<!-- facts -->` | `CHANGELOG.md`、`docs/ARCHITECTURE.md`、本文件 | 无 —— 全程在隔离工作树 `F:/Agent/workbuddy/workspace/2026-10-03-07-57-08/modulo-docfix`，**主工作树 `F:/Nexus/Modulo` 一行不写**；`src/**`、`packages/engine/**`、`scripts/**`、`tests/**`、`src-tauri/**`、`dist/`、`target/` 一律不碰 | ✅ done 00:52（3 处修正；**未擅自改 `scripts/docs-check.mjs`**，加门禁的方案写在交接记录里等拍） |
 | 10-09 06:20 | 灵语（本会话） | **把「逐文件单测条数」纳进门禁**（用户：「做吧」）。`docs-check` 新增一条判据：**只在标记行上生效**，且只核对**紧跟 `tests/…test.ts` 路径后的那个数**，真值取自 vitest json 的 `raw.testResults`；`ARCHITECTURE` 三行挂上 `<!-- facts -->`（441 行顺带把「18 条单测覆盖（`path`）」改成「`path` 18 条」—— 数字在路径前的写法这条规则守不住）。另按用户要求把**目录联接不能 `rm -rf`** 写成板上规矩（见「约定」那节） | `scripts/docs-check.mjs`、`docs/ARCHITECTURE.md`、本文件 | 无 —— 全程在隔离 worktree `…/modulo-gate`，**主工作树 `F:/Nexus/Modulo` 一行不写**；不涉及 `src/**`、`packages/engine/**`、`tests/**`、`src-tauri/**`、`dist/`、`target/` | ✅ done 06:2x（四种变异全红、还原后绿；`docs:check` 绿） |
+| 10-09 06:40 | 灵语（本会话） | **收尾两条**（用户：「做吧」）。① **修 `coord-gate.mjs` 判据 3 的漏判**：锚点已在**本地与远端都在**时不再报警（此前每轮都催人重打一个已存在的 tag），并区分「远端没有那一锚点」与「读不到远端」两种情形；② **按判据 1 关掉挂了 126 小时的 `进行中`**（agent-B 那条） | `scripts/coord-gate.mjs`、本文件 | 无 —— 全程在隔离 worktree `…/modulo-coord`，主工作树一行不写；不涉及 `src/**`、`packages/engine/**`、`tests/**`、`src-tauri/**` | ✅ done 06:4x（三条路径实测判对；板上「进行中」已清空） |
 
 ---
 
@@ -748,3 +749,42 @@ git diff --stat origin/master <分支>
   写成了「约定」里的一节 —— `rm -rf <worktree>/node_modules` 会顺着联接把主仓真实依赖删掉。
   并在 `modulo-wt/` 下就地留了一份同名说明文件（`请勿删除-这是目录联接.txt`），
   任何人 cd 进去都能先看见。
+
+- **10-09 06:40 灵语（本会话）：判据 3 的漏判修掉 + 陈旧认领关掉（用户：「做吧」）。**
+
+  **① 判据 3 原来漏判「锚点已存在」。** 它对 `docs/coord-registration-rule`（`b936165`）每轮都报：
+
+  ```
+  打锚点：git tag anchor/docs-coord-registration-rule b936165
+  ```
+
+  而**这个 tag 本地与远端都已存在**（`git tag -l` 与 `git ls-remote --tags origin` 都能查到）。
+  判据 3 的立意写在它自己头上：「锚点 tag 只在本地，一样会丢」—— 真正的判据应该是
+  **远端有没有那一份**，不是"有没有打过锚点"。
+
+  现在分三种情形，各自有话说：
+
+  | 情形 | 行为 |
+  |---|---|
+  | 锚点本地 + 远端都在 | **不报警**（受保护了） |
+  | 锚点只在本地 | 报警，且说清「和没打锚点是同一种风险」+ 给 `git push origin <anchor>` |
+  | 读不到远端 tag 清单（离线 / 没配远端） | 报警但**不猜**，如实说"无法确认远端有没有" + 给补推命令 |
+
+  实现细节两条：`ls-remote --tags` **只查一次并缓存**（不按分支逐个查）；
+  `null`（查不到）与 `undefined`（没查过）与 `Set`（查到了）**三态分开** ——
+  查不到时既不能把已受保护的报成未受保护，也不能假装它有。与判据 2「拿不到就不猜」同一条原则。
+
+  **变异自检**：造两个一次性探针分支（都指向 `b936165`，跑完已删、无残留）——
+
+  | 探针 | 期望 | 实测 |
+  |---|---|---|
+  | `tmp/probe-no-anchor`（无锚点） | 原消息「也没打锚点」 | ✔ |
+  | `tmp/probe-local-anchor` + 只在本地的 tag | 新消息「有锚点，但远端没有」 | ✔ |
+  | 真实分支 `docs/coord-registration-rule`（双端锚点） | **不报警** | ✔（警告数 2 → 1） |
+
+  **② 关掉挂了 126 小时的「进行中」。** `10-03 23:45 · agent-B` 那条状态改为
+  `⏹ 陈旧关闭`，**「在做什么」与「会改的文件」两列原样保留**。
+  **没有写成 `✅ done`** —— 判据 1 的提示是这么写的，但我不能替别的会话断言"它做完了"；
+  我能确定的是它不该再占着「进行中」让别人不敢动这个仓库。该会话若回来，请另开一行。
+
+  改完 `coord-gate` 只剩 1 项警告，关掉那条之后**板上「进行中」已清空**。

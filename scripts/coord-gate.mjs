@@ -16,6 +16,8 @@
 //      但既没碰 AGENT-COORD.md、也不在板上任何一行声明的范围里 → 失败。
 //   3. 锚点缺失：本地存在但远端没有的分支，若其提交不在 master 上 → 警告。
 //      这条是给 `anchor/<x>` 规矩兜底的：锚点 tag 只在本地，一样会丢。
+//      **2026-10-09 补**：锚点在**本地与远端都在**时不再报警 —— 此前不管在不在都催人重打，
+//      于是每轮都多出一条永远消不掉的「请打锚点」。判据应是"远端有没有那一份"。
 //
 // 第 2 条会误伤：单agent 的小修（改个 typo）本来就不必登记。给逃生阀：
 // 提交信息或 PR 标题里写 `no-coord-gate` 就跳过，理由要自己写清楚。
@@ -29,6 +31,8 @@ import { fileURLToPath } from 'node:url';
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const BOARD = resolve(root, 'docs/AGENT-COORD.md');
 const STALE_HOURS = 24;
+/** 状态位写在「状态」列开头，解释跟在后面 —— 判「进行中」只看这一小段（理由见判据 1 处注释） */
+const STATUS_HEAD_CHARS = 10;
 
 // stderr 收进管道：下面大量用 try/catch 探测「这个 ref 存不存在」，
 // `git rev-parse --verify` 失败时本来就会往 stderr 吐 fatal: Needed a single revision，
@@ -49,6 +53,41 @@ const PRODUCT = /^(src\/|packages\/[^/]+\/src\/|src-tauri\/src\/|tests\/|scripts
 
 const errors = [];
 const warns = [];
+
+/** ref 存不存在：用 `--quiet` + 退出码，避免 fatal 漏到 stderr */
+const revExists = (ref) => {
+  try {
+    git('rev-parse', '--verify', '--quiet', ref);
+    return true;
+  } catch {
+    return false;
+  }
+};
+
+/**
+ * 远端 tag 清单：查一次缓存起来（一次 `ls-remote`，后续都走缓存）。
+ *
+ * 返回 `undefined` = 还没查过；`null` = 查不到（离线 / 没配远端）；`Set` = 查到了。
+ * 三个状态必须分开：查不到时既不能把已受保护的分支报成未受保护，也不能假装它有 ——
+ * 不猜，如实说（与判据 2「拿不到就不猜」同一条原则）。
+ */
+let remoteTags;
+const remoteHasTag = (name) => {
+  if (remoteTags === undefined) {
+    try {
+      remoteTags = new Set(
+        git('ls-remote', '--tags', 'origin')
+          .split('\n')
+          .filter(Boolean)
+          // `ls-remote --tags` 对附注 tag 会多给一行 `<sha>\trefs/tags/<name>^{}`
+          .map((l) => (l.split('\t')[1] ?? '').replace(/^refs\/tags\//, '').replace(/\^\{\}$/, '')),
+      );
+    } catch {
+      remoteTags = null;
+    }
+  }
+  return remoteTags === null ? null : remoteTags.has(name);
+};
 
 // ── 判据 3：只在本地、没推远端的分支 ──────────────────────────────────────
 //
@@ -76,9 +115,35 @@ if (!bypass) {
     if (ahead === 0) continue;
 
     const head = git('rev-parse', '--short', b);
+    const anchor = `anchor/${b.replace(/\//g, '-')}`;
+
+    // 先看锚点。这条判据的立意是"锚点 tag 只在本地，一样会丢"，所以真正的判据是
+    // **远端有没有那一份**，不是"有没有打过锚点"。
+    //
+    // 2026-10-09 修：此前不管锚点在不在都照样报警，于是 `docs/coord-registration-rule`
+    // 每轮都报一条「打锚点：`anchor/docs-coord-registration-rule`」—— 而那个 tag 双端都在。
+    // **永远消不掉的警告比没有警告更糟**：警告一多，真信号就被淹了。
+    if (revExists(`refs/tags/${anchor}`)) {
+      const onRemote = remoteHasTag(anchor);
+      if (onRemote === true) continue; // 双端都有 → 受保护，不报警
+      if (onRemote === false) {
+        warns.push(
+          `本地分支 \`${b}\`（${head}）有锚点 \`${anchor}\`，但**远端没有** ——\n` +
+            `      它和"没打锚点"是同一种风险：只活在本地对象库。推上去：git push origin ${anchor}`,
+        );
+        continue;
+      }
+      // onRemote === null：读不到远端 —— 不猜，如实说
+      warns.push(
+        `本地分支 \`${b}\`（${head}）有锚点 \`${anchor}\`，但读不到远端 tag 清单，\n` +
+          `      无法确认远端有没有 —— 手动补推：git push origin ${anchor}`,
+      );
+      continue;
+    }
+
     warns.push(
-      `本地分支 \`${b}\`（${head}）领先 master ${ahead} 个提交，**远端没有** ——\n` +
-        `      git gc 一跑就可能永久没了。打锚点：git tag anchor/${b.replace(/\//g, '-')} ${head}`,
+      `本地分支 \`${b}\`（${head}）领先 master ${ahead} 个提交，**远端没有**，也没打锚点 ——\n` +
+        `      git gc 一跑就可能永久没了。打锚点：git tag ${anchor} ${head}`,
     );
   }
 }
@@ -99,7 +164,13 @@ if (existsSync(BOARD)) {
     const agent = cols[2];
     const files = cols[4];
     const status = cols[6];
-    if (!/进行中/.test(status)) continue;
+    // 只认"状态位写在开头"，不认"在后面的解释里提到这三个字"。
+    //
+    // 2026-10-09：把一条陈旧认领改成「⏹ 陈旧关闭（……不再占着「进行中」）」之后，
+    // 门照样报 —— 判据是按原文子串匹配的，把这三个字写进解释里会让它自己再报一遍，
+    // 而且从输出里看不出为什么。状态位都在开头（前面最多有个 ⚠️ / ✅ 之类的标记），
+    // 取开头一小段判断就够，也容得下「⚠️ 进行中（…）」「仍在进行中」这类写法。
+    if (!status.slice(0, STATUS_HEAD_CHARS).includes('进行中')) continue;
 
     // 时间形如 `10-03 23:45`（今年，按最近的过去推断年份）
     const m = /^(\d{1,2})-(\d{1,2})\s+(\d{1,2}):(\d{2})$/.exec(time || '');
