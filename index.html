@@ -22,8 +22,10 @@
           const a = o && typeof o === 'object' ? o : {}
           const el = document.documentElement
           /* 没有存储时也要写：首次访问若留给 :root，仍会跳一次。
-             这里的回退值必须与 src/vue/appearance.ts 的 DEFAULT_APPEARANCE 保持一致。 */
-          el.dataset.skin = a.skin === 'ink' || a.skin === 'aurora' || a.skin === 'candy' ? a.skin : 'ink'
+             这里的回退值必须与 src/vue/appearance.ts 的 DEFAULT_APPEARANCE 保持一致
+             （出厂皮肤是 aurora，而 aurora 恰好就是 :root 的隐含实现 ——
+              所以"没存过偏好"这条最常见的路径上，挂载前后是同一套值，连属性变化都是空操作）。 */
+          el.dataset.skin = a.skin === 'ink' || a.skin === 'aurora' || a.skin === 'candy' ? a.skin : 'aurora'
           const dark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches
           if (a.mode === 'dark' || a.mode === 'light') el.dataset.theme = a.mode
           else el.dataset.theme = dark ? 'dark' : 'light'

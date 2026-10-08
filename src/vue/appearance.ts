@@ -37,7 +37,16 @@ export interface Appearance {
   accent: string
 }
 
-export const DEFAULT_APPEARANCE: Appearance = { skin: 'ink', mode: 'system', accent: ACCENT_AUTO }
+/**
+ * 出厂外观：**柔光 + 跟随系统 + 跟随皮肤强调色**。
+ *
+ * 默认皮肤原先是 `ink`（墨纸）。改的理由是"第一印象"：`ink` 的卡片底（近白）与页面底
+ * （`#f7f7f5`）几乎同色，"卡片是一张卡"的层次感出不来 —— 而这个产品卖的就是"一张张卡"。
+ * `aurora` 带柔光渐变与玻璃表面，层次一眼可见；它同时也是 `:root` 的隐含实现，
+ * 于是**首屏连一次颜色切换都不需要**（没存偏好时，JS 挂载前后是同一套值）。
+ * 另两套皮肤一个都没删，在「外观」里随时可换。
+ */
+export const DEFAULT_APPEARANCE: Appearance = { skin: 'aurora', mode: 'system', accent: ACCENT_AUTO }
 
 const isMode = (v: unknown): v is ThemeMode => MODES.some((m) => m.id === v)
 const isSkin = (v: unknown): v is string => SKINS.some((s) => s.id === v)
