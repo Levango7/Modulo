@@ -12,8 +12,8 @@
  * 这条取舍本身也是项目的一条老教训的同款：判据要能证伪，不能靠人记。
  *
  * ## 它守住什么
- * 单测条数与文件数、E2E 条数、受测层分支覆盖率、构建产物体积、**注册表卡数**、
- * **CI job 数**、**Rust 单测条数**、**版本号同源**。
+ * 单测条数与文件数、**逐文件单测条数**、E2E 条数、受测层分支覆盖率、构建产物体积、
+ * **注册表卡数**、**CI job 数**、**Rust 单测条数**、**版本号同源**。
  * 全部实跑或实读文件，不接受任何"文档里写的"作为输入。
  * 其中覆盖率是**下限承诺**（`≥N%`）：同一份代码在不同 V8 / 平台间会差出 0.01 个百分点以上，
  * 等值核对会把环境抖动报成文档漂移（实测 CI 两次跑出 93.74 / 93.75，本机与 CI 的逐文件
@@ -27,7 +27,7 @@
 
 import { execSync } from 'node:child_process';
 import { readFileSync, readdirSync, statSync, existsSync } from 'node:fs';
-import { join, resolve } from 'node:path';
+import { join, resolve, relative } from 'node:path';
 
 const root = resolve(process.cwd());
 const MARK = '<!-- facts -->';
@@ -53,7 +53,29 @@ function unitFacts() {
     }
   };
   if (existsSync(resolve(root, 'tests'))) walk(resolve(root, 'tests'));
-  return { tests: raw.numTotalTests, files };
+  return { tests: raw.numTotalTests, files, ...perFileFacts(raw) };
+}
+
+/**
+ * 逐文件条数：给「`tests/vue/rowUnit.test.ts`（10 条）」这类**点名了证据文件**的声明用。
+ *
+ * 为什么单独做这一维：2026-10-09 复查时发现三处这类数字与实跑不符
+ * （`CHANGELOG:28` 写 12 条实为 10、`ARCHITECTURE:1040` 写 7 条实为 8、
+ * `ARCHITECTURE:496` 的总数 47 对但分解式只加到 46），**而没有任何一条断言会因此变红**。
+ * 它们的共同点是"声明里就写着证据在哪"，本来就不该靠人记。
+ *
+ * 口径：**数 `it()` 家族，不是数 `it(` 字面量。** 后者是个陷阱 ——
+ * `templates.test.ts` 用 `describe` 循环给每张模板生成 5 条，`grep 'it('` 只数得出 12 条，
+ * 真值 47 条。所以这里读 vitest 自己的 json（下面复用同一次运行，不额外跑）。
+ * pending / todo 也计入：文档写的是"有几条"，不是"跑了几条"，与 `e2eFacts()` 的口径一致。
+ */
+function perFileFacts(raw) {
+  const perFile = {};
+  for (const suite of raw.testResults ?? []) {
+    const rel = relative(root, suite.name).replace(/\\/g, '/');
+    perFile[rel] = (perFile[rel] ?? 0) + (suite.assertionResults?.length ?? 0);
+  }
+  return { perFile };
 }
 
 /**
@@ -215,6 +237,40 @@ if (process.argv.includes('--print')) {
  */
 const RULES = [
   { key: '单测条数', kw: /单测[^\n]{0,24}条/, want: () => String(facts.tests), re: (v) => new RegExp(`(?:\\*\\*)?${v}(?:\\*\\*)?\\s*条`) },
+  {
+    // 逐文件单测条数：只核对**紧跟测试文件路径后的那个数**，真值取自 `facts.perFile`。
+    //
+    // 两处收紧都是刻意的，各有来历：
+    //   1. **窗口只给 6 个字符**。`ARCHITECTURE:441` 那行在路径之后隔 7 个字写的是
+    //      「这里原来写「10 条」」—— 那是**历史**数。窗口再宽一格就会把历史数当成
+    //      当前声明报错，而本文件开头写得很清楚：一条会误报的检查等于没有检查。
+    //   2. **认不出就跳过、不报错**。同一行里常有「8 张 × 5 条」这种与文件无关的数字，
+    //      硬要凑一个数只会拿别人的数来比。
+    //
+    // 代价：「18 条单测覆盖（`…/schemes.test.ts`）」这种**数字在路径前**的写法守不住。
+    // 宁可少守一处，也不要一条会误报的门。
+    //
+    // 同理，**CHANGELOG 刻意不在 TARGETS 里**：发布说明里的「新增 N 条单测」描述的是
+    // 当时那一刻（实测 `CHANGELOG:1014` 的 37 条就是准确的 —— 那版只有 6 张模板），
+    // 拿今天的文件去比对它是必然的误报。
+    key: '逐文件单测条数',
+    kw: /tests\/[\w./-]*\.test\.ts/,
+    custom: (line) => {
+      const claims = [...line.matchAll(/(tests\/[\w./-]*\.test\.ts)[^\d\n]{0,6}(\d+)\s*条/g)];
+      if (!claims.length) return { ok: true }; // 点名了文件但没写条数 —— 没有可核的声明
+      for (const [, rel, n] of claims) {
+        const real = facts.perFile?.[rel];
+        // 拿不到就不猜：报"查不到"比拿一个错的数字去比更诚实（与 coord-gate 同一条原则）
+        if (real === undefined) {
+          return { ok: false, why: `行里点名的 \`${rel}\` 在实跑结果里找不到（改名 / 删除 / 没跑到？）` };
+        }
+        if (real !== Number(n)) {
+          return { ok: false, why: `\`${rel}\` 实跑 ${real} 条，这行写的是 ${n} 条` };
+        }
+      }
+      return { ok: true };
+    },
+  },
   { key: '单测文件数', kw: /\d+\s*(?:个)?文件/, want: () => String(facts.files), re: (v) => new RegExp(`${v}\\s*(?:个)?文件`) },
   { key: 'E2E 条数', kw: /E2E[^\n]{0,12}条/, want: () => String(facts.e2e), re: (v) => new RegExp(`(?:\\*\\*)?${v}(?:\\*\\*)?\\s*条`) },
   {
@@ -301,6 +357,16 @@ for (const file of TARGETS) {
         if (!r.ok) {
           bad++;
           console.error(`✗ ${file}:${i + 1} · ${rule.key}\n    ${r.why}（实测 ${rule.want()}%）\n    ${line.trim().slice(0, 110)}`);
+        }
+        continue;
+      }
+      if (rule.custom) {
+        const r = rule.custom(line);
+        if (!r.ok) {
+          bad++;
+          console.error(
+            `✗ ${file}:${i + 1} · ${rule.key}\n    ${r.why}\n    ${line.trim().slice(0, 110)}`,
+          );
         }
         continue;
       }

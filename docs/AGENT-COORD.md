@@ -12,6 +12,33 @@
 - 不跑 `npm run build` / `tauri build` 除非你独占 —— 会重写 dist 与 target，污染别人正在验的那颗二进制。
 - 临时脚本统一 `tmp-*.mjs`，跑完即删，不 commit。
 
+### 目录联接（junction）不是真目录 —— `rm -rf` 会顺着它删掉仓库依赖
+
+为了不在每个 worktree 里重复装一遍依赖，本项目的隔离 worktree 用**目录联接**把主仓的
+`node_modules` 挂进来（`New-Item -ItemType Junction`，`ln -s` 在这台机器上不行）。
+同理 `coverage/` 与 `dist/` 也会挂 —— 它们是 gitignore 的产物，新 worktree 里没有。
+
+**危险在于它看起来就是一个普通目录**，而常见的清理命令会顺着联接递归进去：
+
+| 做法 | 后果 |
+|---|---|
+| `rm -rf <worktree>/node_modules`（Git Bash） | **删掉主仓 `F:/Nexus/Modulo/node_modules` 的真实内容** —— 所有人当场跑不了测试 |
+| `Remove-Item -Recurse -Force` | 同上 |
+| `cmd /c rmdir /s` | 同上（带 `/s` 就是递归） |
+| `cmd /c rmdir`（不带 `/s`） | 安全，只删链接本身 |
+| `[System.IO.Directory]::Delete($path)` | 安全，只删链接本身 |
+
+**最省事的做法是别删 —— 它占 0 字节，留着没有代价。** 真要清理，先确认它是联接且目标还在：
+
+```powershell
+(Get-Item '<path>').Attributes   # 应含 ReparsePoint
+(Get-Item '<path>').Target       # 应指向 F:\Nexus\Modulo\node_modules
+```
+
+已知的三处（2026-10-09）：`modulo-wt/node_modules`（worktree 已被拆，联接遗留）、
+`modulo-docfix/node_modules`、`modulo-gate/node_modules`（这两个 worktree 还在用）。
+`modulo-wt/` 下另留了一份同内容的说明文件，就地能看见。
+
 ### 不登记，别人就不敢碰你的文件
 
 **开工前必须在下面「作业面登记」表里加一行 `进行中`，写清「会改的文件」。** 没有这一行，
@@ -131,6 +158,7 @@ git diff --stat origin/master <分支>
 | 10-07 15:28 | Levango7（主工作树 `F:/Nexus/Modulo`，**当时未登记**——促成下面「不登记，别人就不敢碰」那节） | **网页监控 URL 判据两侧对齐**（第三轮扩表）：① `userinfo`（`user:pass@`）由「剥掉继续判」改为**一律拒**（原为前端拒、Rust 放行）；② 端口补 `1..=65535` 上限（原来只验是数字，`example.com:99999999` 两侧不一致）；③ 补 IPv4-compatible 地址用例 | `packages/engine/src/watch.ts`、`src-tauri/src/net.rs`、`tests/engine/watch.test.ts`、`CHANGELOG.md`、`docs/ARCHITECTURE.md`、`docs/CARD-CATALOG.md` | 未登记，故无人知晓；好在另一 agent 只读排查后没有动手 | ✅ done 15:28（PR #15 → `1a01000b`；verify 2m1s、桌面壳 4m42s 全绿；两侧测试 86 / 25 条通过） |
 | 10-08 16:40 | 另一个主工作树会话 | **把「动文件前先登记」从纸面约定变成会红的检查**：`scripts/coord-gate.mjs` 三条判据（陈旧认领 / 未登记改动 / 本地独有分支），接进 `verify` job | `scripts/coord-gate.mjs`、`package.json`、`.github/workflows/ci.yml`、本文件 | `dist/`、`src-tauri/target/` 一行不写（0.8.0 产物已锁） | ✅ done（两条变异测试：未登记 → 退出码 1、逃生阀 → 0） |
 | 10-09 00:52 | 灵语（本会话） | **文档数字复查**（用户说「看一下项目」）：复查上一轮成果落地情况，并发现 3 处**逐文件单测条数**与实跑不符 —— 按 vitest json 的实报值修正（见下面交接记录）。顺带查清这类数字**当前没有任何门禁覆盖**：`docs-check` 的 `TARGETS` 只有 README / ARCHITECTURE（不含 CHANGELOG），而这几个数所在的行也都没挂 `<!-- facts -->` | `CHANGELOG.md`、`docs/ARCHITECTURE.md`、本文件 | 无 —— 全程在隔离工作树 `F:/Agent/workbuddy/workspace/2026-10-03-07-57-08/modulo-docfix`，**主工作树 `F:/Nexus/Modulo` 一行不写**；`src/**`、`packages/engine/**`、`scripts/**`、`tests/**`、`src-tauri/**`、`dist/`、`target/` 一律不碰 | ✅ done 00:52（3 处修正；**未擅自改 `scripts/docs-check.mjs`**，加门禁的方案写在交接记录里等拍） |
+| 10-09 06:20 | 灵语（本会话） | **把「逐文件单测条数」纳进门禁**（用户：「做吧」）。`docs-check` 新增一条判据：**只在标记行上生效**，且只核对**紧跟 `tests/…test.ts` 路径后的那个数**，真值取自 vitest json 的 `raw.testResults`；`ARCHITECTURE` 三行挂上 `<!-- facts -->`（441 行顺带把「18 条单测覆盖（`path`）」改成「`path` 18 条」—— 数字在路径前的写法这条规则守不住）。另按用户要求把**目录联接不能 `rm -rf`** 写成板上规矩（见「约定」那节） | `scripts/docs-check.mjs`、`docs/ARCHITECTURE.md`、本文件 | 无 —— 全程在隔离 worktree `…/modulo-gate`，**主工作树 `F:/Nexus/Modulo` 一行不写**；不涉及 `src/**`、`packages/engine/**`、`tests/**`、`src-tauri/**`、`dist/`、`target/` | ✅ done 06:2x（四种变异全红、还原后绿；`docs:check` 绿） |
 
 ---
 
@@ -678,3 +706,45 @@ git diff --stat origin/master <分支>
   **两处现场遗留，我没动**：① 主工作区 `?? tmp-shot.ps1`（未跟踪，不是我建的，按规矩不清理别人的东西）；
   ② 上一轮的 `modulo-wt/node_modules` **目录联接**仍在（`git worktree list` 里已无此工作树）——
   **千万不要 `rm -rf`**，那会删掉仓库真实的 `node_modules`；要删请在资源管理器里删那个链接目录本身。
+
+- **10-09 06:20 灵语（本会话）：「逐文件单测条数」进门禁（用户：「做吧」）。**
+
+  **PR #29 已合并**（squash → `af1d55e`），三处数字修正进 master。分支 `fix/doc-test-counts`
+  **没有删**，留在远端当锚点（按板上「删分支前先打锚点 tag」那条规矩，远端分支本身就是锚点）。
+
+  **新判据长什么样**：只在**带 `<!-- facts -->` 的行**上生效，且只认**一种写法** ——
+  `tests/…test.ts` 路径之后 ≤6 个非数字字符之内跟一个 `N 条`。真值来自 vitest json 的
+  `raw.testResults[].assertionResults`（复用 `docs-check` 已有的那次 vitest 运行，不额外跑）。
+
+  **两处收紧都是刻意的，各有来历**（都写进脚本注释了）：
+
+  1. **窗口只给 6 个字符**：`ARCHITECTURE:441` 那行在路径之后隔 7 个字写的是「这里原来写「10 条」」
+     —— 那是**历史**数。窗口再宽一格就会把历史数当成当前声明报错。
+  2. **认不出就跳过、不报错**：同一行里常有「8 张 × 5 条」这种与文件无关的数字，硬凑只会拿别人的数来比。
+
+  **代价，说清楚**：「18 条单测覆盖（`…/schemes.test.ts`）」这种**数字在路径前**的写法守不住。
+  所以 441 行顺手改成了「`tests/engine/schemes.test.ts` 18 条（…）」—— 语义没变，只是把数挪到路径后。
+  **宁可少守一处，也不要一条会误报的门。**
+
+  **CHANGELOG 刻意不进 `TARGETS`**：发布说明里的「新增 N 条单测」描述的是当时那一刻 ——
+  实测 `CHANGELOG:1014` 的 37 条就是准确的（那版只有 6 张模板，6×5+3+4=37）。拿今天的文件去比对它，
+  是必然的误报。所以**这类"发布说明里当年新增了几条"的数字，机器守不住，只能靠写的时候核对** ——
+  本轮那处「12 条」就是这么抓出来的。
+
+  **变异自检（六种情形，全部符合预期）**：
+
+  | 情形 | 期望 | 实测 |
+  |---|---|---|
+  | 基线（三行数字都对） | 绿 | ✔ 退出码 0 |
+  | 496 行 47 → 46 | 红 | ✔ 退出码 1，报 `逐文件单测条数` |
+  | 1040 行 8 → 9 | 红 | ✔ 退出码 1 |
+  | 441 行点名一个不存在的文件 | 红 | ✔ 退出码 1（报"查不到"，**不猜**） |
+  | 441 行 18 → 17 | 红 | ✔ 退出码 1 |
+  | 还原后复查 | 绿 | ✔ 退出码 0 |
+
+  被它实际核对的行只有 3 行（441 / 496 / 1040），README 无影响。
+
+  **另一件（用户：「那你备注一下，避免其他 agent 误操作」）**：把**目录联接不能 `rm -rf`**
+  写成了「约定」里的一节 —— `rm -rf <worktree>/node_modules` 会顺着联接把主仓真实依赖删掉。
+  并在 `modulo-wt/` 下就地留了一份同名说明文件（`请勿删除-这是目录联接.txt`），
+  任何人 cd 进去都能先看见。
