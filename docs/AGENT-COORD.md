@@ -44,6 +44,50 @@
    `git merge --ff-only origin/master` 或 `git reset --keep`；提交共享工作区里的文件用
    `git commit --only <path>`，避免夹带别人的改动。
 
+### 删分支前先打锚点 tag —— 今天已经丢过三次
+
+```bash
+git tag anchor/<分支名> <sha>     # 例：git tag anchor/my-feature 65cb1ff
+git push origin anchor/<分支名>     # 想跨机器存活就连远端一起推
+```
+
+**提交只活在本地对象库时，一次 `git gc` 就永久没了** —— 没有远端分支、没有 PR、
+工作区又被 checkout 走，就只剩下 reflog 里那行字，而 reflog 会过期。
+
+2026-10-08 一天内实际发生三次：
+
+| 现场 | 怎么丢的 | 靠什么救回来 |
+|---|---|---|
+| `feat/default-skin-aurora`（顶栏整合 +皮肤重做，14 文件 516 行） | agent `reset --hard` 抹掉两个提交，又把分支删了 | reflog 里还有 `f722a9c` 对象还在 |
+| `feat/row-unit-height`（16 文件 719 行） | 同上一条的第二阶段，只在本地 | 发现后立刻推远端 |
+| `wt-v5\ci-artifact\modulo.exe`（11 MB 真包） | worktree 被拆，未跟踪文件随之消失 | 无人需要，重打即可 |
+
+三次里有两次是**侥幸**：reflog 还没过期、对象还没被 gc。这不是方案，是运气。
+
+补三条：
+
+1. **分支合了、看着没用了，也先打锚点再删。** 删之前 `git rev-parse <分支>` 拿到 sha，
+   `git tag anchor/<名字> <sha>` 固定住。这条 tag 是纯增量，不影响任何人的工作流。
+2. **只在本地的分支（没推远端、没开 PR）优先打锚点。** 已推远端的分支本身就是锚点。
+3. **拆 worktree 前先 `git -C <wt> status --porcelain`** —— 空才拆得掉；非空说明还有
+   未跟踪文件（含未跟踪的二进制），`git worktree remove` 会连它们一起删掉。
+
+### 判断分支还有没有价值，别只看提交图
+
+`git rev-list --count master..<分支>`（"领先 master 几个提交"）**在 squash 合并之后会骗人**：
+旧分支天然显示领先，但它和master 的内容可能一字不差。**要看内容 diff：**
+
+```bash
+git diff --stat origin/master <分支>
+```
+
+- 输出为空 → 内容已全部入库，可以考虑删（先打锚点）
+- 有输出 → 逐个文件看那是什么。**别只看行数**，`22 files changed` 可能全是"master 已多出来的"
+
+2026-10-08 我在这上面错了三次：先按提交图判"`f722a9c` 已被取代"（实际是平行兄弟，各有一半对方没有的），
+再判"`useElementSize.ts` 是新增的"（实际一直都在），最后判"两个分支互斥不能合并"（实际是一前一后）。
+**三次都是靠 `git diff` 和提交拓扑图核实后改回来的。**
+
 ---
 
 ## 作业面登记
@@ -522,3 +566,34 @@
   注：v0.7.2 tag 推送那次的 verify 运行在历史上仍是红的（当时跑
   的还是旧门禁代码，libssh2 问题），修复落在此后的提交里；tag
   受 ruleset 保护不能删改重推，属预期。
+
+- **10-08 12:xx 另一个主工作树会话：UI 工作线差点永久丢失 —— 由另一个 agent 只读排查发现并救回。**
+
+    现象：主工作树里\src/App.vue\/\	okens.css\/\CanvasEditor.vue\ 等 11 个文件
+    （382 插入 / 86 删除）忽然全部消失，工作区只剩 \docs/ARCHITECTURE.md\。
+    master 没动、远端无新分支。**reflog 揭穿了经过**：
+
+    ``
+    b936165test(e2e): 修上一轮顶栏整合打坏的 5 条断言
+    d6db96b  feat(ui): 顶栏整合为 8 个可点元素、断点对齐引擎体系
+    f722a9c  feat(appearance): 出厂皮肤 ink → aurora
+    ↓
+    HEAD@{4}  reset: moving to HEAD~1        ← 抹掉 f722a9c
+    HEAD@{1}  checkout: feat/default-skin-aurora → master
+    ↓
+    （分支被删，远端无副本）
+    ``
+
+    **三个提交从未进过 master**（\936165\ 不是 master 的祖先），当时只活在本地对象库。
+    救法是\git branch rescue/ui-topbar-aurora f722a9c\ —— 只新建分支引用，
+    不动工作区、不动 master，是唯一安全可逆的操作。随后推远端备份。
+
+    后来核出那个 agent 并非丢弃，而是**换名继续做**：\eat/row-unit-height\
+    建在同一条链上（\d6db96b\ → \936165\ → \65cb1ff\），已补\owUnit.test.ts\
+    单测、+107 行决策记录、删掉误引入的 \useElementWidth.ts\，并合入 master（\9ae44c3\→ \4559adf\，PR #22）。
+
+    代价：\escue/ui-topbar-aurora\ 那一版（aurora 皮肤 + 只量宽的 \useElementWidth.ts\）
+    因被\useElementSize.ts\ 取代而废弃。若当初晚15 分钟、gc 一跑，
+    那批工作连同\eat/default-skin-aurora\ 分支名一起永久消失。
+
+    由此写下上面「删分支前先打锚点 tag」与「别只看提交图」两条。
