@@ -570,12 +570,12 @@ git diff --stat origin/master <分支>
 
 - **10-08 12:xx 另一个主工作树会话：UI 工作线差点永久丢失 —— 由另一个 agent 只读排查发现并救回。**
 
-    现象：主工作树里\src/App.vue\/\	okens.css\/\CanvasEditor.vue\ 等 11 个文件
-    （382 插入 / 86 删除）忽然全部消失，工作区只剩 \docs/ARCHITECTURE.md\。
+    现象：主工作树里`src/App.vue`/`tokens.css`/`CanvasEditor.vue` 等 11 个文件
+    （382 插入 / 86 删除）忽然全部消失，工作区只剩 `docs/ARCHITECTURE.md`。
     master 没动、远端无新分支。**reflog 揭穿了经过**：
 
-    ``
-    b936165test(e2e): 修上一轮顶栏整合打坏的 5 条断言
+    ```
+    b936165  test(e2e): 修上一轮顶栏整合打坏的 5 条断言
     d6db96b  feat(ui): 顶栏整合为 8 个可点元素、断点对齐引擎体系
     f722a9c  feat(appearance): 出厂皮肤 ink → aurora
     ↓
@@ -583,18 +583,34 @@ git diff --stat origin/master <分支>
     HEAD@{1}  checkout: feat/default-skin-aurora → master
     ↓
     （分支被删，远端无副本）
-    ``
+    ```
 
-    **三个提交从未进过 master**（\936165\ 不是 master 的祖先），当时只活在本地对象库。
-    救法是\git branch rescue/ui-topbar-aurora f722a9c\ —— 只新建分支引用，
+    **三个提交从未进过 master**（`b936165` 不是 master 的祖先），当时只活在本地对象库。
+    救法是`git branch rescue/ui-topbar-aurora f722a9c` —— 只新建分支引用，
     不动工作区、不动 master，是唯一安全可逆的操作。随后推远端备份。
 
-    后来核出那个 agent 并非丢弃，而是**换名继续做**：\eat/row-unit-height\
-    建在同一条链上（\d6db96b\ → \936165\ → \65cb1ff\），已补\owUnit.test.ts\
-    单测、+107 行决策记录、删掉误引入的 \useElementWidth.ts\，并合入 master（\9ae44c3\→ \4559adf\，PR #22）。
+    后来核出那个 agent 并非丢弃，而是**换名继续做**：`feat/row-unit-height`
+    建在同一条链上（`d6db96b` → `b936165` → `65cb1ff`），已补`rowUnit.test.ts`
+    单测、+107 行决策记录、删掉误引入的 `useElementWidth.ts`，并合入 master（`9ae44c3`→ `4559adf`，PR #22）。
 
-    代价：\escue/ui-topbar-aurora\ 那一版（aurora 皮肤 + 只量宽的 \useElementWidth.ts\）
-    因被\useElementSize.ts\ 取代而废弃。若当初晚15 分钟、gc 一跑，
-    那批工作连同\eat/default-skin-aurora\ 分支名一起永久消失。
+    代价：`rescue/ui-topbar-aurora` 那一版（aurora 皮肤 + 只量宽的 `useElementWidth.ts`）
+    因被`useElementSize.ts` 取代而废弃。若当初晚15 分钟、gc 一跑，
+    那批工作连同`feat/default-skin-aurora` 分支名一起永久消失。
 
     由此写下上面「删分支前先打锚点 tag」与「别只看提交图」两条。
+
+- 10-08 20:25 agent-A（ZCode 本会话）：**0.8.0 发布链全链复核 + 事故线最终收口**。
+  ① 发布链：`#23`（七处版本号 → 0.8.0 + CHANGELOG 段落地）→ 签名 tag `v0.8.0`
+  （`a5d2855` → `4559adf`）→ release 已发布、`immutable: true`、三资产齐全（latest.json /
+  Modulo_0.8.0_x64-setup.exe / .sig）→ `#24` 台账补录。复核证据：本地跑发布点门禁
+  「**通过：11 个发布点，tag/资产字节/immutability 都对得上**」；线上 updater 端点
+  （`releases/latest/download/latest.json`）已吐 0.8.0（pub_date 07:43:40Z，带 signature）；
+  gh-pages 已部署 0.8.0 网页版（`c770e54`，源 `4559adf`）。
+  ② 事故线收口：隔离树那批内容经 `#21` 合入 master（`git diff 65cb1ff 6a21d95` 为空，
+  逐字节一致）；`#22`（`9ae44c3`）与 `#21` 的树 diff 同样为空 —— 两笔内容等价，
+  按合并顺序实际由 `#21` 带入。`stash@{0}` 与 `rescue/main-wt-arch-draft`（`67d4ce9`）保留未动。
+  ③ 锚点补齐：`anchor/feat-row-unit-height → 65cb1ff`（该提交此前无任何 ref 指向，只靠
+  reflog 存活）；5 个 anchor tag（含既有 4 个 —— 此前都只在本地）一并推了远端；
+  本会话遗留的 `docs/wrapup-2026-10-08`（指向 `35d4339`，内容已随 `#24` 入库）已删除。
+  ④ 顺带修复上一条（#25 的 12:xx 条目）里反引号被转义损坏的排版，语义未改。
+  主工作树已回 `master` 并保持干净。
