@@ -88,6 +88,26 @@ git diff --stat origin/master <分支>
 再判"`useElementSize.ts` 是新增的"（实际一直都在），最后判"两个分支互斥不能合并"（实际是一前一后）。
 **三次都是靠 `git diff` 和提交拓扑图核实后改回来的。**
 
+### 现存锚点清单 —— 别手贱删
+
+2026-10-08 那几次险情留下的保险，**本地与远端各一份**（`git ls-remote --tags origin` 可核）。
+它们的共同点：**内容都已进 master，但原始提交在 master 上已无对应 ref** —— squash 合并的必然结果，
+所以这些 ref 是它们唯一的存活证明。删掉就等于让那批工作只剩 `git gc` 前的运气。
+
+| 锚点 tag | 提交 | 保的是什么 |
+|---|---|---|
+| `anchor/aurora-wip-f722a9c` | `f722a9c` | 出厂皮肤 ink → aurora + 只量宽的 `useElementWidth.ts`（被 `useElementSize.ts` 取代的那一版） |
+| `anchor/feat-row-unit-height` | `65cb1ff` | 行高按窗口高度抬升 + 柔光皮肤（经 #21/#22 入库，原始形态） |
+| `anchor/docs-coord-registration-rule` | `b936165` | UI 工作线全链：`aa0d5cc → d6db96b → b936165`（顶栏整合 8 元素、E2E 守卫加严、协调板登记规矩） |
+| `anchor/release-0.7.1` | `0e8265c` | v0.7.1 发布现场（七处版本号 + CHANGELOG） |
+| `anchor/rescue-main-wt-arch-draft` | `67d4ce9` | 主工作区遗留的 ARCHITECTURE §10.27 中间稿（原样转存，不丢弃不改写） |
+
+另有一份同内容备份在 **`stash@{0}`**（"wip(appearance): aurora 行高抬升收尾（未验完）"）——
+板上另有一条明确写了「请勿删」，它与 `f722a9c` 内容相同，是双保险。
+
+**要恢复任何一个**：`git branch <新名字> anchor/<名字>`。**确认某个锚点已无价值**再删，
+并按上面那三条规矩走（远端那份也一并删，别只删一边）。
+
 ---
 
 ## 作业面登记
