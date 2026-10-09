@@ -147,4 +147,11 @@ describe('通用模板的降档对齐', () => {
   it('N=6：已知折行的回归线（空洞 ≤15；改坐标或改取整规则会先在这里红）', () => {
     expect(stats(6).holes).toBeLessThanOrEqual(15)
   })
+
+  it('N=6：折行按"贴左"落位（不再有浮在中列的孤岛）', () => {
+    const doc = buildTemplate(REGISTRY, templateById(DEFAULT_TEMPLATE_ID)!)
+    const { rects } = E.project(doc, REGISTRY, 6)
+    // 折下来的便签贴到 x=0，而不是留在原列带的中列位置
+    expect(rects.find((r) => r.id === 'notes')!.x).toBe(0)
+  })
 })

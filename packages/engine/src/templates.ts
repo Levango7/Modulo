@@ -52,7 +52,8 @@ export const TEMPLATES: readonly LayoutTemplate[] = [
        * 时钟/待办互相压边、被"就近塞"顶下去 —— 屏幕上就是一张浮在中列的"楼梯"。
        * 现坐标在 N=12 / 8 / 4 三档投影后都**零空洞、零内部洞**（`templates.test.ts`
        * 的新守卫锁着）；N=6 一档受"sticky ≤3、recent ≥4、todo ≥4"三条硬约束夹住，
-       * 五张卡排不成无洞两列（会有一次通道式折行），如实记档，不假装修好了。
+       * 五张卡排不成无洞两列（会有一次折行，折行时按投影的"贴左首配"落位 —— 见
+       * `projection.ts` / `spot.ts` 的 findLeftFit），如实记档，不假装修好了。
        * todo 必须 ≥4 逻辑列：N=4 档 ceil(w/3) 只有到 2 物理列才不裁字（E2E 实测抓过）。
        */
       { id: 'clock', variant: 'big', x: 0, y: 0, w: 6, h: 3 },

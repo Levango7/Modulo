@@ -1,7 +1,7 @@
 import { physicalCols, scaleFactor } from './breakpoints.js'
 import { pickVariantForSize } from './downgrade.js'
 import { anyCollides, clamp } from './geometry.js'
-import { findFreeSpot } from './spot.js'
+import { findFreeSpot, findLeftFit } from './spot.js'
 import { LOGICAL_COLS } from './types.js'
 import type { LayoutDoc, ModuleRegistry, Rect } from './types.js'
 
@@ -60,7 +60,19 @@ export function project(doc: LayoutDoc, reg: ModuleRegistry, cols: number): Proj
       continue
     }
     const rect = { x: px, y: p.y, w: pw, h: p.h }
-    const placed = anyCollides(rects, rect) ? findFreeSpot(rects, pw, p.h, px, p.y, n) : rect
+    /**
+     * 落位策略（2026-10-10 改）：
+     * - **降档（n < 12）用 `findLeftFit` 贴左首配**。横位在降档里本来就是投影的取整产物、
+     *   不是用户的排布意图；旧策略（`findFreeSpot` 留在原列带向下找）实测会在 4/6 列档
+     *   留下"浮在中列、两边空"的岛 —— 像没排好。贴左之后折行变成"左侧对齐 + 右侧留白"。
+     * - **n = 12 恒等映射**，逻辑坐标互不重叠、不存在冲突，保持原样（所见即所排）。
+     */
+    const placed =
+      n < LOGICAL_COLS
+        ? findLeftFit(rects, pw, p.h, p.y, n)
+        : anyCollides(rects, rect)
+          ? findFreeSpot(rects, pw, p.h, px, p.y, n)
+          : rect
     rects.push({ id: p.id, variant: v.id, ...placed, downgraded: v.id !== p.variant })
   }
   return { cols: n, rects, collapsed }
