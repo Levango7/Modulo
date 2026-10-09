@@ -19,12 +19,27 @@ jobs:
     env:
       CHROME_PATH: /usr/bin/google-chrome
     steps:
+      # fetch-depth: 0 —— 浅克隆（默认 depth=1）下 `HEAD~1` 与 `origin/master` 都不存在，
+      # 协调板门禁的判据 2 每次都会吐一条「拿不到本次提交的改动清单」。
+      # **永远消不掉的警告比没有警告更糟**（这条已写进 `coord-gate.mjs` 判据 3 的注释里）。
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - uses: actions/setup-node@v4
         with:
           node-version: 22
           cache: npm
       - run: npm ci
+      # 协调板登记门禁。判据 2（动了产品面却没在板上登记）与判据 4（临时脚本被 git 跟踪）会失败。
+      #
+      # **2026-10-10 才真正接上**：`bbfa4ec`（#26）只加了 `scripts/coord-gate.mjs`，
+      # 从来没有在这里调用过 —— 也就是说它一直是条**永远绿的检查**（不跑 = 不红），
+      # 而板上此前那些「coord-gate 0 警告」全是本机手跑的结果。放在最前面跑：
+      # 卫生类判据几秒就能红，不必让人等完 5 分钟的构建才看到。
+      - name: 协调板登记门禁（未登记改动 / 临时脚本入库 → 红）
+        env:
+          COORD_BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
+        run: node scripts/coord-gate.mjs
       - name: 类型检查
         run: npm run typecheck
       - name: 单测 + 投影属性测试（受测层分支覆盖 ≥90% 门禁）

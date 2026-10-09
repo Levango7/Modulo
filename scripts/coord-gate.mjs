@@ -9,7 +9,7 @@
 // 「动文件前先登记」写在 AGENT-COORD.md 里已经一天，但它是纸面约定，机器不查。
 // 这道门把它变成会红的检查。
 //
-// 三条判据（按严重程度）：
+// 四条判据（按严重程度）：
 //   1. 陈旧认领：状态还是 `进行中` 且超过 24 小时没动 → 警告。逼人回来关掉，
 //      否则「进行中」永远有行，下一个人永远不敢动这个仓库。
 //   2. 未登记改动：本次提交动了「产品面」文件（src/ packages/ src-tauri/ tests/ scripts/）
@@ -18,6 +18,8 @@
 //      这条是给 `anchor/<x>` 规矩兜底的：锚点 tag 只在本地，一样会丢。
 //      **2026-10-09 补**：锚点在**本地与远端都在**时不再报警 —— 此前不管在不在都催人重打，
 //      于是每轮都多出一条永远消不掉的「请打锚点」。判据应是"远端有没有那一份"。
+//   4. **临时脚本进了版本库**：被 git 跟踪的 `tmp-*` → 失败（2026-10-10 加）。
+//      判据是"在索引里"，不是"磁盘上有"；且**不受逃生阀影响**，理由见判据 4 处注释。
 //
 // 第 2 条会误伤：单agent 的小修（改个 typo）本来就不必登记。给逃生阀：
 // 提交信息或 PR 标题里写 `no-coord-gate` 就跳过，理由要自己写清楚。
@@ -179,7 +181,25 @@ if (existsSync(BOARD)) {
     const then = new Date(now);
     then.setMonth(mo - 1, d);
     then.setHours(hh, mm, 0, 0);
-    if (then > now) then.setFullYear(then.getFullYear() - 1); // 跨年
+    // 「then 比 now 晚」有两种成因，必须分开：
+    //   a) **真跨年**：板上写 `12-25`，现在 1 月 —— 它确实是一年前的 12-25；
+    //   b) **时区差**：板上写的是本地时间（UTC+8），而 CI runner 跑在 UTC ——
+    //      本地 01:50 在 UTC 眼里是"8 小时后的未来"。
+    //
+    // 老写法不分这两种，见到 `then > now` 就扣一年，于是 **2026-10-10 在 CI 上真报了一次
+    // 「板上「进行中」已挂 8752 小时没动」** —— 那个条目是 6 分钟前刚登记的。
+    // 荒唐数字只是表象，真正的问题是它把时区差伪装成了时间跨度，
+    // 让人误以为有个 agent 挂了一年没关，实际根本没人需要被催。
+    //
+    // 判法：扣一年后**更接近现在**才扣。半年是分界 —— 正常认领不会跨这么久，
+    // 而 8 小时的时区差显然不该被当成一年。
+    if (then > now) {
+      const back = new Date(then);
+      back.setFullYear(back.getFullYear() - 1);
+      if (Math.abs(now - back.getTime()) < Math.abs(now - then.getTime())) {
+        then.setFullYear(then.getFullYear() - 1);
+      }
+    }
     const hours = (now - then.getTime()) / 3_600_000;
     if (hours > STALE_HOURS) {
       warns.push(
@@ -233,10 +253,45 @@ if (!bypass) {
   }
 }
 
+// ── 判据 4：临时脚本进了版本库 ──────────────────────────────────────────
+//
+// 约定（AGENT-COORD.md「约定」一节）：临时脚本统一 `tmp-*.mjs`，**跑完即删，不 commit**。
+// 它破过一次，而且是我破的：一个别的会话留在磁盘上的**未跟踪** `tmp-shot.ps1`，
+// 被一句 `git add -A` 带进了提交 `b4cc3d9`，之后用了两笔提交才挪出去（PR #35 做的还是空改动 ——
+// `git rm --cached` 之后又把同一个路径写进了 `git add`，一删一加互相抵消；#36 才真删）。
+//
+// 判据是**被 git 跟踪**，不是"磁盘上有"：
+//   · 磁盘上未跟踪的 `tmp-*` 是别人正在用的探针（写这条时主工作树里就有四个），
+//     报它等于满屏假阳性 —— 而假阳性一多，真信号就没人看了；
+//   · 一旦进了索引，它就落在**每一个人的 checkout** 里，而且 `git add -A` 会一路带着它走。
+// 所以读 `git ls-files`（索引），不读磁盘。
+//
+// 这条**刻意不进 `if (!bypass)`**：`no-coord-gate` 逃生阀的语义是"这次改动不必登记"，
+// 而"临时脚本已经在版本库里"是既成事实，与登记与否无关。让它被逃生阀放行 = 又一道死门。
+{
+  let tracked = [];
+  try {
+    tracked = git('ls-files').split('\n').filter(Boolean);
+  } catch { /* 不是 git 仓库，这条无从谈起 */ }
+
+  const trackedTmp = tracked.filter((f) => f.split('/').pop().startsWith('tmp-'));
+  if (trackedTmp.length) {
+    errors.push(
+      `有 ${trackedTmp.length} 个临时脚本被 git 跟踪了：\n` +
+        trackedTmp.slice(0, 10).map((f) => `      ${f}`).join('\n') +
+        `\n  约定是「临时脚本 \`tmp-*\`，跑完即删，不 commit」—— 进了版本库它就在每个人的 checkout 里，` +
+        `\n  而且 \`git add -A\` 会一路带着它走（**这个坑已经踩过一次**）。` +
+        `\n  挪出索引、**磁盘文件原样保留**：\n` +
+        trackedTmp.map((f) => `      git rm --cached ${f}`).join('\n') +
+        `\n  注意别把那些路径再写进任何 \`git add\` —— 一删一加会互相抵消，看着像做了、其实没有。`,
+    );
+  }
+}
+
 // ── 输出 ──────────────────────────────────────────────────────────────────
 console.log('协调板登记门禁');
 console.log(`  陈旧认领阈值：${STALE_HOURS} 小时`);
-if (bypass) console.log('  已按 --bypass / no-coord-gate 跳过判据 1-3');
+if (bypass) console.log('  已按 --bypass / no-coord-gate 跳过判据 1-3（**判据 4 不受逃生阀影响**，理由见其注释）');
 
 for (const w of warns) console.log(`\n⚠ 警告\n  · ${w}`);
 for (const e of errors) console.log(`\n✗ 失败\n  · ${e}`);
