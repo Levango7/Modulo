@@ -173,7 +173,9 @@ onBeforeUnmount(stopRecord)
 }
 .panel {
   width: min(560px, 100%);
-  max-height: min(80vh, 640px);
+  /* 与 TemplatePicker 同档（86vh / 760）：640 的旧上限会让「版本 / 检查更新」
+     在大屏上也躲到滚动之下 —— 实测 1440×900 时内容高 925px、可视只有 640px。 */
+  max-height: min(86vh, 760px);
   overflow: auto;
   background: var(--bg-card-solid);
   border: 1px solid var(--border-strong);
@@ -372,5 +374,11 @@ section h3 {
   padding-left: 1.2em;
   font-size: 12px;
   color: var(--c-amber);
+}
+/* 手机宽度下三张皮肤卡平铺会挤成两条窄列、说明文字反复换行 —— 收成单列 */
+@media (max-width: 480px) {
+  .skins {
+    grid-template-columns: 1fr;
+  }
 }
 </style>

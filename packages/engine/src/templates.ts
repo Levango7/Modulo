@@ -45,11 +45,22 @@ export const TEMPLATES: readonly LayoutTemplate[] = [
     blurb: '时间、便签、待办、速记各就各位',
     audience: '第一次用 · 不知道选哪个就点它',
     cells: [
-      { id: 'clock', variant: 'big', x: 0, y: 0, w: 5, h: 3 },
-      { id: 'sticky', variant: 'note', x: 5, y: 0, w: 3, h: 3 },
-      { id: 'todo', variant: 'list', x: 8, y: 0, w: 4, h: 6 },
-      { id: 'notes', variant: 'overview', x: 0, y: 3, w: 4, h: 3 },
-      { id: 'recent', variant: 'bar', x: 4, y: 3, w: 4, h: 3 },
+      /**
+       * 坐标按"降档三档都要对齐"调过（2026-10-10，本地走查轮，改法见交接记录）。
+       * 取整规则是 `pw = ceil(w / s)`、`px = floor(x / s)`（s = 12/N）：旧坐标
+       * （clock 5 宽在 x0、sticky 3 宽在 x5、todo 4 宽在 x8）在 4 列档会让便签与
+       * 时钟/待办互相压边、被"就近塞"顶下去 —— 屏幕上就是一张浮在中列的"楼梯"。
+       * 现坐标在 N=12 / 8 / 4 三档投影后都**零空洞、零内部洞**（`templates.test.ts`
+       * 的新守卫锁着）；N=6 一档受"sticky ≤3、recent ≥4、todo ≥4"三条硬约束夹住，
+       * 五张卡排不成无洞两列（会有一次折行，折行时按投影的"贴左首配"落位 —— 见
+       * `projection.ts` / `spot.ts` 的 findLeftFit），如实记档，不假装修好了。
+       * todo 必须 ≥4 逻辑列：N=4 档 ceil(w/3) 只有到 2 物理列才不裁字（E2E 实测抓过）。
+       */
+      { id: 'clock', variant: 'big', x: 0, y: 0, w: 6, h: 3 },
+      { id: 'todo', variant: 'list', x: 6, y: 0, w: 6, h: 6 },
+      { id: 'sticky', variant: 'note', x: 0, y: 3, w: 3, h: 3 },
+      { id: 'notes', variant: 'overview', x: 3, y: 3, w: 3, h: 3 },
+      { id: 'recent', variant: 'bar', x: 0, y: 6, w: 12, h: 2 },
     ],
   },
   {

@@ -27,3 +27,34 @@ export function findFreeSpot(
   // 而这里没有比"再返回一次 bottom"更合理的写法。覆盖率报告里它永远标红，不必为它编用例。
   return { x: cx, y: bottom, w, h }
 }
+
+/**
+ * 降档投影专用的让位策略：**贴左首配**（先在自己这一行从 x=0 往右找，找不到再下移一行）。
+ *
+ * 与 `findFreeSpot`（留在原列带、向下找）的区别就是"要不要横着挪"：
+ * - 逻辑层（`ops` / `validate`）要保用户的横位意图 → 只能向下，用 `findFreeSpot`；
+ * - 降档投影（n < 12）横位本来就是投影自己的取整结果，不是用户排的 → 统一左对齐，
+ *   同一行从左边填起。旧策略实测会在 4/6 列档留下"浮在中列、两边空"的岛（屏幕上像没排好），
+ *   新策略把折行变成"贴左 + 右侧留白"，与阅读习惯一致，也不再出现中列孤岛。
+ *
+ * 终止性同 `findFreeSpot`：`y = maxRow` 处必然无碰撞。
+ */
+export function findLeftFit(
+  obstacles: readonly Rect[],
+  w: number,
+  h: number,
+  fromY: number,
+  cols: number = LOGICAL_COLS,
+): Rect {
+  const width = clamp(w, 1, cols)
+  const start = Math.max(0, Math.floor(fromY))
+  const bottom = Math.max(maxRow(obstacles), start)
+  const limit = bottom + h
+  for (let yy = start; yy <= limit; yy++) {
+    for (let xx = 0; xx <= cols - width; xx++) {
+      const rect: Rect = { x: xx, y: yy, w: width, h }
+      if (!anyCollides(obstacles, rect)) return rect
+    }
+  }
+  return { x: 0, y: bottom, w: width, h }
+}
