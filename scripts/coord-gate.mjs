@@ -181,7 +181,25 @@ if (existsSync(BOARD)) {
     const then = new Date(now);
     then.setMonth(mo - 1, d);
     then.setHours(hh, mm, 0, 0);
-    if (then > now) then.setFullYear(then.getFullYear() - 1); // 跨年
+    // 「then 比 now 晚」有两种成因，必须分开：
+    //   a) **真跨年**：板上写 `12-25`，现在 1 月 —— 它确实是一年前的 12-25；
+    //   b) **时区差**：板上写的是本地时间（UTC+8），而 CI runner 跑在 UTC ——
+    //      本地 01:50 在 UTC 眼里是"8 小时后的未来"。
+    //
+    // 老写法不分这两种，见到 `then > now` 就扣一年，于是 **2026-10-10 在 CI 上真报了一次
+    // 「板上「进行中」已挂 8752 小时没动」** —— 那个条目是 6 分钟前刚登记的。
+    // 荒唐数字只是表象，真正的问题是它把时区差伪装成了时间跨度，
+    // 让人误以为有个 agent 挂了一年没关，实际根本没人需要被催。
+    //
+    // 判法：扣一年后**更接近现在**才扣。半年是分界 —— 正常认领不会跨这么久，
+    // 而 8 小时的时区差显然不该被当成一年。
+    if (then > now) {
+      const back = new Date(then);
+      back.setFullYear(back.getFullYear() - 1);
+      if (Math.abs(now - back.getTime()) < Math.abs(now - then.getTime())) {
+        then.setFullYear(then.getFullYear() - 1);
+      }
+    }
     const hours = (now - then.getTime()) / 3_600_000;
     if (hours > STALE_HOURS) {
       warns.push(
