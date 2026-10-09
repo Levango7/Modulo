@@ -4,7 +4,8 @@
  * 从 `CanvasEditor.vue`（727 行）里抽出来的。抽它的理由不是"行数太长"这么含糊：
  * 那一坨逻辑里有**四条互相 interference 的语义**（移动让位不弹回、缩放非法就回退、
  * 6px 阈值区分点与拖、成组里含锁定项就整组不动），全塞在组件里等于没有防线 ——
- * 而这四条恰好是本项目对 x-hub 声称的差异点。
+ * 而这四条恰好是本项目对 x-hub 声称的差异点。2026-10-10 又补第五条：
+ * **触摸要长按 250ms 才进拖拽**（`dragGate` 纯函数；判定见下）。
  *
  * 这里仍然碰 DOM（getBoundingClientRect / pointer 事件），所以**不是**纯函数；
  * 能纯的部分（格子换算、落位计算）已经交给引擎的 `findFreeSpot` / `fitState`。
@@ -33,10 +34,29 @@ export interface DragState {
   marquee: E.Rect | null
   label: string
   bad: boolean
+  /** 这次手势是不是触摸（触摸要长按 250ms 才进拖拽，见 dragGate） */
+  touch: boolean
+  /** 手势开始时刻（performance.now()），长按计时用 */
+  bornAt: number
 }
 
 /** 6px 位移阈值：小于它就是点击，不是拖拽 */
 export const DRAG_THRESHOLD = 6
+
+/** 触摸长按多少毫秒才进拖拽；鼠标 / 手写笔不等待（过 6px 即拖） */
+export const LONG_PRESS_MS = 250
+
+/**
+ * 拖拽起点判定（纯函数，单测 `tests/vue/canvasDragGate.test.ts`）：
+ * - `wait`：位移还没到阈值，继续等；
+ * - `cancel`：**触摸**且长按未满就先划了 —— 那是"想滚动 / 误触"，整段作废交还浏览器；
+ * - `start`：进入拖拽（鼠标过阈值即拖；触摸要按住满 250ms 再划）。
+ */
+export function dragGate(touch: boolean, elapsedMs: number, distPx: number): 'wait' | 'cancel' | 'start' {
+  if (distPx < DRAG_THRESHOLD) return 'wait'
+  if (touch && elapsedMs < LONG_PRESS_MS) return 'cancel'
+  return 'start'
+}
 
 export function useCanvasDrag(opts: {
   store: LayoutStore
@@ -108,9 +128,31 @@ export function useCanvasDrag(opts: {
     return clientX >= r.left && clientX <= r.right && clientY >= r.top && clientY <= r.bottom
   }
 
+  /**
+   * 触摸长按的"武装"：满 250ms 后加一条**非 passive 的 touchmove preventDefault**，
+   * 免得浏览器把后续划动收去当滚动（`touch-action: pan-y` 允许它这么干）。
+   * 没武装前不加 —— 那时候的划动本来就该是滚动。
+   */
+  const preventTouchMove = (ev: TouchEvent) => {
+    if (drag.value) ev.preventDefault()
+  }
+  let armTimer: number | null = null
+  function armTouchDrag() {
+    armTimer = null
+    window.addEventListener('touchmove', preventTouchMove, { passive: false })
+  }
+  function disarmTouch() {
+    if (armTimer !== null) {
+      clearTimeout(armTimer)
+      armTimer = null
+    }
+    window.removeEventListener('touchmove', preventTouchMove)
+  }
+
   function begin(mode: DragState['mode'], id: string, e: PointerEvent, o: { variant?: string; w: number; h: number }) {
     e.preventDefault()
     const at = cellAt(e.clientX, e.clientY)
+    const touch = e.pointerType === 'touch'
     drag.value = {
       mode,
       id,
@@ -127,15 +169,21 @@ export function useCanvasDrag(opts: {
       marquee: null,
       label: '',
       bad: false,
+      touch,
+      bornAt: performance.now(),
     }
+    if (touch) armTimer = window.setTimeout(armTouchDrag, LONG_PRESS_MS)
     ghost.value = { x: e.clientX, y: e.clientY }
     window.addEventListener('pointermove', onMove)
     window.addEventListener('pointerup', onUp)
+    window.addEventListener('pointercancel', onCancel)
   }
 
   function stopListening() {
     window.removeEventListener('pointermove', onMove)
     window.removeEventListener('pointerup', onUp)
+    window.removeEventListener('pointercancel', onCancel)
+    disarmTouch()
   }
   onBeforeUnmount(stopListening)
 
@@ -184,7 +232,13 @@ export function useCanvasDrag(opts: {
     if (!d) return
     ghost.value = { x: e.clientX, y: e.clientY }
     if (!d.started) {
-      if (Math.hypot(e.clientX - d.startX, e.clientY - d.startY) < DRAG_THRESHOLD) return
+      const dist = Math.hypot(e.clientX - d.startX, e.clientY - d.startY)
+      const verdict = dragGate(d.touch, performance.now() - d.bornAt, dist)
+      if (verdict === 'wait') return
+      if (verdict === 'cancel') {
+        // 触摸先划 = 想滚动 / 误触：整段作废，交还给浏览器（touch-action 已是 pan-y）
+        return onCancel()
+      }
       d.started = true
     }
     const cell = insideCanvas(e.clientX, e.clientY) ? cellAt(e.clientX, e.clientY) : null
@@ -261,6 +315,12 @@ export function useCanvasDrag(opts: {
       store.add(d.id, cell.col, cell.row, d.variant)
       sel.value = new Set([d.id])
     } else store.move(d.id, cell.col, cell.row)
+  }
+
+  /** 手势被浏览器收走（pointercancel）或触摸先划作废：清理现场，但不提交任何移动 */
+  function onCancel() {
+    stopListening()
+    drag.value = null
   }
 
   return { drag, ghost, rowCount, toggleSelect, startMove, startNew, startResize, onCanvasPointerDown, cellAt, insideCanvas, variantOf }

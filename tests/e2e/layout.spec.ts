@@ -1029,3 +1029,79 @@ it.skipIf(skip)('全部卡上版：三档视口不溢出、不裁字、最小字
     await page.close()
   }
 })
+
+/**
+ * 触摸分流（2026-10-10 走查轮加）：`pointerType === 'touch'` 要长按 250ms 才进拖拽。
+ * 判定的纯函数部分由 `tests/vue/canvasDragGate.test.ts` 守；这条测**真实链路**：
+ * 合成 touch 事件走 Chrome 指针管线（pointerType 才是真的 'touch'），
+ * 用"doc 有没有被改"当判据 —— 快划不该改，长按后拖应该改。
+ */
+it.skipIf(skip)('触摸：长按 250ms 才进拖拽；先划动不拖卡（交给滚动）', async () => {
+  const ctx = await browser.createBrowserContext()
+  const page = await ctx.newPage()
+  await page.setViewport({ width: 1440, height: 900, deviceScaleFactor: 1, hasTouch: true })
+  await page.evaluateOnNewDocument(() => localStorage.setItem('modulo.template.v1', 'general'))
+  await page.goto(url, { waitUntil: 'networkidle2', timeout: 30000 })
+  await settle(600)
+  await clickTool(page, '布局编辑')
+  await settle(500)
+
+  const before = await page.evaluate(() => localStorage.getItem('modulo.layout.v1'))
+  const pos = await page.evaluate(() => {
+    const c = document.querySelector<HTMLElement>('.canvas .cell')!.getBoundingClientRect()
+    return { x: Math.round(c.left + c.width / 2), y: Math.round(c.top + 24) }
+  })
+
+  // ① 快划：长按没满就移动 → 整段作废，不应拖动卡片
+  await page.touchscreen.touchStart(pos.x, pos.y)
+  await settle(40)
+  await page.touchscreen.touchMove(pos.x + 140, pos.y + 60)
+  await settle(40)
+  await page.touchscreen.touchEnd()
+  await settle(400)
+  expect(await page.evaluate(() => localStorage.getItem('modulo.layout.v1')), '快划不该拖动卡片').toBe(before)
+
+  // ② 长按 320ms 再拖 → 应真的移动
+  await page.touchscreen.touchStart(pos.x, pos.y)
+  await settle(320)
+  await page.touchscreen.touchMove(pos.x + 130, pos.y + 40)
+  await settle(60)
+  await page.touchscreen.touchMove(pos.x + 260, pos.y + 80)
+  await settle(60)
+  await page.touchscreen.touchEnd()
+  await settle(500)
+  expect(await page.evaluate(() => localStorage.getItem('modulo.layout.v1')), '长按后拖动应移动卡片').not.toBe(before)
+  await ctx.close()
+})
+
+/**
+ * 编辑态底部提示条 sticky（2026-10-10 走查轮加）：版面高过画布时 `.stage` 承接滚动，
+ * 提示条此前会跟着滚出视野。用 SLOPPY_DOC（11 行，必然高过画布）当夹具。
+ */
+it.skipIf(skip)('编辑态：版面高过画布时，底部操作提示钉在滚动视口底（sticky）', async () => {
+  const page = await freshPageWithDoc(1440, 900, SLOPPY_DOC)
+  await clickTool(page, '布局编辑')
+  await settle(500)
+
+  // 注意选 `section.stage`：`.stage` 在文档顺序里先命中**外层** App 的 main.stage，
+  // 而编辑态的滚动容器是编辑器里那层 section.stage（外层不滚）。
+  const pre = await page.evaluate(() => {
+    const s = document.querySelector('section.stage')!
+    return { scrollH: s.scrollHeight, clientH: s.clientHeight }
+  })
+  expect(pre.scrollH, '夹具应高过画布，否则这条测不到东西').toBeGreaterThan(pre.clientH + 1)
+
+  await page.evaluate(() => {
+    document.querySelector('section.stage')!.scrollTop = 1e6
+  })
+  await settle(300)
+  const r = await page.evaluate(() => {
+    const f = document.querySelector('.foot')!.getBoundingClientRect()
+    const s = document.querySelector('section.stage')!.getBoundingClientRect()
+    return { top: Math.round(f.top), bottom: Math.round(f.bottom), stageBottom: Math.round(s.bottom) }
+  })
+  expect(r.top, '滚到底后提示条不该被滚出视野').toBeGreaterThan(-1)
+  expect(r.top, '滚到底后提示条不该被滚出视野').toBeLessThan(900)
+  expect(Math.abs(r.bottom - r.stageBottom), '提示条应贴在滚动视口底部').toBeLessThanOrEqual(2)
+  await page.close()
+})

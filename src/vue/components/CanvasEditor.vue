@@ -280,7 +280,8 @@ function removeSelected() {
   background: var(--bg-card);
   padding: var(--space-3);
   margin-bottom: var(--space-3);
-  touch-action: none;
+  /* pan-y：竖直滑动交给浏览器滚列表；拖拽要长按 250ms（见 useCanvasDrag 的 dragGate） */
+  touch-action: pan-y;
   transition: box-shadow var(--dur-micro) var(--ease-out), transform var(--dur-micro) var(--ease-out);
 }
 .lib-item:hover {
@@ -302,7 +303,7 @@ function removeSelected() {
   padding: 2px 7px;
   border-radius: var(--radius-pill);
   cursor: grab;
-  touch-action: none;
+  touch-action: pan-y;
 }
 .small {
   font-size: 12px;
@@ -334,7 +335,7 @@ function removeSelected() {
   background-image: radial-gradient(var(--border-strong) 1px, transparent 1px);
   background-size: 14px 14px;
   position: relative;
-  touch-action: none;
+  touch-action: pan-y;
 }
 .cell {
   position: relative;
@@ -347,7 +348,7 @@ function removeSelected() {
   display: flex;
   container-type: size;
   cursor: grab;
-  touch-action: none;
+  touch-action: pan-y;
   transition: box-shadow var(--dur-micro) var(--ease-out);
 }
 .cell:hover {
@@ -504,6 +505,15 @@ function removeSelected() {
   align-items: center;
   gap: var(--space-3);
   flex-wrap: wrap;
+  /* 版面比画布高时由 .stage 承接滚动（见 .stage 的注释），而这一行是**操作提示**：
+     钉在滚动视口底部，别让它跟着内容滚出视野（2026-10-10 走查轮）。
+     背景用与整页同一套 --app-bg、且以视口定位（fixed）—— 盖住滚上来的内容时不现接缝。 */
+  position: sticky;
+  bottom: 0;
+  z-index: 1;
+  padding-block: var(--space-1);
+  background: var(--app-bg);
+  background-attachment: fixed;
 }
 .hint {
   margin: 0;
