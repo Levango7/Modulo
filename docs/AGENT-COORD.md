@@ -141,6 +141,7 @@ git diff --stat origin/master <分支>
 
 | 时间 | Agent | 在做什么 | 会改的文件 | 请勿动 | 状态 |
 |------|-------|----------|-----------|--------|------|
+| 10-09 23:00 | agent-A（ZCode 本会话） | **v0.8.1 发版全链**：`#39` 目录标题归一 + `#38` 七处版本号升 0.8.1（含 CHANGELOG「未发布」段落地）→ 签名 tag `v0.8.1`（→ `3c7988e`）→ 发布（draft → published、`immutable: true`）→ 台账补录 + §11.7/§12.8 两处数字回写 | `package.json`、`package-lock.json`、`packages/engine/package.json`、`src-tauri/{Cargo.toml,Cargo.lock,tauri.conf.json}`、`src/vue/useBackup.ts`（**以上只改版本号行**）、`CHANGELOG.md`、`docs/CARD-CATALOG.md`、`docs/ARCHITECTURE.md`（两处数字）、`release-manifest.json`、本文件 | 业务代码零改动；`stash@{0}`、`rescue/main-wt-arch-draft`、`release/0.7.1`（wt-v5）不动 | ✅ done 23:40（发布点门禁 12 个全对；updater / 网页已复核） |
 | 10-09 19:10 | agent-A（ZCode 本会话） | **收尾复查 + 分支卫生**（用户：「看一下项目，找出现在的问题，解决问题」）：① 复核确认 **npm 首发仍是唯一未闭环项**（官方 registry `@levango7/engine` = 404；本机 `npm whoami` 未登录；仓库 secret 只有 `TAURI_SIGNING_PRIVATE_KEY`）—— 我复跑了 `npm publish --dry-run`，与 #34 记录逐项一致（97 文件 / 104.1 kB，含 dist、README、11.5 kB LICENSE），**包侧零阻塞，卡在账号侧**；② 删除 8 条已并入 master 的远端陈旧分支 + 9 条本地同名分支（每条删除前做「tip vs 对应 squash」树比对，7/7 全空）；③ 门禁复核：coord-gate 0 警告、docs:check 绿、typecheck 干净。 | `docs/AGENT-COORD.md`、分支引用（远端 + 本地） | 产品代码一行不碰；`stash@{0}`、`rescue/main-wt-arch-draft`、`release/0.7.1`（wt-v5 在用）、磁盘上的 `tmp-shot.ps1` 与 `evidence/` 全不动 | ✅ done 19:10（本笔） |
 | 10-09 10:50 | 灵语（本会话） | **真正把 `tmp-shot.ps1` 移出版本库**（上一行是空改动，这里重做）。做法：`git rm --cached tmp-shot.ps1`，然后提交时**只 add `docs/AGENT-COORD.md` 一个路径** —— 把那个路径写进 `git add` 就等于撤销刚做的删除动作。**提交前先 `git diff --cached --stat` 核对恰好是两个路径**（`D tmp-shot.ps1` + `M docs/AGENT-COORD.md`），提交后再用 `git ls-files tmp-shot.ps1` 复核（索引里已为空），不再只看 `git status`。**磁盘上的文件原样保留**（1615 字节，`??` 状态），它仍然是那个会话在用的东西。另：PR #35 已是合并状态，那边的假记录用一条评论更正，不去改写已合并的 PR 正文 | `tmp-shot.ps1`（仅移出跟踪）、本文件 | 磁盘上的 `tmp-shot.ps1` 一行不动；`src/**`、`packages/engine/**`、`src-tauri/**`、`.github/**` 全不碰 | ✅ done 10:52（提交前 `git diff --cached --stat` 实测恰好两个路径：`M docs/AGENT-COORD.md` + `D tmp-shot.ps1`（−43）；`git ls-files tmp-shot.ps1` 为空；磁盘文件 1615 字节仍在。`coord-gate` 0 警告、`docs:check` 绿；不改代码故未重跑 build/E2E） |
 | 10-09 10:32 | 灵语（本会话） | **修我自己上一笔的失误**：`b4cc3d9`（PR #33）用了 `git add -A`，把一个**别的会话的未跟踪临时脚本** `tmp-shot.ps1` 顺手提交进了版本库（它在本会话开工之前就在工作区里，`git status` 里是 `??`）。本意是 `git rm --cached` 把它移出跟踪、**磁盘上的文件原样保留** —— 那是别人在用的东西，我不该替它做取舍。顺带自查了另一笔 `4ccc698`（PR #34）新增的两个文件（`scripts/engine-license.mjs`、`tests/release/engine-package.test.ts`）都是我有意加的，**没有第二处误提交** | `tmp-shot.ps1`（仅移出跟踪）、本文件 | 磁盘上的 `tmp-shot.ps1` 一行不动；`src/**`、`packages/engine/**`、`src-tauri/**`、`.github/**` 全不碰 | ⚠️ **这一笔是空改动 —— 我在本行与 PR #35 里都写了"done"，那是假记录。真实处置见下面 10-09 10:50 那一行。** 机制：`git rm --cached <path>` 之后再 `git add <path>` 会把它**原样加回索引**，于是暂存区里那一删一加相互抵消。而我在 `git add` **之前**跑的 `git status --short` 显示的是 `D tmp-shot.ps1 / ?? tmp-shot.ps1`（当时是对的），**验的是动作生效前的那一刻** —— 这一类"验证时机错位"与本会话早先在探针上踩的那个是同一个形状 |
@@ -888,3 +889,16 @@ git diff --stat origin/master <分支>
     覆盖 94.92%）· typecheck 干净 · master CI（`bd6f359`）绿 · 无开放 PR / issue。
   ④ 按既有约定保持不动：磁盘上的 `tmp-shot.ps1`（别的会话在用）与 `evidence/`（已 gitignore）；
     SignPath 申请按 09:20 的裁决「慢一步」，不计入本轮缺口。
+
+- 10-09 23:40 agent-A（ZCode 本会话）：**v0.8.1 已发布**（0.8.0 之后第一版，本会话从复查一路做到发版）。
+  链路：`#39`（CARD-CATALOG 批次 4-⑤ 标题归一）→ `#38`（七处版本号 → 0.8.1 + CHANGELOG「未发布」段落地）
+  → **签名 tag `v0.8.1`**（SSH ED25519，`git tag -v` 本机实测 Good；指向 `3c7988e`）→ tag 流水线四个
+  job 全绿（verify / 桌面壳 / 发布 / 网页版）→ draft 三资产（latest.json 695 B / `Modulo_0.8.1_x64-setup.exe`
+  3 035 916 B / `.sig` 436 B）→ **已发布且 `immutable: true`**（publishedAt 15:27:36Z）。
+  同笔提交：台账补录 v0.8.1 发布点（`release-manifest.json` 重写为 12 条）+ §11.7「已发 11 个版本」→ 12
+  与 §12.8「当前是 `0.8.0`」→ `0.8.1` 两处数字回写 + 本文件记录。
+  复核（发版后实测）：发布点门禁「**12 个发布点全对**」· 线上 updater 端点吐 **0.8.1**（带 signature）·
+  gh-pages 已部署 0.8.1 网页版（`33e2cbd`，源 `3c7988e`）。
+  本版用户可见内容：编辑态行高与浏览态对齐（`#32`）；另含引擎包发布链（`#34`，分发层）。
+  **npm 首发仍未发生**（本机未登录 / 仓库无 `NPM_TOKEN`）—— release job 按设计 warning 跳过、
+  桌面产物不受影响；配好 token 后下一个 `v*` tag 会自动把 `@levango7/engine@0.8.1` 带上。
