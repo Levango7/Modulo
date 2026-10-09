@@ -586,8 +586,13 @@ it.skipIf(skip)('版面方案：另存为 → 改版面 → 应用旧方案可�
   await page.close()
 })
 
+/**
+ * 夹具自带（SLOPPY_DOC）而不是蹭默认版面：2026-10-10 默认版面改成"内容贴身高"之后，
+ * 这一笔曾假红过一次 —— 它依赖"默认版面里本来就有可收缩的富余"，那是测试在蹭产品状态。
+ * （同 §11.5 那条教训：凡"点一下 X 会变化"的断言，夹具要自带。）
+ */
 it.skipIf(skip)('收紧：按内容降低过高的卡片且不裁切内容，可一步撤销', async () => {
-  const page = await freshPage(1440, 900)
+  const page = await freshPageWithDoc(1440, 900, SLOPPY_DOC)
   const errs: string[] = []
   page.on('pageerror', (e: unknown) => errs.push(String(e)))
   const probe = () =>
@@ -628,7 +633,7 @@ it.skipIf(skip)('收紧：按内容降低过高的卡片且不裁切内容，可
 })
 
 it.skipIf(skip)('紧凑：一键等于收紧+整理，两步可分别撤销', async () => {
-  const page = await freshPage(1440, 900)
+  const page = await freshPageWithDoc(1440, 900, SLOPPY_DOC)
   const errs: string[] = []
   page.on('pageerror', (e: unknown) => errs.push(String(e)))
   const before = await rowCount(page)

@@ -105,3 +105,46 @@ describe('版面模板', () => {
     })
   })
 })
+
+/**
+ * 降档对齐守卫（2026-10-10 加）：出厂「通用」在各窄档的取整投影。
+ *
+ * 背景：旧坐标（clock 5 宽@x0、sticky 3 宽@x5、todo 4 宽@x8）在 4 列档会让便签
+ * 落到与时钟压边的位置、被"就近塞"顶下去 —— 屏幕上就是一张浮在中列的"楼梯"。
+ * 新坐标是全枚举搜索选出来的（硬约束：todo ≥4 逻辑列否则 4 档裁字（E2E 实测抓过）、
+ * sticky ≤3（1.5× 理想宽上限）、recent ≥4），在 N=12/8/4 三档零空洞、零内部洞。
+ * **N=6 一档**被这三条约束夹住，五张卡排不成无洞两列，有一次通道式折行 —— 如实
+ * 记为已知折行并设回归线，不用"凑到过"的假守卫盖住。
+ */
+describe('通用模板的降档对齐', () => {
+  const stats = (n: number) => {
+    const doc = buildTemplate(REGISTRY, templateById(DEFAULT_TEMPLATE_ID)!)
+    const p = E.project(doc, REGISTRY, n)
+    const occ = new Set<string>()
+    for (const r of p.rects)
+      for (let y = r.y; y < r.y + r.h; y++) for (let x = r.x; x < r.x + r.w; x++) occ.add(`${x},${y}`)
+    const rows = Math.max(...p.rects.map((r) => r.y + r.h))
+    let holes = 0
+    let interior = 0
+    for (let y = 0; y < rows; y++)
+      for (let x = 0; x < p.cols; x++)
+        if (!occ.has(`${x},${y}`)) {
+          holes++
+          // 洞的右边还有卡片 → 内部洞（"楼梯感"的来源；右侧留白不算）
+          if (p.rects.some((r) => y >= r.y && y < r.y + r.h && r.x > x)) interior++
+        }
+    return { holes, interior, rows }
+  }
+
+  for (const n of [12, 8, 4]) {
+    it(`N=${n}：0 空洞、0 内部洞`, () => {
+      const s = stats(n)
+      expect(s.holes, `N=${n} 空洞`).toBe(0)
+      expect(s.interior, `N=${n} 内部洞`).toBe(0)
+    })
+  }
+
+  it('N=6：已知折行的回归线（空洞 ≤15；改坐标或改取整规则会先在这里红）', () => {
+    expect(stats(6).holes).toBeLessThanOrEqual(15)
+  })
+})
