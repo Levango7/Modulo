@@ -53,11 +53,11 @@ const busy = computed(() => st.value.status === 'checking' || st.value.status ==
     </p>
     <p v-else-if="updates.desktop" class="hint">
       桌面版可以直接在应用内更新：点「检查更新」→「下载更新」→「重启并安装」，下载后会先在本地验签。
-      仍不在启动时联网，这三件事都要你自己点。安装包没有 Authenticode 代码签名，Windows 首次运行仍会提示「未知发布者」。
+      仍不在启动时联网，这三件事都要你自己点。安装包暂未做 Authenticode 代码签名（SignPath 免费签名申请进行中），Windows 首次运行仍会提示「未知发布者」。
     </p>
     <p v-else class="hint">
       Modulo 不会自动更新，也不会在启动时联网。查一下只发一次请求到 GitHub。
-      安装包没有代码签名，Windows SmartScreen 会提示「未知发布者」—— 核对 Release 页上的 sha256 再运行。
+      安装包暂未做 Authenticode 代码签名（SignPath 免费签名申请进行中），Windows SmartScreen 会提示「未知发布者」—— 核对 Release 页上的 sha256 再运行。
     </p>
   </section>
 </template>

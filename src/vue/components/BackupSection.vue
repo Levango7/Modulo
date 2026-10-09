@@ -44,7 +44,7 @@ const backup = inject<BackupApi>('backup')!
     </div>
     <p class="hint">
       备份文件装着<b>版面、方案册和卡片内容</b>（便签 / 待办 / 速记的正文、倒数日）—— 换机器或重装时靠它。
-      下面那两枚只搬版面与方案，不含文字。
+      恢复前会把包里有什么先摆出来，确认之后才覆盖。
     </p>
     <ul v-if="backup.notices.value.length" class="notices">
       <li v-for="(n, i) in backup.notices.value" :key="i">{{ n }}</li>

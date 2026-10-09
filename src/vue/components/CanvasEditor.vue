@@ -538,9 +538,17 @@ function removeSelected() {
   font-size: 12px;
   box-shadow: var(--shadow-hover);
 }
-@media (max-width: 720px) {
+/* 双列（库 + 画布）的前提是画布放得下 12 个逻辑列。
+   220px 的库在 ~992 以下会把画布挤到每列只剩 ~40px —— 编辑时拖不准也点不中
+   （实测 740 宽时画布只有 468px）。所以对齐应用的语义断点（992 = 引擎 960 容器
+   对应的视口，顶栏同步降档也用它）：以下改上下堆叠、画布拿满整宽，库收成一条限高滚动带。 */
+@media (max-width: 992px) {
   .editor {
     grid-template-columns: 1fr;
+    grid-template-rows: auto minmax(0, 1fr);
+  }
+  .lib {
+    max-height: 196px;
   }
 }
 </style>
