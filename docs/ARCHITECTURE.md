@@ -70,14 +70,23 @@ F:\Nexus\Modulo\
 │  │  └─ cards\   Clock / Sticky / Todo / Notes / Weather / Calendar / Progress / WorldClock / Countdown / DateTools / Elapsed / Habit / Calculator / Unit / Color / TextStat / Random / Base / Fx / Air / Repo / Hn / Moon（全部接容器查询）
 │  ├─ tokens\              设计令牌（纯 CSS 变量，亮/暗两套）
 ├─ tests\
-│  ├─ engine\              单测（47 个文件，每个纯函数）
-│  ├─ property\            fast-check：投影不变量 I1–I4 + 分区完整（共 5 条断言）
+│  ├─ engine\              单测（每个纯函数一个文件）
+│  ├─ property\            fast-check：投影不变量 I1–I4 + 分区完整
 │  ├─ vue\                 适配层单测（store / fileStorage / cardData / appearance / shell / starter / backup）
 │  ├─ engine-purity.test.ts  逐文件守住「引擎零框架 / DOM 依赖」
-│  └─ e2e\                 puppeteer-core 驱动系统 Chrome：22 条真浏览器断言
+│  └─ e2e\                 puppeteer-core 驱动系统 Chrome：真浏览器断言
 └─ docs\ARCHITECTURE.md
 ```
 
+上面这棵树只描述**结构**；规模数字集中在这一行 —— `tests/` 下 **67 个文件**，其中 `tests/engine/` 47 个（每个纯函数一个）；fast-check 投影不变量属性测试 5 条断言（I1–I4 + 分区完整）；真浏览器 **E2E 23 条**。<!-- facts -->
+
+> **2026-10-10 说明（为什么数字从这里搬走了）**：上面那棵树原先在注释里带着三个规模数字
+> （`engine` 47 个文件 / `property` 5 条断言 / `e2e` 22 条），而**代码块里的数字挂不了门禁** ——
+> `docs-check` 认的是行尾的 `<!-- facts -->`，而这个标记放进代码块会**原样渲染成可见文本**。
+> 代价已经付过一次：`e2e` 那条从 22 漂到 23 而无人发现（同一份文档第 367 行的权威值早就写着 23，
+> 两处自相矛盾）。所以改成与 README 那棵树同样的写法：**树只描述结构，数字集中到上面那一行**
+> —— 那里才挂得住标记。规则是「**守不住的数字不写第二遍**」。
+>
 > **2026-10-02 复核**：上面这棵树此前记的是设计时的**计划**结构，和落地的代码差了十几个名字 —— 没有 `useDrag.ts` / `useKeyboard.ts` / `useFlip.ts` / `GridCell.vue`，也没有 `src/persist/`（拖拽与键盘编排直接长在 `CanvasEditor.vue` 与 `App.vue` 里，没单独抽 composable；让位动效是 `GridLayout.vue` 的 `TransitionGroup`），E2E 用的是 puppeteer-core 而不是 Playwright。已按实际文件重写。
 >
 > **2026-10-04 第二次复核**：上面「没单独抽 composable」那句已过时 —— 拖拽状态机已在 `useCanvasDrag.ts`、键盘意图判定已是纯函数 `keyboard.ts`；组合键判定在 `chord.ts`。本轮又补三个：`useProjection.ts`（投影派生从 App.vue 抽出）、`useElementWidth.ts`（ResizeObserver 样板）、`useCellFocus.ts`（编辑器焦点跟随）。`store.ts` 仍按一个工厂收历史 + 持久化，未做进一步拆分。
