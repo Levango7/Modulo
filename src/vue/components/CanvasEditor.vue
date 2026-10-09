@@ -10,6 +10,16 @@ import { cellIntent, globalIntent, isEditableTarget, shouldPrevent } from '../ke
 const store = inject<LayoutStore>('store')!
 const reg = store.reg
 
+/**
+ * 行轨高度来自 `useProjection().rowPx` —— **与浏览态是同一个数**。
+ *
+ * 这里写过 `minmax(0, 1fr)`（画布把可用高摊给轨），后果是编辑态的行轨变成
+ * "画布高 ÷ 行数"的函数：1408×1440 下实测 **93.94px**，而浏览态是 `rowPx = 127px`，
+ * 同一份版面在两态之间缩放约 1.35 倍；又因为轨数下限是 12 而内容只用 6 行，
+ * 画布 1329px 里有 **686px 是空的**。两态不一致的根因就是这个 —— 单位不是同一个。
+ */
+const props = defineProps<{ rowPx: number }>()
+
 const gridEl = ref<HTMLElement | null>(null)
 const sel = ref<Set<string>>(new Set())
 const selCount = computed(() => sel.value.size)
@@ -17,7 +27,12 @@ const selCount = computed(() => sel.value.size)
 const items = computed(() => store.doc.value.items)
 
 /** 指针状态机在 `useCanvasDrag.ts`（见那里的注释：四条互相 interference 的语义为什么值得单列一个文件） */
-const { drag, ghost, rowCount, toggleSelect, startMove, startNew, startResize, onCanvasPointerDown, variantOf } = useCanvasDrag({ store, gridEl, sel })
+const { drag, ghost, rowCount, toggleSelect, startMove, startNew, startResize, onCanvasPointerDown, variantOf } = useCanvasDrag({
+  store,
+  gridEl,
+  sel,
+  rowPx: computed(() => props.rowPx),
+})
 
 const titleOf = (p: E.Placement) => p.title ?? E.findModule(reg, p.id)?.title ?? p.id
 const variantName = (p: E.Placement) => variantOf(p)?.name ?? ''
@@ -149,7 +164,7 @@ function removeSelected() {
       <div
         ref="gridEl"
         class="canvas"
-        :style="{ gridTemplateRows: `repeat(${rowCount}, minmax(0, 1fr))` }"
+        :style="{ gridTemplateRows: `repeat(${rowCount}, ${rowPx}px)` }"
         @pointerdown="onCanvasPointerDown"
       >
         <div
@@ -294,16 +309,25 @@ function removeSelected() {
 }
 .stage {
   min-width: 0;
+  min-height: 0;
   display: flex;
   flex-direction: column;
   gap: var(--space-2);
+  /* 行轨是固定 px（与浏览态同一个 rowPx），版面比画布高时不再靠"压扁行"塞进来 ——
+     由这一层承接滚动。浏览态是同一条规矩（`App.vue` 的 `.stage` 也是 `overflow-y: auto`）。 */
+  overflow-y: auto;
 }
 .canvas {
   display: grid;
   grid-template-columns: repeat(12, minmax(0, 1fr));
   gap: 16px;
-  flex: 1;
+  /* `1 0 auto` 而不是 `1`：基准取内容高（版面高），有富余就长到填满、没富余也不缩。
+     原来写 `flex: 1`（= `1 1 0%`），基准为 0、可缩 —— 那是配合 `1fr` 行轨写的
+     （轨会自己摊平）。轨固定之后必须禁掉收缩，否则版面高的文档会被压出画布盒子。 */
+  flex: 1 0 auto;
   min-height: 320px;
+  /* 轨是定值，盒子更高时余下的空间留在下方（不摊进轨里），既是留白也是落点 */
+  align-content: start;
   padding: var(--space-3);
   border: 1px dashed var(--border-strong);
   border-radius: var(--radius-xl);

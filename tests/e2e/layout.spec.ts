@@ -257,6 +257,40 @@ it.skipIf(skip)('编辑器键盘可达：格子可聚焦且方向键生效（x-h
   await page.close()
 })
 
+/**
+ * 两态行高一致（2026-10-09 新增的守卫）。
+ *
+ * 编辑态画布原先是 `minmax(0, 1fr)` —— 把画布的可用高摊给行轨，于是轨高变成
+ * "画布高 ÷ 行数"的函数；浏览态是固定 `rowPx`。同一份版面在两态之间会缩放
+ * （实测 1408×1440：编辑态 93.94px vs 浏览态 127px，差 1.35 倍），加上轨数下限 12，
+ * 画布 1329px 里有 686px 是空的。现在两态共用同一个 `rowPx`。
+ *
+ * **为什么必须有这条**：UI 不一致不会让任何已有断言变红 —— 把 `rowPx` 换回 `1fr`
+ * 之后，22 条 E2E 会**全绿**（拖拽、缩放、键盘、帧率全都不受影响，因为落点几何
+ * 跟着一起变）。没有这条守卫，这次修的东西会被无声地改回去。
+ */
+it.skipIf(skip)('两态行高一致：编辑态轨高 = 浏览态 rowPx，且卡片高 = span 轨 + 间距', async () => {
+  const page = await freshPage(1440, 900)
+  const browseTrack = await page.evaluate(() =>
+    parseFloat(getComputedStyle(document.querySelector('.grid')!).gridTemplateRows.split(' ')[0]),
+  )
+  await enterEditor(page)
+  const edit = await page.evaluate(() => {
+    const canvas = document.querySelector('.canvas')!
+    const track = parseFloat(getComputedStyle(canvas).gridTemplateRows.split(' ')[0])
+    const cells = [...document.querySelectorAll<HTMLElement>('.canvas .cell')]
+    const errs = cells.map((el) => {
+      const span = Number(/span\s+(\d+)/i.exec(el.style.gridRow)?.[1] ?? 0)
+      return Math.abs(el.getBoundingClientRect().height - (span * track + (span - 1) * 16))
+    })
+    return { track, maxErr: errs.length ? Math.max(...errs) : Infinity, cells: cells.length }
+  })
+  expect(edit.cells, '编辑态应有卡片').toBeGreaterThan(0)
+  expect(edit.track, '编辑态轨高应与浏览态 rowPx 是同一个数（两态之间不该缩放）').toBeCloseTo(browseTrack, 5)
+  expect(edit.maxErr, '编辑态卡片高应等于 span 个轨 + 间距').toBeLessThanOrEqual(1.5)
+  await page.close()
+})
+
 it.skipIf(skip)('框选 → 成组拖拽 → Ctrl+Z 整体回退', async () => {
   const page = await freshPage(1440, 900)
   await enterEditor(page)

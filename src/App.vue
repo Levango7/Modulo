@@ -275,7 +275,7 @@ function onGlobalKey(e: KeyboardEvent) {
         <p v-if="!projection.rects.length" class="empty muted">版面是空的，去「布局编辑」拖几张卡进来。</p>
       </template>
 
-      <CanvasEditor v-else-if="mode === 'canvas'">
+      <CanvasEditor v-else-if="mode === 'canvas'" :row-px="rowPx">
         <template #default="{ item }">
           <component :is="CARD_COMPONENTS[item.id]" :variant="item.variant" :module-id="item.id" :chromeless="true" />
         </template>
