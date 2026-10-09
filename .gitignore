@@ -24,3 +24,11 @@ coverage/
 # 这一份是 `scripts/engine-license.mjs` 在 prepack 里生成的产物 ——
 # npm 只会把「包目录下」的 LICENSE 装进 tarball，根目录那份它看不见。
 packages/engine/LICENSE
+
+# 临时探针脚本：约定是「`tmp-*`，跑完即删，不 commit」（见 AGENT-COORD.md「约定」一节）。
+# 踩过的坑：磁盘上**未跟踪**的 `tmp-shot.ps1` 被一句 `git add -A` 带进了提交，
+# 之后用了两笔提交才挪出去（第一笔还是空改动 —— 详见板上 10-09 10:50 那条）。
+# 这里让它默认不出现在 `git status` 里，于是 `git add -A` 根本带不上（**事前**挡）；
+# 真被 `git add -f` 强行加进去的，由 `scripts/coord-gate.mjs` 判据 4 拦下并报红（**事后**红）。
+# 两条腿缺一不可：只挡不查，`-f` 一下就穿了；只查不挡，每次都要靠红灯才知道踩了坑。
+tmp-*
