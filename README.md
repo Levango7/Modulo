@@ -6,7 +6,7 @@
 
 **先试 30 秒（不用装任何东西）**：[网页版](https://levango7.github.io/Modulo/)。打开后**把窗口从宽拖到窄** —— 这就是这个产品的全部：12 列逻辑版面会按容器宽度投影成 12 / 8 / 6 / 4 / 1 列，卡片按形态降档而不是被压成碎片。数据存在浏览器 localStorage 里，与桌面版各存各的。
 
-**想要装起来用**：[Releases](https://github.com/Levango7/Modulo/releases/latest) 里有 Windows x64 的 NSIS 安装包。**装过一次之后，以后的新版本可以在设置页里直接更新**（下载 → 本地验签 → 重启安装）。安装包**没有代码签名**，首次运行 Windows SmartScreen 会提示「未知发布者」。数据落在 `%APPDATA%\app.modulo\data\*.json`，整个目录拷走就是备份。
+**想要装起来用**：[Releases](https://github.com/Levango7/Modulo/releases/latest) 里有 Windows x64 的 NSIS 安装包。**装过一次之后，以后的新版本可以在设置页里直接更新**（下载 → 本地验签 → 重启安装）。安装包**暂未做 Authenticode 代码签名**（SignPath 免费签名申请进行中，签名政策见 [CODE_SIGNING_POLICY.md](CODE_SIGNING_POLICY.md)），首次运行 Windows SmartScreen 会提示「未知发布者」。数据落在 `%APPDATA%\app.modulo\data\*.json`，整个目录拷走就是备份。
 
 > 链接指向 `latest` 而不是写死某个版本号 —— 写死的那个迟早和仓库里的版本对不上，而读者不会知道。仓库当前源码版本以 `package.json` 为准（版本号 7 处同源，`npm run docs:check` 守）。
 
