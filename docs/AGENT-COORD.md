@@ -141,6 +141,7 @@ git diff --stat origin/master <分支>
 
 | 时间 | Agent | 在做什么 | 会改的文件 | 请勿动 | 状态 |
 |------|-------|----------|-----------|--------|------|
+| 10-09 19:10 | agent-A（ZCode 本会话） | **收尾复查 + 分支卫生**（用户：「看一下项目，找出现在的问题，解决问题」）：① 复核确认 **npm 首发仍是唯一未闭环项**（官方 registry `@levango7/engine` = 404；本机 `npm whoami` 未登录；仓库 secret 只有 `TAURI_SIGNING_PRIVATE_KEY`）—— 我复跑了 `npm publish --dry-run`，与 #34 记录逐项一致（97 文件 / 104.1 kB，含 dist、README、11.5 kB LICENSE），**包侧零阻塞，卡在账号侧**；② 删除 8 条已并入 master 的远端陈旧分支 + 9 条本地同名分支（每条删除前做「tip vs 对应 squash」树比对，7/7 全空）；③ 门禁复核：coord-gate 0 警告、docs:check 绿、typecheck 干净。 | `docs/AGENT-COORD.md`、分支引用（远端 + 本地） | 产品代码一行不碰；`stash@{0}`、`rescue/main-wt-arch-draft`、`release/0.7.1`（wt-v5 在用）、磁盘上的 `tmp-shot.ps1` 与 `evidence/` 全不动 | ✅ done 19:10（本笔） |
 | 10-09 10:50 | 灵语（本会话） | **真正把 `tmp-shot.ps1` 移出版本库**（上一行是空改动，这里重做）。做法：`git rm --cached tmp-shot.ps1`，然后提交时**只 add `docs/AGENT-COORD.md` 一个路径** —— 把那个路径写进 `git add` 就等于撤销刚做的删除动作。**提交前先 `git diff --cached --stat` 核对恰好是两个路径**（`D tmp-shot.ps1` + `M docs/AGENT-COORD.md`），提交后再用 `git ls-files tmp-shot.ps1` 复核（索引里已为空），不再只看 `git status`。**磁盘上的文件原样保留**（1615 字节，`??` 状态），它仍然是那个会话在用的东西。另：PR #35 已是合并状态，那边的假记录用一条评论更正，不去改写已合并的 PR 正文 | `tmp-shot.ps1`（仅移出跟踪）、本文件 | 磁盘上的 `tmp-shot.ps1` 一行不动；`src/**`、`packages/engine/**`、`src-tauri/**`、`.github/**` 全不碰 | ✅ done 10:52（提交前 `git diff --cached --stat` 实测恰好两个路径：`M docs/AGENT-COORD.md` + `D tmp-shot.ps1`（−43）；`git ls-files tmp-shot.ps1` 为空；磁盘文件 1615 字节仍在。`coord-gate` 0 警告、`docs:check` 绿；不改代码故未重跑 build/E2E） |
 | 10-09 10:32 | 灵语（本会话） | **修我自己上一笔的失误**：`b4cc3d9`（PR #33）用了 `git add -A`，把一个**别的会话的未跟踪临时脚本** `tmp-shot.ps1` 顺手提交进了版本库（它在本会话开工之前就在工作区里，`git status` 里是 `??`）。本意是 `git rm --cached` 把它移出跟踪、**磁盘上的文件原样保留** —— 那是别人在用的东西，我不该替它做取舍。顺带自查了另一笔 `4ccc698`（PR #34）新增的两个文件（`scripts/engine-license.mjs`、`tests/release/engine-package.test.ts`）都是我有意加的，**没有第二处误提交** | `tmp-shot.ps1`（仅移出跟踪）、本文件 | 磁盘上的 `tmp-shot.ps1` 一行不动；`src/**`、`packages/engine/**`、`src-tauri/**`、`.github/**` 全不碰 | ⚠️ **这一笔是空改动 —— 我在本行与 PR #35 里都写了"done"，那是假记录。真实处置见下面 10-09 10:50 那一行。** 机制：`git rm --cached <path>` 之后再 `git add <path>` 会把它**原样加回索引**，于是暂存区里那一删一加相互抵消。而我在 `git add` **之前**跑的 `git status --short` 显示的是 `D tmp-shot.ps1 / ?? tmp-shot.ps1`（当时是对的），**验的是动作生效前的那一刻** —— 这一类"验证时机错位"与本会话早先在探针上踩的那个是同一个形状 |
 | 10-09 09:45 | 灵语（本会话） | **决策落地下半：`@modulo/engine` 开始对外发布到 npm**（用户拍：「发，用 `@levango7/engine`」）。名字只能改：实测 `npmjs.com/org/modulo` 落到别人的账号页（0 包 0 组织）→ `@modulo` 作用域不在我们手上；无作用域的 `modulo` 也被占了（`modulo@0.0.3`）。改动：① 全仓改名（**109 文件 / 158 处**）+ `publishConfig.access=public`（scoped 包默认 restricted）+ `packages/engine/README.md` 重写；② 新增 `scripts/engine-license.mjs` 并由 `prepack` 调用 —— **打出来的 tarball 里原本一个 LICENSE 都没有**（npm 只自动带包目录下的 LICENSE，单一来源在仓库根，Apache-2.0 第 4 条要求随附）；③ 新增门禁 `tests/release/engine-package.test.ts`（5 条，**变异 5/5 全红**）+ `.gitignore` 一条；④ CI 的 `release` job 加 `id-token: write` + `registry-url` + **两处** package.json 版本校验 + 两步 npm 发布（**没配 `NPM_TOKEN` 就跳过**，且位置在挂完 Release 之后 —— `npm publish` 不可撤回）；⑤ `docs/ARCHITECTURE.md` 新增 §12（12.1–12.8）并把 §1 树与第 88 行改指新名。**改名时的真实事故记在 §12.2**：两处别名写的是转义正则 `@modulo\/engine`，纯文本替换一条没命中，而当时 980 单测 / 23 E2E / typecheck / docs:check **全绿** —— 这就是那道门禁为什么要"逐处点名"而不是"扫旧名" | `packages/engine/package.json`（**只改 `name` / 加 `publishConfig` / 加 `license:sync`，`packages/engine/src/**` 一行未动**）、`packages/engine/README.md`、`src/**`、`tests/**`（改名 + 新增 1 个文件）、`scripts/docs-check.mjs`、`scripts/engine-license.mjs`（新增）、`vite.config.ts`、`vitest.config.ts`、`tsconfig.json`、`package.json`、`package-lock.json`（`npm install` 重新生成）、`.gitignore`、`README.md`、`CONTRIBUTING.md`、`.github/workflows/ci.yml`、`docs/ARCHITECTURE.md`、`CHANGELOG.md`、本文件 | `packages/engine/src/**`（引擎逻辑一行不改）、`src-tauri/**`、`dist/`、`target/`、`docs/CARD-CATALOG.md`。**`CHANGELOG` / `AGENT-COORD` 里的历史条目按原样保留**（0.4.0 那段写的是"当时的名字"，与本轮 §1 对 `src/engine/**` 的处理一致） | ✅ done 10:10（类型检查干净 · **985 单测 / 67 文件**（980+5）· 覆盖 **94.92%**（不变）· **E2E 23/23** · 主包 309.33 kB（不变）· `docs:check` 绿 · `coord-gate` **0 警告**；`npm pack` 实测 **104.1 kB / 解包 263.8 kB / 97 文件**（修许可证前是 99.4 / 251.2 / 96），`npm publish --dry-run` 实跑通并打出 `with tag latest and public access` —— **包还没真发**，等用户配 `NPM_TOKEN`。门禁变异自检 **5/5 全红**：别名回旧名 / **别名整行删掉**（第一版漏的形状）/ 删 `publishConfig` / `prepack` 去掉许可证同步 / 源码漏一个导入） |
@@ -868,3 +869,22 @@ git diff --stat origin/master <分支>
   `vite build` 清 `dist/` 都会被 `SAFE_DELETE_BULK_GUARD` 拦（后者还可能以
   `state lock timeout` 的形式出现）。加 `CODEBUDDY_SAFE_DELETE_ENABLED=0` 即可 ——
   这两个目录都是 gitignore 的构建产物。
+
+- 10-09 19:10 agent-A（ZCode 本会话）：**全仓复查（用户：「看一下项目，找出现在的问题，解决问题」）—— 结论：唯一未闭环项仍是 npm 首发（卡账号侧）；另做了一轮分支卫生。**
+  ① **npm 首发**（#34 已记「等用户配 NPM_TOKEN」，本轮复核确认**仍**是唯一缺口）：
+  - 实测证据：官方 registry 上 `@levango7/engine` = **404**；本机 `npm whoami` = 未登录；
+    仓库 secrets = 只有 `TAURI_SIGNING_PRIVATE_KEY`。
+  - 包侧零阻塞：`npm publish --dry-run` 复跑通过，与 #34 记录逐项一致（97 文件 / 104.1 kB packed /
+    263.8 kB unpacked；含 `dist/`、`README.md`、`LICENSE` 11.5 kB）—— **不需要再改任何代码或配置**。
+  - 两条落地路径（B 可选）：**A. 手动首发**：本机 `npm login`（用户名须为 `levango7`，scope 才归这个账号）
+    → `npm run engine:publish`；**B. 之后随 tag 自动发**：npm 建 Automation token →
+    `gh secret set NPM_TOKEN` → 下一个 `v*` tag 的 release job 自动带 `--provenance` 发。
+    未配好之前 release job 打 warning 显式跳过、桌面产物不受影响（#34 的既定设计）。
+  - ⚠️ **首发会消耗掉 `0.8.0` 这个版本号，不可撤回** —— 跑 publish 前把 tarball 再看一眼。
+  ② **分支卫生**：删 8 条远端 + 9 条本地陈旧分支（先 `git diff <tip> <对应 squash>` 树比对，7/7 全空；
+    `docs/coord-registration-rule` 走锚点兜底）。现在本地只剩 `master`、`rescue/main-wt-arch-draft`
+    与 wt-v5 里的 `release/0.7.1`。
+  ③ 全绿项：coord-gate 0 警告 · docs:check「标记行数字与实跑一致」（985 单测 / 67 文件 · E2E 23 ·
+    覆盖 94.92%）· typecheck 干净 · master CI（`bd6f359`）绿 · 无开放 PR / issue。
+  ④ 按既有约定保持不动：磁盘上的 `tmp-shot.ps1`（别的会话在用）与 `evidence/`（已 gitignore）；
+    SignPath 申请按 09:20 的裁决「慢一步」，不计入本轮缺口。
