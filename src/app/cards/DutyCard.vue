@@ -9,7 +9,7 @@
  * 名录为空时显示"待排"，而不是回落到第一个名字 —— 那会让一张没填的表看起来像已经排好了。
  */
 import { computed, inject, onBeforeUnmount, ref } from 'vue'
-import { blockTimeLabel, currentDuty, DEFAULT_SHIFT_BLOCKS, monthDuties, type DutySlot } from '@modulo/engine/shift'
+import { blockTimeLabel, currentDuty, DEFAULT_SHIFT_BLOCKS, monthDuties, type DutySlot } from '@levango7/engine/shift'
 import { Plus, Trash2, UserRound } from 'lucide-vue-next'
 import type { CardDataApi } from '../../vue/cardData'
 

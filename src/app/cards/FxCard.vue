@@ -5,7 +5,7 @@
  * 收窄响应与交叉汇率在引擎 `fx.ts`（真夹具单测）。
  */
 import { computed, inject, onMounted, ref } from 'vue'
-import { FX_CURRENCIES, FX_URL, crossRate, currencyName, parseRates } from '@modulo/engine/fx'
+import { FX_CURRENCIES, FX_URL, crossRate, currencyName, parseRates } from '@levango7/engine/fx'
 import { RefreshCw } from 'lucide-vue-next'
 import { useRemote } from '../../vue/useRemote'
 import type { StorageAdapter } from '../../vue/store'

@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import { createLayoutStore, memoryStorage } from '../../src/vue/store'
 import { REGISTRY } from '../../src/vue/cardRegistry'
-import * as E from '@modulo/engine'
-import type { LayoutDoc } from '@modulo/engine/types'
+import * as E from '@levango7/engine'
+import type { LayoutDoc } from '@levango7/engine/types'
 
 /**
  * 起步版面是产品门面：新用户首启看到的就是这张。

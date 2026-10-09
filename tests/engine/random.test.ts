@@ -1,5 +1,5 @@
 ﻿import { describe, expect, it } from 'vitest'
-import { pickWeighted, rollDice, rollInts } from '@modulo/engine/random'
+import { pickWeighted, rollDice, rollInts } from '@levango7/engine/random'
 
 /** 固定序列的假 RNG：断言的是"怎么用 RNG"，不是"随机"本身 */
 function seqRng(values: number[]): () => number {

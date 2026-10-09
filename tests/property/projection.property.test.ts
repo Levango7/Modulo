@@ -1,10 +1,10 @@
 import { describe, expect, it } from 'vitest'
 import * as fc from 'fast-check'
-import { addItem, resizeItem, setVariant } from '@modulo/engine/ops'
-import { collides } from '@modulo/engine/geometry'
-import { project } from '@modulo/engine/projection'
-import { LOGICAL_COLS } from '@modulo/engine/types'
-import type { LayoutDoc } from '@modulo/engine/types'
+import { addItem, resizeItem, setVariant } from '@levango7/engine/ops'
+import { collides } from '@levango7/engine/geometry'
+import { project } from '@levango7/engine/projection'
+import { LOGICAL_COLS } from '@levango7/engine/types'
+import type { LayoutDoc } from '@levango7/engine/types'
 import { REGISTRY } from '../fixtures'
 
 /** 确定性 PRNG：失败时可凭 seed 复现 */

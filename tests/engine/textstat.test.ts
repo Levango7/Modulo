@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { textStats } from '@modulo/engine/textstat'
+import { textStats } from '@levango7/engine/textstat'
 
 describe('textStats：字符 / 词 / 行的口径', () => {
   it('纯英文：词按连续串算，字符按码点', () => {

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { anyCollides, clamp, collides, maxRow } from '@modulo/engine/geometry'
+import { anyCollides, clamp, collides, maxRow } from '@levango7/engine/geometry'
 
 const r = (x: number, y: number, w: number, h: number) => ({ x, y, w, h })
 

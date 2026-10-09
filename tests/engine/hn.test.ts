@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { HN_TOP_URL, hnDiscussionUrl, hnItemUrl, parseStory, parseTopIds } from '@modulo/engine/hn'
+import { HN_TOP_URL, hnDiscussionUrl, hnItemUrl, parseStory, parseTopIds } from '@levango7/engine/hn'
 
 /** 真夹具：topstories 的前 5 个 id + 第一条 item 的响应（2026-10-04 抓） */
 const TOP_IDS = [49946393, 49947631, 49923873, 49948254, 49946355, 49940877, 49946895, 49942706, 49947051, 49946526]

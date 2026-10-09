@@ -4,7 +4,7 @@
  * 卡片上写 **≈** —— 要精确到小时那是天文年历的事。动画只用一个圆 + 阴影的近似画法。
  */
 import { computed, onBeforeUnmount, ref } from 'vue'
-import { daysToFullMoon, moonPhase } from '@modulo/engine/moon'
+import { daysToFullMoon, moonPhase } from '@levango7/engine/moon'
 
 const props = defineProps<{ variant: string }>()
 

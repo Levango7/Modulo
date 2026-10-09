@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import * as E from '@modulo/engine'
-import type { ModuleRegistry, Rect } from '@modulo/engine/types'
+import * as E from '@levango7/engine'
+import type { ModuleRegistry, Rect } from '@levango7/engine/types'
 
 /* ---- A2 方案实现：只活在这个对照实验里，产品层不引（结论见 docs/ARCHITECTURE.md §3.4） ---- */
 function columnBoundaries(cols: number, logical = 12): number[] {

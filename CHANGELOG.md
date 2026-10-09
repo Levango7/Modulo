@@ -29,6 +29,21 @@
 这次改的是"编辑态怎么用它"。新增一条 E2E 守卫（编辑态轨高 = 浏览态 `rowPx`，
 且卡片高 = span 轨 + 间距）；没有它的话，把 `rowPx` 换回 `1fr` 之后 22 条 E2E 会全绿。
 
+### 引擎包开始对外发布（`@levango7/engine`）
+
+`packages/engine/` 从 0.4.0 抽出来之后一直只在本仓库内按源码消费，**从没发到 npm**。
+现在它随每个 `v*` tag 一起发布（仓库 secret 里没配 `NPM_TOKEN` 就跳过，不影响桌面产物）。
+
+对外发布名从 `@modulo/engine` 改成 **`@levango7/engine`** —— `@modulo` 这个作用域在 npm 上
+已经不是我们的（实测 `npmjs.com/org/modulo` 落到别人的账号页），无作用域的 `modulo` 也早被占了。
+仓库内与发布名保持**同一个名字**，`tests/release/engine-package.test.ts` 逐处点名守着这一点。
+
+顺带修掉一件发出去之前看不见的事：**打出来的 tarball 里一个 LICENSE 文件都没有** ——
+npm 只自动带上「包目录下」的 LICENSE，而我们的许可证单一来源在仓库根（Apache-2.0 第 4 条
+要求分发时随附副本）。现在 `prepack` 会先把它同步进包，再构建。
+
+应用本身没有行为变化 —— 这一笔是分发链上的事，详见 `docs/ARCHITECTURE.md` §12。
+
 ## 0.8.0（2026-10-08）—— 界面骨架重做：顶栏整合、行高自适应、出厂皮肤换柔光
 
 用户可见的界面整体重做，是本项目至今最大的一次 UI 改动（`src/App.vue` 单文件 200 行）。

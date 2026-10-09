@@ -10,7 +10,7 @@
  * 到点即切段（`intervalView` 里做的），钟归零不累计 —— 否则"专注 25 分钟"会显示 50 分钟。
  */
 import { computed, inject, onBeforeUnmount, ref, watch } from 'vue'
-import { INTERVAL_PRESETS, intervalPresetById, intervalView, PHASE_LABELS, progress } from '@modulo/engine/timer'
+import { INTERVAL_PRESETS, intervalPresetById, intervalView, PHASE_LABELS, progress } from '@levango7/engine/timer'
 import { Coffee, Pause, Play, RotateCcw, Target } from 'lucide-vue-next'
 import type { CardDataApi } from '../../vue/cardData'
 

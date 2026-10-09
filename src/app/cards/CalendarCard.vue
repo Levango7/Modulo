@@ -2,11 +2,11 @@
 /**
  * 月历卡：一张固定 6×7 的当月格子，今天高亮；可以翻月（翻月只是看，不改任何数据）。
  *
- * 日期算术全在引擎（`@modulo/engine/calendar`）—— 那层有闰年/跨年/补位的单测，
+ * 日期算术全在引擎（`@levango7/engine/calendar`）—— 那层有闰年/跨年/补位的单测，
  * 这里只剩"视图状态 + 每分钟让'今天'别过期"。60 秒一跳是为了跨零点：卡片常开着。
  */
 import { computed, onBeforeUnmount, ref } from 'vue'
-import { monthGrid, shiftMonth } from '@modulo/engine/calendar'
+import { monthGrid, shiftMonth } from '@levango7/engine/calendar'
 import { ChevronLeft, ChevronRight } from 'lucide-vue-next'
 
 const props = defineProps<{ variant: string }>()

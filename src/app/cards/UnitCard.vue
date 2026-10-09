@@ -4,7 +4,7 @@
  * 换算表与温度公式在引擎（`convert.ts`，系数都有硬事实单测）；这里只摆表单与结果。
  */
 import { computed, ref } from 'vue'
-import { convert, UNITS, unitName, type UnitCategory } from '@modulo/engine/convert'
+import { convert, UNITS, unitName, type UnitCategory } from '@levango7/engine/convert'
 
 const props = defineProps<{ variant: string }>()
 

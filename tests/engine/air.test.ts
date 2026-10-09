@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { airUrl, aqiLevel, parseAir } from '@modulo/engine/air'
-import { cityById } from '@modulo/engine/weather'
+import { airUrl, aqiLevel, parseAir } from '@levango7/engine/air'
+import { cityById } from '@levango7/engine/weather'
 
 /** 真夹具：2026-10-04 03:00（当地）抓的上海空气质量响应 */
 const REAL = {

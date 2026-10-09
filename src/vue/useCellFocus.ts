@@ -1,5 +1,5 @@
 import { nextTick } from 'vue'
-import type * as E from '@modulo/engine'
+import type * as E from '@levango7/engine'
 
 /**
  * 编辑器格子的焦点跟随：删除/移动后焦点不能丢进 body，聚焦的格子要滚进视口。

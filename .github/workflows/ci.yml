@@ -33,7 +33,7 @@ jobs:
         run: npm run build
       # 「抽包」的承诺是"可分发的资产"，不是"目录挪了个位置" —— 包必须能独立构建。
       # 不构建的话 dist/ 永远是空的，等真发 npm 包（prepack 会构建）才发现问题太晚。
-      - name: 引擎包独立构建（@modulo/engine）
+      - name: 引擎包独立构建（@levango7/engine）
         run: npm run engine:build
       # 与 x-hub 的反面教材相对：它写了 164 个 Rust 测试，但 CI 只跑 vue-tsc + cargo check，一个测试都不执行
       - name: 浏览器交互 E2E（拖拽 / 框选 / 键盘 / 撤销 / 三档视口）
@@ -111,33 +111,47 @@ jobs:
       (github.event_name == 'workflow_dispatch' && inputs.release_tag != '')
     runs-on: windows-latest
     timeout-minutes: 60
-    # 需要写权限才能用 gh 创建 Release；Secrets 里得先配 TAURI_SIGNING_PRIVATE_KEY
+    # 需要写权限才能用 gh 创建 Release；Secrets 里得先配 TAURI_SIGNING_PRIVATE_KEY。
+    # `id-token: write` 是给 npm 的 provenance 用的：它换一张 OIDC 令牌，让 npm 侧
+    # 自己签一份"这个包确实从这个仓库的这次 CI 构建出来"的证明，附在包上。
+    # 少于这个权限时 `npm publish --provenance` 会直接失败。
     permissions:
       contents: write
+      id-token: write
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: 22
           cache: npm
+          # 只在**这个 job** 里声明 registry-url：setup-node 会据此在 runner 的
+          # 用户级 .npmrc 里写一行 `//registry.npmjs.org/:_authToken=${NODE_AUTH_TOKEN}`，
+          # 于是下面那条 `npm publish` 认得 NODE_AUTH_TOKEN。
+          # 为什么不把这一行写进仓库那份 .npmrc：那是**每台机器都会读**的文件，
+          # 而 token 只在 CI 里存在。发 npm 的凭据不该让本地 `npm install` 也去解析。
+          registry-url: https://registry.npmjs.org
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: src-tauri
       - run: npm ci
 
-      # 版本号三处对齐先挡一次：tag 必须等于 package.json 里的版本，否则 `make-latest-json`
-      # 的 signedVersion 校验也会在出清单前挡。这里少挡一层就是发布一个张冠李戴的版本
-      - name: 校验 tag 与 package.json 版本一致
+      # 版本号对齐先挡一次：tag 必须等于 package.json 里的版本，否则 `make-latest-json`
+      # 的 signedVersion 校验也会在出清单前挡。这里少挡一层就是发布一个张冠李戴的版本。
+      # 2026-10-09 起多查一处 `packages/engine/package.json` —— 那个包现在会随 tag 发到 npm，
+      # 而 npm **同一个版本号只能发一次**，发错版本比发不出去更难收拾。
+      - name: 校验 tag 与两处 package.json 版本一致
         shell: pwsh
         run: |
           $tag = '${{ github.event.inputs.release_tag }}'
           if (-not $tag) { $tag = '${{ github.ref_name }}' }
-          $version = (node -p "require('./package.json').version")
           $expect = $tag -replace '^v', ''
-          if ($version -ne $expect) {
-            Write-Error "tag 是 v$expect，但 package.json 版本是 $version，两处不一致，拒绝发布"
-            exit 1
+          foreach ($f in @('./package.json', './packages/engine/package.json')) {
+            $version = (node -p "require('$f').version")
+            if ($version -ne $expect) {
+              Write-Error "tag 是 v$expect，但 $f 的版本是 $version，两处不一致，拒绝发布"
+              exit 1
+            }
           }
 
       # 与本机出包同一条命令；tauri build 会签名更新产物（.sig），并跑 NSIS 出安装包
@@ -166,6 +180,39 @@ jobs:
           if (-not (Test-Path "$nsis\latest.json")) { Write-Error "latest.json 没出来，检查 make-latest-json 是否通过"; exit 1 }
           gh release create "$env:TAG" "$exe" "$nsis\Modulo_${v}_x64-setup.exe.sig" "$nsis\latest.json" --title "Modulo $env:TAG" --draft --generate-notes
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      # ── 引擎包发 npm（2026-10-09 起）────────────────────────────────────────────
+      #
+      # 位置放在挂 Release **之后**：npm publish **不可撤回**（同名同版本发过就永远发不了第二次），
+      # 所以它得是整条链的最后一件事，不能跑在"桌面产物还没出稳"的前面。
+      #
+      # **没有 NPM_TOKEN 就跳过。** 这条不是贴心，是必要条件：没配 token 的仓库照样能打 tag
+      # 发版，而如果这里无条件跑，一推 tag 就红 —— 红的还不是产品问题。
+      #
+      # 为什么不能直接写 `if: secrets.NPM_TOKEN != ''`：GitHub 在 `steps[*].if` 里
+      # **不提供 `secrets` 上下文**（`if` 能用的只有 github / needs / vars / inputs / job /
+      # runner / env / steps / strategy / matrix）。写上去不会报错，但求值结果不是我们要的。
+      # 所以先在一个 step 里把"有没有"算成 output，再拿 output 当条件。
+      - name: 查有没有 NPM_TOKEN
+        id: npm-token
+        shell: bash
+        env:
+          # 用 env 传，不把令牌插进脚本正文 —— 插进去等于让令牌成为 shell 代码的一部分
+          # （GitHub 会打码，但那管的是日志，不是注入）。
+          HAS_TOKEN: ${{ secrets.NPM_TOKEN != '' }}
+        run: |
+          echo "have=$HAS_TOKEN" >> "$GITHUB_OUTPUT"
+          if [ "$HAS_TOKEN" != "true" ]; then
+            echo "::warning::没配 NPM_TOKEN，跳过 @levango7/engine 的发布（桌面产物不受影响）"
+          fi
+
+      - name: 发 @levango7/engine 到 npm
+        if: steps.npm-token.outputs.have == 'true'
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        # `--provenance` 只在 CI 里有意义（要 OIDC），所以它不写进 package.json 的脚本里
+        # —— 本地跑那个脚本不该因为拿不到 OIDC 而失败。
+        run: npm run engine:publish -- --provenance
 
       - name: 保留产物（发布失败时也能从 artifact 拿到）
         uses: actions/upload-artifact@v4

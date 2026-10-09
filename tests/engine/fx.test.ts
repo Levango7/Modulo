@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { FX_URL, crossRate, currencyName, parseRates } from '@modulo/engine/fx'
+import { FX_URL, crossRate, currencyName, parseRates } from '@levango7/engine/fx'
 
 /**
  * 夹具是**真的**：2026-10-04 从 open.er-api 抓到的那份响应（rates 截到卡上会用的几种，

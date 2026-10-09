@@ -4,7 +4,7 @@
  * 口径（字素簇、CJK 一字一词）在引擎 `textstat.ts`，这里只有 textarea 与读数。
  */
 import { computed, ref } from 'vue'
-import { textStats } from '@modulo/engine/textstat'
+import { textStats } from '@levango7/engine/textstat'
 
 const props = defineProps<{ variant: string }>()
 

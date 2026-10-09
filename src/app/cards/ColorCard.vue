@@ -4,7 +4,7 @@
  * 换算与 WCAG 对比度全在引擎（`color.ts`，往返与 #000/#fff=21 这类硬事实各有单测）。
  */
 import { computed, ref } from 'vue'
-import { contrastRatio, parseHex, readableOn, rgbToHsl } from '@modulo/engine/color'
+import { contrastRatio, parseHex, readableOn, rgbToHsl } from '@levango7/engine/color'
 
 const props = defineProps<{ variant: string }>()
 

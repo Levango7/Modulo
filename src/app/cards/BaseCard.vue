@@ -4,7 +4,7 @@
  * 有 2^53+1 那颗 Number 会数错的数）。这里只有输入、进制选择与结果。
  */
 import { computed, ref } from 'vue'
-import { isValidInBase, toBase } from '@modulo/engine/baseconv'
+import { isValidInBase, toBase } from '@levango7/engine/baseconv'
 
 const props = defineProps<{ variant: string }>()
 

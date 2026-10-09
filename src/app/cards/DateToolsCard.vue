@@ -5,9 +5,9 @@
  * 同一个日期在两张卡里不能算出两个答案。
  */
 import { computed, ref } from 'vue'
-import { addDays, weekdayOf } from '@modulo/engine/dtools'
-import { daysUntil } from '@modulo/engine/countdown'
-import { isValidDate } from '@modulo/engine'
+import { addDays, weekdayOf } from '@levango7/engine/dtools'
+import { daysUntil } from '@levango7/engine/countdown'
+import { isValidDate } from '@levango7/engine'
 
 const props = defineProps<{ variant: string }>()
 

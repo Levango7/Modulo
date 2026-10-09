@@ -9,7 +9,7 @@
  * 换机器时不必再问一次"这里的钱是哪种"。
  */
 import { computed, inject, ref } from 'vue'
-import { categoryTotals, dailyTotals, formatMoney, formatMoneyShort, LEDGER_CATEGORIES, monthSummary, parseAmount } from '@modulo/engine/ledger'
+import { categoryTotals, dailyTotals, formatMoney, formatMoneyShort, LEDGER_CATEGORIES, monthSummary, parseAmount } from '@levango7/engine/ledger'
 import { ChevronRight, Plus, Trash2, Wallet } from 'lucide-vue-next'
 import type { CardDataApi } from '../../vue/cardData'
 

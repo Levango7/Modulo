@@ -1,5 +1,5 @@
 /**
- * 天气卡的网络与缓存。收窄响应是 `@modulo/engine/weather` 的纯函数，这里只管三件事：
+ * 天气卡的网络与缓存。收窄响应是 `@levango7/engine/weather` 的纯函数，这里只管三件事：
  * 发请求、存缓存、把状态摆出来。
  *
  * 与"版本检查"同一套克制，但有一处必须说清楚的不同：**天气卡本身就是网络部件** ——
@@ -14,7 +14,7 @@
  */
 
 import { ref } from 'vue'
-import { DEFAULT_CITY_ID, WEATHER_CITIES, cityById, parseWeather, weatherUrl, type WeatherSnapshot } from '@modulo/engine/weather'
+import { DEFAULT_CITY_ID, WEATHER_CITIES, cityById, parseWeather, weatherUrl, type WeatherSnapshot } from '@levango7/engine/weather'
 import type { StorageAdapter } from './store'
 
 const KEY = 'modulo.weather.v1'

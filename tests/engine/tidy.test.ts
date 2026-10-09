@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import * as E from '@modulo/engine'
-import type { ModuleRegistry, Placement } from '@modulo/engine/types'
+import * as E from '@levango7/engine'
+import type { ModuleRegistry, Placement } from '@levango7/engine/types'
 
 const REG: ModuleRegistry = [
   { id: 'a', title: 'A', defaultVariant: 'v', variants: [{ id: 'v', name: 'v', minW: 1, minH: 1, idealW: 2, idealH: 2 }] },

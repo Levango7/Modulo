@@ -5,7 +5,7 @@
  * 实时求值：显示行下面那行就是当前结果，按 = 才把它变成新的起点。
  */
 import { computed, ref } from 'vue'
-import { evaluate, formatCalcNumber } from '@modulo/engine/calc'
+import { evaluate, formatCalcNumber } from '@levango7/engine/calc'
 
 const props = defineProps<{ variant: string }>()
 

@@ -1,5 +1,5 @@
 import { computed, type Ref } from 'vue'
-import * as E from '@modulo/engine'
+import * as E from '@levango7/engine'
 import type { LayoutStore } from './store'
 import { rowUnitPx } from './rowUnit'
 

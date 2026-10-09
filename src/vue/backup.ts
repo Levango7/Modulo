@@ -9,7 +9,7 @@
  * 落盘 / 下载 / 覆盖动作在 `useBackup.ts`（胶水层）。
  */
 
-import { parseBook, parseLayout, type LayoutDoc, type ModuleRegistry, type SchemeBook } from '@modulo/engine'
+import { parseBook, parseLayout, type LayoutDoc, type ModuleRegistry, type SchemeBook } from '@levango7/engine'
 import { sanitizeCardData, type CardData } from './cardData'
 
 export const BACKUP_KIND = 'modulo.backup'

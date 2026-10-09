@@ -26,7 +26,8 @@ Modulo 是一个**逻辑网格恒定、物理列数随屏幕投影**的卡片式
 
 ```
 F:\Nexus\Modulo\
-├─ packages\engine\src\    ★ `@modulo/engine` 包（2026-10-03 从 src\engine\ 搬入，git 历史保留）
+├─ packages\engine\src\    ★ `@levango7/engine` 包（2026-10-03 从 src\engine\ 搬入，git 历史保留；
+│                          2026-10-09 前叫 `@modulo/engine` —— 改名与对外发布见 §12）
 │                          ★ 禁止 import vue / @tauri / document / window，也不许 `../` 出包
 │  ├─ types.ts          LayoutDoc / Placement / ModuleDef / VariantDef / FitLevel
 │  │  ├─ geometry.ts       collides(a,b) · rectsOverlap · maxRow
@@ -85,7 +86,7 @@ F:\Nexus\Modulo\
 
 **引擎纯度由两条防线守着**：`tests/engine-purity.test.ts` 扫 `packages/engine/src/**/*.ts` 的 import，出现 `vue`、`@tauri`、`document`、`window` 即失败（也不许用 `../` 往包外伸手）；`packages/engine` 自己的构建（`tsconfig.build.json` 的 `lib` 只有 ES2022、不含 DOM）是更硬的那一条 —— 真碰 DOM，编译就过不去。不引 eslint 插件。
 
-**2026-10-03 起，引擎是 `@modulo/engine` 包**（`packages/engine/`，从 `src/engine/` 整体 `git mv` 搬入）：仓库内按**源码**消费（`vite.config.ts` / `vitest.config.ts` / `tsconfig.json` 三处 `@modulo/engine` 别名），对外入口是 `dist/`（`npm run engine:build` 产出、`engine:pack` 出 tarball，`prepack` 自动先构建）。下文 §10 的历史叙述里写的 `src/engine/**` 是搬家前的路径，指同一个东西，按当时的写法保留。
+**2026-10-03 起，引擎是独立包**（`packages/engine/`，从 `src/engine/` 整体 `git mv` 搬入）：仓库内按**源码**消费（`vite.config.ts` / `vitest.config.ts` / `tsconfig.json` 三处 `@levango7/engine` 别名），对外入口是 `dist/`（`npm run engine:build` 产出、`engine:pack` 出 tarball，`prepack` 自动先构建）。**这个包 2026-10-09 改名并开始对外发布**（`@modulo/engine` → `@levango7/engine`），见 **§12**。下文 §10 的历史叙述里写的 `src/engine/**` 是搬家前的路径，指同一个东西，按当时的写法保留。
 
 ---
 
@@ -364,7 +365,7 @@ MVP 先做 A1，A2 留一个 `projection.a2.test.ts` 做对照实验。不在没
 
 另外去掉了一处观感缺陷：编辑器标签条与卡片自身表头重复显示同一个名字（"便签 / 便签"），改为卡片在编辑态走 `chromeless`，每格只保留一层头部。
 
-当前状态（2026-10-07 复核，由 agent-C 在本机实跑；这一笔同时把测试工具链从 vitest 3.2.4 升到 5.0.3，单测条数与覆盖率随该升级与「保留网段两侧判据对齐」重跑过；其后修 `watch.ts` 的 IPv6 方括号丢失与五处两侧判据分叉，并把判据表抽成两侧共读的 `tests/fixtures/watch-url-verdicts.json`（前端 +2、Rust +2）：**前端单测 980 条（66 个文件）+ E2E 23 条 + Rust 单测 25 条**全绿（另有 1 条 `#[ignore]` 的发布门禁 `release_signature`，CI 上没有安装包产物所以不跑），`vue-tsc` 与 `tsc --noEmit` 都干净，受测层分支覆盖 **≥94%**（门禁 ≥90%，最近一次实测 94.92%），无 console 报错（由 E2E 里那条「拖拽与缩放全程无 console 报错」守着）。`vite build` 同日重跑：**JS 310.36 kB / gzip 106.27 kB（主包 309.33 + 更新插件面 1.03），CSS 90.33 kB / gzip 13.59 kB**（比上一版记的 41.0 kB 大得多，因为多了桌面壳设置页、卡片内容、版面模板选择器、完整备份、更新插件与 41 种卡的 JS/CSS 面；CSS 相对上一版的 88.02 kB 多的部分，一是浏览态卡片 hover/active 反馈与添加菜单限高滚动那一笔，二是顶栏整合（排布下拉 + 统一高度 + 主 CTA）那一笔 —— 全是纯 CSS/模板增量，没进引擎。2026-10-08 两笔（默认皮肤改柔光、行高随窗口高度抬升，§10.27 / §10.28）复跑过一遍，主包随新增的 `src/vue/rowUnit.ts` 到 309.28 kB；2026-10-09 一笔（编辑态行高对齐浏览态，§10.29）复跑到上面这组数 —— 那一笔只多一个 prop 与几行注释，主包 309.28 → 309.33（+0.05），另加一条 E2E（22 → 23）。另：`dist/index.html` 因首屏防闪脚本增至 2.77 kB，它不计入上面两个体积口径）。桌面探针的项数是条件量，见 README「验证」一节里那两个原始行与出处；口径与 §11.3。<!-- facts -->
+当前状态（2026-10-07 复核，由 agent-C 在本机实跑；这一笔同时把测试工具链从 vitest 3.2.4 升到 5.0.3，单测条数与覆盖率随该升级与「保留网段两侧判据对齐」重跑过；其后修 `watch.ts` 的 IPv6 方括号丢失与五处两侧判据分叉，并把判据表抽成两侧共读的 `tests/fixtures/watch-url-verdicts.json`（前端 +2、Rust +2）：**前端单测 985 条（67 个文件）+ E2E 23 条 + Rust 单测 25 条**全绿（另有 1 条 `#[ignore]` 的发布门禁 `release_signature`，CI 上没有安装包产物所以不跑），`vue-tsc` 与 `tsc --noEmit` 都干净，受测层分支覆盖 **≥94%**（门禁 ≥90%，最近一次实测 94.92%），无 console 报错（由 E2E 里那条「拖拽与缩放全程无 console 报错」守着）。`vite build` 同日重跑：**JS 310.36 kB / gzip 106.27 kB（主包 309.33 + 更新插件面 1.03），CSS 90.33 kB / gzip 13.59 kB**（比上一版记的 41.0 kB 大得多，因为多了桌面壳设置页、卡片内容、版面模板选择器、完整备份、更新插件与 41 种卡的 JS/CSS 面；CSS 相对上一版的 88.02 kB 多的部分，一是浏览态卡片 hover/active 反馈与添加菜单限高滚动那一笔，二是顶栏整合（排布下拉 + 统一高度 + 主 CTA）那一笔 —— 全是纯 CSS/模板增量，没进引擎。2026-10-08 两笔（默认皮肤改柔光、行高随窗口高度抬升，§10.27 / §10.28）复跑过一遍，主包随新增的 `src/vue/rowUnit.ts` 到 309.28 kB；2026-10-09 一笔（编辑态行高对齐浏览态，§10.29）复跑到上面这组数 —— 那一笔只多一个 prop 与几行注释，主包 309.28 → 309.33（+0.05），另加一条 E2E（22 → 23）；同日第二笔（引擎包改名 `@levango7/engine` 并开始发 npm，§12）只动名字与发布配置，主包体积不变，新增 `tests/release/engine-package.test.ts`（5 条）—— 单测 980 → **985**、文件 66 → **67**，实跑值以本行数字为准）。另：`dist/index.html` 因首屏防闪脚本增至 2.77 kB，它不计入上面两个体积口径）。桌面探针的项数是条件量，见 README「验证」一节里那两个原始行与出处；口径与 §11.3。<!-- facts -->
 
 覆盖率从上版的 95.08% 降到 94.49%，全部来自新加的 `watch.ts`：它有一批**防御性分支实际不可达** —— 例如 `if (url.protocol !== 'https:')`（构造出来的 URL 只可能是 `https:`）与 `if (!url.hostname)`（`new URL` 抛错时根本走不到这里）。这部分不打算用绕路的测试去凑数字：门禁是 90%，把不可达分支写成可达的假测试只会让覆盖率好看而让代码变脏。
 
@@ -1295,3 +1296,127 @@ SignPath 的来源证明要求"这颗二进制确实由你的仓库自动构建�
 SignPath 的 GitHub 集成本身就是这个形状：上传未签名产物 → 服务端签 → **重算 `.sig`**。
 好消息是有一道现成的网：`cargo test --test release_signature` 验的正是"要发出去的这颗包的签名对不对得上
 内嵌公钥" —— 只要它**在签名之后、对最终产物**跑，顺序错了它会红。
+
+---
+
+## 12. 引擎包对外分发（2026-10-09）
+
+**这一节解决的是哪个问题**：`@modulo/engine` 从 2026-10-03 抽出来之后一直是**名义上的**可分发资产 ——
+`engine:build` / `engine:pack` 在、`prepack` 会先构建、tarball 也打得出来，**但这个包从来没出现在 npm 上**。
+2026-10-09 用户拍了「发」，并选定名字 `@levango7/engine`。
+
+### 12.1 名字只能改（这一笔最大的波及面）
+
+| 名字 | 状态 | 怎么核的 |
+|---|---|---|
+| `@modulo/engine` | ❌ **发不出去** | `npmjs.com/org/modulo` 落到一个叫 `modulo` 的**账号页**（0 个包、0 个组织）—— 作用域不在我们手上 |
+| `modulo`（无作用域） | ❌ 已被占 | 别人的 Express 组件库，`modulo@0.0.3`，MIT |
+| `@levango7/engine` | ✓ 空闲 | `npm view` → 404 |
+| `modulo-engine` / `modulo-layout` | ✓ 空闲 | 同上（备选，没用上） |
+
+作用域属于**账号名或组织名**。所以这条路有一件**只有账号主人能确认**的事：
+**npm 上的用户名必须是 `levango7`**（或另有一个同名组织）。对不上就发不出去 ——
+一旦对不上，改法是全仓换一个名字，`tests/release/engine-package.test.ts` 会盯着每一处。
+
+### 12.2 改名时踩到的真实事故：别名不是纯文本
+
+全仓做了 `@modulo/engine` → `@levango7/engine` 的文本替换（**109 个文件 / 158 处**），
+**但两处别名是漏的** —— 它们写的不是纯文本，是**转义过的正则**：
+
+```ts
+{ find: /^@modulo\/engine$/, replacement: join(engineSrc, 'index.ts') },
+{ find: /^@modulo\/engine\//, replacement: `${engineSrc}/` },
+```
+
+`@modulo\/engine` 中间那个反斜杠让文本替换一条都没命中。**而且当时没有任何东西会因此变红**：
+980 条单测、23 条 E2E、`vue-tsc`、`docs:check` 全绿 —— 因为别名解析发生在**构建期**，
+而那一轮恰好没重跑构建。**「全绿」和「能用」在这里是两件事。**
+
+这条事故直接决定了下面那个门禁的形状（12.5）：判据不能是"扫一遍看有没有旧名"
+（把别名整行删掉也是绿的），得**逐处点名"这一处必须指向那个名字"**。
+
+### 12.3 发出去的包里有什么（`npm pack` 实测）
+
+| 项 | 实测值（`npm pack`，2026-10-09） |
+|---|---|
+| tarball | **104.1 kB**（修 LICENSE 之前是 99.4 kB —— 多出来的 4.7 kB 就是那份许可证） |
+| 解包后 | **263.8 kB**（修前 251.2 kB） |
+| 文件数 | **97** = 47 个模块 × (`.js` + `.d.ts`) + `package.json` + `README.md` + **`LICENSE`** |
+| 名字 / 版本 / 可见性 | `@levango7/engine@0.8.0`，**public** |
+| 源码发不发出去 | **不发** —— `files` 只有 `["dist", "README.md"]` |
+| 测试发不发出去 | **不发** —— 测试留在仓库的 `tests/`（属性测试、边界用例、纯度守卫） |
+
+`npm publish --dry-run` 实跑过一遍（只打包不上传）：`prepack` 依次跑 `license:sync` → `tsc`，
+最后一行是 `Publishing to https://registry.npmjs.org/ with tag latest and public access (dry-run)` ——
+**`publishConfig.access` 确实被认下来了**。这一条不发出去是看不见的，所以把证据留在文档里。
+
+`prepack` 是唯一的构建入口，`npm pack` 与 `npm publish` 都会先跑它 —— 没有它就是发一个没有 `dist/` 的空包。
+
+### 12.4 许可证据说没有 —— 顺手修掉
+
+`package.json` 里写着 `"license": "Apache-2.0"`，但**打出来的 tarball 里一个 LICENSE 文件都没有**。
+
+原因是 npm 的一条规则：`LICENSE` 无论 `files` 怎么写都必进 tarball，**前提是它在该包的目录下**。
+而我们的许可证只有一处 —— 仓库根。包在 `packages/engine/`，够不着。
+
+这不是洁癖：Apache-2.0 第 4 条要求分发时**随附许可证副本**。而且这件事**发出去之前根本看不见**
+（仓库内走别名直吃源码，不经 tarball，谁也不会去看那个目录）。
+
+修法保持**单一来源**：新增 `scripts/engine-license.mjs`，由 `prepack` 在构建前把根目录的
+`LICENSE` 同步一份到 `packages/engine/`；产物在 `.gitignore` 里（不是提交一个副本，
+否则就有两份许可证文本、改一处忘一处）。
+
+### 12.5 门禁：`tests/release/engine-package.test.ts`（5 条）
+
+这个包此前**从没发出去过**，所以所有配置错误都是不可见的；真发出去以后，
+配置错了的代价是「用户装到一个缺东西的包」或者「发到一半失败」，而 **`npm publish` 不可撤回**。
+
+| 判据 | 咬住的是 |
+|---|---|
+| 包名是发布名 + `publishConfig.access === 'public'` + 没有 `private` | scoped 包**默认 restricted**，免费账号漏了这行会在服务端被拒（402） |
+| **四处引用都写同一个名字**（`tsconfig` 的 `paths` / `vite` 与 `vitest` 的别名定义 / 根 `package.json` 的依赖与三条脚本） | 12.2 那次事故；**逐处点名**，且每处必须先"确实存在"再要求"名字对"——否则整段删掉也算通过 |
+| `src/` 与 `tests/` 的**导入**里没有别的 `@x/engine` 写法 | 上一条只点数了四个文件，源码里的漏网之鱼归这条兜 |
+| `files` / `main` / `types` / `exports` / `type` / `sideEffects` | 入口指错、源码或测试被发出去、消费方摇不掉 |
+| `prepack` 里既有构建又有许可证同步 | 12.4 |
+
+**变异自检 5/5 全红**（这一项是必须做的，理由见 12.2）：① 别名改回旧名；② **别名两行整行删掉**；
+③ 删 `publishConfig`；④ `prepack` 去掉许可证同步；⑤ 源码里漏一个导入没改名。
+其中 ② 是第一版**漏掉**的形状 —— 第一版扫整份文件文本，一句提到包名的注释就能让"出现过"成立，
+**一条能被注释满足的判据管不住别名**，所以第二版改成只从别名定义处提取。
+
+### 12.6 CI：tag 一发就发，但没配 token 就跳过
+
+`release` job 里加两步（在**挂完 GitHub Release 之后** —— `npm publish` 不可撤回，
+它得是整条链的最后一件事）：
+
+- `查有没有 NPM_TOKEN` → 把"有没有"算成 step output。**不能直接写 `if: secrets.NPM_TOKEN != ''`**：
+  GitHub 在 `steps[*].if` 里不提供 `secrets` 上下文，写上去不报错但求值不是我们要的；
+- `发 @levango7/engine 到 npm` → `npm run engine:publish -- --provenance`。
+  **没有 token 时跳过**，否则没配 token 的仓库一推 tag 就红，而红的不是产品问题。
+
+配套两处：`permissions` 加 `id-token: write`（provenance 要 OIDC 换令牌）；
+`setup-node` 加 `registry-url`（它在 runner 的用户级 `.npmrc` 写一行 auth，
+于是 `npm publish` 认得 `NODE_AUTH_TOKEN`。**不把这一行写进仓库那份 `.npmrc`** ——
+那是每台机器都会读的文件，而 token 只在 CI 里有）。
+
+版本对齐那道检查从"查 `package.json`"扩成"查两处 `package.json`"（根 + `packages/engine`）：
+**npm 同名同版本只能发一次**，发错版本比发不出去更难收拾。
+
+### 12.7 版本同源，以及这个选择的代价
+
+引擎版本**与应用同源**（`scripts/docs-check.mjs` 的 `VERSION_PLACES` 机器核对，7 处）。
+所以每发一个应用版本就同时发一次这个包。
+
+**代价要认下来**：引擎那一版没什么改动时，npm 上也会多一个版本号几乎一样的条目。
+换来的是"版本号永远对得上"这件事**不需要人去记**。
+等真有独立消费者、开始在意自己的 API 稳定性时，再谈解耦 —— 那时候要改的是 `VERSION_PLACES`
+那一条，以及"引擎 API 的兼容性口径"这件现在还不存在的东西。
+
+### 12.8 还差什么（用户侧，不在代码里）
+
+1. **npm 账号名必须是 `levango7`**（见 12.1）—— 这是唯一的硬前提；
+2. 建一个 **automation token**（或 granular token，带 publish 权限）放进仓库 secret `NPM_TOKEN`；
+3. 之后每个 `v*` tag 会自动带上引擎包。**没配 token 之前，发布流程照常能跑**（跳过那一步并给一条 warning）。
+
+顺手要说明的一个事实：**这个包在 npm 上没有历史**。第一个发出去的版本号会是当时应用的版本号
+（当前是 `0.8.0`），而不是从 `0.1.0` 补齐 —— npm 不要求版本连续，也不需要补发。

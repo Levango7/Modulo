@@ -4,7 +4,7 @@
  * streak 口径在引擎（`habit.ts`）：今天没打卡不归零，锚点取"今天或昨天"里更晚的那个。
  */
 import { computed, inject, onBeforeUnmount, ref } from 'vue'
-import { lastNDays, streakDays } from '@modulo/engine/habit'
+import { lastNDays, streakDays } from '@levango7/engine/habit'
 import { Pencil } from 'lucide-vue-next'
 import type { CardDataApi } from '../../vue/cardData'
 

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { countdownText, daysUntil, formatDateLabel, isValidDate, parseDate } from '@modulo/engine/countdown'
+import { countdownText, daysUntil, formatDateLabel, isValidDate, parseDate } from '@levango7/engine/countdown'
 
 describe('parseDate：形状与"真实存在"两道都要过', () => {
   it('正常日期', () => {

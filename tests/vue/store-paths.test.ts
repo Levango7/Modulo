@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
-import * as E from '@modulo/engine'
+import * as E from '@levango7/engine'
 import { REGISTRY } from '../../src/vue/cardRegistry'
 import { browserStorage, createLayoutStore, memoryStorage, type StorageAdapter } from '../../src/vue/store'
 

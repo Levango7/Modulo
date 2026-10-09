@@ -12,7 +12,7 @@ import {
   sanitizeMeetingCityIds,
   type QuickLink,
   type Watch,
-} from '@modulo/engine'
+} from '@levango7/engine'
 import { browserStorage } from './store'
 
 /** 四个计时器在 `timers` 里的键名。动作共用一份实现（状态形状一样），所以键名也集中一处 */

@@ -2,7 +2,7 @@
 /**
  * 会议规划器：一个本地时间，换算成每个参会城市当地几点、该不该这个点开。
  *
- * 算术全在 `@modulo/engine/meeting`（偏移与星期几都交给 Intl，不手写时区表）。
+ * 算术全在 `@levango7/engine/meeting`（偏移与星期几都交给 Intl，不手写时区表）。
  * 卡只做两件事：画出对照表，以及在顶部给一句总评 —— 让人不必自己扫六行才知道"纽约那边是凌晨"。
  *
  * **只存"我说几点开"**，不存各城几点：后者是算出来的，存下来就会与夏令时变更对不上。
@@ -17,7 +17,7 @@ import {
   minutesUntil,
   worstSlot,
   WORLD_CITIES,
-} from '@modulo/engine/meeting'
+} from '@levango7/engine/meeting'
 import { Users } from 'lucide-vue-next'
 import type { CardDataApi } from '../../vue/cardData'
 

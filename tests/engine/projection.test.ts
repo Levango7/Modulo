@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest'
-import { collides } from '@modulo/engine/geometry'
-import { project } from '@modulo/engine/projection'
-import { LOGICAL_COLS } from '@modulo/engine/types'
-import type { Placement } from '@modulo/engine/types'
+import { collides } from '@levango7/engine/geometry'
+import { project } from '@levango7/engine/projection'
+import { LOGICAL_COLS } from '@levango7/engine/types'
+import type { Placement } from '@levango7/engine/types'
 import { REGISTRY, doc } from '../fixtures'
 
 const items: Placement[] = [

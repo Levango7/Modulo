@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { isValidInBase, toBase } from '@modulo/engine/baseconv'
+import { isValidInBase, toBase } from '@levango7/engine/baseconv'
 
 describe('toBase：2–36 进制互转', () => {
   it('日常口径各来一例', () => {

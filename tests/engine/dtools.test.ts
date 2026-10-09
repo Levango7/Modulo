@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { weekdayOf, diffDays, addDays } from '@modulo/engine/dtools'
+import { weekdayOf, diffDays, addDays } from '@levango7/engine/dtools'
 
 describe('weekdayOf：星期几（与月历同一套日期事实）', () => {
   it('已知事实：2026-10-16 周五、17 周六、18 周日', () => {

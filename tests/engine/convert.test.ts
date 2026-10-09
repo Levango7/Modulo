@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { UNITS, convert, unitName } from '@modulo/engine/convert'
+import { UNITS, convert, unitName } from '@levango7/engine/convert'
 
 describe('convert：长度 / 重量（系数表口径，硬事实钉住）', () => {
   it('1 英里 = 1609.344 米；1 海里 = 1852 米', () => {

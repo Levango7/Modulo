@@ -1,4 +1,4 @@
-import type { ModuleRegistry } from '@modulo/engine'
+import type { ModuleRegistry } from '@levango7/engine'
 
 /**
  * 模块目录：尺寸契约（min/ideal，逻辑列单位）在这里声明，引擎据此钳制与降档。

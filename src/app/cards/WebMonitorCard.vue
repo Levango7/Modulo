@@ -29,7 +29,7 @@
  */
 import { computed, inject, onMounted, onUnmounted, ref } from 'vue'
 import { invoke } from '@tauri-apps/api/core'
-import { blockedReason, normalizeUrl } from '@modulo/engine/watch'
+import { blockedReason, normalizeUrl } from '@levango7/engine/watch'
 import { isDesktop } from '../../vue/useShell'
 import { Activity, Plus, RefreshCw, Trash2 } from 'lucide-vue-next'
 import type { CardDataApi } from '../../vue/cardData'

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { pickVariantForSize } from '@modulo/engine/downgrade'
+import { pickVariantForSize } from '@levango7/engine/downgrade'
 import { REGISTRY } from '../fixtures'
 
 const clock = REGISTRY.find((m) => m.id === 'clock')!

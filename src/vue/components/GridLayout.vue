@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import { CARD_COMPONENTS } from '../cardComponents'
-import type { PhysicalRect } from '@modulo/engine/projection'
+import type { PhysicalRect } from '@levango7/engine/projection'
 
 const props = defineProps<{
   rects: PhysicalRect[]

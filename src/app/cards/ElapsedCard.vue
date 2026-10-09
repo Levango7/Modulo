@@ -5,7 +5,7 @@
  * "第 N 天"= 已过天数 + 1（开始那天算第 1 天，这是这类卡片的通行口径）。
  */
 import { computed, inject, onBeforeUnmount, ref } from 'vue'
-import { formatDateLabel, isValidDate } from '@modulo/engine'
+import { formatDateLabel, isValidDate } from '@levango7/engine'
 import { CalendarClock, Pencil } from 'lucide-vue-next'
 import type { CardDataApi } from '../../vue/cardData'
 

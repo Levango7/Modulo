@@ -50,7 +50,7 @@ const pkgs = lock.packages ?? {}
 /**
  * 只看**真正要下载的包**。
  * 判据是 `resolved` 是不是 http(s) URL，而不是"有没有 resolved"：workspace 软链条目
- * （`node_modules/@modulo/engine`）的 resolved 是相对路径 `packages/engine`、带 `link: true`、
+ * （`node_modules/@levango7/engine`）的 resolved 是相对路径 `packages/engine`、带 `link: true`、
  * 天然没有 integrity —— 把它们算进来会让下面两条永远红，而那不是问题所在。
  */
 const downloaded = Object.entries(pkgs).filter(([, v]) => /^https?:\/\//.test(v.resolved ?? ''))

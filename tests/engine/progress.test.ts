@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { dayOfYear, daysInYear, formatPct, isLeapYear, progressOf } from '@modulo/engine/progress'
+import { dayOfYear, daysInYear, formatPct, isLeapYear, progressOf } from '@levango7/engine/progress'
 
 describe('闰年与年天数', () => {
   it('四条规则各一例（整百不闰、四百年再闰）', () => {

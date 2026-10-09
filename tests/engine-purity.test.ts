@@ -25,7 +25,7 @@ describe('engine 纯度守卫', () => {
     const specs = [...src.matchAll(/from\s+['"]([^'"]+)['"]/g)].map((m) => m[1])
     expect(specs.filter((s) => /^(vue|@tauri|@vitejs|react)/.test(s))).toEqual([])
     expect(src.match(/\b(document|window|localStorage|navigator|process)\b/)).toBeNull()
-    // 抽成 `@modulo/engine` 包之后多一条：不许往包外伸手 —— `../` 就跨出了包边界，
+    // 抽成 `@levango7/engine` 包之后多一条：不许往包外伸手 —— `../` 就跨出了包边界，
     // 而包一发出去（tarball 里只有 dist）那就是死链。包内互相引用只该用 './x'。
     expect(specs.filter((s) => s.startsWith('..'))).toEqual([])
   })
