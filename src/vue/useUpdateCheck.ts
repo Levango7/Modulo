@@ -12,7 +12,7 @@
  */
 
 import { getCurrentScope, onScopeDispose, ref } from 'vue'
-import { RELEASES_API, applyChunk, compareVersions, pickUpdate, plainText, type DownloadProgress, type UpdateState } from '@modulo/engine/update'
+import { RELEASES_API, applyChunk, compareVersions, pickUpdate, plainText, type DownloadProgress, type UpdateState } from '@levango7/engine/update'
 import type { Update } from '@tauri-apps/plugin-updater'
 import { APP_VERSION } from './useBackup'
 import { isDesktop } from './useShell'

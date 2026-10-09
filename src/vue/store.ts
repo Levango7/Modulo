@@ -1,5 +1,5 @@
 import { computed, shallowRef } from 'vue'
-import * as E from '@modulo/engine'
+import * as E from '@levango7/engine'
 
 export interface StorageAdapter {
   get(key: string): string | null

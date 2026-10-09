@@ -4,7 +4,7 @@
  * 仓库名是**偏好**（自己的 key，默认本项目）—— 换了名字 `freshKey` 会让缓存立刻失效重查。
  */
 import { computed, inject, onMounted, ref } from 'vue'
-import { parseRepo, repoApiUrl, repoPageUrl } from '@modulo/engine/ghrepo'
+import { parseRepo, repoApiUrl, repoPageUrl } from '@levango7/engine/ghrepo'
 import { RefreshCw } from 'lucide-vue-next'
 import { isDesktop } from '../../vue/useShell'
 import { useRemote } from '../../vue/useRemote'

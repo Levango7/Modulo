@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
-import { moveMany, removeMany } from '@modulo/engine/ops'
-import { collides } from '@modulo/engine/geometry'
-import type { Placement } from '@modulo/engine/types'
+import { moveMany, removeMany } from '@levango7/engine/ops'
+import { collides } from '@levango7/engine/geometry'
+import type { Placement } from '@levango7/engine/types'
 import { doc } from '../fixtures'
 
 const A: Placement = { id: 'clock', variant: 'big', x: 0, y: 0, w: 4, h: 3 }

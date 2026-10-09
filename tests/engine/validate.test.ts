@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
-import { sanitizeItems } from '@modulo/engine/validate'
-import { docToJson, parseLayout } from '@modulo/engine/serialize'
-import { collides } from '@modulo/engine/geometry'
+import { sanitizeItems } from '@levango7/engine/validate'
+import { docToJson, parseLayout } from '@levango7/engine/serialize'
+import { collides } from '@levango7/engine/geometry'
 import { REGISTRY } from '../fixtures'
 
 describe('sanitizeItems', () => {

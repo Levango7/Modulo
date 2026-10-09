@@ -1,5 +1,5 @@
-import { emptyDoc } from '@modulo/engine/types'
-import type { LayoutDoc, ModuleRegistry } from '@modulo/engine/types'
+import { emptyDoc } from '@levango7/engine/types'
+import type { LayoutDoc, ModuleRegistry } from '@levango7/engine/types'
 
 export const REGISTRY: ModuleRegistry = [
   {

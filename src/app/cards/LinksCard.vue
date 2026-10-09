@@ -12,7 +12,7 @@
  * 而不是给一个看起来像链接、点下去没反应的文字。
  */
 import { computed, inject, ref } from 'vue'
-import { groupByHost, normalizeHref } from '@modulo/engine/links'
+import { groupByHost, normalizeHref } from '@levango7/engine/links'
 import { Check, Copy, Link2, Plus, Trash2 } from 'lucide-vue-next'
 import type { CardDataApi } from '../../vue/cardData'
 

@@ -2,12 +2,12 @@
 /**
  * 月度统计：这个月完成了多少、还欠着多少。
  *
- * 算术在 `@modulo/engine/focus` 的 `monthStat`。它依赖待办的 `doneAt`（完成时刻）——
+ * 算术在 `@levango7/engine/focus` 的 `monthStat`。它依赖待办的 `doneAt`（完成时刻）——
  * 那是一个**可选、向后兼容**的字段：v1 数据与旧备份里没有它，于是这类条目不会被算进
  * 任何一个月（引擎不猜）。卡上会把这一点说出来，而不是给一个看起来很确定的百分比。
  */
 import { computed, inject } from 'vue'
-import { monthStat } from '@modulo/engine/focus'
+import { monthStat } from '@levango7/engine/focus'
 import { CalendarRange } from 'lucide-vue-next'
 import type { CardDataApi } from '../../vue/cardData'
 

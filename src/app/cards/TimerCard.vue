@@ -9,7 +9,7 @@
  * 时长夹在 1–599 分钟。**到点是 0 而不是负数**。
  */
 import { computed, inject, onBeforeUnmount, ref, watch } from 'vue'
-import { formatClock, formatRemainingText, minutesToMs, remainingMs } from '@modulo/engine/timer'
+import { formatClock, formatRemainingText, minutesToMs, remainingMs } from '@levango7/engine/timer'
 import { BellRing, Pause, Play, RotateCcw } from 'lucide-vue-next'
 import type { CardDataApi } from '../../vue/cardData'
 

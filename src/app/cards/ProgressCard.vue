@@ -3,11 +3,11 @@
  * 时间进度卡：今天 / 本月 / 今年 各过去了多少。**唯一一张不用输入、也不会过时的卡** ——
  * 每看一眼都在动，摆在那儿就是在说话。
  *
- * 算术在引擎（`@modulo/engine/progress`，含闰年与"还剩几小时"的边界）；这里 30 秒一跳，
+ * 算术在引擎（`@levango7/engine/progress`，含闰年与"还剩几小时"的边界）；这里 30 秒一跳，
  * 只为让百分比跟着走 —— 没必要每秒重画。
  */
 import { computed, onBeforeUnmount, ref } from 'vue'
-import { formatPct, progressOf } from '@modulo/engine/progress'
+import { formatPct, progressOf } from '@levango7/engine/progress'
 
 const props = defineProps<{ variant: string }>()
 

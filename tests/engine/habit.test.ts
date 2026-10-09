@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { lastNDays, streakDays } from '@modulo/engine/habit'
+import { lastNDays, streakDays } from '@levango7/engine/habit'
 
 const now = new Date(2026, 9, 16, 12) // 2026-10-16（周五）中午
 

@@ -3,13 +3,13 @@
  * 每日聚焦：把待办里**第一条没做完的**顶到眼前。
  *
  * 这张卡不新增任何数据结构 —— 它读的是待办卡同一份 `cardData.todos`，算术在
- * `@modulo/engine/focus`。所以它天然与待办卡一致：在待办卡里打勾，这里立刻换下一条。
+ * `@levango7/engine/focus`。所以它天然与待办卡一致：在待办卡里打勾，这里立刻换下一条。
  *
  * 为什么不给"排序 / 优先级 / 智能挑一条"：待办是用户自己排的顺序，替他重排等于替他做决定。
  * 想重排就让他在待办卡里拖 —— 这张卡的职责是把第一件顶到眼前，不是当任务管理器。
  */
 import { computed, inject } from 'vue'
-import { focusToday, nextUp } from '@modulo/engine/focus'
+import { focusToday, nextUp } from '@levango7/engine/focus'
 import { CheckCheck, ListTodo } from 'lucide-vue-next'
 import type { CardDataApi } from '../../vue/cardData'
 

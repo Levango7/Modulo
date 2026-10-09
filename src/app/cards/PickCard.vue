@@ -3,12 +3,12 @@
  * 随机抽签：一份名单，点一下抽一个。可给每项加权。
  *
  * 名单存在 `cardData.pickList`（**跟着完整备份走**）—— 用户敲的字是内容。
- * 抽签逻辑在 `@modulo/engine/random` 的 `pickWeighted`，**RNG 由这里注入**
+ * 抽签逻辑在 `@levango7/engine/random` 的 `pickWeighted`，**RNG 由这里注入**
  * （`crypto.getRandomValues` 包成 `() => number`）：引擎不碰环境全局，假 RNG 就能把
  * "权重 0 永远抽不到""全 0 权重怎么办"这些边角在单测里钉死。
  */
 import { computed, inject, ref } from 'vue'
-import { pickWeighted } from '@modulo/engine/random'
+import { pickWeighted } from '@levango7/engine/random'
 import { Dices, Plus, Trash2 } from 'lucide-vue-next'
 import type { CardDataApi } from '../../vue/cardData'
 

@@ -15,7 +15,7 @@
  */
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { DEFAULT_CITY_ID, WEATHER_CITIES, type WeatherSnapshot } from '@modulo/engine/weather'
+import { DEFAULT_CITY_ID, WEATHER_CITIES, type WeatherSnapshot } from '@levango7/engine/weather'
 import { useWeather } from '../../src/vue/useWeather'
 import type { StorageAdapter } from '../../src/vue/store'
 

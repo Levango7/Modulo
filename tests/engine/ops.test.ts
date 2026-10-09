@@ -8,8 +8,8 @@ import {
   setItemTitle,
   setVariant,
   toggleLock,
-} from '@modulo/engine/ops'
-import { emptyDoc } from '@modulo/engine/types'
+} from '@levango7/engine/ops'
+import { emptyDoc } from '@levango7/engine/types'
 import { REGISTRY, doc } from '../fixtures'
 
 const clockAt = (x: number, y: number, w = 4, h = 3) => ({ id: 'clock', variant: 'big', x, y, w, h })

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { DEFAULT_CITY_ID, WEATHER_CITIES, cityById, dayLabel, formatTemp, freshness, parseWeather, weatherKind, weatherText, weatherUrl } from '@modulo/engine/weather'
+import { DEFAULT_CITY_ID, WEATHER_CITIES, cityById, dayLabel, formatTemp, freshness, parseWeather, weatherKind, weatherText, weatherUrl } from '@levango7/engine/weather'
 
 /**
  * 夹具是**真的**：2026-10-03 15:15 从 open-meteo 抓到的那份上海响应（截掉与卡片无关的

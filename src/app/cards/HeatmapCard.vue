@@ -9,7 +9,7 @@
  * 颜色带评价色彩，而"这天打了三次卡"既不是好也不是坏 —— 那个评价不该由一张卡替用户下。
  */
 import { computed, inject, onBeforeUnmount, ref } from 'vue'
-import { HEAT_LEGEND, monthHeatmap } from '@modulo/engine/heatmap'
+import { HEAT_LEGEND, monthHeatmap } from '@levango7/engine/heatmap'
 import { ChevronLeft, ChevronRight, Flame } from 'lucide-vue-next'
 import type { CardDataApi } from '../../vue/cardData'
 

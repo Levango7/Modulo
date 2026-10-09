@@ -9,7 +9,7 @@
  * `setInterval` 在这里只负责"重绘"，不负责计时。
  */
 import { computed, inject, onBeforeUnmount, ref } from 'vue'
-import { elapsedMs, formatClock, formatDurationShort } from '@modulo/engine/timer'
+import { elapsedMs, formatClock, formatDurationShort } from '@levango7/engine/timer'
 import { Pause, Play, RotateCcw, Timer } from 'lucide-vue-next'
 import type { CardDataApi } from '../../vue/cardData'
 

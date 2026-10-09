@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, inject, onBeforeUnmount, onMounted, ref } from 'vue'
-import * as E from '@modulo/engine'
+import * as E from '@levango7/engine'
 import { Lock, LockOpen, Shuffle, X, LayoutGrid, Trash2 } from 'lucide-vue-next'
 import type { LayoutStore } from '../store'
 import { useCanvasDrag } from '../useCanvasDrag'

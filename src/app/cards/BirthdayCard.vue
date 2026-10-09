@@ -3,14 +3,14 @@
  * 生日提醒：一份名单，报"下一个是谁"。
  *
  * 内容存在 `cardData.birthdays`（**跟着完整备份走**）—— 用户敲进去的名字属于内容，不是偏好。
- * 算术全在引擎（`@modulo/engine/birthday`）：没有年就没有年龄、2 月 29 日在平年落到 28 日、
+ * 算术全在引擎（`@levango7/engine/birthday`）：没有年就没有年龄、2 月 29 日在平年落到 28 日、
  * 跨年只比月日不比"还剩几天" —— 这三条由模块钉死，不让这张卡和别的卡各算各的。
  *
  * 三种模式而不是两个开关：`editing` 一个布尔要同时表示"在填表"和"在管理名单"，
  * 于是模板里出现 `editing = true` 却没填表、而删除按钮又只在 `editing` 时出现这种自相矛盾。
  */
 import { computed, inject, onBeforeUnmount, ref } from 'vue'
-import { birthdayText, parseMonthDay, upcomingBirthdays } from '@modulo/engine/birthday'
+import { birthdayText, parseMonthDay, upcomingBirthdays } from '@levango7/engine/birthday'
 import { Cake, ListChecks, Pencil, Plus, X } from 'lucide-vue-next'
 import type { CardDataApi } from '../../vue/cardData'
 

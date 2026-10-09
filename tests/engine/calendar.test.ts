@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { WEEKDAY_LABELS, daysInMonth, formatMonth, monthGrid, shiftMonth } from '@modulo/engine/calendar'
+import { WEEKDAY_LABELS, daysInMonth, formatMonth, monthGrid, shiftMonth } from '@levango7/engine/calendar'
 
 describe('daysInMonth：闰年与否只看二月，但验证方式要能抓住"整形错误"', () => {
   it('平年 / 闰年 / 世纪年', () => {

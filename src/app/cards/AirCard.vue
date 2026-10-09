@@ -5,8 +5,8 @@
  * `freshKey` 让"天气卡换了城市"这事件立刻触发重查，而不是等缓存过期。
  */
 import { computed, inject, onMounted } from 'vue'
-import { airUrl, aqiLevel, parseAir } from '@modulo/engine/air'
-import { cityById } from '@modulo/engine/weather'
+import { airUrl, aqiLevel, parseAir } from '@levango7/engine/air'
+import { cityById } from '@levango7/engine/weather'
 import { RefreshCw } from 'lucide-vue-next'
 import { useRemote } from '../../vue/useRemote'
 import type { StorageAdapter } from '../../vue/store'

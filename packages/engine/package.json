@@ -1,10 +1,13 @@
 {
-  "name": "@modulo/engine",
+  "name": "@levango7/engine",
   "version": "0.8.0",
   "description": "Modulo 的布局投影引擎：12 列逻辑版面按容器宽度投影成 12/8/6/4/1 档，纯函数、零框架依赖",
   "license": "Apache-2.0",
   "type": "module",
   "sideEffects": false,
+  "publishConfig": {
+    "access": "public"
+  },
   "repository": {
     "type": "git",
     "url": "git+https://github.com/Levango7/Modulo.git",
@@ -25,7 +28,8 @@
   },
   "scripts": {
     "build": "tsc -p tsconfig.build.json",
-    "prepack": "npm run build"
+    "license:sync": "node ../../scripts/engine-license.mjs",
+    "prepack": "npm run license:sync && npm run build"
   },
   "devDependencies": {
     "typescript": "~6.0.2"

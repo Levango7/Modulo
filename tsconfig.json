@@ -13,8 +13,8 @@
     "noEmit": true,
     "types": ["node", "vite/client"],
     "paths": {
-      "@modulo/engine": ["./packages/engine/src/index.ts"],
-      "@modulo/engine/*": ["./packages/engine/src/*"]
+      "@levango7/engine": ["./packages/engine/src/index.ts"],
+      "@levango7/engine/*": ["./packages/engine/src/*"]
     }
   },
   "include": ["src/**/*.ts", "tests/**/*.ts", "packages/engine/src/**/*.ts", "vitest.config.ts"],

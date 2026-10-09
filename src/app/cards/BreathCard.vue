@@ -10,7 +10,7 @@
  * 动效受 `prefers-reduced-motion` 约束由全局样式处理，这里只用 inline-size 驱动，不用动画库。
  */
 import { computed, inject, onBeforeUnmount, ref } from 'vue'
-import { breathComplete, breathCycleSeconds, breathPatternById, breathTotalMs, breathView, BREATH_PATTERNS } from '@modulo/engine/timer'
+import { breathComplete, breathCycleSeconds, breathPatternById, breathTotalMs, breathView, BREATH_PATTERNS } from '@levango7/engine/timer'
 import { Pause, Play, RotateCcw } from 'lucide-vue-next'
 import type { CardDataApi } from '../../vue/cardData'
 

@@ -22,8 +22,9 @@
     "desktop:probe": "node scripts/desktop-probe.mjs",
     "release:ledger": "node scripts/release-manifest.mjs",
     "release:ledger:update": "node scripts/release-manifest.mjs --update",
-    "engine:build": "npm run build --workspace @modulo/engine",
-    "engine:pack": "npm pack --workspace @modulo/engine",
+    "engine:build": "npm run build --workspace @levango7/engine",
+    "engine:pack": "npm pack --workspace @levango7/engine",
+    "engine:publish": "npm publish --workspace @levango7/engine",
     "typecheck": "vue-tsc --noEmit -p tsconfig.json && tsc --noEmit -p tsconfig.e2e.json"
   },
   "devDependencies": {
@@ -40,7 +41,7 @@
     "vue-tsc": "^3.3.12"
   },
   "dependencies": {
-    "@modulo/engine": "*",
+    "@levango7/engine": "*",
     "@tauri-apps/api": "^2.12.1",
     "@tauri-apps/plugin-process": "^2.4.0",
     "@tauri-apps/plugin-updater": "^2.13.1",

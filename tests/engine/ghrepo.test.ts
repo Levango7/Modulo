@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { parseRepo, repoApiUrl, repoPageUrl, repoPathOk } from '@modulo/engine/ghrepo'
+import { parseRepo, repoApiUrl, repoPageUrl, repoPathOk } from '@levango7/engine/ghrepo'
 
 /** 真夹具：2026-10-04 抓的 api.github.com/repos/Levango7/Modulo（截了卡上要用的字段） */
 const REAL = {

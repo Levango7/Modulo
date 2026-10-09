@@ -8,7 +8,7 @@ import {
   sanitizeCityIds,
   tzOffsetMinutes,
   worldCityById,
-} from '@modulo/engine/worldclock'
+} from '@levango7/engine/worldclock'
 
 /**
  * 全部用**固定瞬间**（UTC 写死）+ **已知偏移**断言。偏移是这两条线的事实（含夏令时），

@@ -7,7 +7,7 @@
  * **差 100 倍**，而用户在输入框里看不出区别。
  */
 import { computed, inject } from 'vue'
-import { fixedPlan, formatFixed, formatRate, parseMoney, parseRate } from '@modulo/engine/fixed'
+import { fixedPlan, formatFixed, formatRate, parseMoney, parseRate } from '@levango7/engine/fixed'
 import { Percent } from 'lucide-vue-next'
 import type { CardDataApi } from '../../vue/cardData'
 

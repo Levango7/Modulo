@@ -2,11 +2,11 @@
 /**
  * 年历卡：一眼看整年 12 个月，今天高亮；可以翻年（翻年只是看，不改任何数据）。
  *
- * 日期算术全在引擎（`@modulo/engine/yearcalendar`）—— 那层有闰年/补位的单测，
+ * 日期算术全在引擎（`@levango7/engine/yearcalendar`）—— 那层有闰年/补位的单测，
  * 这里只剩"视图状态 + 每分钟让'今天'别过期"。60 秒一跳是为了跨零点：卡片常开着。
  */
 import { computed, onBeforeUnmount, ref } from 'vue'
-import { formatYearLabel, shiftYear, yearGrid } from '@modulo/engine/yearcalendar'
+import { formatYearLabel, shiftYear, yearGrid } from '@levango7/engine/yearcalendar'
 import { ChevronLeft, ChevronRight } from 'lucide-vue-next'
 
 const props = defineProps<{ variant: string }>()

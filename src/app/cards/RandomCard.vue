@@ -4,7 +4,7 @@
  * 这里才把 `crypto.getRandomValues` 包成 `() => number` 递进去，测试用的是固定序列。
  */
 import { ref } from 'vue'
-import { rollInts } from '@modulo/engine/random'
+import { rollInts } from '@levango7/engine/random'
 
 const props = defineProps<{ variant: string }>()
 

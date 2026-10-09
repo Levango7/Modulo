@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { BACKUP_KIND, BACKUP_VERSION, emptyCardData, buildBackup, backupToJson, parseBackup } from '../../src/vue/backup'
 import type { CardData } from '../../src/vue/cardData'
-import type { LayoutDoc, SchemeBook } from '@modulo/engine'
+import type { LayoutDoc, SchemeBook } from '@levango7/engine'
 import { REGISTRY } from '../../src/vue/cardRegistry'
 
 const layout: LayoutDoc = {

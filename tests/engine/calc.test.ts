@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { evaluate, formatCalcNumber } from '@modulo/engine/calc'
+import { evaluate, formatCalcNumber } from '@levango7/engine/calc'
 
 describe('evaluate：四则、括号、优先级', () => {
   it('优先级：先乘除后加减', () => {

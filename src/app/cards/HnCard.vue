@@ -5,7 +5,7 @@
  * 桌面壳里点不开外链（`target="_blank"` 在 WebView 里没反应），所以标题只作文本、外链在网页版给。
  */
 import { computed, inject, onMounted } from 'vue'
-import { HN_TOP_URL, hnItemUrl, parseStory, parseTopIds, type HnStory } from '@modulo/engine/hn'
+import { HN_TOP_URL, hnItemUrl, parseStory, parseTopIds, type HnStory } from '@levango7/engine/hn'
 import { RefreshCw } from 'lucide-vue-next'
 import { isDesktop } from '../../vue/useShell'
 import { useRemote } from '../../vue/useRemote'

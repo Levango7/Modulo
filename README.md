@@ -52,7 +52,8 @@ npm run tauri:build -- --no-bundle   # 只出 exe；去掉 --no-bundle 会去下
 ## 结构
 
 ```
-packages/engine/  **@modulo/engine**：纯函数引擎（几何、碰撞、落位、形态、投影、历史、校验、方案册、模板 + 各卡纯逻辑）
+packages/engine/  **@levango7/engine**：纯函数引擎（几何、碰撞、落位、形态、投影、历史、校验、方案册、模板 + 各卡纯逻辑）
+                ★ 2026-10-09 起对外发布这个包（此前叫 @modulo/engine，见 docs/ARCHITECTURE.md §12）
                 ★ 不引用框架与 DOM，由 tests/engine-purity.test.ts 与包构建（lib 只有 ES2022、无 DOM）双重执法
 src/vue/        适配层：store、useCanvasDrag、keyboard（纯函数意图）、useProjection、useCellFocus、
                 useElementWidth、useDensity、皮肤/备份/方案册/外壳/更新等 composables + components/

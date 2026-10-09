@@ -7,7 +7,7 @@
  * 网络与缓存的口径在 `useWeather.ts` 里写着（首次渲染才查、30 分钟 TTL、换城市立即查）。
  */
 import { computed, inject, onBeforeUnmount, onMounted, ref } from 'vue'
-import { cityById, dayLabel, formatTemp, freshness, weatherKind, weatherText } from '@modulo/engine/weather'
+import { cityById, dayLabel, formatTemp, freshness, weatherKind, weatherText } from '@levango7/engine/weather'
 import { Cloud, CloudDrizzle, CloudFog, CloudLightning, CloudRain, CloudSnow, CloudSun, HelpCircle, RefreshCw, Sun } from 'lucide-vue-next'
 import { useWeather } from '../../vue/useWeather'
 import type { StorageAdapter } from '../../vue/store'

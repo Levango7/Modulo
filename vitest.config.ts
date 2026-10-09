@@ -6,7 +6,7 @@ import { defineConfig } from 'vitest/config'
  * 两条覆盖门禁，圈的是两层不同的东西。
  *
  * ① `packages/engine/src/**` 分支 ≥90（§8 验收第 5 条）。以前这条只写在文档里，谁也没测过。
- *    引擎是「纯函数、必须可测」的那一层，所以门禁卡死。2026-10-03 抽成 `@modulo/engine` 包之后
+ *    引擎是「纯函数、必须可测」的那一层，所以门禁卡死。2026-10-03 抽成 `@levango7/engine` 包之后
  *    路径从 `src/engine/**` 挪到这里 —— 门禁跟着资产走，不是跟着目录名走。
  *
  * ② `src/vue/**` 里**可单测的那几个纯模块** 分支 ≥90。这一条是 2026-10-03 补的：
@@ -39,8 +39,8 @@ const engineSrc = join(dirname(fileURLToPath(import.meta.url)), 'packages/engine
 export default defineConfig({
   resolve: {
     alias: [
-      { find: /^@modulo\/engine$/, replacement: join(engineSrc, 'index.ts') },
-      { find: /^@modulo\/engine\//, replacement: `${engineSrc}/` },
+      { find: /^@levango7\/engine$/, replacement: join(engineSrc, 'index.ts') },
+      { find: /^@levango7\/engine\//, replacement: `${engineSrc}/` },
     ],
   },
   test: {

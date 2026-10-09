@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { contrastRatio, hslToRgb, parseHex, readableOn, rgbToHex, rgbToHsl } from '@modulo/engine/color'
+import { contrastRatio, hslToRgb, parseHex, readableOn, rgbToHex, rgbToHsl } from '@levango7/engine/color'
 
 describe('parseHex：#RGB 与 #RRGGBB 都认', () => {
   it('三位自动扩位，# 可省，大小写均可', () => {

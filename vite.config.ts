@@ -4,7 +4,7 @@ import { defineConfig } from 'vite'
 import vue from '@vitejs/plugin-vue'
 
 /**
- * `@modulo/engine` 在仓库内按**源码**解析（应用与测试都走这条）；
+ * `@levango7/engine` 在仓库内按**源码**解析（应用与测试都走这条）；
  * 包对外的入口是 `dist/`（`packages/engine` 的 `build` 用 tsc 产出，`prepack` 会先构建）。
  * 同一条源码、两种消费方式 —— 改引擎不用先构建，编辑器直接跳到源码。
  */
@@ -24,8 +24,8 @@ export default defineConfig({
   plugins: [vue()],
   resolve: {
     alias: [
-      { find: /^@modulo\/engine$/, replacement: join(engineSrc, 'index.ts') },
-      { find: /^@modulo\/engine\//, replacement: `${engineSrc}/` },
+      { find: /^@levango7\/engine$/, replacement: join(engineSrc, 'index.ts') },
+      { find: /^@levango7\/engine\//, replacement: `${engineSrc}/` },
     ],
   },
   server: { port: 1430 },

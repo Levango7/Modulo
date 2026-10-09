@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import * as E from '@modulo/engine'
-import type { ModuleRegistry, Placement } from '@modulo/engine/types'
+import * as E from '@levango7/engine'
+import type { ModuleRegistry, Placement } from '@levango7/engine/types'
 
 const REG: ModuleRegistry = ['a', 'b', 'c'].map((id) => ({
   id,

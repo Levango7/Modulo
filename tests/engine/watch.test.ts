@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
-import { blockedReason, ipv6Bytes, normalizeWatchLabel, normalizeUrl, sanitizeWatch, MAX_WATCH } from '@modulo/engine/watch'
+import { blockedReason, ipv6Bytes, normalizeWatchLabel, normalizeUrl, sanitizeWatch, MAX_WATCH } from '@levango7/engine/watch'
 
 /**
  * 跨语言判据表（`tests/fixtures/watch-url-verdicts.json`）。

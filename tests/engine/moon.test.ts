@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { SYNODIC_MONTH_DAYS, daysToFullMoon, moonPhase, moonPhaseName } from '@modulo/engine/moon'
+import { SYNODIC_MONTH_DAYS, daysToFullMoon, moonPhase, moonPhaseName } from '@levango7/engine/moon'
 
 /** 锚点：2000-01-06 18:14 UTC（已知新月）—— 按定义它必须是相位 0/1 与"新月" */
 const ANCHOR = new Date(Date.UTC(2000, 0, 6, 18, 14))

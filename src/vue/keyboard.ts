@@ -9,7 +9,7 @@
  * 抢 Ctrl+Z / Backspace 的代价是用户在自己的输入框里按 Delete 删不掉字。
  */
 
-import type { Placement } from '@modulo/engine'
+import type { Placement } from '@levango7/engine'
 
 /** 键盘事件里我们只看这几个字段 —— 结构化输入让单测不必造 KeyboardEvent */
 export interface KeyLike {

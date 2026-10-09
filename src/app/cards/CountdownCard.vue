@@ -3,11 +3,11 @@
  * 倒数日：用户写的名字 + 一个日子 → "还有几天"。
  *
  * 内容存在 `cardData`（**跟着完整备份走**）—— 这就是它和"世界时钟选哪些城市"的区别：
- * 用户敲进去的字属于内容，偏好属于本机。算术在引擎（`@modulo/engine/countdown`，
+ * 用户敲进去的字属于内容，偏好属于本机。算术在引擎（`@levango7/engine/countdown`，
  * 含闰日与"看着像日子但不是"的拒收）。
  */
 import { computed, inject, onBeforeUnmount, ref } from 'vue'
-import { countdownText, daysUntil, formatDateLabel, isValidDate } from '@modulo/engine/countdown'
+import { countdownText, daysUntil, formatDateLabel, isValidDate } from '@levango7/engine/countdown'
 import { CalendarClock, Pencil } from 'lucide-vue-next'
 import type { CardDataApi } from '../../vue/cardData'
 

@@ -4,7 +4,7 @@ import { LayoutGrid, LayoutTemplate, Plus, Redo2, Settings, SlidersHorizontal, T
 import { useElementSize } from './vue/useElementSize'
 import { useProjection } from './vue/useProjection'
 import { measureWantedRows } from './vue/useDensity'
-import * as E from '@modulo/engine'
+import * as E from '@levango7/engine'
 import type { LayoutStore } from './vue/store'
 import type { PersistentStorage } from './vue/fileStorage'
 import type { CardDataApi } from './vue/cardData'

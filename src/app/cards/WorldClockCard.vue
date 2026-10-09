@@ -14,7 +14,7 @@ import {
   relativeLabel,
   sanitizeCityIds,
   worldCityById,
-} from '@modulo/engine/worldclock'
+} from '@levango7/engine/worldclock'
 import { X } from 'lucide-vue-next'
 import type { StorageAdapter } from '../../vue/store'
 

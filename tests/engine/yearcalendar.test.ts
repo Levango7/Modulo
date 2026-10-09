@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { formatYearLabel, shiftYear, yearGrid } from '@modulo/engine/yearcalendar'
+import { formatYearLabel, shiftYear, yearGrid } from '@levango7/engine/yearcalendar'
 
 // daysInMonthOf 由 heatmap 持有（年历直接复用它），闰年/世纪年的断言在 heatmap.test.ts。
 

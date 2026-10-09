@@ -19,3 +19,8 @@ coverage/
 
 # npm pack 的产物（引擎包 tarball）
 *.tgz
+
+# 打包前从仓库根同步进来的许可证副本。**单一来源是根目录那份**，
+# 这一份是 `scripts/engine-license.mjs` 在 prepack 里生成的产物 ——
+# npm 只会把「包目录下」的 LICENSE 装进 tarball，根目录那份它看不见。
+packages/engine/LICENSE
