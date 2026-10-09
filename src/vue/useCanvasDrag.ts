@@ -42,8 +42,10 @@ export function useCanvasDrag(opts: {
   store: LayoutStore
   gridEl: Ref<HTMLElement | null>
   sel: Ref<Set<string>>
+  /** 编辑态的行轨高度，与浏览态同一个数（`useProjection` 的 `rowPx`）。见下面 `cellAt` 的注释 */
+  rowPx: Ref<number>
 }) {
-  const { store, gridEl, sel } = opts
+  const { store, gridEl, sel, rowPx } = opts
   const reg = store.reg
   const COLS = E.LOGICAL_COLS
   const items = computed(() => store.doc.value.items)
@@ -51,8 +53,18 @@ export function useCanvasDrag(opts: {
   const drag = ref<DragState | null>(null)
   const ghost = ref({ x: 0, y: 0 })
 
+  /**
+   * 轨数 = 内容用到几行。**下限刻意不是 12**（2026-10-09 去掉）。
+   *
+   * 原来写 `Math.max(…, 12)`，那是在"行轨是 `minmax(0,1fr)`、画布把可用高摊给 12 轨"的前提下
+   * 给空白处留落点用的。轨改成固定 `rowPx` 之后，那 12 轨会**真的占掉 12 个轨的高度**
+   * （1408×1440 下 12×127+11×16 = 1700px，比画布 1329px 还高）—— 于是每次进编辑态都会多出
+   * 一个全是空轨的滚动条。落点现在由**画布盒子**本身提供（`.canvas` 的 `flex: 1 0 auto`
+   * 让它撑满、必要时还能长高，空白区仍在盒子里，`cellAt` 把那里换算成行号），
+   * 不需要靠"多铺几行空轨"来造落点。
+   */
   const rowCount = computed(() => {
-    let m = items.value.reduce((acc, p) => Math.max(acc, p.y + p.h), 12)
+    let m = items.value.reduce((acc, p) => Math.max(acc, p.y + p.h), 1)
     const d = drag.value
     if (d?.preview) m = Math.max(m, d.preview.y + d.preview.h)
     if (d?.marquee) m = Math.max(m, d.marquee.y + d.marquee.h)
@@ -62,12 +74,27 @@ export function useCanvasDrag(opts: {
 
   const variantOf = (p: E.Placement) => E.resolveVariant(E.findModule(reg, p.id), p.variant)
 
+  /**
+   * 指针 → 格子。**行高直接用 `rowPx`，不再从 DOM 反算**（2026-10-09 改）。
+   *
+   * 原先是 `ch = (r.height − (rowCount−1)·GAP) / rowCount` —— 那个式子的前提是行轨为
+   * `minmax(0,1fr)`（每轨正好是"画布可摊的高度"）。轨改成固定 `rowPx` 之后，画布盒子的高度
+   * 与轨高**不再有函数关系**（盒子还是撑满的，但轨是定值，底下留白），那个式子会算出
+   * 一个比真实轨高小的数，落点整体偏移。
+   *
+   * 所以这里改成与 CSS 同一个来源：轨高就是 `rowPx`。**反算这一步本来就是"因为轨是 1fr
+   * 才不得不反算"**，轨固定之后它既没必要、也不成立 —— 这也正是 §10.27 里"要改它取 ch 的
+   * 方式"那个顾虑的实际结论：不是把 rowPx 塞进去算一遍，而是把反算整个删掉。
+   *
+   * 列向没有这个问题（列一直是 `repeat(12, minmax(0,1fr))`，画布宽就是它的宽度来源），
+   * 所以 `cw` 仍是反算。
+   */
   function cellAt(clientX: number, clientY: number): { col: number; row: number } | null {
     const el = gridEl.value
     if (!el) return null
     const r = el.getBoundingClientRect()
     const cw = (r.width - (COLS - 1) * GAP) / COLS
-    const ch = (r.height - (rowCount.value - 1) * GAP) / rowCount.value
+    const ch = rowPx.value
     if (cw <= 0 || ch <= 0) return null
     const col = Math.floor((clientX - r.left) / (cw + GAP))
     const row = Math.floor((clientY - r.top) / (ch + GAP))
