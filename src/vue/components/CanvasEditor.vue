@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, inject, onBeforeUnmount, onMounted, ref } from 'vue'
 import * as E from '@levango7/engine'
-import { Lock, LockOpen, Shuffle, X, LayoutGrid, Trash2 } from 'lucide-vue-next'
+import { Lock, LockOpen, Shuffle, X, LayoutGrid, Trash2, GripVertical } from 'lucide-vue-next'
 import type { LayoutStore } from '../store'
 import { useCanvasDrag } from '../useCanvasDrag'
 import { useCellFocus } from '../useCellFocus'
@@ -33,6 +33,23 @@ const { drag, ghost, rowCount, toggleSelect, startMove, startNew, startResize, o
   sel,
   rowPx: computed(() => props.rowPx),
 })
+
+/**
+ * 卡面点按 = 只选中，**不起拖**（2026-10-10 抓手区重做）。
+ *
+ * 旧版拖拽可以从卡面任何位置发起，于是触摸端需要"长按 250ms 才进拖拽"防误触 ——
+ * 代价是按住等一会儿才动的反直觉手感。现在拖拽入口收窄到**标题带**（模板侧
+ * `@pointerdown="startMove"`），卡面彻底退出拖拽状态机：点按就是点按，
+ * 划动交还给滚动（卡面 `touch-action: pan-y`），原生交互（勾选/输入）也不再被
+ * `begin()` 的 `preventDefault` 打扰。
+ */
+function onBodyDown(p: E.Placement, e: PointerEvent) {
+  if (e.shiftKey || e.ctrlKey || e.metaKey) {
+    toggleSelect(p.id)
+    return
+  }
+  if (!sel.value.has(p.id)) sel.value = new Set([p.id])
+}
 
 const titleOf = (p: E.Placement) => p.title ?? E.findModule(reg, p.id)?.title ?? p.id
 const variantName = (p: E.Placement) => variantOf(p)?.name ?? ''
@@ -177,15 +194,22 @@ function removeSelected() {
           :style="cellStyle(p)"
           tabindex="0"
           role="group"
-          :aria-label="`${titleOf(p)}，${p.w} 乘 ${p.h} 格。方向键移动，Shift 加方向键缩放，空格切换选入，回车切换形态，Delete 移回模块库`"
-          @pointerdown="startMove(p, $event)"
+          :aria-label="`${titleOf(p)}，${p.w} 乘 ${p.h} 格。拖动标题带移动，方向键移动，Shift 加方向键缩放，空格切换选入，回车切换形态，Delete 移回模块库`"
           @keydown="onCellKeydown(p, $event)"
         >
-          <div class="tag">
+          <!-- 标题带 = 拖拽抓手（Grafana 式：拖标题栏移动面板）。intent 靠区域区分：
+               拖这里 = 移动；点卡面 = 选中；卡面划动 = 交还滚动 -->
+          <div
+            class="tag"
+            :class="{ locked: p.locked }"
+            :title="p.locked ? '已锁定' : '拖动移动卡片'"
+            @pointerdown="startMove(p, $event)"
+          >
+            <GripVertical :size="11" class="grip-ico" />
             <span class="tag-name">{{ titleOf(p) }}</span>
             <span v-if="hasVariants(p.id)" class="tag-var">{{ variantName(p) }}</span>
           </div>
-          <div class="body"><slot :item="p" /></div>
+          <div class="body" @pointerdown="onBodyDown(p, $event)"><slot :item="p" /></div>
           <div class="ctrl">
             <button v-if="hasVariants(p.id)" class="cbtn" title="切换形态 (Enter)" @pointerdown.stop="store.cycleVariant(p.id)">
               <Shuffle :size="13" />
@@ -235,7 +259,7 @@ function removeSelected() {
 
       <div class="foot">
         <p class="hint">
-          方向键移动 · Shift+方向键缩放 · 空格选入 · Enter 切形态 · Delete 移回库 · L 锁定 · Shift+点选/空白框选 · Ctrl+A 全选 · Esc 取消
+          拖动标题带移动 · 方向键移动 · Shift+方向键缩放 · 空格选入 · Enter 切形态 · Delete 移回库 · L 锁定 · Shift+点选/空白框选 · Ctrl+A 全选 · Esc 取消
         </p>
         <div v-if="selCount > 1" class="batch">
           <span>已选 {{ selCount }} 个</span>
@@ -280,7 +304,8 @@ function removeSelected() {
   background: var(--bg-card);
   padding: var(--space-3);
   margin-bottom: var(--space-3);
-  /* pan-y：竖直滑动交给浏览器滚列表；拖拽要长按 250ms（见 useCanvasDrag 的 dragGate） */
+  /* pan-y：竖直滑动交给浏览器滚列表；抓手（.lib-title / .chip）各自 touch-action: none，
+     划在那上面 = 拖卡片进画布，不交还滚动 —— 与画布侧的标题带同一套区域语义 */
   touch-action: pan-y;
   transition: box-shadow var(--dur-micro) var(--ease-out), transform var(--dur-micro) var(--ease-out);
 }
@@ -292,6 +317,7 @@ function removeSelected() {
   font-weight: 600;
   margin-bottom: var(--space-2);
   cursor: grab;
+  touch-action: none;
 }
 .lib-variants {
   display: flex;
@@ -303,7 +329,7 @@ function removeSelected() {
   padding: 2px 7px;
   border-radius: var(--radius-pill);
   cursor: grab;
-  touch-action: pan-y;
+  touch-action: none;
 }
 .small {
   font-size: 12px;
@@ -347,7 +373,7 @@ function removeSelected() {
   box-shadow: var(--frost-edge), var(--shadow-card);
   display: flex;
   container-type: size;
-  cursor: grab;
+  /* 卡面不再起拖（抓手在标题带），所以没有 grab；锁定也体现在标题带 cursor 上 */
   touch-action: pan-y;
   transition: box-shadow var(--dur-micro) var(--ease-out);
 }
@@ -367,13 +393,16 @@ function removeSelected() {
   outline: none;
   box-shadow: var(--shadow-focus), var(--shadow-card);
 }
-/* 标签占独立的一条头部带，不压在卡片自身表头上（x-hub 编辑器那处叠字的根因） */
+/* 标签占独立的一条头部带，不压在卡片自身表头上（x-hub 编辑器那处叠字的根因）。
+   **2026-10-10 起它就是拖拽抓手**（Grafana 式"拖标题栏"）：pointer-events 打开、
+   touch-action: none（触屏在这条带上的划动是拖拽，不交还滚动）、cursor: grab。
+   高度 24px 是触摸目标下限（原 20px 太窄）。 */
 .tag {
   position: absolute;
   top: 0;
   left: 0;
   right: 0;
-  height: 20px;
+  height: 24px;
   display: flex;
   align-items: center;
   gap: var(--space-2);
@@ -382,7 +411,20 @@ function removeSelected() {
   border-radius: var(--radius-lg) var(--radius-lg) 0 0;
   background: var(--bg-card-soft);
   color: var(--text-2);
-  pointer-events: none;
+  pointer-events: auto;
+  cursor: grab;
+  touch-action: none;
+  user-select: none;
+}
+.tag.locked {
+  cursor: default;
+}
+.grip-ico {
+  flex: none;
+  color: var(--text-4);
+}
+.tag:hover .grip-ico {
+  color: var(--text-2);
 }
 .tag-name {
   font-weight: 600;
@@ -398,7 +440,7 @@ function removeSelected() {
 .body {
   flex: 1;
   min-width: 0;
-  padding-top: 20px;
+  padding-top: 24px;
 }
 .body :deep(.card) {
   height: 100%;
@@ -406,14 +448,22 @@ function removeSelected() {
   border: none;
   box-shadow: none;
 }
+/* 悬停操作条（2026-10-10 质感化）：胶囊底 + 描边 + 投影，浮在卡片内容之上 ——
+   以前三枚裸钮直接压在内容上，看久了像"叠字"。top 让位于 24px 标题带。 */
 .ctrl {
   position: absolute;
-  top: 22px;
-  right: 4px;
+  top: 28px;
+  right: 6px;
   display: flex;
   gap: 2px;
+  padding: 2px;
+  border-radius: var(--radius-pill);
+  background: var(--bg-card-solid);
+  border: 1px solid var(--border-soft);
+  box-shadow: var(--shadow-hover);
   opacity: 0;
   transition: opacity var(--dur-micro) var(--ease-out);
+  z-index: 2;
 }
 .cell:hover .ctrl,
 .cell:focus .ctrl,
