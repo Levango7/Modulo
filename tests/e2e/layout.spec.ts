@@ -1031,12 +1031,13 @@ it.skipIf(skip)('全部卡上版：三档视口不溢出、不裁字、最小字
 })
 
 /**
- * 触摸分流（2026-10-10 走查轮加）：`pointerType === 'touch'` 要长按 250ms 才进拖拽。
- * 判定的纯函数部分由 `tests/vue/canvasDragGate.test.ts` 守；这条测**真实链路**：
+ * 抓手区语义（2026-10-10 交互重做）：拖拽只能从**标题带**发起（Grafana 式"拖标题栏"），
+ * 卡面 pointerdown 只做选中 —— 意图靠区域区分，不再靠"长按 250ms"的时间门槛。
+ * 纯函数部分由 `tests/vue/canvasDragGate.test.ts` 守；这条测**真实链路**：
  * 合成 touch 事件走 Chrome 指针管线（pointerType 才是真的 'touch'），
- * 用"doc 有没有被改"当判据 —— 快划不该改，长按后拖应该改。
+ * 用"doc 有没有被改"当判据 —— 划卡面不该改，拖标题带应该改。
  */
-it.skipIf(skip)('触摸：长按 250ms 才进拖拽；先划动不拖卡（交给滚动）', async () => {
+it.skipIf(skip)('触摸：划卡面只滚动不动卡；拖标题带才移动卡片', async () => {
   const ctx = await browser.createBrowserContext()
   const page = await ctx.newPage()
   await page.setViewport({ width: 1440, height: 900, deviceScaleFactor: 1, hasTouch: true })
@@ -1049,29 +1050,76 @@ it.skipIf(skip)('触摸：长按 250ms 才进拖拽；先划动不拖卡（交�
   const before = await page.evaluate(() => localStorage.getItem('modulo.layout.v1'))
   const pos = await page.evaluate(() => {
     const c = document.querySelector<HTMLElement>('.canvas .cell')!.getBoundingClientRect()
-    return { x: Math.round(c.left + c.width / 2), y: Math.round(c.top + 24) }
+    return {
+      bodyX: Math.round(c.left + c.width / 2),
+      bodyY: Math.round(c.top + 90), // 标题带（24px）之下的卡面
+      tagX: Math.round(c.left + c.width / 2),
+      tagY: Math.round(c.top + 12), // 标题带中央（抓手区）
+    }
   })
 
-  // ① 快划：长按没满就移动 → 整段作废，不应拖动卡片
-  await page.touchscreen.touchStart(pos.x, pos.y)
+  // ① 划卡面（竖直方向，pan-y 的本来用途）：不该拖动卡片
+  await page.touchscreen.touchStart(pos.bodyX, pos.bodyY)
   await settle(40)
-  await page.touchscreen.touchMove(pos.x + 140, pos.y + 60)
+  await page.touchscreen.touchMove(pos.bodyX, pos.bodyY + 100)
   await settle(40)
   await page.touchscreen.touchEnd()
   await settle(400)
-  expect(await page.evaluate(() => localStorage.getItem('modulo.layout.v1')), '快划不该拖动卡片').toBe(before)
+  expect(await page.evaluate(() => localStorage.getItem('modulo.layout.v1')), '划卡面不该拖动卡片').toBe(before)
 
-  // ② 长按 320ms 再拖 → 应真的移动
-  await page.touchscreen.touchStart(pos.x, pos.y)
-  await settle(320)
-  await page.touchscreen.touchMove(pos.x + 130, pos.y + 40)
-  await settle(60)
-  await page.touchscreen.touchMove(pos.x + 260, pos.y + 80)
+  // ② 拖标题带：应真的移动（不再需要长按等待）
+  await page.touchscreen.touchStart(pos.tagX, pos.tagY)
+  await settle(40)
+  await page.touchscreen.touchMove(pos.tagX + 130, pos.tagY + 40)
   await settle(60)
   await page.touchscreen.touchEnd()
   await settle(500)
-  expect(await page.evaluate(() => localStorage.getItem('modulo.layout.v1')), '长按后拖动应移动卡片').not.toBe(before)
+  expect(await page.evaluate(() => localStorage.getItem('modulo.layout.v1')), '拖标题带应移动卡片').not.toBe(before)
   await ctx.close()
+})
+
+/**
+ * 悬停操作条（2026-10-10 质感化）：鼠标悬停卡片时三枚动作钮（形态/锁定/删除）
+ * 以胶囊条浮在内容之上（以前是裸钮直接压内容，像叠字）。这条测真实链路：
+ * 悬停 → .ctrl 显形 → 点锁定 → 落盘 → 切到解锁态 → Ctrl+Z 撤销。
+ */
+it.skipIf(skip)('悬停操作条：悬停浮出动作条，锁定落盘且可撤销', async () => {
+  const page = await freshPage(1440, 900)
+  await clickTool(page, '布局编辑')
+  await settle(500)
+
+  const before = await page.evaluate(() => localStorage.getItem('modulo.layout.v1'))
+  const pos = await page.evaluate(() => {
+    const c = document.querySelector<HTMLElement>('.canvas .cell')!.getBoundingClientRect()
+    return { x: Math.round(c.left + c.width / 2), y: Math.round(c.top + 60) } // 卡面中部（避开标题带与操作条）
+  })
+  await page.mouse.move(pos.x, pos.y)
+  await settle(300)
+  const opacity = await page.evaluate(() => {
+    const ctrl = document.querySelector<HTMLElement>('.canvas .cell .ctrl')!
+    return getComputedStyle(ctrl).opacity
+  })
+  expect(opacity, '悬停后操作条应显形').toBe('1')
+
+  const lockBtn = await page.evaluateHandle(() =>
+    [...document.querySelectorAll<HTMLElement>('.canvas .cell .ctrl .cbtn')].find((b) => (b.getAttribute('title') || '').includes('锁定'))!,
+  )
+  const box = await lockBtn.asElement()?.boundingBox()
+  if (!box) throw new Error('操作条上没有锁定钮')
+  await page.mouse.click(Math.round(box.x + box.width / 2), Math.round(box.y + box.height / 2))
+  await settle(400)
+  expect(await page.evaluate(() => localStorage.getItem('modulo.layout.v1')), '锁定应落盘').not.toBe(before)
+
+  const switched = await page.evaluate(() =>
+    [...document.querySelectorAll<HTMLElement>('.canvas .cell .ctrl .cbtn')].some((x) => (x.getAttribute('title') || '').includes('解锁')),
+  )
+  expect(switched, '锁定后操作条应切换为解锁态').toBe(true)
+
+  await page.keyboard.down('Control')
+  await page.keyboard.press('KeyZ')
+  await page.keyboard.up('Control')
+  await settle(400)
+  expect(await page.evaluate(() => localStorage.getItem('modulo.layout.v1')), '撤销应回到锁定前').toBe(before)
 })
 
 /**
