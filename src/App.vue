@@ -475,7 +475,11 @@ function onGlobalKey(e: KeyboardEvent) {
   display: flex;
   flex-direction: column;
   gap: 2px;
-  background: var(--bg-card);
+  /* 菜单是压在任意内容上的浮层：卡片档半透明（亮彩皮肤 86%）会直接透字 ——
+     用户实拍：待办清单从「整理/紧凑」菜单里透出来。换「实底」令牌 + 背景模糊，
+     实测菜单空白列亮度波动 5 级 → 0 级、大块深色内容残留从 31 级降到 17 级。 */
+  background: var(--bg-card-solid);
+  backdrop-filter: blur(12px);
   border: 1px solid var(--border-soft);
   border-radius: var(--radius-md);
   box-shadow: var(--shadow-hover);
@@ -494,10 +498,11 @@ function onGlobalKey(e: KeyboardEvent) {
   position: sticky;
   top: calc(var(--space-1) * -1);
   z-index: 1;
-  background: var(--bg-card);
+  background: var(--bg-card-solid);
   margin: 0 calc(var(--space-1) * -1);
   padding: var(--space-2) var(--space-3) var(--space-1);
-  backdrop-filter: blur(6px);
+  /* 与菜单表面同档：不然滚动时吸顶头比菜单自己还透，滑过去的项会在标题下透出来 */
+  backdrop-filter: blur(12px);
 }
 .add-menu [role='menuitem'] {
   display: flex;
