@@ -433,3 +433,45 @@ describe('命令速查：加一条过同一套清洗，删一条按 id', () => {
     expect(d.state.commands.some((c) => c.id === id)).toBe(false)
   })
 })
+
+describe('四象限待办：加/勾/挪/删', () => {
+  it('空文本不入库；象限落位；勾选记完成时刻、取消抹掉', async () => {
+    const d = memStorage().api()
+    d.addMatrixTodo('  ', 'do')
+    expect(d.state.matrix).toHaveLength(0)
+    d.addMatrixTodo('季度规划', 'plan')
+    expect(d.state.matrix).toEqual([{ id: expect.any(String), text: '季度规划', q: 'plan', done: false }])
+    const id = d.state.matrix[0].id
+    d.toggleMatrixTodo(id)
+    expect(d.state.matrix[0].done).toBe(true)
+    expect(d.state.matrix[0].doneAt).toBeGreaterThan(0)
+    d.toggleMatrixTodo(id)
+    expect(d.state.matrix[0]).not.toHaveProperty('doneAt')
+  })
+  it('挪象限只在四个合法值间；删按 id', () => {
+    const d = memStorage().api()
+    d.addMatrixTodo('救火', 'do')
+    const id = d.state.matrix[0].id
+    d.moveMatrixTodo(id, 'drop')
+    expect(d.state.matrix[0].q).toBe('drop')
+    d.moveMatrixTodo(id, 'not-a-quadrant' as unknown as never)
+    expect(d.state.matrix[0].q).toBe('drop')
+    d.removeMatrixTodo(id)
+    expect(d.state.matrix).toHaveLength(0)
+  })
+})
+
+describe('连通性探测名单：加一条过同一条边界', () => {
+  it('合规 https 进得来；私网进不来；同 URL 去重；删按 id', () => {
+    const d = memStorage().api()
+    d.addProbe('健康', 'https://example.com/health')
+    expect(d.state.probes).toHaveLength(1)
+    d.addProbe('再来一次', 'https://example.com/health') // 同 URL → 去重
+    expect(d.state.probes).toHaveLength(1)
+    d.addProbe('内网', 'https://192.168.1.1/') // 私网 → 拒
+    expect(d.state.probes).toHaveLength(1)
+    const id = d.state.probes[0].id
+    d.removeProbe(id)
+    expect(d.state.probes).toHaveLength(0)
+  })
+})

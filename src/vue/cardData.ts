@@ -8,10 +8,12 @@ import {
   normalizeHhmm,
   normalizeUrl,
   sanitizeCommands,
+  sanitizeProbes,
   sanitizeLinks,
   sanitizeWatch,
   sanitizeMeetingCityIds,
   type CommandEntry,
+  type ProbeTarget,
   type QuickLink,
   type Watch,
 } from '@levango7/engine'
@@ -31,6 +33,24 @@ export interface Todo {
    */
   doneAt?: number
 }
+
+/**
+ * 四象限待办（艾森豪威尔矩阵）。与普通待办**分开存**而不是共用一份：
+ * 矩阵的语义是"按象限归类"，混进 todos 会让那张卡多一套"有/没有象限"的分支。
+ * q 四个值：重要且紧急（do）/ 重要不紧急（plan）/ 紧急不重要（delegate）/ 不重要不紧急（drop）。
+ */
+export type Quadrant = 'do' | 'plan' | 'delegate' | 'drop'
+
+export interface MatrixTodo {
+  id: string
+  text: string
+  q: Quadrant
+  done: boolean
+  doneAt?: number
+}
+
+export const QUADRANTS: readonly Quadrant[] = ['do', 'plan', 'delegate', 'drop']
+
 export interface Note {
   id: string
   title: string
@@ -162,6 +182,10 @@ export interface CardData {
   links: QuickLink[]
   /** 命令速查：点一下复制命令（清洗在引擎 commands.ts，与 links 同一套分层） */
   commands: CommandEntry[]
+  /** 四象限待办：用户写的字，进备份（与 todos 分开存，见 MatrixTodo 注释） */
+  matrix: MatrixTodo[]
+  /** 连通性探测的端点名单；**历史样本是机器采的，不进备份**（存独立 key） */
+  probes: ProbeTarget[]
   /** 网页监控的名单。边界（只 https、不许私网 IP）见 watch.ts 文件头 */
   watch: Watch[]
   /** 固定整数位计算的输入草稿；结果全在引擎算，这里只存两个输入 */
@@ -248,6 +272,23 @@ export function sanitizeCardData(raw: unknown, fallback: CardData): CardData {
       todos.push({
         id: uniqueId(todoSeen, e.id, 't', todos.length),
         text: textOf(e.text),
+        done: e.done === true,
+        ...(doneAt === undefined ? {} : { doneAt }),
+      })
+    }
+  }
+
+  const matrixSeen = new Set<string>()
+  const matrix: MatrixTodo[] = []
+  if (Array.isArray(o.matrix)) {
+    for (const entry of o.matrix.slice(0, MAX_ITEMS)) {
+      const e = entry as Partial<MatrixTodo> | null
+      if (!e || typeof e.text !== 'string' || !e.text.trim()) continue
+      const doneAt = e.done === true && typeof e.doneAt === 'number' && Number.isFinite(e.doneAt) ? e.doneAt : undefined
+      matrix.push({
+        id: uniqueId(matrixSeen, e.id, 'm', matrix.length),
+        text: textOf(e.text),
+        q: QUADRANTS.includes(e.q as Quadrant) ? (e.q as Quadrant) : 'do', // 坏象限归位而不是丢条目：字是用户写的
         done: e.done === true,
         ...(doneAt === undefined ? {} : { doneAt }),
       })
@@ -430,6 +471,8 @@ const pickSeen = new Set<string>()
     links: Array.isArray(o.links) ? sanitizeLinks(o.links as { id?: unknown; label?: unknown; href?: unknown }[]) : fallback.links,
     // 命令速查同 links 的分层：清洗（去空白/截长/去重/排序/id 唯一）在引擎 commands.ts
     commands: Array.isArray(o.commands) ? sanitizeCommands(o.commands as { id?: unknown; label?: unknown; cmd?: unknown }[]) : fallback.commands,
+    matrix: Array.isArray(o.matrix) ? matrix : fallback.matrix,
+    probes: Array.isArray(o.probes) ? sanitizeProbes(o.probes as { id?: unknown; label?: unknown; url?: unknown }[]) : fallback.probes,
     // 同理走引擎的 `sanitizeWatch`。它比 sanitizeLinks 多做一件事：**丢弃不合规的条目并计数**。
     // 那是边界 5（导入别人的备份时不该把私网地址带进来）—— 被挡掉的条数要回显给用户，
     // 否则他只会看到自己的名单莫名其妙少了几条。
@@ -497,6 +540,8 @@ export function createCardData(storage = browserStorage()) {
     },
     links: [],
     commands: [],
+    matrix: [],
+    probes: [],
   watch: [],
     fixed: { base: '', rate: '', symbol: '¥' },
     duty: { roster: [], anchor: '' },
@@ -520,6 +565,8 @@ export function createCardData(storage = browserStorage()) {
       'ledger.entries': state.ledger.entries.map((r) => ({ ...r })),
       links: [...state.links],
       commands: [...state.commands],
+      matrix: [...state.matrix],
+      probes: [...state.probes],
   watch: [...state.watch],
       'duty.roster': [...state.duty.roster],
       timers: {
@@ -671,6 +718,36 @@ export function createCardData(storage = browserStorage()) {
     },
     removeCommand(id: string) {
       state.commands = state.commands.filter((c) => c.id !== id)
+    },
+    /** 四象限待办：加一条（带象限）；勾/挪/删。与 todos 同一套 doneAt 语义 */
+    addMatrixTodo(text: string, q: Quadrant) {
+      const t = text.trim()
+      if (!t || state.matrix.length >= MAX_ITEMS) return
+      state.matrix.push({ id: `m${Date.now()}`, text: t, done: false, q: QUADRANTS.includes(q) ? q : 'do' })
+    },
+    toggleMatrixTodo(id: string) {
+      const t = state.matrix.find((x) => x.id === id)
+      if (!t) return
+      t.done = !t.done
+      if (t.done) t.doneAt = Date.now()
+      else delete t.doneAt
+    },
+    moveMatrixTodo(id: string, q: Quadrant) {
+      const t = state.matrix.find((x) => x.id === id)
+      if (t && QUADRANTS.includes(q)) t.q = q
+    },
+    removeMatrixTodo(id: string) {
+      state.matrix = state.matrix.filter((x) => x.id !== id)
+    },
+    /** 连通性探测：端点名单与 watch 同一条边界（sanitizeProbes 走 normalizeUrl） */
+    addProbe(label: string, url: string) {
+      if (!url.trim()) return
+      const next = sanitizeProbes([...state.probes, { label, url }])
+      if (next.length === state.probes.length && !next.some((p) => p.url === url.trim())) return
+      state.probes = next
+    },
+    removeProbe(id: string) {
+      state.probes = state.probes.filter((p) => p.id !== id)
     },
     /**
      * 加一条监控。`normalizeUrl` 先在**前端**过一遍边界，用户敲错时立刻有反馈；

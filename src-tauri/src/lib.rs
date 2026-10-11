@@ -10,6 +10,7 @@ use std::sync::Mutex;
  */
 pub mod monitor;
 pub mod net;
+mod sysmon;
 pub mod web;
 
 use tauri::{AppHandle, Manager, WindowEvent};
@@ -361,7 +362,8 @@ pub fn run() {
             storage::write_doc,
             storage::data_dir,
             web::bing_daily,
-            monitor::web_probe
+            monitor::web_probe,
+            sysmon::sys_stats
         ])
         .on_window_event(|window, event| {
             if let WindowEvent::CloseRequested { api, .. } = event {

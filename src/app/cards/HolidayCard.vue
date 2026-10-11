@@ -167,7 +167,7 @@ const workdaysLabel = (w: string[]) => w.map((d) => d.slice(5).replace('-', '/')
 }
 .src {
   margin: 0;
-  font-size: clamp(10px, 1.8cqw, 11px);
+  font-size: clamp(11px, 1.8cqw, 11px);
   color: var(--text-3);
 }
 </style>

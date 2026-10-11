@@ -20,6 +20,8 @@ const fallback: CardData = {
   },
   links: [],
   commands: [],
+  matrix: [],
+  probes: [],
   watch: [],
   fixed: { base: '', rate: '', symbol: '¥' },
   duty: { roster: [], anchor: '' },
@@ -42,6 +44,8 @@ describe('sanitizeCardData：盘上数据先清洗再用', () => {
       timers: fallback.timers,
       links: [],
       commands: [],
+      matrix: [],
+      probes: [],
   watch: [],
       fixed: fallback.fixed,
       duty: fallback.duty,
@@ -102,7 +106,7 @@ describe('sanitizeCardData：盘上数据先清洗再用', () => {
   it('__proto__ 之类的键不会漏进状态：只认白名单字段', () => {
     const r = sanitizeCardData(JSON.parse('{"__proto__":{"polluted":1},"sticky":"ok"}'), fallback)
     expect(Object.keys(r).sort()).toEqual([
-      'birthdays', 'commands', 'countdown', 'duty', 'elapsed', 'fixed', 'habit', 'ledger', 'links', 'meeting', 'notes', 'pickList', 'sticky', 'timers', 'todos', 'watch',
+      'birthdays', 'commands', 'countdown', 'duty', 'elapsed', 'fixed', 'habit', 'ledger', 'links', 'matrix', 'meeting', 'notes', 'pickList', 'probes', 'sticky', 'timers', 'todos', 'watch',
     ])
     expect({} as Record<string, unknown>).not.toHaveProperty('polluted')
   })
@@ -448,6 +452,41 @@ describe('sanitizeCardData：盘上数据先清洗再用', () => {
         for (const bad of [null, 'x', 42, {}, true]) {
           expect(commands(bad), String(bad)).toEqual([])
         }
+      })
+    })
+
+    describe('四象限待办：字是用户写的，坏象限归位而不是丢条目', () => {
+      const matrix = (o: unknown) => sanitizeCardData({ matrix: o }, fallback).matrix
+      it('合法条目保留；空文本丢；坏象限归 do', () => {
+        const out = matrix([
+          { id: 'm1', text: '季度规划', q: 'plan', done: false },
+          { id: 'm2', text: '   ', q: 'do' },
+          { id: 'm3', text: '救火', q: '爆炸', done: false },
+          { id: 'm4', text: '划水', q: 'drop', done: true, doneAt: 123 },
+        ])
+        expect(out).toEqual([
+          { id: 'm1', text: '季度规划', q: 'plan', done: false },
+          { id: 'm3', text: '救火', q: 'do', done: false },
+          { id: 'm4', text: '划水', q: 'drop', done: true, doneAt: 123 },
+        ])
+      })
+      it('doneAt 只跟 done=true 走（与 todos 同一语义）', () => {
+        const out = matrix([{ text: '未完成却带完成时刻', q: 'do', done: false, doneAt: 99 }])
+        expect(out[0]).not.toHaveProperty('doneAt')
+      })
+      it('整块缺失或形状不对 → 空表，绝不抛', () => {
+        for (const bad of [null, 'x', 42, {}, true]) expect(matrix(bad), String(bad)).toEqual([])
+      })
+    })
+
+    describe('连通性探测名单：与网页监控同一条边界（引擎 sanitizeProbes）', () => {
+      const probes = (o: unknown) => sanitizeCardData({ probes: o }, fallback).probes
+      it('合规 https 保留，私网/明文进不来', () => {
+        expect(probes([{ label: '健康', url: 'https://example.com/health' }])).toHaveLength(1)
+        expect(probes([{ url: 'http://a.test' }, { url: 'https://10.0.0.1/' }])).toEqual([])
+      })
+      it('整块缺失或形状不对 → 空表，绝不抛', () => {
+        for (const bad of [null, 'x', 42, {}, true]) expect(probes(bad), String(bad)).toEqual([])
       })
     })
 

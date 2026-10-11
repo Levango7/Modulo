@@ -209,6 +209,18 @@ export const REGISTRY: ModuleRegistry = [
       { id: 'habit', name: '打卡趋势', minW: 3, minH: 3, idealW: 4, idealH: 4 },
     ],
   },
+  {
+    id: 'matrix',
+    title: '四象限待办',
+    group: '记录',
+    // 与普通待办是兄弟卡不是变体：数据分开存（可两卡并存），象限挪动用箭头不做拖拽
+    blurb: '按重要 × 紧急归类（艾森豪威尔矩阵）',
+    defaultVariant: 'grid',
+    variants: [
+      { id: 'grid', name: '全矩阵', minW: 3, minH: 4, idealW: 4, idealH: 6 },
+      { id: 'focus', name: '重要两格', minW: 2, minH: 4, idealW: 3, idealH: 5 },
+    ],
+  },
   // ---- 工具 ----
   {
     id: 'calc',
@@ -296,6 +308,18 @@ export const REGISTRY: ModuleRegistry = [
     ],
   },
   {
+    id: 'sysmon',
+    title: '系统监控',
+    group: '工具',
+    // 仅桌面壳（Rust sys_stats / sysinfo 采集）；网页版如实显示不可用，不摆假仪表盘
+    blurb: 'CPU / 内存 / 磁盘 / 网速（仅桌面壳）',
+    defaultVariant: 'panel',
+    variants: [
+      { id: 'panel', name: '全指标', minW: 3, minH: 3, idealW: 4, idealH: 4 },
+      { id: 'mini', name: '精简', minW: 2, minH: 2, idealW: 3, idealH: 3 },
+    ],
+  },
+  {
     id: 'fixed',
     title: '整数位计算',
     group: '工具',
@@ -349,6 +373,18 @@ export const REGISTRY: ModuleRegistry = [
     variants: [
       { id: 'rows', name: '逐条', minW: 2, minH: 3, idealW: 3, idealH: 5 },
       { id: 'compact', name: '紧凑', minW: 3, minH: 2, idealW: 4, idealH: 3 },
+    ],
+  },
+  {
+    id: 'probe',
+    title: '连通性探测',
+    group: '联网',
+    // 探测复用 web_probe（elapsedMs 即延迟）；端点名单与网页监控同一条私网边界
+    blurb: '常盯端点的延迟历史 + 迷你折线',
+    defaultVariant: 'list',
+    variants: [
+      { id: 'list', name: '带历史', minW: 3, minH: 3, idealW: 4, idealH: 5 },
+      { id: 'quick', name: '只看现状', minW: 2, minH: 2, idealW: 3, idealH: 3 },
     ],
   },
   // ---- 联网 ----
