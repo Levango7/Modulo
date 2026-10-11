@@ -31,7 +31,15 @@ import { join, resolve, relative } from 'node:path';
 
 const root = resolve(process.cwd());
 const MARK = '<!-- facts -->';
-const TARGETS = ['README.md', 'docs/ARCHITECTURE.md'];
+// CARD-CATALOG 是 2026-10-12 纳进来的，理由与 CHANGELOG 被排除的理由正好是一对：
+//   · CHANGELOG **不该进** —— 它记的是"当时那一刻"（发布说明里的「新增 N 条单测」），
+//     拿今天的文件去比是必然的误报；
+//   · CARD-CATALOG **该进** —— 它是"当前有多少种卡"的**权威声明**，而且它此前就已经
+//     和 README / ARCHITECTURE 记着同一个事实（那两处有门禁、它这一处没有）。
+//     加卡的人会被 README 那道门逼着改，却不会想起这里 —— 同一事实只守住一半，等于没守。
+// 2026-10-12 实测这个缺口**当场就付过代价**：批次 5 把注册表推到 49 种卡时，
+// ARCHITECTURE:369 的权威值被更新了，而 CARD-CATALOG 首行停在「41 张」没人动。
+const TARGETS = ['README.md', 'docs/ARCHITECTURE.md', 'docs/CARD-CATALOG.md'];
 
 function sh(cmd) {
   return execSync(cmd, { cwd: root, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
