@@ -9,8 +9,8 @@ use std::sync::Mutex;
  * 里 winhttp 模块的注释。纯解析函数不受影响，仍在测试壳里正常跑单测。
  */
 pub mod monitor;
-mod sysmon;
 pub mod net;
+mod sysmon;
 pub mod web;
 
 use tauri::{AppHandle, Manager, WindowEvent};
