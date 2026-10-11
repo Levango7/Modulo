@@ -35,6 +35,7 @@ export * from './sysmon.js'
 export * from './stock.js'
 export * from './rss.js'
 export * from './rows.js'
+export * from './autoLayout.js'
 
 export * from './watch.js'
 export * from './fixed.js'

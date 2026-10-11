@@ -108,10 +108,16 @@ export function sanitizeRows(raw: unknown, items: readonly Placement[]): { rows:
         if (!s || typeof s.id !== 'string' || !isInt(s.x) || !isInt(s.dy) || !isInt(s.w) || !isInt(s.h)) continue
         stash.push({ id: s.id, variant: typeof s.variant === 'string' ? s.variant : '', x: s.x as number, dy: s.dy as number, w: s.w as number, h: s.h as number })
       }
+      const autoRaw = e.auto as { per?: unknown; rowH?: unknown } | undefined
+      const auto =
+        autoRaw && typeof autoRaw.per === 'number' && typeof autoRaw.rowH === 'number'
+          ? { per: Math.min(Math.max(Math.trunc(autoRaw.per) || 3, 1), 6), rowH: Math.min(Math.max(Math.trunc(autoRaw.rowH) || 3, 1), 8) }
+          : undefined
       rows.push({
         id: e.id,
         title: typeof e.title === 'string' && e.title.trim() ? e.title.trim().slice(0, TITLE_MAX) : '新建行',
         y: e.y as number,
+        ...(auto ? { auto } : {}),
         ...(e.collapsed === true ? { collapsed: true, stash } : {}),
       })
     }

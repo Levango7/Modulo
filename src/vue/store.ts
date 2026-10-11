@@ -121,7 +121,18 @@ export function createLayoutStore(opts: {
     renameRow: (rowId: string, title: string) => apply(E.setRowTitle(doc.value, rowId, title)),
     /** 折叠/展开：可逆的整段位移（折叠=隐藏成员+下方上移，展开=还原+让位） */
     toggleRow: (rowId: string) => apply(E.toggleRowCollapsed(doc.value, rowId)),
-    /** 行头拖动 = 整组移动（复用 moveMany 的语义与让位规则） */
+    /**
+     * 一键重排该行成员（阶段 C）：参数一并存进 row.auto，供「所有行重排」复用。
+     * 显式动作、可 Ctrl+Z —— 刻意不做连续自动（不偷覆盖手工微调）。
+     */
+    reflowRow: (rowId: string, params: E.AutoParams) => {
+      const next = E.autoLayout(doc.value, reg, { row: rowId }, params)
+      if (!next) return
+      apply({ ...next, rows: (next.rows ?? []).map((r) => (r.id === rowId ? { ...r, auto: { per: params.per, rowH: params.rowH } } : r)) })
+    },
+    /** 所有行各按自己存的参数重排一遍（排布菜单入口） */
+    reflowAllRows: () => apply(E.autoLayoutAllRows(doc.value, reg)),
+        /** 行头拖动 = 整组移动（复用 moveMany 的语义与让位规则） */
     moveRow: (rowId: string, dx: number, dy: number) => {
       const members = doc.value.items.filter((p) => p.row === rowId).map((p) => p.id)
       if (members.length) apply(E.moveMany(doc.value, members, dx, dy))

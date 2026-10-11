@@ -13,13 +13,14 @@
  * 怎么改 doc 是父组件的编排）。
  */
 import { nextTick, ref } from 'vue'
-import { ChevronDown, ChevronRight, GripVertical, Ungroup } from 'lucide-vue-next'
+import { ChevronDown, ChevronRight, GripVertical, RefreshCw, Ungroup } from 'lucide-vue-next'
 
 const props = defineProps<{
   title: string
   count: number
   collapsed: boolean
-  /** 折叠态下展示"收起 N 张" */
+  /** 该行存的自动重排参数（没有 = 还没重排过，用全局默认） */
+  auto: { per: number; rowH: number }
 }>()
 
 const emit = defineEmits<{
@@ -27,7 +28,12 @@ const emit = defineEmits<{
   (e: 'toggle'): void
   (e: 'ungroup'): void
   (e: 'rename', title: string): void
+  (e: 'reflow', per: number, rowH: number): void
 }>()
+
+/** 参数本地即时读取（不落盘）；点「重排」时才随结果一起提交 —— 改下拉不该产生历史 */
+const per = ref(props.auto.per)
+const rowH = ref(props.auto.rowH)
 
 const editing = ref(false)
 const draft = ref('')
@@ -72,6 +78,20 @@ function commit(): void {
     </template>
     <span v-else class="title" title="双击改名" @dblclick="startRename()">{{ title }}</span>
     <span class="meta">{{ collapsed ? `已收起 ${count} 张` : `${count} 张` }}</span>
+    <!-- 自动重排（阶段 C）：参数化一键动作，不连续跟随 -->
+    <span v-if="!collapsed" class="auto" title="自动重排该行（可 Ctrl+Z 退回）">
+      <label>每行</label>
+      <select v-model.number="per" aria-label="每行张数" @pointerdown.stop>
+        <option v-for="n in [2, 3, 4]" :key="n" :value="n">{{ n }}</option>
+      </select>
+      <label>高</label>
+      <select v-model.number="rowH" aria-label="行高" @pointerdown.stop>
+        <option v-for="n in [2, 3, 4]" :key="n" :value="n">{{ n }}</option>
+      </select>
+      <button class="reflow" title="按上面的参数重排这一行" aria-label="重排行" @pointerdown.stop @click="emit('reflow', per, rowH)">
+        <RefreshCw :size="11" />
+      </button>
+    </span>
     <button class="ungroup" title="解组（收回行头那一行）" aria-label="解组" @pointerdown.stop @click="emit('ungroup')">
       <Ungroup :size="11" />
     </button>
@@ -133,6 +153,52 @@ function commit(): void {
   font-size: 11px;
   color: var(--text-3);
   white-space: nowrap;
+}
+.auto {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  font-size: 11px;
+  color: var(--text-3);
+}
+.auto select {
+  font: inherit;
+  font-size: 11px;
+  padding: 0 2px;
+  background: var(--input-bg);
+  color: var(--text-1);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-sm);
+}
+.reflow {
+  display: inline-flex;
+  align-items: center;
+  padding: 1px;
+  background: transparent;
+  border: none;
+  color: var(--text-3);
+  cursor: pointer;
+}
+.reflow,
+.chev,
+.ungroup {
+  position: relative;
+}
+/* 行头三枚图标钮视觉都只有 13×13px，低于最小可点区（手指点不中）。
+   不改 padding（行头 22px 高会被撑变形），用伪元素把热区撑到 22×22 —— 与行头等高，
+   命中区变大、视觉没变（同 .cbtn 的做法）。 */
+.reflow::after,
+.chev::after,
+.ungroup::after {
+  content: '';
+  position: absolute;
+  inset: -4px -5px;
+  min-width: 22px;
+  min-height: 22px;
+}
+.reflow:hover,
+.reflow:focus-visible {
+  color: var(--text-1);
 }
 .rename {
   font: inherit;
