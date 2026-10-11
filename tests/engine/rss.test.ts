@@ -108,3 +108,22 @@ describe('sanitizeFeeds：订阅名单（与 watch/probe 同一条 URL 边界）
     expect(sanitizeFeeds([])).toEqual([])
   })
 })
+
+describe('parseFeed：容忍分支补口', () => {
+  it('feed 没有标题 → 名字回退「订阅」；条目没有任何链接 → link 空串', () => {
+    const f = parseFeed('<rss><channel><item><title>只有标题</title></item></channel></rss>')!
+    expect(f.title).toBe('订阅')
+    expect(f.items[0].link).toBe('')
+  })
+  it('日期只有 updated 也要（Atom 常见）；两种都没有给空串', () => {
+    const f = parseFeed(
+      '<feed><title>T</title><entry><title>A</title><link rel="alternate" href="https://a.test"/><updated>2026-10-11T03:08:09Z</updated></entry><entry><title>B</title></entry></feed>',
+    )!
+    expect(f.items[0].date).toBe('2026-10-11')
+    expect(f.items[1].date).toBe('')
+  })
+  it('Atom 只有 rel=self 的 link → 退回第一个带 href 的（哪怕不是 alternate）', () => {
+    const f = parseFeed('<feed><title>T</title><entry><title>A</title><link rel="self" href="https://self.test/x"/></entry></feed>')!
+    expect(f.items[0].link).toBe('https://self.test/x')
+  })
+})

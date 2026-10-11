@@ -231,6 +231,15 @@ function onGlobalKey(e: KeyboardEvent) {
               <span class="t">撑满</span>
               <span class="v">按原比例把每行铺满，不留右侧空档</span>
             </button>
+            <button
+              role="menuitem"
+              :disabled="!store.doc.value.rows?.length"
+              :title="store.doc.value.rows?.length ? '各行按自己存的参数重排一遍（可撤销）' : '版面上还没有行'"
+              @click="runArrange(store.reflowAllRows)"
+            >
+              <span class="t">行重排</span>
+              <span class="v">各行按存的参数自动重排{{ store.doc.value.rows?.length ? '' : '（还没有行）' }}</span>
+            </button>
           </div>
         </span>
         <span class="sep" aria-hidden="true"></span>

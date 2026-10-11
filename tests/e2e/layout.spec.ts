@@ -1279,3 +1279,63 @@ it.skipIf(skip)('编辑态：版面高过画布时，底部操作提示钉在滚
   expect(Math.abs(r.bottom - r.stageBottom), '提示条应贴在滚动视口底部').toBeLessThanOrEqual(2)
   await page.close()
 })
+
+/**
+ * 行内参数化重排（2026-10-12 阶段 C）：行头「每行 N 张 / 高 N 行」+ 重排键。
+ * 一键、可撤销；默认 per=3 → 两张成员各宽 4、同行、行高 3。
+ */
+it.skipIf(skip)('行容器：行内参数化重排 —— 成员均匀成格、Ctrl+Z 一步退回', async () => {
+  const page = await freshPage(1440, 900)
+  await enterEditor(page)
+  const cells = await page.evaluate(() =>
+    [...document.querySelectorAll<HTMLElement>('.canvas .cell')].slice(0, 2).map((c) => {
+      const r = c.getBoundingClientRect()
+      return { x: Math.round(r.left + r.width / 2), y: Math.round(r.top + 60) }
+    }),
+  )
+  await page.mouse.click(cells[0].x, cells[0].y)
+  await page.keyboard.down('Shift')
+  await page.mouse.click(cells[1].x, cells[1].y)
+  await page.keyboard.up('Shift')
+  await settle(250)
+  await page.evaluate(() => {
+    const b = [...document.querySelectorAll<HTMLElement>('.batch button')].find((x) => (x.textContent || '').includes('成组为行'))
+    b?.click()
+  })
+  await settle(400)
+
+  // 基准 = 成组后、重排前（Ctrl+Z 只退重排这一步；成组本身是上一步历史）
+  const before = await page.evaluate(() => localStorage.getItem('modulo.layout.v1'))
+
+  // 点行头重排（默认 每行 3 张 / 高 3 行）
+  const hit = await page.evaluate(() => {
+    const b = document.querySelector<HTMLElement>('.rowband .reflow')
+    if (!b) return false
+    b.click()
+    return true
+  })
+  expect(hit, '行头应有重排键').toBe(true)
+  await settle(400)
+  const after = JSON.parse((await page.evaluate(() => localStorage.getItem('modulo.layout.v1')))!) as {
+    items: { id: string; x: number; y: number; w: number; h: number; row?: string }[]
+    rows: { id: string; y: number; auto?: { per: number; rowH: number } }[]
+  }
+  const row = after.rows[0]
+  const members = after.items.filter((p) => p.row === row.id)
+  expect(members).toHaveLength(2)
+  for (const m of members) {
+    expect(m.w, `${m.id} 宽 = floor(12/3)`).toBe(4)
+    expect(m.h, `${m.id} 高 = 行高参数`).toBe(3)
+    expect(m.y, `${m.id} 从行头下一行起`).toBe(row.y + 1)
+  }
+  expect(members[0].x + members[1].x, '两张同行且铺开').toBe(4)
+  expect(row.auto, '参数随结果落盘').toEqual({ per: 3, rowH: 3 })
+
+  // 撤销一步回到重排前
+  await page.keyboard.down('Control')
+  await page.keyboard.press('KeyZ')
+  await page.keyboard.up('Control')
+  await settle(400)
+  const undone = JSON.parse((await page.evaluate(() => localStorage.getItem('modulo.layout.v1')))!) as typeof after
+  expect(JSON.stringify(undone), 'Ctrl+Z 一步退回重排前').toBe(before)
+})

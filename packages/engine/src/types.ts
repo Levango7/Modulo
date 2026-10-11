@@ -78,6 +78,8 @@ export interface Row {
   collapsed?: boolean
   /** 折叠时的成员现场（相对偏移）；展开时按当前 y+1 还原 */
   stash?: StashedPlacement[]
+  /** 自动重排的参数（阶段 C）：存在 = 这行重排过；值供「重排」按钮与「所有行重排」复用 */
+  auto?: { per: number; rowH: number }
 }
 
 export interface LayoutDoc {

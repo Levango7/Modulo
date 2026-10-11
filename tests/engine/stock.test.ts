@@ -95,3 +95,13 @@ describe('formatPrice / formatChange：整数到最后一刻', () => {
     expect(formatChange(null)).toBe('—')
   })
 })
+
+describe('stock：覆盖补口（缺字段的响应 / 负价显示）', () => {
+  it('f12/f14 不是字符串 → 空串兜底（不抛）', () => {
+    const q = parseQuotes({ data: { diff: [{ f2: 100, f3: 1 }] } }, 1)
+    expect(q[0]).toMatchObject({ code: '', name: '', priceCents: 100 })
+  })
+  it('负价（理论上不该有）显示带负号，不吞', () => {
+    expect(formatPrice(-123)).toBe('-1.23')
+  })
+})
