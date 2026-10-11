@@ -242,6 +242,8 @@ input[type='checkbox'] {
 [data-module='matrix'] { --mod: var(--c-purple, #8b5cf6); }
 [data-module='probe'] { --mod: var(--c-green); }
 [data-module='sysmon'] { --mod: var(--c-blue); }
+[data-module='stocks'] { --mod: var(--c-red); }
+[data-module='rss'] { --mod: var(--c-amber); }
 .card-head svg {
   color: var(--mod, var(--brand-500));
 }

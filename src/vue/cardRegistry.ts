@@ -308,6 +308,30 @@ export const REGISTRY: ModuleRegistry = [
     ],
   },
   {
+    id: 'stocks',
+    title: '股票行情',
+    group: '联网',
+    // 东财 push2：CORS 全开 + UTF-8 + 价格给「分」整数 —— 纯前端可做，网页/桌面一致
+    blurb: '自选指数/个股的现价与涨跌（东财数据）',
+    defaultVariant: 'list',
+    variants: [
+      { id: 'list', name: '可增删', minW: 3, minH: 3, idealW: 4, idealH: 5 },
+      { id: 'quick', name: '只看行情', minW: 2, minH: 2, idealW: 3, idealH: 3 },
+    ],
+  },
+  {
+    id: 'rss',
+    title: 'RSS 订阅',
+    group: '联网',
+    // 真实源实测全无 CORS 头 → 浏览器侧拦死；桌面壳走 fetch_text 全读（还解 GBK）
+    blurb: '常读源的最新标题（桌面壳每 5 分钟）',
+    defaultVariant: 'list',
+    variants: [
+      { id: 'list', name: '带管理', minW: 3, minH: 4, idealW: 4, idealH: 6 },
+      { id: 'quick', name: '只看标题', minW: 3, minH: 3, idealW: 4, idealH: 4 },
+    ],
+  },
+  {
     id: 'sysmon',
     title: '系统监控',
     group: '工具',

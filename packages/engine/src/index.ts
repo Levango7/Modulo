@@ -32,6 +32,8 @@ export * from './commands.js'
 export * from './chart.js'
 export * from './probe.js'
 export * from './sysmon.js'
+export * from './stock.js'
+export * from './rss.js'
 
 export * from './watch.js'
 export * from './fixed.js'

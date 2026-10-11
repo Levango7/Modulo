@@ -475,3 +475,29 @@ describe('连通性探测名单：加一条过同一条边界', () => {
     expect(d.state.probes).toHaveLength(0)
   })
 })
+
+describe('股票自选与 RSS 订阅的写入规则', () => {
+  it('坏代码不入库；同码去重；明文/私网订阅进不来', () => {
+    const d = memStorage().api()
+    d.addStock('茅台', '600519')
+    const n = d.state.stocks.length
+    d.addStock('重复', 'SH600519') // 规范化后同码 → 去重
+    expect(d.state.stocks.length).toBe(n)
+    d.addStock('坏', '789') // 猜不出交易所 → 拒
+    expect(d.state.stocks.length).toBe(n)
+    d.addFeed('明文', 'http://x.test/feed')
+    d.addFeed('内网', 'https://192.168.1.1/f')
+    expect(d.state.feeds).toEqual([])
+    d.addFeed('周刊', 'https://www.ruanyifeng.com/blog/atom.xml')
+    expect(d.state.feeds).toHaveLength(1)
+  })
+  it('removeStock / removeFeed 按 id 删', () => {
+    const d = memStorage().api()
+    d.addStock('上证', 'sh000001')
+    d.addFeed('周刊', 'https://www.ruanyifeng.com/blog/atom.xml')
+    d.removeStock(d.state.stocks[0].id)
+    d.removeFeed(d.state.feeds[0].id)
+    expect(d.state.stocks).toEqual([])
+    expect(d.state.feeds).toEqual([])
+  })
+})
