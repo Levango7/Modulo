@@ -34,6 +34,7 @@ export * from './probe.js'
 export * from './sysmon.js'
 export * from './stock.js'
 export * from './rss.js'
+export * from './rows.js'
 
 export * from './watch.js'
 export * from './fixed.js'

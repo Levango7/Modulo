@@ -1,9 +1,10 @@
 <script setup lang="ts">
 import { computed, inject, onBeforeUnmount, onMounted, ref } from 'vue'
 import * as E from '@levango7/engine'
-import { Lock, LockOpen, Shuffle, X, LayoutGrid, Trash2, GripVertical } from 'lucide-vue-next'
+import { Lock, LockOpen, Shuffle, X, LayoutGrid, Trash2, GripVertical, Rows3 } from 'lucide-vue-next'
 import type { LayoutStore } from '../store'
 import { useCanvasDrag } from '../useCanvasDrag'
+import RowBand from './RowBand.vue'
 import { useCellFocus } from '../useCellFocus'
 import { cellIntent, globalIntent, isEditableTarget, shouldPrevent } from '../keyboard'
 
@@ -49,6 +50,30 @@ function onBodyDown(p: E.Placement, e: PointerEvent) {
     return
   }
   if (!sel.value.has(p.id)) sel.value = new Set([p.id])
+}
+
+/* ---- 行容器（单层分组）：行头渲染 + 整组拖动 + 成组动作 ---- */
+
+const bands = computed(() => E.rowsBands(store.doc.value))
+
+/** 选中的卡里**还能成组的**（不在任何行里）——批量条按钮据此启停与取材 */
+const groupableIds = computed(() => [...sel.value].filter((id) => items.value.some((p) => p.id === id && !p.row)))
+
+function groupSelected(): void {
+  if (!groupableIds.value.length) return
+  store.groupIntoRow(groupableIds.value)
+  clearSel()
+}
+
+/**
+ * 行头拖动 = 整组移动：先把成员全部选入，再交给**既有拖拽状态机**的 group 模式 ——
+ * 实时预览、ghost 标签、让位规则（含"含锁定项整组不动"）全部复用，不新造一套。
+ */
+function startRowDrag(band: E.RowView, e: PointerEvent): void {
+  const members = band.members.map((id) => items.value.find((p) => p.id === id)).filter((p): p is E.Placement => !!p)
+  if (!members.length) return
+  sel.value = new Set(band.members)
+  startMove(members[0], e)
 }
 
 const titleOf = (p: E.Placement) => p.title ?? E.findModule(reg, p.id)?.title ?? p.id
@@ -184,6 +209,25 @@ function removeSelected() {
         :style="{ gridTemplateRows: `repeat(${rowCount}, ${rowPx}px)` }"
         @pointerdown="onCanvasPointerDown"
       >
+        <!-- 行容器：围合框先画（cells 在 DOM 之后、天然盖在上面），行头占它自己那一行 -->
+        <template v-for="band in bands" :key="band.row.id">
+          <div
+            class="rowframe"
+            :data-collapsed="!!band.row.collapsed"
+            :style="{ gridColumn: '1 / span 12', gridRow: `${band.row.y + 1} / span ${band.h}` }"
+          />
+          <div class="rowslot" :style="{ gridColumn: '1 / span 12', gridRow: `${band.row.y + 1}` }">
+            <RowBand
+              :title="band.row.title"
+              :count="band.members.length"
+              :collapsed="!!band.row.collapsed"
+              @drag="startRowDrag(band, $event)"
+              @toggle="store.toggleRow(band.row.id)"
+              @ungroup="store.ungroupRow(band.row.id)"
+              @rename="(t: string) => store.renameRow(band.row.id, t)"
+            />
+          </div>
+        </template>
         <div
           v-for="p in items"
           :key="p.id"
@@ -263,6 +307,7 @@ function removeSelected() {
         </p>
         <div v-if="selCount > 1" class="batch">
           <span>已选 {{ selCount }} 个</span>
+          <button :disabled="!groupableIds.length" title="把选中且未归行的卡合成一行（行头插在它们上方）" @click="groupSelected()"><Rows3 :size="13" /> 成组为行</button>
           <button @click="store.toggleLockMany([...sel])">锁定/解锁</button>
           <button @click="removeSelected()"><Trash2 :size="13" /> 批量移回库</button>
           <button @click="clearSel()">取消选择</button>
@@ -521,6 +566,19 @@ function removeSelected() {
   cursor: nwse-resize;
   background: linear-gradient(135deg, transparent 50%, var(--brand-glow) 50%);
   border-radius: 0 0 var(--radius-lg) 0;
+}
+.rowframe {
+  pointer-events: none;
+  border: 1px dashed color-mix(in srgb, var(--brand-500) 38%, transparent);
+  border-radius: var(--radius-lg);
+  background: color-mix(in srgb, var(--brand-500) 4%, transparent);
+}
+.rowframe[data-collapsed='true'] {
+  background: transparent;
+}
+.rowslot {
+  min-width: 0;
+  padding: 3px 0;
 }
 .preview {
   pointer-events: none;

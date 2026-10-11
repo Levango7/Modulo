@@ -1126,6 +1126,129 @@ it.skipIf(skip)('悬停操作条：悬停浮出动作条，锁定落盘且可撤
 })
 
 /**
+ * 行容器（2026-10-12 阶段 B）：多选 → 成组为行 → 行头出现；折叠隐藏成员（cells 减少、
+ * 行头标注「已收起」）；展开还原；解组后行头消失且**版面回到成组前**（收回行头那一行）。
+ * 走真实交互：点卡面选中 + Shift 加选 + 点批量条按钮 + 点行头上的箭头/解组钮。
+ */
+it.skipIf(skip)('行容器：成组为行 → 折叠隐藏 → 展开还原 → 解组收回', async () => {
+  const page = await freshPage(1440, 900)
+  await enterEditor(page)
+  const before = await page.evaluate(() => localStorage.getItem('modulo.layout.v1'))
+  const totalCells = await page.evaluate(() => document.querySelectorAll('.canvas .cell').length)
+
+  // 选中前两张卡（点卡面 + Shift 加选）
+  const cells = await page.evaluate(() =>
+    [...document.querySelectorAll<HTMLElement>('.canvas .cell')].slice(0, 2).map((c) => {
+      const r = c.getBoundingClientRect()
+      return { x: Math.round(r.left + r.width / 2), y: Math.round(r.top + 60) }
+    }),
+  )
+  await page.mouse.click(cells[0].x, cells[0].y)
+  await page.keyboard.down('Shift')
+  await page.mouse.click(cells[1].x, cells[1].y)
+  await page.keyboard.up('Shift')
+  await settle(300)
+
+  // 成组为行
+  const grouped = await page.evaluate(() => {
+    const b = [...document.querySelectorAll<HTMLElement>('.batch button')].find((x) => (x.textContent || '').includes('成组为行'))
+    if (!b) return false
+    b.click()
+    return true
+  })
+  expect(grouped, '批量条上应有「成组为行」').toBe(true)
+  await settle(400)
+  expect(await page.evaluate(() => !!document.querySelector('.rowband')), '行头应出现').toBe(true)
+  expect(await page.evaluate(() => document.querySelectorAll('.canvas .cell').length), '成员仍在版面上').toBe(totalCells)
+
+  // 折叠：成员隐藏、计数不变（都进 stash）、行头标「已收起」
+  await page.evaluate(() => document.querySelector<HTMLElement>('.rowband .chev')!.click())
+  await settle(400)
+  expect(await page.evaluate(() => document.querySelectorAll('.canvas .cell').length), '折叠应隐藏两张成员').toBe(totalCells - 2)
+  expect(
+    await page.evaluate(() => document.querySelector('.rowband .meta')!.textContent || ''),
+    '折叠态应有「已收起」标注',
+  ).toContain('已收起')
+
+  // 展开：成员回来
+  await page.evaluate(() => document.querySelector<HTMLElement>('.rowband .chev')!.click())
+  await settle(400)
+  expect(await page.evaluate(() => document.querySelectorAll('.canvas .cell').length)).toBe(totalCells)
+
+  // 解组：行头消失、版面逐项回到成组前（坐标/形态/归属全一致；items 的**顺序**不是
+  // doc 契约 —— 折叠/展开按现场重建会重排，投影按 (y,x) 排、DOM 顺序只是绘制次序）
+  await page.evaluate(() => document.querySelector<HTMLElement>('.rowband .ungroup')!.click())
+  await settle(400)
+  expect(await page.evaluate(() => !!document.querySelector('.rowband')), '解组后行头应消失').toBe(false)
+  const norm = (raw: string | null) => {
+    const d = JSON.parse(raw!) as { items: { id: string }[]; rows?: unknown }
+    return JSON.stringify({ ...d, items: [...d.items].sort((a, b) => a.id.localeCompare(b.id)) })
+  }
+  expect(norm(await page.evaluate(() => localStorage.getItem('modulo.layout.v1'))), '解组应回到成组前的版面').toBe(norm(before))
+})
+
+/**
+ * 行头拖动 = 整组移动（复用成组拖拽的状态机）：成员位移**一致**、相对布局不变、
+ * 非成员不动。用 doc 逐项比对，不用绝对值（列宽随视口）。
+ */
+it.skipIf(skip)('行容器：拖行头整组移动，成员位移一致且相对布局不变', async () => {
+  const page = await freshPage(1440, 900)
+  await enterEditor(page)
+  const cells = await page.evaluate(() =>
+    [...document.querySelectorAll<HTMLElement>('.canvas .cell')].slice(0, 2).map((c) => {
+      const r = c.getBoundingClientRect()
+      return { x: Math.round(r.left + r.width / 2), y: Math.round(r.top + 60) }
+    }),
+  )
+  await page.mouse.click(cells[0].x, cells[0].y)
+  await page.keyboard.down('Shift')
+  await page.mouse.click(cells[1].x, cells[1].y)
+  await page.keyboard.up('Shift')
+  await settle(250)
+  await page.evaluate(() => {
+    const b = [...document.querySelectorAll<HTMLElement>('.batch button')].find((x) => (x.textContent || '').includes('成组为行'))
+    b?.click()
+  })
+  await settle(400)
+
+  const beforeDoc = JSON.parse((await page.evaluate(() => localStorage.getItem('modulo.layout.v1')))!) as {
+    items: { id: string; x: number; y: number; row?: string }[]
+    rows: { id: string; y: number }[]
+  }
+  const rowId = beforeDoc.rows[0].id
+  const membersBefore = beforeDoc.items.filter((p) => p.row === rowId)
+
+  // 拖行头：按下把手 → 移动 → 松开
+  const grip = await page.evaluate(() => {
+    const r = document.querySelector<HTMLElement>('.rowband .grip')!.getBoundingClientRect()
+    return { x: Math.round(r.left + r.width / 2), y: Math.round(r.top + r.height / 2) }
+  })
+  await page.mouse.move(grip.x, grip.y)
+  await page.mouse.down()
+  await page.mouse.move(grip.x + 140, grip.y + 90, { steps: 10 })
+  await settle(200)
+  await page.mouse.up()
+  await settle(400)
+
+  const afterDoc = JSON.parse((await page.evaluate(() => localStorage.getItem('modulo.layout.v1')))!) as typeof beforeDoc
+  const membersAfter = afterDoc.items.filter((p) => p.row === rowId)
+  expect(membersAfter.length, '成员数量不变').toBe(membersBefore.length)
+  const dx = membersAfter[0].x - membersBefore.find((m) => m.id === membersAfter[0].id)!.x
+  const dy = membersAfter[0].y - membersBefore.find((m) => m.id === membersAfter[0].id)!.y
+  expect(dx !== 0 || dy !== 0, '行头拖动应产生位移').toBe(true)
+  for (const m of membersAfter) {
+    const old = membersBefore.find((q) => q.id === m.id)!
+    expect(m.x - old.x, `${m.id} 的 dx 应与整组一致`).toBe(dx)
+    expect(m.y - old.y, `${m.id} 的 dy 应与整组一致`).toBe(dy)
+  }
+  // 非成员一张都不许动
+  for (const p of afterDoc.items.filter((q) => q.row !== rowId)) {
+    const old = beforeDoc.items.find((q) => q.id === p.id)!
+    expect({ x: p.x, y: p.y }, `${p.id} 不属于该行，不该动`).toEqual({ x: old.x, y: old.y })
+  }
+})
+
+/**
  * 编辑态底部提示条 sticky（2026-10-10 走查轮加）：版面高过画布时 `.stage` 承接滚动，
  * 提示条此前会跟着滚出视野。用 SLOPPY_DOC（11 行，必然高过画布）当夹具。
  */
