@@ -252,3 +252,82 @@ describe('带内非成员（guest）：组上半带而某张高卡横跨这段 �
     expect(c.rows![0].stash!.filter((s) => s.guest).map((s) => s.id)).toEqual(['sticky'])
   })
 })
+
+describe('覆盖补口：字段齐全的成员 / 盘上数据防御分支', () => {
+  it('带标题 + 隐藏标题 + 锁定的成员：折叠展开往返后字段逐一保留', () => {
+    const themed: LayoutDoc = doc([
+      { id: 'clock', variant: 'big', x: 0, y: 0, w: 4, h: 3, title: '我的钟', hideTitle: true, locked: true },
+      { id: 'sticky', variant: 'note', x: 6, y: 0, w: 3, h: 3 },
+      { id: 'todo', variant: 'list', x: 0, y: 6, w: 4, h: 4 },
+    ])
+    const g = groupIntoRow(themed, ['clock'], '仪式')!
+    const c = toggleRowCollapsed(g, 'r1')!
+    // 现场里字段齐全
+    expect(c.rows![0].stash![0]).toMatchObject({ title: '我的钟', hideTitle: true, locked: true })
+    // rowsBands 的未折叠侧
+    expect(rowsBands(g)[0].members).toEqual(['clock'])
+    const e = toggleRowCollapsed(c, 'r1')!
+    expect(at(e, 'clock')).toMatchObject({ title: '我的钟', hideTitle: true, locked: true, y: 1, row: 'r1' })
+  })
+
+  it('带内非成员自身带字段（标题/锁定）：折叠现场保留、展开不设归属但字段回来', () => {
+    const themed: LayoutDoc = doc([
+      { id: 'clock', variant: 'big', x: 0, y: 0, w: 6, h: 3 },
+      { id: 'todo', variant: 'list', x: 6, y: 0, w: 6, h: 6 },
+      { id: 'sticky', variant: 'note', x: 0, y: 3, w: 3, h: 3, title: '被收起的便签', locked: true },
+    ])
+    const g = groupIntoRow(themed, ['clock', 'todo'], '上半带')!
+    const c = toggleRowCollapsed(g, 'r1')!
+    const guest = c.rows![0].stash!.find((s) => s.guest)!
+    expect(guest).toMatchObject({ id: 'sticky', title: '被收起的便签', locked: true })
+    const e = toggleRowCollapsed(c, 'r1')!
+    const back = e.items.find((p) => p.id === 'sticky')!
+    expect(back).toMatchObject({ title: '被收起的便签', locked: true, x: 0, y: 4 })
+    expect(back.row, 'guest 展开后不该有归属').toBeUndefined()
+  })
+
+  it('两行上下叠：删光上面一行的成员 → 行收回、下面那一行整体上移一行', () => {
+    let d = groupIntoRow(base(), ['clock'], 'A')! // 行头 0
+    d = groupIntoRow(d, ['todo'], 'B')! // A 插入后 todo 在 y7 → B 行头 7（todo 下移 1 → 8）
+    const after = removeItem(d, 'clock')!
+    expect(after.rows!.map((r) => r.id)).toEqual(['r2'])
+    expect(after.rows![0].y, 'B 的行头应上移一行').toBe(6)
+    expect(at(after, 'todo').y).toBe(7)
+  })
+
+  it('sanitizeRows：带标题的行保留标题；stash 里坏条目丢弃、好条目留下', () => {
+    const items: Placement[] = [
+      { id: 'clock', variant: 'big', x: 0, y: 1, w: 4, h: 3, row: 'r1' },
+      { id: 'sticky', variant: 'note', x: 6, y: 1, w: 3, h: 3, row: 'r2' },
+    ]
+    const r = sanitizeRows(
+      [
+        { id: 'r1', title: '有名字的行', y: 0, collapsed: true, stash: [{ id: 'clock', x: 0, dy: 0, w: 4, h: 3, variant: 'big' }, { id: 'bad', x: 'x' }] },
+        { id: 'r2', y: 0 }, // 无标题 → 「新建行」
+      ],
+      items,
+    )
+    expect(r.rows.find((x) => x.id === 'r1')).toMatchObject({ title: '有名字的行', collapsed: true })
+    expect(r.rows.find((x) => x.id === 'r1')!.stash).toHaveLength(1) // 坏条目被丢
+    expect(r.rows.find((x) => x.id === 'r2')!.title).toBe('新建行')
+    expect(r.warnings.length).toBe(0) // 归属都有效，无孤儿
+  })
+
+  it('sanitizeItems：带 title/hideTitle/locked/row 的条目字段原样透传；坏 w 回退 idealW', () => {
+    const r = sanitizeRows([{ id: 'r1', title: '行', y: 0 }], sanitizeItemsFixture())
+    expect(r.rows).toHaveLength(1)
+    const bad = sanitizeItemsFixture()
+    expect(bad[0]).toMatchObject({ w: 4, h: 3 }) // w:'x' → idealW=4（clock big）
+  })
+})
+
+/** sanitizeItems 的覆盖夹具：一条字段齐全、一条 w 非整数（走回退分支） */
+function sanitizeItemsFixture(): Placement[] {
+  const res = sanitizeItemsRaw([
+    { id: 'clock', variant: 'big', x: 0, y: 0, w: 4, h: 3, title: '钟', hideTitle: false, locked: true, row: 'r1' },
+    { id: 'sticky', variant: 'note', x: 6, y: 0, w: 'x', h: 3 },
+  ], REGISTRY).items
+  return res
+}
+
+import { sanitizeItems as sanitizeItemsRaw } from '../../packages/engine/src/validate'

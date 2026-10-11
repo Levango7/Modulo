@@ -73,7 +73,6 @@ function nextRowId(doc: LayoutDoc): string {
 
 /** 把 `fromY`（含）以下的一切整体平移 dy：卡片与行头；stash 是相对量、不动 */
 function shiftBelow(doc: LayoutDoc, fromY: number, dy: number): { items: Placement[]; rows: Row[] } {
-  if (dy === 0) return { items: doc.items, rows: rowsOf(doc) }
   return {
     items: doc.items.map((p) => (p.y >= fromY ? { ...p, y: p.y + dy } : p)),
     rows: rowsOf(doc).map((r) => (r.y >= fromY ? { ...r, y: r.y + dy } : r)),
