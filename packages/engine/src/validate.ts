@@ -1,7 +1,7 @@
 import { anyCollides, clamp, isInt } from './geometry.js'
 import { findFreeSpot } from './spot.js'
 import { LOGICAL_COLS, TITLE_MAX } from './types.js'
-import type { LayoutDoc, ModuleRegistry, Placement } from './types.js'
+import type { LayoutDoc, ModuleRegistry, Placement, Row, StashedPlacement } from './types.js'
 
 export interface SanitizeResult {
   items: Placement[]
@@ -57,13 +57,79 @@ export function sanitizeItems(raw: unknown, reg: ModuleRegistry, cols: number = 
     const title = typeof e.title === 'string' && e.title.trim() ? e.title.trim().slice(0, TITLE_MAX) : undefined
     const hideTitle = typeof e.hideTitle === 'boolean' ? e.hideTitle : undefined
     const locked = e.locked === true ? true : undefined
+    // 行归属先原样带着，等 sanitizeRows 拿全行清单后再剥孤儿（见下）
+    const row = typeof e.row === 'string' && e.row ? e.row : undefined
 
     const rect = { x, y, w, h }
     const placed = anyCollides(settled, rect) ? findFreeSpot(settled, w, h, x, y, cols) : rect
     seen.add(e.id)
-    settled.push({ id: e.id, variant: v.id, ...placed, ...(title ? { title } : {}), ...(hideTitle !== undefined ? { hideTitle } : {}), ...(locked ? { locked } : {}) })
+    settled.push({
+      id: e.id,
+      variant: v.id,
+      ...placed,
+      ...(title ? { title } : {}),
+      ...(hideTitle !== undefined ? { hideTitle } : {}),
+      ...(locked ? { locked } : {}),
+      ...(row ? { row } : {}),
+    })
   }
   return { items: settled, warnings }
+}
+
+/**
+ * 行容器的清洗（盘上数据不可信的同一条线）：行 id 唯一非空、标题截断、y 非负整数、
+ * stash 形状校验；随后**剥掉指向不存在行的孤儿引用**（条目留着、归属去掉 ——
+ * 卡片是用户的东西，不因容器数据坏了就丢）。空行（无成员无现场）在 doc 组装后
+ * 由 `pruneRows` 连同行头那一行一起收回。
+ */
+export function sanitizeRows(raw: unknown, items: readonly Placement[]): { rows: Row[]; items: Placement[]; warnings: string[] } {
+  const warnings: string[] = []
+  const rows: Row[] = []
+  const seen = new Set<string>()
+  if (Array.isArray(raw)) {
+    for (const entry of raw) {
+      const e = entry as Partial<Row> | null
+      if (!e || typeof e.id !== 'string' || !e.id) {
+        warnings.push('跳过缺少 id 的行')
+        continue
+      }
+      if (seen.has(e.id)) {
+        warnings.push(`行 ${e.id} 重复出现，保留第一条`)
+        continue
+      }
+      if (!isInt(e.y) || (e.y as number) < 0) {
+        warnings.push(`行 ${e.id} 的 y 非法，已跳过`)
+        continue
+      }
+      seen.add(e.id)
+      const stashRaw = Array.isArray(e.stash) ? e.stash : []
+      const stash: StashedPlacement[] = []
+      for (const s of stashRaw as Partial<StashedPlacement>[]) {
+        if (!s || typeof s.id !== 'string' || !isInt(s.x) || !isInt(s.dy) || !isInt(s.w) || !isInt(s.h)) continue
+        stash.push({ id: s.id, variant: typeof s.variant === 'string' ? s.variant : '', x: s.x as number, dy: s.dy as number, w: s.w as number, h: s.h as number })
+      }
+      rows.push({
+        id: e.id,
+        title: typeof e.title === 'string' && e.title.trim() ? e.title.trim().slice(0, TITLE_MAX) : '新建行',
+        y: e.y as number,
+        ...(e.collapsed === true ? { collapsed: true, stash } : {}),
+      })
+    }
+  } else if (raw !== undefined && raw !== null) {
+    warnings.push('layout rows 不是数组，已按空表处理')
+  }
+  const ids = new Set(rows.map((r) => r.id))
+  let orphans = 0
+  const fixed = items.map((p) => {
+    if (p.row && !ids.has(p.row)) {
+      orphans += 1
+      const { row: _drop, ...rest } = p
+      return rest as Placement
+    }
+    return p
+  })
+  if (orphans) warnings.push(`${orphans} 张卡引用了不存在的行，归属已剥除`)
+  return { rows, items: fixed, warnings }
 }
 
 export function toDoc(items: Placement[], cols: number = LOGICAL_COLS): LayoutDoc {

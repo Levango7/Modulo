@@ -60,7 +60,8 @@ function runArrange(fn: () => void): void {
   arrangeOpen.value = false
   fn()
 }
-const missingModules = computed(() => reg.filter((m) => !store.doc.value.items.some((i) => i.id === m.id)))
+// 用 store.placedIds（items + 折叠现场）：折叠的行成员不算未放置，不能再从菜单加一份
+const missingModules = computed(() => reg.filter((m) => !store.placedIds.value.has(m.id)))
 /** 菜单按分组渲染（19 种卡已经翻不动平铺列表了，目录里还有 20 张等着进来）。
  * 用普通数组而不是 Map：v-for 对 Map 的 (value, key) 顺序在不同版本里出过歧义，
  * 数组没有这个问题 —— 分组头直接读 `name`。 */
