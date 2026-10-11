@@ -145,6 +145,27 @@ jobs:
           # 为什么不把这一行写进仓库那份 .npmrc：那是**每台机器都会读**的文件，
           # 而 token 只在 CI 里存在。发 npm 的凭据不该让本地 `npm install` 也去解析。
           registry-url: https://registry.npmjs.org
+
+      # ── 发版门禁：CI 没绿，不许发（2026-10-12 接上）──────────────────────────────
+      #
+      # 实跑出来的事实（2026-10-04 复核）：v0.4.0 那次 CI `failure 10:00:12`，
+      # Release 在 `10:00:50` 就建好了 —— 差 38 秒。五次发版里唯一一次红灯是运气，
+      # 前四次也没等 CI，只是恰好都绿。病根不是"人没看 CI"，是**发布链路与 CI 之间
+      # 没有依赖关系**：tag 一推、Release 一建就完事，CI 挂在旁边观察，对结果没有否决权。
+      #
+      # 为什么不能靠 `needs: verify`：release 由 **tag push** 触发，和 verify 是两条独立的
+      # workflow run；`needs` 只表达同一条 workflow 内 job 之间的先后，管不到"这个 commit
+      # 上一轮 CI 绿不绿"。所以只能由这道门按 commit sha 回头查结论 —— 它看得见历史 run。
+      #
+      # 排在最前面是省钱：出安装包要 30+ 分钟，注定失败的发版不该占满 runner。
+      # 它**不认 pending** —— "还没出结论"不等于"通过"，刚合完就打 tag 会被挡，这是设计。
+      # 当前这条 run 由脚本自己按 GITHUB_RUN_ID 排除（否则它永远判自己"还在跑"，门永远红）。
+      - name: 发版门禁（该 tag 的 CI 没绿 → 直接失败，不许发）
+        env:
+          # 不传也能查（公开仓库），但匿名只有 60 req/h；显式传是 5000 req/h
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: node scripts/release-gate.mjs --tag ${{ github.event.inputs.release_tag || github.ref_name }}
+
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
         with:
