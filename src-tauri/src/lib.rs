@@ -9,6 +9,7 @@ use std::sync::Mutex;
  * 里 winhttp 模块的注释。纯解析函数不受影响，仍在测试壳里正常跑单测。
  */
 pub mod monitor;
+mod sysmon;
 pub mod net;
 pub mod web;
 
@@ -361,7 +362,8 @@ pub fn run() {
             storage::write_doc,
             storage::data_dir,
             web::bing_daily,
-            monitor::web_probe
+            monitor::web_probe,
+            sysmon::sys_stats
         ])
         .on_window_event(|window, event| {
             if let WindowEvent::CloseRequested { api, .. } = event {

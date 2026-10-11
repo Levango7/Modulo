@@ -42,6 +42,9 @@ import MoonCard from '../app/cards/MoonCard.vue'
 import HolidayCard from '../app/cards/HolidayCard.vue'
 import ChartCard from '../app/cards/ChartCard.vue'
 import CommandsCard from '../app/cards/CommandsCard.vue'
+import MatrixCard from '../app/cards/MatrixCard.vue'
+import ProbeCard from '../app/cards/ProbeCard.vue'
+import SysMonCard from '../app/cards/SysMonCard.vue'
 
 /**
  * 模块 id → 渲染组件。单独一个文件是因为 `cardRegistry.ts` 只放尺寸契约、必须能被
@@ -93,4 +96,7 @@ export const CARD_COMPONENTS: Record<string, Component> = {
   holiday: HolidayCard,
   chart: ChartCard,
   commands: CommandsCard,
+  matrix: MatrixCard,
+  probe: ProbeCard,
+  sysmon: SysMonCard,
 }

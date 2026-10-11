@@ -977,6 +977,7 @@ const ALL_MODULE_IDS = [
   'heatmap', 'links', 'fixed', 'duty',
   'yearcalendar', 'dailyimage', 'webmonitor',
   'holiday', 'chart', 'commands',
+  'matrix', 'probe', 'sysmon',
 ]
 
 const ALL_MODULES_DOC = {
