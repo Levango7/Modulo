@@ -976,6 +976,7 @@ const ALL_MODULE_IDS = [
   'stopwatch', 'timer', 'interval', 'breath',
   'heatmap', 'links', 'fixed', 'duty',
   'yearcalendar', 'dailyimage', 'webmonitor',
+  'holiday', 'chart', 'commands',
 ]
 
 const ALL_MODULES_DOC = {

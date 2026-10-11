@@ -409,3 +409,27 @@ describe('启动时怎么读盘', () => {
     expect(s.writes.length).toBe(0)
   })
 })
+
+describe('命令速查：加一条过同一套清洗，删一条按 id', () => {
+  it('空命令不入库；同名字同命令去重；标签不同算两条', () => {
+    const d = memStorage().api()
+    d.addCommand('重启', 'sudo reboot')
+    const n = d.state.commands.length
+    d.addCommand('重启', 'sudo reboot') // 同名同命令 → 去重
+    expect(d.state.commands.length).toBe(n)
+    d.addCommand('看盘', 'df -h') // 不同命令 → 新条目
+    expect(d.state.commands.length).toBe(n + 1)
+    d.addCommand('另一个名字', 'df -h') // 名字不同 = 两条不同的速查（与链接同一口径）
+    expect(d.state.commands.length).toBe(n + 2)
+    d.addCommand('没有命令', '   ') // 空命令被 normalizeCommand 丢掉
+    expect(d.state.commands.length).toBe(n + 2)
+  })
+
+  it('removeCommand 按 id 删', () => {
+    const d = memStorage().api()
+    d.addCommand('看盘', 'df -h /')
+    const id = d.state.commands[0].id
+    d.removeCommand(id)
+    expect(d.state.commands.some((c) => c.id === id)).toBe(false)
+  })
+})

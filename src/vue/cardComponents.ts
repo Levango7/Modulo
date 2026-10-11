@@ -39,6 +39,9 @@ import AirCard from '../app/cards/AirCard.vue'
 import RepoCard from '../app/cards/RepoCard.vue'
 import HnCard from '../app/cards/HnCard.vue'
 import MoonCard from '../app/cards/MoonCard.vue'
+import HolidayCard from '../app/cards/HolidayCard.vue'
+import ChartCard from '../app/cards/ChartCard.vue'
+import CommandsCard from '../app/cards/CommandsCard.vue'
 
 /**
  * 模块 id → 渲染组件。单独一个文件是因为 `cardRegistry.ts` 只放尺寸契约、必须能被
@@ -87,4 +90,7 @@ export const CARD_COMPONENTS: Record<string, Component> = {
   repo: RepoCard,
   hn: HnCard,
   moon: MoonCard,
+  holiday: HolidayCard,
+  chart: ChartCard,
+  commands: CommandsCard,
 }

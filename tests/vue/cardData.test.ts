@@ -19,6 +19,7 @@ const fallback: CardData = {
     breath: { patternId: 'box', accumulatedMs: 0, startedAt: null },
   },
   links: [],
+  commands: [],
   watch: [],
   fixed: { base: '', rate: '', symbol: '¥' },
   duty: { roster: [], anchor: '' },
@@ -40,6 +41,7 @@ describe('sanitizeCardData：盘上数据先清洗再用', () => {
       meeting: fallback.meeting,
       timers: fallback.timers,
       links: [],
+      commands: [],
   watch: [],
       fixed: fallback.fixed,
       duty: fallback.duty,
@@ -100,7 +102,7 @@ describe('sanitizeCardData：盘上数据先清洗再用', () => {
   it('__proto__ 之类的键不会漏进状态：只认白名单字段', () => {
     const r = sanitizeCardData(JSON.parse('{"__proto__":{"polluted":1},"sticky":"ok"}'), fallback)
     expect(Object.keys(r).sort()).toEqual([
-      'birthdays', 'countdown', 'duty', 'elapsed', 'fixed', 'habit', 'ledger', 'links', 'meeting', 'notes', 'pickList', 'sticky', 'timers', 'todos', 'watch',
+      'birthdays', 'commands', 'countdown', 'duty', 'elapsed', 'fixed', 'habit', 'ledger', 'links', 'meeting', 'notes', 'pickList', 'sticky', 'timers', 'todos', 'watch',
     ])
     expect({} as Record<string, unknown>).not.toHaveProperty('polluted')
   })
@@ -421,6 +423,30 @@ describe('sanitizeCardData：盘上数据先清洗再用', () => {
         expect(sanitizeCardData({ sticky: 'a' }, fallback).links).toEqual([])
         for (const bad of [null, 'x', 42, {}, true]) {
           expect(links(bad), String(bad)).toEqual([])
+        }
+      })
+    })
+
+    describe('命令速查：清洗在引擎（commands.ts），这里守的是"盘上数据进得来、坏命令进不去"', () => {
+      const commands = (o: unknown) => sanitizeCardData({ commands: o }, fallback).commands
+      it('合法条目保留、空白命令被丢', () => {
+        expect(commands([{ id: 'c1', label: '重启', cmd: 'sudo reboot' }, { id: 'c2', label: '空', cmd: '   ' }])).toEqual([
+          { id: 'c1', label: '重启', cmd: 'sudo reboot' },
+        ])
+      })
+      it('多行命令原样保留（管道/脚本贴进来是常态），只有首尾空白被去', () => {
+        const out = commands([{ cmd: '  a | b\n  c  ' }])
+        expect(out[0].cmd).toBe('a | b\n  c')
+        expect(out[0].label).toBe('a | b') // 空名用命令首行兜底
+      })
+      it('同名字同命令去重；命令超长被截断而不是整条拒收', () => {
+        const out = commands([{ label: '同', cmd: 'same' }, { label: '同', cmd: 'same' }])
+        expect(out).toHaveLength(1)
+        expect(commands([{ cmd: 'x'.repeat(400) }])[0].cmd).toHaveLength(240)
+      })
+      it('整块缺失或形状不对 → 回退兜底，绝不抛', () => {
+        for (const bad of [null, 'x', 42, {}, true]) {
+          expect(commands(bad), String(bad)).toEqual([])
         }
       })
     })

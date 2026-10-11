@@ -236,6 +236,9 @@ input[type='checkbox'] {
 [data-module='progress'] { --mod: var(--c-green); }
 [data-module='worldclock'] { --mod: var(--c-purple, #8b5cf6); }
 [data-module='countdown'] { --mod: var(--c-amber); }
+[data-module='holiday'] { --mod: var(--c-amber); }
+[data-module='chart'] { --mod: var(--c-green); }
+[data-module='commands'] { --mod: var(--c-blue); }
 .card-head svg {
   color: var(--mod, var(--brand-500));
 }
