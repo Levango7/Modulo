@@ -7,9 +7,11 @@ import {
   MAX_MINUTES,
   normalizeHhmm,
   normalizeUrl,
+  sanitizeCommands,
   sanitizeLinks,
   sanitizeWatch,
   sanitizeMeetingCityIds,
+  type CommandEntry,
   type QuickLink,
   type Watch,
 } from '@levango7/engine'
@@ -158,6 +160,8 @@ export interface CardData {
   timers: TimerStore
   /** 快捷链接：点一下复制（不做"打开"—— 那要 opener 插件，见 links.ts 文件头） */
   links: QuickLink[]
+  /** 命令速查：点一下复制命令（清洗在引擎 commands.ts，与 links 同一套分层） */
+  commands: CommandEntry[]
   /** 网页监控的名单。边界（只 https、不许私网 IP）见 watch.ts 文件头 */
   watch: Watch[]
   /** 固定整数位计算的输入草稿；结果全在引擎算，这里只存两个输入 */
@@ -424,6 +428,8 @@ const pickSeen = new Set<string>()
     // 快捷链接走引擎的 `sanitizeLinks`：协议白名单、去重、排序、id 唯一都在那边，
     // 这里**不重复实现一遍** —— 两份清单迟早不一致，而不一致之后没人知道哪份对
     links: Array.isArray(o.links) ? sanitizeLinks(o.links as { id?: unknown; label?: unknown; href?: unknown }[]) : fallback.links,
+    // 命令速查同 links 的分层：清洗（去空白/截长/去重/排序/id 唯一）在引擎 commands.ts
+    commands: Array.isArray(o.commands) ? sanitizeCommands(o.commands as { id?: unknown; label?: unknown; cmd?: unknown }[]) : fallback.commands,
     // 同理走引擎的 `sanitizeWatch`。它比 sanitizeLinks 多做一件事：**丢弃不合规的条目并计数**。
     // 那是边界 5（导入别人的备份时不该把私网地址带进来）—— 被挡掉的条数要回显给用户，
     // 否则他只会看到自己的名单莫名其妙少了几条。
@@ -490,6 +496,7 @@ export function createCardData(storage = browserStorage()) {
       breath: { patternId: 'box', accumulatedMs: 0, startedAt: null },
     },
     links: [],
+    commands: [],
   watch: [],
     fixed: { base: '', rate: '', symbol: '¥' },
     duty: { roster: [], anchor: '' },
@@ -512,6 +519,7 @@ export function createCardData(storage = browserStorage()) {
       pickList: [...state.pickList],
       'ledger.entries': state.ledger.entries.map((r) => ({ ...r })),
       links: [...state.links],
+      commands: [...state.commands],
   watch: [...state.watch],
       'duty.roster': [...state.duty.roster],
       timers: {
@@ -653,6 +661,16 @@ export function createCardData(storage = browserStorage()) {
     },
     removeLink(id: string) {
       state.links = state.links.filter((l) => l.id !== id)
+    },
+    /** 命令速查：与 addLink 同一思路——整份清洗结果写回（sanitizeCommands 会重排去重） */
+    addCommand(label: string, cmd: string) {
+      if (!cmd.trim()) return
+      const next = sanitizeCommands([...state.commands, { label, cmd }])
+      if (next.length === state.commands.length && !next.some((c) => c.cmd === cmd.trim())) return
+      state.commands = next
+    },
+    removeCommand(id: string) {
+      state.commands = state.commands.filter((c) => c.id !== id)
     },
     /**
      * 加一条监控。`normalizeUrl` 先在**前端**过一遍边界，用户敲错时立刻有反馈；

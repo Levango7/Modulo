@@ -197,6 +197,18 @@ export const REGISTRY: ModuleRegistry = [
       { id: 'sum', name: '只看总额', minW: 2, minH: 3, idealW: 3, idealH: 4 },
     ],
   },
+  {
+    id: 'chart',
+    title: '数据图表',
+    group: '记录',
+    // 图表是**别的卡的数据的另一种看法**：自己不存数据，读记账 / 打卡的同源 cardData
+    blurb: '记账 / 打卡的迷你趋势图（读同源数据）',
+    defaultVariant: 'ledger',
+    variants: [
+      { id: 'ledger', name: '记账趋势', minW: 3, minH: 3, idealW: 4, idealH: 4 },
+      { id: 'habit', name: '打卡趋势', minW: 3, minH: 3, idealW: 4, idealH: 4 },
+    ],
+  },
   // ---- 工具 ----
   {
     id: 'calc',
@@ -265,6 +277,18 @@ export const REGISTRY: ModuleRegistry = [
     group: '工具',
     // 明说"复制"而不是"打开"：桌面壳要新依赖 opener 插件，且链接去哪不可控
     blurb: '常用链接，点一下复制',
+    defaultVariant: 'list',
+    variants: [
+      { id: 'list', name: '可增删', minW: 3, minH: 3, idealW: 4, idealH: 5 },
+      { id: 'quick', name: '只复制', minW: 2, minH: 2, idealW: 3, idealH: 3 },
+    ],
+  },
+  {
+    id: 'commands',
+    title: '命令速查',
+    group: '工具',
+    // 与快捷链接同一套承诺：只复制、不执行（执行是 shell 的事，卡片替你按回车才危险）
+    blurb: '常用命令，点一下复制',
     defaultVariant: 'list',
     variants: [
       { id: 'list', name: '可增删', minW: 3, minH: 3, idealW: 4, idealH: 5 },
@@ -436,5 +460,17 @@ export const REGISTRY: ModuleRegistry = [
     blurb: '≈ 今晚的月亮（本地算，不联网）',
     defaultVariant: 'panel',
     variants: [{ id: 'panel', name: '月相卡', minW: 2, minH: 2, idealW: 3, idealH: 3 }],
+  },
+  {
+    id: 'holiday',
+    title: '节假日',
+    group: '时间',
+    // 数据是官方年表（holiday.ts 文件头注明文号）；没数据的年份如实显示"待公布"
+    blurb: '下一个假期倒计时 + 全年安排（官方年表）',
+    defaultVariant: 'next',
+    variants: [
+      { id: 'next', name: '下一假', minW: 2, minH: 2, idealW: 3, idealH: 3 },
+      { id: 'list', name: '全年表', minW: 3, minH: 4, idealW: 4, idealH: 6 },
+    ],
   },
 ]
