@@ -8,12 +8,16 @@ import {
   normalizeHhmm,
   normalizeUrl,
   sanitizeCommands,
+  sanitizeFeeds,
   sanitizeProbes,
+  sanitizeStocks,
   sanitizeLinks,
   sanitizeWatch,
   sanitizeMeetingCityIds,
   type CommandEntry,
+  type FeedSource,
   type ProbeTarget,
+  type StockEntry,
   type QuickLink,
   type Watch,
 } from '@levango7/engine'
@@ -186,6 +190,10 @@ export interface CardData {
   matrix: MatrixTodo[]
   /** 连通性探测的端点名单；**历史样本是机器采的，不进备份**（存独立 key） */
   probes: ProbeTarget[]
+  /** 股票自选：名单是用户写的，进备份；行情是机器采的，只在内存里 */
+  stocks: StockEntry[]
+  /** RSS 订阅名单，进备份；抓到的条目存独立 key */
+  feeds: FeedSource[]
   /** 网页监控的名单。边界（只 https、不许私网 IP）见 watch.ts 文件头 */
   watch: Watch[]
   /** 固定整数位计算的输入草稿；结果全在引擎算，这里只存两个输入 */
@@ -473,6 +481,8 @@ const pickSeen = new Set<string>()
     commands: Array.isArray(o.commands) ? sanitizeCommands(o.commands as { id?: unknown; label?: unknown; cmd?: unknown }[]) : fallback.commands,
     matrix: Array.isArray(o.matrix) ? matrix : fallback.matrix,
     probes: Array.isArray(o.probes) ? sanitizeProbes(o.probes as { id?: unknown; label?: unknown; url?: unknown }[]) : fallback.probes,
+    stocks: Array.isArray(o.stocks) ? sanitizeStocks(o.stocks as { id?: unknown; label?: unknown; code?: unknown }[]) : fallback.stocks,
+    feeds: Array.isArray(o.feeds) ? sanitizeFeeds(o.feeds as { id?: unknown; label?: unknown; url?: unknown }[]) : fallback.feeds,
     // 同理走引擎的 `sanitizeWatch`。它比 sanitizeLinks 多做一件事：**丢弃不合规的条目并计数**。
     // 那是边界 5（导入别人的备份时不该把私网地址带进来）—— 被挡掉的条数要回显给用户，
     // 否则他只会看到自己的名单莫名其妙少了几条。
@@ -542,6 +552,8 @@ export function createCardData(storage = browserStorage()) {
     commands: [],
     matrix: [],
     probes: [],
+    stocks: [],
+    feeds: [],
   watch: [],
     fixed: { base: '', rate: '', symbol: '¥' },
     duty: { roster: [], anchor: '' },
@@ -567,6 +579,8 @@ export function createCardData(storage = browserStorage()) {
       commands: [...state.commands],
       matrix: [...state.matrix],
       probes: [...state.probes],
+      stocks: [...state.stocks],
+      feeds: [...state.feeds],
   watch: [...state.watch],
       'duty.roster': [...state.duty.roster],
       timers: {
@@ -748,6 +762,26 @@ export function createCardData(storage = browserStorage()) {
     },
     removeProbe(id: string) {
       state.probes = state.probes.filter((p) => p.id !== id)
+    },
+    /** 股票自选：代码过引擎规范化（同码不同所：前缀保留），坏代码静默拒 */
+    addStock(label: string, code: string) {
+      if (!code.trim()) return
+      const next = sanitizeStocks([...state.stocks, { label, code }])
+      if (next.length === state.stocks.length && !next.some((x) => x.code === code.trim().toLowerCase())) return
+      state.stocks = next
+    },
+    removeStock(id: string) {
+      state.stocks = state.stocks.filter((x) => x.id !== id)
+    },
+    /** RSS 订阅：与 watch/probe 同一条 URL 边界（sanitizeFeeds 走 normalizeUrl） */
+    addFeed(label: string, url: string) {
+      if (!url.trim()) return
+      const next = sanitizeFeeds([...state.feeds, { label, url }])
+      if (next.length === state.feeds.length && !next.some((x) => x.url === url.trim())) return
+      state.feeds = next
+    },
+    removeFeed(id: string) {
+      state.feeds = state.feeds.filter((f) => f.id !== id)
     },
     /**
      * 加一条监控。`normalizeUrl` 先在**前端**过一遍边界，用户敲错时立刻有反馈；

@@ -978,6 +978,7 @@ const ALL_MODULE_IDS = [
   'yearcalendar', 'dailyimage', 'webmonitor',
   'holiday', 'chart', 'commands',
   'matrix', 'probe', 'sysmon',
+  'stocks', 'rss',
 ]
 
 const ALL_MODULES_DOC = {

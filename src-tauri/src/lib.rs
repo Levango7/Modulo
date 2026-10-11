@@ -1,5 +1,6 @@
 use std::sync::Mutex;
 
+mod feeds;
 /**
  * `pub` 是为了让 `tests/` 里的集成测试能直接调 `bing_daily`。
  *
@@ -363,7 +364,8 @@ pub fn run() {
             storage::data_dir,
             web::bing_daily,
             monitor::web_probe,
-            sysmon::sys_stats
+            sysmon::sys_stats,
+            feeds::fetch_text
         ])
         .on_window_event(|window, event| {
             if let WindowEvent::CloseRequested { api, .. } = event {
