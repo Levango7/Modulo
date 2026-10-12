@@ -157,6 +157,12 @@ export function createLayoutStore(opts: {
     templateId,
     firstRun,
     restoreStarter: () => applyTemplate(E.DEFAULT_TEMPLATE_ID),
+    /**
+     * 整份替换成快照 —— 编辑器的「取消」用它（进编辑器时拍一张，取消时还原）。
+     * 刻意复用 apply 而不是直接赋值：还原因此**本身就是一步可撤销的历史**
+     * （Ctrl+Z 能把"取消"再踩回去），而不是把历史撕开一个洞。
+     */
+    restore: (snapshot: E.LayoutDoc) => apply(snapshot),
     undo: () => {
       hist.value = E.undo(hist.value)
       doc.value = E.currentDoc(hist.value)
