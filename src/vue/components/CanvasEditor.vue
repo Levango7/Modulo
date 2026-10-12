@@ -317,7 +317,21 @@ function removeSelected() {
       </div>
     </section>
 
-    <div v-if="drag?.started && drag.label" class="ghost" :style="{ left: `${ghost.x}px`, top: `${ghost.y}px` }">
+    <!-- 幽灵块的位置**只走 transform**。这段原来写的是 `left/top`，而 `left/top` 是
+         布局属性 —— 指针每动一次就改一次，等于每帧 InvalidateLayout → PrePaint →
+         Layerize → Paint 整条管线走一遍。transform 只影响合成，不碰布局。
+
+         实测（1440×900，26 张卡，60 次 pointermove，Chrome trace 计数）：
+
+           阶段         left/top      transform
+           Layout        62 次          6 次     ← 只在跨格时才算，与指针无关
+           Paint        178 次         65 次     ← 65 ≈ 1 次/帧，已是"每帧脏一次"的地板
+           管线总耗时   170.7ms       121.6ms
+
+         数字是确定性的（连跑三轮计数完全一致），所以这条能当回归基线用。
+         注意 `left/top: 0` 不能省：不写的话 fixed 元素退回"静态位置"，transform
+         就从那个位置起算，幽灵块会跑偏。 -->
+    <div v-if="drag?.started && drag.label" class="ghost" :style="{ transform: `translate(${ghost.x + 10}px, ${ghost.y + 12}px)` }">
       {{ drag.label }}
     </div>
   </div>
@@ -648,8 +662,14 @@ function removeSelected() {
 }
 .ghost {
   position: fixed;
+  /* 定位只走 transform（见模板处注释与实测数字）。left/top 必须显式归零 ——
+     不写会退回静态位置。 */
+  left: 0;
+  top: 0;
   z-index: var(--z-overlay);
-  transform: translate(10px, 12px);
+  /* 保证走合成路径。headless（软件合成）下量到与不加这条持平，所以它不是为了
+     眼前这几个数字 —— 真实 GPU 合成里这条才是"只合成、不重绘"的保证。 */
+  will-change: transform;
   pointer-events: none;
   background: var(--bg-card-solid);
   border: 1px solid var(--border-strong);

@@ -53,6 +53,25 @@ jobs:
       # 与 x-hub 的反面教材相对：它写了 164 个 Rust 测试，但 CI 只跑 vue-tsc + cargo check，一个测试都不执行
       - name: 浏览器交互 E2E（拖拽 / 框选 / 键盘 / 撤销 / 三档视口）
         run: npm run test:e2e
+
+      # 拖拽的**计数型**预算门禁（2026-10-12 接上）。
+      #
+      # 为什么不靠 E2E 里那条 §8 帧率门禁：那条断言是"连拖期间帧距中位数 ≤ 18.2ms"，
+      # 而 headless 的 rAF 被钉在 60Hz（实测 median=16.7ms / p95=16.7ms），它量的是**节拍**、
+      # 不是**成本** —— 只有成本逼近 16.7ms 才翻红。实测背景：一次"每帧全量重排"的退化把
+      # 主线程从 2.85ms/帧 拉到 8ms/帧（四倍），那条门禁全程一声不吭。而且只看中位数，
+      # 对"卡顿感"所在的尾部无感。
+      #
+      # 这条改量 Blink 自己的计数器：`LayoutCount / pointermove` 与 `RecalcStyleCount / pointermove`。
+      # 数字是**确定性**的（同产物连跑三轮逐字一致），跨机器一致，不会因为 runner 忙而假红。
+      # 实测两端：每帧重排时 1.00 次/move（红），修好之后 0.05 次/move（绿），预算 0.5。
+      #
+      # 位置在 E2E **之后**：它要 dist/，而 E2E 的 globalSetup 会以 production 重建一遍
+      # （vitest.e2e.setup.ts），所以排在这里量到的是要发出去的那份产物。
+      # 没有 Chrome 时脚本自己跳过（与 E2E 的 `skipIf(!EXE)` 同一条约定：假红比没门禁更糟）。
+      - name: 拖拽预算（每次 move 不许重排版面 —— 计数型，与刷新率无关）
+        run: npm run drag:budget
+
       # 文档里的规模数字是人抄的，抄错不会让任何测试变红 —— 所以让机器核对。
       # 只认显式标记过的行（`<!-- facts -->`），历史数字与说明段不会被误判。
       # 量的是 dist/ 与 coverage/：coverage 来自上面的门禁步骤；dist 由「构建」产出，
