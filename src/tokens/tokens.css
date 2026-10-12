@@ -252,14 +252,20 @@ input[type='checkbox'] {
 [data-skin='ink'] {
   /* 朱砂而非蓝，跟图标同源；但比图标的 #E4572E 深一档，否则白底上只有 3.4:1 过不了正文对比度 */
   --accent: #c93c16;
-  --bg-page: #f7f7f5;
+  /* 底布 vs 卡面（2026-10-12 用户实拍「卡片的背景色能不能不要和底布一致……仿佛浮在底布上」）：
+     原页面底 #f7f7f5 与卡面 #ffffff 的亮度差只有 2 级 —— 卡是"白纸上的一层白纸"，
+     浮不起来。修法把层次做在**底布一侧**：底布压暖压深到 #f2f2ed（纸桌布），
+     卡面保持纯白（纸），再补底部垫高落影（见 --shadow-card）与顶部白高光（--frost-edge）——
+     与柔光皮肤"玻璃面 + 高光边 + 落影"的浮起语言同源，只是换成纸的、无渐变的版本。 */
+  --bg-page: #f2f2ed;
   --app-bg: var(--bg-page);
   --bg-card: #ffffff;
   --bg-card-solid: #ffffff;
   --bg-card-soft: #f2f2ef;
   --input-bg: #ffffff;
   --frost-surface: #ffffff;
-  --frost-edge: none;
+  /* 顶部 1px 白高光：模拟纸边受光（柔光同款 --frost-edge，只是更克制） */
+  --frost-edge: inset 0 1px 0 rgba(255, 255, 255, 0.95);
   --text-1: #16161a;
   --text-2: #4a4a52;
   --text-3: #82828c;
@@ -267,24 +273,33 @@ input[type='checkbox'] {
      原 soft #e6e6e2 与页底 #f7f7f5 的对比度只有 **1.13:1**，卡边几乎不存在 ——
      见 §10.37 的逐像素表。墨纸是"无渐变 + 1px 硬边"的皮肤，别的皮肤靠白边 + 厚落影
      分层，它只能靠边线，所以边线必须比照出「这是卡片」来配。
-     soft 取 #cfcfc9 → 对页底 1.46:1 / 对卡底（白）1.56:1；strong 顺带上抬一档到 #c0c0b8。 */
+     soft 取 #cfcfc9 → 对页底 1.46:1 / 对卡底（白）1.56:1；strong 顺带上抬一档到 #c0c0b8。
+     2026-10-12 二笔（浮起效果）后页底变 #f2f2ed，soft 对新页底 1.36:1、对白卡 1.56:1 —— 仍在目标档内。 */
   --border-soft: #cfcfc9;
   --border-strong: #c0c0b8;
   --radius-sm: 4px;
   --radius-md: 6px;
   --radius-lg: 8px;
   --radius-xl: 10px;
-  --shadow-card: 0 1px 2px rgba(20, 20, 26, 0.06);
-  --shadow-hover: 0 2px 8px rgba(20, 20, 26, 0.1);
+  /* 垫高：近距离接触影（1–3px）+ 中距扩散影（14px/34px）—— 前段给"压着底布"的接触感，
+     后段给"离了底布"的悬浮感；纸的白面只需很小的透明度就有层次（比柔光还浅）。
+     顶部白高光不写在这里 —— 它归 --frost-edge（.card 的 box-shadow 会拼上这一个槽），
+     写两处会在元素上叠出两层同款 inset。 */
+  --shadow-card: 0 1px 3px rgba(24, 24, 20, 0.08), 0 14px 34px rgba(24, 24, 20, 0.13);
+  --shadow-hover: 0 2px 6px rgba(24, 24, 20, 0.1), 0 20px 44px rgba(24, 24, 20, 0.18);
 }
 [data-skin='ink'][data-theme='dark'] {
   --accent: #ff7a4d;
-  --bg-page: #0e0f11;
-  --bg-card: #17181b;
-  --bg-card-solid: #17181b;
-  --bg-card-soft: #1e1f23;
-  --input-bg: #121316;
-  --frost-surface: #17181b;
+  /* 暗色同样让"卡面 > 底布"：底布压到 #0c0d0f、卡面抬到 #191a1e —— 原 #17181b/#0e0f11
+     的两级差在暗环境里基本读不出"浮" */
+  --bg-page: #0c0d0f;
+  --bg-card: #191a1e;
+  --bg-card-solid: #191a1e;
+  --bg-card-soft: #212227;
+  --input-bg: #131418;
+  --frost-surface: #191a1e;
+  /* 暗色高光收弱（#fff 0.95 在暗面上像一条白线），改成一层很淡的受光 */
+  --frost-edge: inset 0 1px 0 rgba(255, 255, 255, 0.09);
   --text-1: #f4f4f2;
   --text-2: #b6b6bd;
   --text-3: #7c7c86;
@@ -292,7 +307,7 @@ input[type='checkbox'] {
      #3a3b41 → 1.88:1；strong 抬到 #4a4b52 保住两档序关系 */
   --border-soft: #3a3b41;
   --border-strong: #4a4b52;
-  --shadow-card: 0 1px 2px rgba(0, 0, 0, 0.5);
+  --shadow-card: 0 1px 3px rgba(0, 0, 0, 0.5), 0 16px 38px rgba(0, 0, 0, 0.45);
 }
 [data-skin='ink'] .card {
   border: 1px solid var(--border-soft);
