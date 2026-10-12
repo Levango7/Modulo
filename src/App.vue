@@ -29,7 +29,8 @@ provide('appearance', appearance)
 const schemes = useSchemes(store, storage)
 provide('schemes', schemes)
 /** 完整备份（含卡片内容）：拼包在 backup.ts，这里只挂上胶水 */
-provide('backup', useBackup(store, schemes, () => cardDataApi.state))
+const backup = useBackup(store, schemes, () => cardDataApi.state)
+provide('backup', backup)
 provide('shell', useShell(storage))
 
 const view = ref<'workbench' | 'edit'>('workbench')
@@ -301,7 +302,13 @@ function onGlobalKey(e: KeyboardEvent) {
 
     <main ref="stageEl" class="stage">
       <p v-if="storage.error.value" class="storage-error" role="alert">
-        <TriangleAlert :size="14" /> {{ storage.error.value }}
+        <TriangleAlert :size="14" /> <span class="txt">{{ storage.error.value }}</span>
+        <!-- 失败时的救命入口：当前状态只在内存里，先下载一份完整备份再谈别的。
+             判据用「只在内存里」这句 —— 桌面壳与网页版的写失败文案都带它，读失败没有。
+             网页版此前连这条红条都不会出现（见 fileStorage.webStorage 的注释）。 -->
+        <button v-if="storage.error.value.includes('只在内存里')" class="rescue" @click="backup.exportBackup()">
+          立刻下载备份
+        </button>
       </p>
       <template v-if="view === 'workbench'">
         <p v-if="projection.collapsed.length" class="collapsed muted">
@@ -676,6 +683,27 @@ function onGlobalKey(e: KeyboardEvent) {
   background: color-mix(in oklab, var(--c-red) 10%, var(--bg-card));
   color: var(--text-1);
   font-size: 12px;
+}
+/* 错误文案可以很长，让它占满中间、按钮靠右不被挤走 */
+.storage-error .txt {
+  flex: 1;
+  min-width: 0;
+}
+.storage-error .rescue {
+  flex: none;
+  height: 24px;
+  padding: 0 var(--space-3);
+  border: 1px solid var(--c-red);
+  border-radius: var(--radius-pill);
+  background: var(--bg-card);
+  color: var(--c-red);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.storage-error .rescue:hover {
+  background: color-mix(in oklab, var(--c-red) 12%, var(--bg-card));
 }
 .empty {
   position: absolute;
