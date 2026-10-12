@@ -63,7 +63,7 @@ async function enterEditor(page: Page) {
  */
 async function openCatalog(page: Page) {
   const hit = await page.evaluate(() => {
-    const el = document.querySelector<HTMLElement>('.add-cat')
+    const el = document.querySelector<HTMLButtonElement>('.add-cat')
     el?.click()
     return !!el && !el.disabled
   })
@@ -1031,7 +1031,6 @@ it.skipIf(skip)('编辑器事务：保存生效 / 取消先确认再还原 / 工
   })
   await settle(400)
   expect(await count(), '放弃改动后回到工作台且版面还原').toBe(5)
-  const doc0 = await page.evaluate(() => localStorage.getItem('modulo.layout.v1'))
   expect(
     await page.evaluate(() => JSON.parse(localStorage.getItem('modulo.layout.v1') || '{}').items.length),
     '还原后的存档 = 出厂 5 张',
