@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, inject, onBeforeUnmount, onMounted, provide, ref } from 'vue'
-import { LayoutGrid, LayoutTemplate, Plus, Redo2, Settings, SlidersHorizontal, TriangleAlert, Undo2, Wand2, ChevronDown } from 'lucide-vue-next'
+import { LayoutGrid, LayoutTemplate, Redo2, Settings, SlidersHorizontal, TriangleAlert, Undo2, Wand2, Check, ChevronDown, X } from 'lucide-vue-next'
 import { useElementSize } from './vue/useElementSize'
 import { useProjection } from './vue/useProjection'
 import { measureWantedRows } from './vue/useDensity'
@@ -24,7 +24,6 @@ import BrandMark from './vue/components/BrandMark.vue'
 const storage = inject<PersistentStorage>('storage')!
 const store = inject<LayoutStore>('store')!
 const cardDataApi = inject<CardDataApi>('cardData')!
-const reg = store.reg
 const appearance = useAppearance(storage)
 provide('appearance', appearance)
 const schemes = useSchemes(store, storage)
@@ -36,23 +35,77 @@ provide('shell', useShell(storage))
 const view = ref<'workbench' | 'edit'>('workbench')
 const settingsOpen = ref(false)
 /**
+ * 编辑器事务（2026-10-12 用户口径：「工作台=用+微调，布局编辑=增删改」）。
+ *
+ * 进编辑器拍一张快照；「保存」= 确认改动并退出；「取消」= 有改动先问一句、确认才还原。
+ * 编辑期间 Ctrl+Z 照常可用（历史是全局的），取消只是往历史里再压一步 —— `store.restore`
+ * 复用 `apply`，所以"取消"本身也能被撤销（不会把历史撕开一个洞）。
+ * 点「工作台」tab 与 Esc 都走同一条取消路径 —— 否则事务会被 tab 切换绕开。
+ */
+const editSnapshot = ref<E.LayoutDoc | null>(null)
+const cancelAskOpen = ref(false)
+const editDirty = computed(
+  () => editSnapshot.value !== null && JSON.stringify(store.doc.value) !== JSON.stringify(editSnapshot.value),
+)
+/**
+ * 「N 处改动」：按**版面差异**数（卡片增删改 + 行的增删改），不是按历史步数 ——
+ * 拖一步再拖回来在历史上是两步、在版面差异上却是 0 处，而用户看的是版面。
+ */
+const editChangeCount = computed(() => {
+  const a = editSnapshot.value
+  if (!a) return 0
+  const b = store.doc.value
+  let n = 0
+  const am = new Map(a.items.map((p) => [p.id, p]))
+  const bm = new Map(b.items.map((p) => [p.id, p]))
+  for (const [id, p] of bm) if (!am.has(id) || JSON.stringify(am.get(id)) !== JSON.stringify(p)) n++
+  for (const id of am.keys()) if (!bm.has(id)) n++
+  const ar = new Map((a.rows ?? []).map((r) => [r.id, r]))
+  const br = new Map((b.rows ?? []).map((r) => [r.id, r]))
+  for (const [id, r] of br) if (!ar.has(id) || JSON.stringify(ar.get(id)) !== JSON.stringify(r)) n++
+  for (const id of ar.keys()) if (!br.has(id)) n++
+  return n
+})
+
+function enterEdit(): void {
+  if (view.value === 'edit') return
+  editSnapshot.value = store.doc.value
+  view.value = 'edit'
+}
+/** 保存 = 确认改动并退出（刷新一次基线，万一还留在编辑态也不重复确认） */
+function saveEdit(): void {
+  editSnapshot.value = store.doc.value
+  view.value = 'workbench'
+}
+function cancelEdit(): void {
+  if (!editDirty.value) {
+    editSnapshot.value = null
+    view.value = 'workbench'
+    return
+  }
+  cancelAskOpen.value = true
+}
+function confirmCancelEdit(): void {
+  if (editSnapshot.value) store.restore(editSnapshot.value)
+  cancelAskOpen.value = false
+  editSnapshot.value = null
+  view.value = 'workbench'
+}
+function dismissCancelAsk(): void {
+  cancelAskOpen.value = false
+}
+/**
  * 版面模板选择器。它会整体替换版面，但**不再单独加一层确认框** ——
  * 选择器本身就是"看着图挑一个"的界面，卡片上画的就是会换成什么样，
  * 而且换完在同一个弹层里就能再点一张、或 Ctrl+Z 退回。确认框在这里只是多一步。
+ * 编辑中换模板 = 重建编辑基线（新快照），取消只退回到那次换模板之后。
  */
 const templatesOpen = ref(false)
 /**
- * 「添加卡片」：把还没在版面上的模块加到第一个空位。
- *
- * 为什么需要这个入口：8 张模板管的是"起点"，而"起点之后想让版面上多一张卡"这件事，
- * 这个应用此前**没有任何入口**（`store.add` 一直没有调用方）。天气卡是第一位受益者。
- * 只列缺的那些，是因为数据模型就是单实例（`sanitizeItems` 会把重复模块去重）。
- */
-const addOpen = ref(false)
-const addWrap = ref<HTMLElement | null>(null)
-/**
  * 「排布」下拉：把整理 / 紧凑 / 收紧 / 撑满 四个语义重叠的动作收在一起。
- * 选完就关，和「添加卡片」同一套外部点击 + Esc 关闭逻辑。
+ * 选完就关（外部点击 + Esc 关闭）。
+ * 注：「添加卡片」菜单原在这个分组里，2026-10-12 已按用户口径搬进编辑器模块库
+ * （组件 `CardCatalogMenu.vue`）。
  */
 const arrangeOpen = ref(false)
 const arrangeWrap = ref<HTMLElement | null>(null)
@@ -60,35 +113,13 @@ function runArrange(fn: () => void): void {
   arrangeOpen.value = false
   fn()
 }
-// 用 store.placedIds（items + 折叠现场）：折叠的行成员不算未放置，不能再从菜单加一份
-const missingModules = computed(() => reg.filter((m) => !store.placedIds.value.has(m.id)))
-/** 菜单按分组渲染（19 种卡已经翻不动平铺列表了，目录里还有 20 张等着进来）。
- * 用普通数组而不是 Map：v-for 对 Map 的 (value, key) 顺序在不同版本里出过歧义，
- * 数组没有这个问题 —— 分组头直接读 `name`。 */
-const missingByGroup = computed(() => {
-  const groups: { name: string; cards: { id: string; title: string; blurb?: string }[] }[] = []
-  for (const m of missingModules.value) {
-    const name = m.group ?? '其他'
-    let g = groups.find((x) => x.name === name)
-    if (!g) {
-      g = { name, cards: [] }
-      groups.push(g)
-    }
-    g.cards.push(m)
-  }
-  return groups
-})
-
-function addCard(id: string): void {
-  addOpen.value = false
-  store.add(id, 0, 0)
-}
 
 function onDocMousedown(e: MouseEvent): void {
-  if (addOpen.value && addWrap.value && !addWrap.value.contains(e.target as Node)) addOpen.value = false
   if (arrangeOpen.value && arrangeWrap.value && !arrangeWrap.value.contains(e.target as Node)) arrangeOpen.value = false
 }
 const stageEl = ref<HTMLElement | null>(null)
+/** 编辑器实例：Esc 编排要问它"这层还有没有可退的"（选中/批量条/目录下拉） */
+const editorRef = ref<InstanceType<typeof CanvasEditor> | null>(null)
 /** 宽给 1200 / 高给 0：挂载前算出的列数与行高与改动前完全一致，尺寸到位后才有一次抬升 */
 const { width: stageW, height: stageH } = useElementSize(stageEl, 1200, 0)
 const { cols, rowPx, gap, projection, mode } = useProjection(store, stageW, stageH)
@@ -117,7 +148,7 @@ function compact() {
 /** 选择器里点「自己去编辑器排」：关掉弹层直接进编辑器，不用先挑一张 */
 function pickAndEdit() {
   closeTemplates()
-  view.value = 'edit'
+  enterEdit()
 }
 
 /**
@@ -141,9 +172,14 @@ const isEditable = (el: EventTarget | null): boolean => {
 /** 撤销/重做是全局能力：整理、换模板这类动作也可能在工作台上做，不能只在编辑器里可撤销 */
 function onGlobalKey(e: KeyboardEvent) {
   if (e.key === 'Escape') {
-    /** 弹层叠着时 Esc 只关最上面那层：先排布下拉，再添加菜单，再模板选择器，再设置页 */
-    if (arrangeOpen.value) arrangeOpen.value = false
-    else if (addOpen.value) addOpen.value = false
+    /** Esc 从最上面一层往下走：先关确认框，再交编辑器自退（选中/批量条/目录下拉），
+     *  然后才是"取消这次编辑"，最后是各弹层。编辑器先吃 —— 它手里有比"取消整场编辑"
+     *  更局部的"退一步"（清选中），否则选了卡按 Esc 会直接弹放弃确认。 */
+    if (cancelAskOpen.value) cancelAskOpen.value = false
+    else if (editorRef.value?.escapePressed()) {
+      /* 编辑器消费掉了（清选中/关目录下拉） */
+    } else if (view.value === 'edit') cancelEdit()
+    else if (arrangeOpen.value) arrangeOpen.value = false
     else if (templatesOpen.value) closeTemplates()
     else if (settingsOpen.value) settingsOpen.value = false
   }
@@ -167,16 +203,27 @@ function onGlobalKey(e: KeyboardEvent) {
     <header class="bar">
       <span class="brand"><BrandMark :size="20" /><span class="brand-name">Modulo</span></span>
       <nav class="seg">
-        <button :data-active="view === 'workbench'" @click="view = 'workbench'">
+        <button :data-active="view === 'workbench'" title="看版面、做点微调（增删改在「布局编辑」）" @click="view === 'edit' ? cancelEdit() : (view = 'workbench')">
           <LayoutGrid :size="14" /> 工作台
         </button>
-        <button :data-active="view === 'edit'" @click="view = 'edit'">
+        <button :data-active="view === 'edit'" title="增删改卡片：改完「保存」生效，或「取消」全部还原" @click="enterEdit">
           <SlidersHorizontal :size="14" /> 布局编辑
         </button>
       </nav>
       <div class="tools">
         <span class="pill muted metric">{{ stageW }}px · {{ cols }} 列 · {{ mode === 'canvas' ? '画布' : '堆叠' }}</span>
         <span class="sep" aria-hidden="true"></span>
+        <!-- 编辑事务（2026-10-12）：编辑态给「取消 / 保存」；改动数只在真正改过时才出现 -->
+        <span v-if="view === 'edit'" class="grp edit-tx" role="group" aria-label="编辑事务">
+          <button class="wide" title="全部还原到进编辑器之前（有改动会先问一句；Esc 同效）" @click="cancelEdit">
+            <X :size="14" /> <span class="label">取消</span>
+          </button>
+          <button class="wide primary" :title="editDirty ? '确认这次编辑' : '没有改动'" @click="saveEdit">
+            <Check :size="14" /> <span class="label">保存</span>
+            <span v-if="editDirty" class="tx-count">{{ editChangeCount }}</span>
+          </button>
+          <span class="sep" aria-hidden="true"></span>
+        </span>
         <span class="grp" role="group" aria-label="历史">
           <button class="icon" :disabled="!store.canUndo.value" title="撤销 (Ctrl+Z)" @click="store.undo()">
             <Undo2 :size="14" />
@@ -244,27 +291,6 @@ function onGlobalKey(e: KeyboardEvent) {
         </span>
         <span class="sep" aria-hidden="true"></span>
         <span class="grp" role="group" aria-label="版面与设置">
-          <span ref="addWrap" class="add-wrap">
-            <button
-              class="wide primary"
-              :disabled="!missingModules.length"
-              :title="missingModules.length ? '把还没在版面上的卡片加进来（可 Ctrl+Z 退回）' : '所有卡片都已在版面上'"
-              aria-haspopup="menu"
-              :aria-expanded="addOpen"
-              @click="addOpen = !addOpen"
-            >
-              <Plus :size="14" /> <span class="label">添加卡片</span>
-            </button>
-            <div v-if="addOpen" class="add-menu" role="menu" aria-label="可添加的卡片">
-              <template v-for="g in missingByGroup" :key="g.name">
-                <div class="gh" role="presentation">{{ g.name }}</div>
-                <button v-for="m in g.cards" :key="m.id" role="menuitem" @click="addCard(m.id)">
-                  <span class="t">{{ m.title }}</span>
-                  <span class="v">{{ m.blurb }}</span>
-                </button>
-              </template>
-            </div>
-          </span>
           <button class="wide" title="挑一种排法：点一张卡片就换成那个版面（可 Ctrl+Z 退回）" @click="templatesOpen = true">
             <LayoutTemplate :size="14" /> <span class="label">版面模板</span>
           </button>
@@ -285,13 +311,26 @@ function onGlobalKey(e: KeyboardEvent) {
         <p v-if="!projection.rects.length" class="empty muted">版面是空的，去「布局编辑」拖几张卡进来。</p>
       </template>
 
-      <CanvasEditor v-else-if="mode === 'canvas'" :row-px="rowPx">
+      <CanvasEditor v-else-if="mode === 'canvas'" ref="editorRef" :row-px="rowPx">
         <template #default="{ item }">
           <component :is="CARD_COMPONENTS[item.id]" :variant="item.variant" :module-id="item.id" :chromeless="true" />
         </template>
       </CanvasEditor>
       <StackEditor v-else />
     </main>
+    </div>
+
+    <!-- 「取消」确认：有改动才弹。不是 window.confirm —— 原生弹窗在 Tauri 里样式跟不上，
+         而且它不能被 Esc/外点关闭的统一逻辑收编 -->
+    <div v-if="cancelAskOpen" class="tx-scrim" role="dialog" aria-modal="true" aria-label="放弃这次编辑" @click.self="dismissCancelAsk">
+      <div class="tx-dialog">
+        <h4>放弃这次编辑？</h4>
+        <p class="muted">版面有 {{ editChangeCount }} 处改动，取消后全部还原到进编辑器之前（还原本身也能 Ctrl+Z 找回）。</p>
+        <div class="tx-actions">
+          <button class="wide" @click="dismissCancelAsk">继续编辑</button>
+          <button class="wide danger" @click="confirmCancelEdit">放弃改动</button>
+        </div>
+      </div>
     </div>
 
     <TemplatePicker v-if="templatesOpen" @close="closeTemplates" @edit="pickAndEdit" />
@@ -410,6 +449,61 @@ function onGlobalKey(e: KeyboardEvent) {
 }
 .caret.up {
   transform: rotate(180deg);
+}
+/* 编辑事务（2026-10-12）：改动计数徽标 + 取消确认框 */
+.tx-count {
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
+  border-radius: var(--radius-pill);
+  background: var(--brand-500);
+  color: #fff;
+  font-size: 10px;
+  line-height: 16px;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+.tx-scrim {
+  position: fixed;
+  inset: 0;
+  z-index: var(--z-modal);
+  display: grid;
+  place-items: center;
+  background: var(--scrim);
+}
+.tx-dialog {
+  width: min(380px, calc(100vw - 48px));
+  padding: var(--space-5);
+  background: var(--bg-card-solid);
+  backdrop-filter: blur(12px);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-xl);
+  box-shadow: var(--shadow-hover);
+}
+.tx-dialog h4 {
+  margin: 0 0 var(--space-2);
+  font-size: 15px;
+}
+.tx-dialog p {
+  margin: 0 0 var(--space-4);
+  font-size: 13px;
+  line-height: 1.6;
+}
+.tx-actions {
+  display: flex;
+  gap: var(--space-2);
+  justify-content: flex-end;
+}
+.tx-actions button.wide {
+  height: 28px;
+}
+/* 放弃类是破坏性动作：hover 用危险色的淡底，不用品牌色 */
+.tx-actions button.danger {
+  border-color: var(--c-red);
+  color: var(--c-red);
+}
+.tx-actions button.danger:hover {
+  background: color-mix(in oklab, var(--c-red) 12%, var(--bg-card));
 }
 /* 排布下拉比添加菜单宽一点：四项说明文字都比卡片名长 */
 .arrange-menu {

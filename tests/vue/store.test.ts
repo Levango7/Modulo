@@ -141,3 +141,39 @@ describe('行容器与 store 的交互（阶段 B）', () => {
     expect(s.doc.value.rows ?? []).toHaveLength(0)
   })
 })
+
+describe('编辑器事务的 store 原语（restore，2026-10-12）', () => {
+  it('restore 把整份版面换回快照，并写进存储', () => {
+    const storage = memoryStorage()
+    // 出厂模板已含 clock/sticky（add 会被去重成 no-op）—— 用"移动"制造一份真实改动
+    const s = createLayoutStore({ registry: REG, storage })
+    const snapshot = s.doc.value
+    s.move('sticky', 0, 5)
+    expect(JSON.stringify(s.doc.value)).not.toBe(JSON.stringify(snapshot))
+    s.restore(snapshot)
+    expect(JSON.stringify(s.doc.value)).toBe(JSON.stringify(snapshot))
+    expect(storage.get('modulo.layout.v1')).toBe(JSON.stringify(snapshot))
+  })
+
+  it('restore 是历史里的一步：Ctrl+Z 能把"取消"再踩回去，重做也成对', () => {
+    const s = fresh()
+    const snapshot = s.doc.value
+    s.move('sticky', 0, 5)
+    const edited = JSON.stringify(s.doc.value)
+    s.restore(snapshot)
+    expect(JSON.stringify(s.doc.value)).toBe(JSON.stringify(snapshot))
+    expect(s.canUndo.value, '还原本身压了一步历史').toBe(true)
+    s.undo()
+    expect(JSON.stringify(s.doc.value), '撤销"取消"找回改动').toBe(edited)
+    s.redo()
+    expect(JSON.stringify(s.doc.value), '重做回去仍是快照').toBe(JSON.stringify(snapshot))
+  })
+
+  it('restore 同一份快照是 no-op（不产生空历史步）', () => {
+    const s = fresh()
+    const snapshot = s.doc.value
+    const undoableBefore = s.canUndo.value
+    s.restore(snapshot)
+    expect(s.canUndo.value).toBe(undoableBefore)
+  })
+})

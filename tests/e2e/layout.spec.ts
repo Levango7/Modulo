@@ -57,6 +57,20 @@ async function enterEditor(page: Page) {
   await new Promise((r) => setTimeout(r, 500))
 }
 
+/**
+ * 打开编辑器的「全部卡片」目录（2026-10-12 从顶栏「添加卡片」搬进来）。
+ * 找不到按钮就抛 —— 同 clickTool 的纪律：静默跳过 = 后面在没开的菜单上瞎量。
+ */
+async function openCatalog(page: Page) {
+  const hit = await page.evaluate(() => {
+    const el = document.querySelector<HTMLButtonElement>('.add-cat')
+    el?.click()
+    return !!el && !el.disabled
+  })
+  if (!hit) throw new Error('编辑器模块库里找不到「全部卡片」按钮（或它被禁用）')
+  await new Promise((r) => setTimeout(r, 250))
+}
+
 const settle = (ms = 400) => new Promise((r) => setTimeout(r, ms))
 
 /**
@@ -79,6 +93,22 @@ const clickTool = async (page: Page, label: string): Promise<void> => {
     return !!el
   }, label)
   if (!hit) throw new Error(`顶栏上找不到按钮「${label}」`)
+}
+
+/**
+ * 同 clickTool 但按"包含"匹配 —— 用于文本会变的按钮：编辑事务的「保存」键在脏态下
+ * 会挂一枚改动计数徽标（textContent 变成 `保存1`），精确匹配会找不到它。
+ * 仍然找不到就抛：静默失败是这里最忌讳的。
+ */
+const clickToolContaining = async (page: Page, label: string): Promise<void> => {
+  const hit = await page.evaluate((t) => {
+    const el = [...document.querySelectorAll<HTMLElement>('.bar button:not([role="menuitem"])')].find(
+      (e) => (e.textContent || '').includes(t),
+    )
+    el?.click()
+    return !!el
+  }, label)
+  if (!hit) throw new Error(`顶栏上找不到（含文本）按钮「${label}」`)
 }
 
 /**
@@ -161,6 +191,9 @@ async function freshPageWithDoc(width: number, height: number, doc: unknown): Pr
   const ctx = await browser.createBrowserContext()
   const page = await ctx.newPage()
   await page.setViewport({ width, height, deviceScaleFactor: 1 })
+  // 与 freshPage 同一口径：预置"已挑过模板"，否则首启选择器会盖着工作台，
+  // 它在顶栏也有一枚「布局编辑」，会把测试的点击抢走（2026-10-12 实际踩到）
+  await page.evaluateOnNewDocument(() => localStorage.setItem('modulo.template.v1', 'general'))
   await page.evaluateOnNewDocument((d: string) => localStorage.setItem('modulo.layout.v1', d), JSON.stringify(doc))
   await page.goto(url, { waitUntil: 'networkidle2', timeout: 30000 })
   await settle(500)
@@ -891,18 +924,19 @@ it.skipIf(skip)('方案册：新建空白可撤销，键盘与拖拽都能排序
 })
 
 /**
- * 「添加卡片」是 0.4.0 新开的入口：8 张模板管的是"起点"，此前**起点之后想让版面上多一张卡，
- * 没有任何入口**（`store.add` 一直没有调用方）。这条断言锁三件事：菜单只列缺的、点一下真加进来、
- * 一步撤销退得回去。天气卡还顺带证明一件事 —— **取不到数据是合法状态**：E2E 环境里它可能
+ * 「全部卡片」目录（原顶栏「添加卡片」，2026-10-12 按用户口径搬进编辑器模块库：
+ * "添加卡片应该是布局编辑里面才有的选项"）。这条锁四件事：
+ * 菜单只列缺的、点一下真加进来、「保存」后落到工作台、Ctrl+Z 一步退回。
+ * 天气卡还顺带证明一件事 —— **取不到数据是合法状态**：E2E 环境里它可能
  * 联网也可能不联网，两种情况下卡片都得立住、都不许把页面弄崩。
  */
-it.skipIf(skip)('添加卡片：只列不在版面上的模块，点一下加进来，Ctrl+Z 一步退回', async () => {
+it.skipIf(skip)('编辑器的「全部卡片」目录：只列不在版面上的模块，点一下加进来，保存后工作台可见', async () => {
   const page = await freshPage(1440, 900)
   const count = () => page.evaluate(() => document.querySelectorAll('.grid .cell').length)
   expect(await count(), '出厂 5 张').toBe(5)
 
-  await clickTool(page, '添加卡片')
-  await settle(200)
+  await enterEditor(page)
+  await openCatalog(page)
   const items = await page.evaluate(() => [...document.querySelectorAll('.add-menu [role="menuitem"]')].map((b) => (b.textContent || '').trim()))
   // 菜单条数**从注册表算**，不写死数字：这条断言要守的是"只列不在版面上的那些"，
   // 写死 19 就等于每加一张卡都要来改一次断言，而改的人往往顺手把数字改成"当前值"——
@@ -920,26 +954,14 @@ it.skipIf(skip)('添加卡片：只列不在版面上的模块，点一下加进
   // 每项都带一句"这张卡是干什么的"：光有名字没法选
   expect(items.every((t) => t.length > 3), '菜单项应有说明文字').toBe(true)
 
-  await page.keyboard.press('Escape')
-  await settle(150)
-  expect(await page.evaluate(() => !!document.querySelector('.add-menu')), 'Esc 关掉菜单').toBe(false)
-
-  await clickTool(page, '添加卡片')
-  await settle(150)
   // 菜单按分组排序后天气不再在第一位 —— 找含"天气"的那一项点
   await page.evaluate(() => Array.from(document.querySelectorAll<HTMLElement>('.add-menu [role="menuitem"]')).find((b) => (b.textContent || '').includes('天气'))!.click())
   await settle(400)
-  expect(await count(), '加进来一张').toBe(6)
-  const card = await page.evaluate(() => {
-    const el = [...document.querySelectorAll('.cell')].find((c) => c.querySelector('.weather'))
-    return el ? (el as HTMLElement).innerText.replace(/\s+/g, ' ').trim().slice(0, 80) : null
-  })
-  expect(card, '天气卡渲染出来了').not.toBeNull()
-  expect(card!).toMatch(/正在取天气|取不到天气|点右上角取一次天气|°/)
+  expect(await page.evaluate(() => document.querySelectorAll('.canvas .cell').length), '编辑器里加进来一张').toBe(6)
 
-  // 加了一张之后菜单少一项，但按钮还能用（剩下的还得能继续加）。
+  // 加了一张之后目录少一项，但按钮还能用（剩下的还得能继续加）。
   // 用**相对断言**：菜单条数每加一批卡都会变，写死数字等于给下一批埋一颗红
-  await clickTool(page, '添加卡片')
+  await openCatalog(page)
   await settle(200)
   expect(
     await page.evaluate(() => document.querySelectorAll('.add-menu [role="menuitem"]').length),
@@ -947,12 +969,113 @@ it.skipIf(skip)('添加卡片：只列不在版面上的模块，点一下加进
   ).toBe(items.length - 1)
   await page.keyboard.press('Escape')
   await settle(150)
+  expect(await page.evaluate(() => !!document.querySelector('.add-menu')), 'Esc 关掉目录').toBe(false)
+
+  // 保存后才落到工作台 —— 这正是这次分工改造的核心：编辑器里改，保存才生效。
+  // 「保存」键在脏态下带一枚计数徽标（`保存1`），所以用包含匹配。
+  await clickToolContaining(page, '保存')
+  await settle(400)
+  expect(await count(), '工作台可见 6 张').toBe(6)
+  const card = await page.evaluate(() => {
+    const el = [...document.querySelectorAll('.cell')].find((c) => c.querySelector('.weather'))
+    return el ? (el as HTMLElement).innerText.replace(/\s+/g, ' ').trim().slice(0, 80) : null
+  })
+  expect(card, '天气卡渲染出来了').not.toBeNull()
+  expect(card!).toMatch(/正在取天气|取不到天气|点右上角取一次天气|°/)
 
   await page.keyboard.down('Control')
   await page.keyboard.press('KeyZ')
   await page.keyboard.up('Control')
   await settle(400)
   expect(await count(), '一步撤销退回 5 张').toBe(5)
+  await page.close()
+})
+
+/**
+ * 编辑器事务（2026-10-12 用户口径「布局编辑=增删改」+ AskUserQuestion 裁决）：
+ * 保存=确认退出；取消=有改动先问一句、确认才全部还原；点「工作台」tab 与 Esc 走同一条取消路径。
+ * 「还原本身也能 Ctrl+Z 找回」也一并锁住 —— 取消不该把历史撕开一个洞。
+ */
+it.skipIf(skip)('编辑器事务：保存生效 / 取消先确认再还原 / 工作台 tab 同一条路径', async () => {
+  const page = await freshPage(1440, 900)
+  const count = () => page.evaluate(() => document.querySelectorAll('.grid .cell').length)
+  expect(await count(), '出厂 5 张').toBe(5)
+
+  // —— 取消：动一下 → 弹确认 → 「继续编辑」不还原 → 再取消 → 「放弃改动」还原 ——
+  // 「动一下」用加卡（确定性最高）；随后 Shift+方向键再改一次是没有的 ——
+  // 一次改动就够测事务语义，改两处只让历史链更难断言。
+  await enterEditor(page)
+  await openCatalog(page)
+  await page.evaluate(() => document.querySelector<HTMLElement>('.add-menu [role="menuitem"]')!.click())
+  await settle(400)
+  expect(
+    await page.evaluate(() => (document.querySelector('.tx-count')?.textContent || '').trim()),
+    '有改动时保存键上出现改动计数（恰好 1 处）',
+  ).toBe('1')
+
+  await clickTool(page, '取消')
+  await settle(250)
+  expect(await page.evaluate(() => !!document.querySelector('.tx-dialog')), '有改动先弹确认').toBe(true)
+  await page.evaluate(() => {
+    const b = [...document.querySelectorAll<HTMLElement>('.tx-dialog button')].find((x) => x.textContent?.includes('继续编辑'))
+    b?.click()
+  })
+  await settle(250)
+  expect(await page.evaluate(() => !!document.querySelector('.canvas')), '「继续编辑」留在编辑器').toBe(true)
+
+  await clickTool(page, '取消')
+  await settle(200)
+  await page.evaluate(() => {
+    const b = [...document.querySelectorAll<HTMLElement>('.tx-dialog button')].find((x) => x.textContent?.includes('放弃改动'))
+    b?.click()
+  })
+  await settle(400)
+  expect(await count(), '放弃改动后回到工作台且版面还原').toBe(5)
+  expect(
+    await page.evaluate(() => JSON.parse(localStorage.getItem('modulo.layout.v1') || '{}').items.length),
+    '还原后的存档 = 出厂 5 张',
+  ).toBe(5)
+
+  // 还原本身可撤销：Ctrl+Z 能把那次"放弃"找回来
+  await page.keyboard.down('Control')
+  await page.keyboard.press('KeyZ')
+  await page.keyboard.up('Control')
+  await settle(350)
+  expect(
+    await page.evaluate(() => JSON.parse(localStorage.getItem('modulo.layout.v1') || '{}').items.length),
+    'Ctrl+Z 找回被放弃的改动（取消是一步可撤销的历史，不是洞）',
+  ).toBe(6)
+  await page.keyboard.down('Control')
+  await page.keyboard.press('KeyZ')
+  await page.keyboard.up('Control')
+  await settle(350)
+
+  // —— 工作台 tab：同一条取消路径 ——
+  await enterEditor(page)
+  await openCatalog(page)
+  await page.evaluate(() => document.querySelector<HTMLElement>('.add-menu [role="menuitem"]')!.click())
+  await settle(400)
+  await page.evaluate(() => {
+    const b = [...document.querySelectorAll<HTMLElement>('.bar button')].find((x) => (x.textContent || '').trim() === '工作台')
+    b?.click()
+  })
+  await settle(250)
+  expect(await page.evaluate(() => !!document.querySelector('.tx-dialog')), '点工作台 tab 也要走取消确认').toBe(true)
+  await page.evaluate(() => {
+    const b = [...document.querySelectorAll<HTMLElement>('.tx-dialog button')].find((x) => x.textContent?.includes('放弃改动'))
+    b?.click()
+  })
+  await settle(400)
+  expect(await count(), 'tab 切换的取消同样还原').toBe(5)
+
+  // —— 保存：确认退出，不还原 ——
+  await enterEditor(page)
+  await openCatalog(page)
+  await page.evaluate(() => document.querySelector<HTMLElement>('.add-menu [role="menuitem"]')!.click())
+  await settle(400)
+  await clickToolContaining(page, '保存')
+  await settle(400)
+  expect(await count(), '保存后改动留在版面上').toBe(6)
   await page.close()
 })
 
@@ -1005,14 +1128,24 @@ it.skipIf(skip)('全部卡上版：三档视口不溢出、不裁字、最小字
     const page = await freshPageWithDoc(c.w, 900, ALL_MODULES_DOC)
     const total = ALL_MODULES_DOC.items.length
     expect(await page.evaluate(() => document.querySelectorAll('.grid .cell').length), '每张卡都在').toBe(total)
-    // 一张都不缺时，「添加卡片」按钮该禁用并把原因写在 title 里（点了没反应的按钮最糟）
-    const addBtn = await page.evaluate(() => {
-      const b = document.querySelector<HTMLButtonElement>('button[title^="所有卡片"]')
-      return b ? { disabled: b.disabled, title: b.title } : null
-    })
-    expect(addBtn, '全在版面上时按钮存在且禁用').not.toBeNull()
-    expect(addBtn!.disabled).toBe(true)
-    expect(addBtn!.title).toContain('都已在版面上')
+    // 一张都不缺时，「全部卡片」按钮该禁用并把原因写在标题里（点了没反应的按钮最糟）。
+    // 入口在编辑器模块库里 —— 进编辑态才看得到。
+    // 注意 390px：编辑器是**堆叠视图**（StackEditor），没有模块库、也就没有这枚按钮 ——
+    // 只在画布模式（.canvas）下断言它。
+    // 窄屏（720/390）编辑器是堆叠视图、也没有模块库 —— 只在画布模式下进编辑器查这枚按钮，
+    // 查完立刻回工作台：下面量的是工作台的 .grid（编辑器的 .canvas 是另一套栅格）
+    if (c.w > 992) {
+      await enterEditor(page)
+      const addBtn = await page.evaluate(() => {
+        const b = document.querySelector<HTMLButtonElement>('.add-cat')
+        return b ? { disabled: b.disabled, title: b.title } : null
+      })
+      expect(addBtn, '全在版面上时按钮存在且禁用').not.toBeNull()
+      expect(addBtn!.disabled).toBe(true)
+      expect(addBtn!.title).toContain('都已在版面上')
+      await clickTool(page, '工作台')
+      await settle(300)
+    }
     const m = await page.evaluate(() => {
       const grid = document.querySelector('.grid')
       const texts = [...document.querySelectorAll('.cell *')].filter(

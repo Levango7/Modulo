@@ -1,15 +1,60 @@
 <script setup lang="ts">
-import { computed, inject, onBeforeUnmount, onMounted, ref } from 'vue'
+import { computed, inject, nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
 import * as E from '@levango7/engine'
-import { Lock, LockOpen, Shuffle, X, LayoutGrid, Trash2, GripVertical, Rows3 } from 'lucide-vue-next'
+import { Lock, LockOpen, Shuffle, X, LayoutGrid, Trash2, GripVertical, Plus, Rows3 } from 'lucide-vue-next'
 import type { LayoutStore } from '../store'
 import { useCanvasDrag } from '../useCanvasDrag'
 import RowBand from './RowBand.vue'
+import CardCatalogMenu from './CardCatalogMenu.vue'
 import { useCellFocus } from '../useCellFocus'
 import { cellIntent, globalIntent, isEditableTarget, shouldPrevent } from '../keyboard'
 
 const store = inject<LayoutStore>('store')!
 const reg = store.reg
+
+/**
+ * 「全部卡片」下拉（2026-10-12 从顶栏搬进来）：模块库只列**还没放置**的卡，
+ * 但卡片到 49 张后，库里的卡挨个看也不如按分组翻一遍目录来得快 ——
+ * 这正是原「添加卡片」菜单的用途，只是入口按用户口径（"添加卡片应该是布局编辑里面
+ * 才有的选项"）收进编辑器。菜单有 max-height 且 aside 是滚动容器，会把它裁掉 ——
+ * 所以定位用 fixed + 按钮的矩形现算（随 open 一次性写入）。菜单本体是
+ * `CardCatalogMenu.vue`（与将来可能的其他调用方共用一套外观）。
+ */
+const addOpen = ref(false)
+const addBtnEl = ref<HTMLElement | null>(null)
+const menuStyle = ref<Record<string, string>>({})
+const missingCount = computed(() => reg.filter((m) => !store.placedIds.value.has(m.id)).length)
+async function toggleAddMenu(): Promise<void> {
+  if (addOpen.value) {
+    addOpen.value = false
+    return
+  }
+  addOpen.value = true
+  await nextTick()
+  const r = addBtnEl.value?.getBoundingClientRect()
+  if (r) {
+    menuStyle.value = {
+      position: 'fixed',
+      left: `${Math.round(r.left)}px`,
+      top: `${Math.round(r.bottom + 6)}px`,
+      zIndex: 'var(--z-menu)',
+    }
+  }
+}
+/** 点菜单空白处/外部就关：菜单可能被裁出 aside，用文档级监听 */
+function onDocPointerDown(e: PointerEvent): void {
+  if (!addOpen.value) return
+  const t = e.target as Node
+  if (addBtnEl.value?.contains(t)) return
+  const menuEl = document.getElementById('editor-add-menu')
+  if (menuEl?.contains(t)) return
+  addOpen.value = false
+}
+/** 从目录里加一张：落位交给引擎的 findFreeSpot（与库里拖入同一条路径） */
+function addFromCatalog(id: string): void {
+  addOpen.value = false
+  store.add(id, 0, 0)
+}
 
 /**
  * 行轨高度来自 `useProjection().rowPx` —— **与浏览态是同一个数**。
@@ -88,11 +133,13 @@ function badge(p: E.Placement) {
 
 onBeforeUnmount(() => {
   window.removeEventListener('keydown', onGlobalKey)
+  document.removeEventListener('pointerdown', onDocPointerDown)
 })
 onMounted(() => {
   /** 挂 window 而不是容器：拖拽时 pointerdown 被 preventDefault，焦点可能仍留在 body 上，
    *  容器级监听会收不到键盘事件（实测 Ctrl+Z 失效） */
   window.addEventListener('keydown', onGlobalKey)
+  document.addEventListener('pointerdown', onDocPointerDown)
 })
 
 function cellStyle(p: E.Placement) {
@@ -179,12 +226,43 @@ function removeSelected() {
   store.removeMany([...sel.value])
   clearSel()
 }
+
+/**
+ * 给 App 的 Esc 编排用：编辑器里"有东西可退"（选中/批量条/添加下拉）时由这里吞掉，
+ * 返回 true 表示已消费 —— 否则 App 会把它当成"取消这次编辑"（有改动还会弹确认）。
+ */
+function escapePressed(): boolean {
+  if (addOpen.value) {
+    addOpen.value = false
+    return true
+  }
+  if (sel.value.size) {
+    clearSel()
+    return true
+  }
+  return false
+}
+defineExpose({ escapePressed })
 </script>
 
 <template>
   <div class="editor">
     <aside class="lib">
-      <h3><LayoutGrid :size="14" /> 模块库</h3>
+      <h3>
+        <LayoutGrid :size="14" /> 模块库
+        <CardCatalogMenu v-if="addOpen" :menu-id="'editor-add-menu'" :style="menuStyle" @pick="addFromCatalog" />
+        <button
+          ref="addBtnEl"
+          class="add-cat"
+          :disabled="!missingCount"
+          :title="missingCount ? '还没放置的卡片都在这里（与库里拖入同一条落位路径）' : '所有卡片都已在版面上'"
+          aria-haspopup="menu"
+          :aria-expanded="addOpen"
+          @click="toggleAddMenu"
+        >
+          <Plus :size="12" /> 全部卡片
+        </button>
+      </h3>
       <p v-if="!store.available.value.length" class="muted small">全部模块都已放置</p>
       <div v-for="m in store.available.value" :key="m.id" class="lib-item">
         <div class="lib-title" @pointerdown="startNew(m.id, m.defaultVariant, $event)">{{ m.title }}</div>
@@ -358,6 +436,31 @@ function removeSelected() {
   letter-spacing: 0.06em;
   color: var(--text-3);
   margin: 0 0 var(--space-3);
+}
+/* 「全部卡片」目录入口：贴 h3 右侧的小按钮。字号跟 h3 同档（11px 下限守 E2E） */
+.add-cat {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  height: 20px;
+  padding: 0 var(--space-2);
+  font-size: 11px;
+  letter-spacing: 0.02em;
+  text-transform: none;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-pill);
+  background: var(--bg-card);
+  color: var(--text-2);
+  cursor: pointer;
+}
+.add-cat:hover:not(:disabled) {
+  color: var(--text-1);
+  border-color: var(--brand-500);
+}
+.add-cat:disabled {
+  opacity: 0.5;
+  cursor: default;
 }
 .lib-item {
   border: 1px solid var(--border-strong);
