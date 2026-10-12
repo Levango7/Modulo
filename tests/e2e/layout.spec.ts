@@ -44,6 +44,24 @@ const snapshot = (page: Page) =>
       .join(' | '),
   )
 
+/**
+ * 「文字被裁」的判据（2026-10-13 收紧一次）：
+ * 原判据只看 `scrollWidth > clientWidth`，而**热区伪元素**（如待办删除 × 的 `::after` 外扩 6px）
+ * 也算"溢出的内容"，18px 宽的 × 于是被误报成裁字（实测踩到）。这里按"元素带 ::after 覆盖层
+ * = 热区按钮"排除 —— 全仓的热区扩法就是这个签名（`.cbtn` / 行头三钮 / `.del`）；
+ * 真裁字仍然照抓（正在被裁的文本元素没有这层覆盖）。
+ */
+const CLIPPED_COUNT = `(() => {
+  const texts = [...document.querySelectorAll('.cell *')].filter(
+    (e) => e.children.length === 0 && (e.textContent || '').trim(),
+  )
+  return texts.filter((e) => {
+    if (e.scrollWidth - e.clientWidth <= 2) return false
+    if (getComputedStyle(e, '::after').content !== 'none') return false
+    return true
+  }).length
+})()`
+
 /** 切到布局编辑态。同 clickTool：找不到就抛 —— 静默失败会让后面一串断言在浏览态上瞎量。 */
 async function enterEditor(page: Page) {
   const hit = await page.evaluate(() => {
@@ -232,7 +250,7 @@ it.skipIf(skip)('三档视口：不溢出、不裁字、列数符合断点表', 
   ]
   for (const c of cases) {
     const page = await freshPage(c.w, 900)
-    const m = await page.evaluate(() => {
+    const m = await page.evaluate((clipSrc: string) => {
       const grid = document.querySelector('.grid')
       const texts = [...document.querySelectorAll('.cell *')].filter(
         (e) => e.children.length === 0 && (e.textContent || '').trim(),
@@ -240,10 +258,10 @@ it.skipIf(skip)('三档视口：不溢出、不裁字、列数符合断点表', 
       return {
         cols: grid ? getComputedStyle(grid).gridTemplateColumns.split(' ').length : 0,
         hScroll: document.documentElement.scrollWidth > window.innerWidth + 1,
-        clipped: texts.filter((e) => e.scrollWidth - e.clientWidth > 2).length,
+        clipped: (0, eval)(clipSrc) as number,
         minFont: Math.min(...texts.map((e) => parseFloat(getComputedStyle(e).fontSize))),
       }
-    })
+    }, CLIPPED_COUNT)
     expect(m.cols, `${c.w}px 列数`).toBe(c.cols)
     expect(m.hScroll, `${c.w}px 横向溢出`).toBe(false)
     expect(m.clipped, `${c.w}px 文字被裁`).toBe(0)
@@ -1146,7 +1164,7 @@ it.skipIf(skip)('全部卡上版：三档视口不溢出、不裁字、最小字
       await clickTool(page, '工作台')
       await settle(300)
     }
-    const m = await page.evaluate(() => {
+    const m = await page.evaluate((clipSrc: string) => {
       const grid = document.querySelector('.grid')
       const texts = [...document.querySelectorAll('.cell *')].filter(
         (e) => e.children.length === 0 && (e.textContent || '').trim(),
@@ -1154,10 +1172,10 @@ it.skipIf(skip)('全部卡上版：三档视口不溢出、不裁字、最小字
       return {
         cols: grid ? getComputedStyle(grid).gridTemplateColumns.split(' ').length : 0,
         hScroll: document.documentElement.scrollWidth > window.innerWidth + 1,
-        clipped: texts.filter((e) => e.scrollWidth - e.clientWidth > 2).length,
+        clipped: (0, eval)(clipSrc) as number,
         minFont: Math.min(...texts.map((e) => parseFloat(getComputedStyle(e).fontSize))),
       }
-    })
+    }, CLIPPED_COUNT)
     expect(m.cols, `${c.w}px 列数`).toBe(c.cols)
     expect(m.hScroll, `${c.w}px 横向溢出`).toBe(false)
     expect(m.clipped, `${c.w}px 文字被裁`).toBe(0)
@@ -1471,4 +1489,56 @@ it.skipIf(skip)('行容器：行内参数化重排 —— 成员均匀成格、C
   await settle(400)
   const undone = JSON.parse((await page.evaluate(() => localStorage.getItem('modulo.layout.v1')))!) as typeof after
   expect(JSON.stringify(undone), 'Ctrl+Z 一步退回重排前').toBe(before)
+})
+
+/**
+ * 存储写失败必须可见（2026-10-13）。此前桌面壳会顶红条，**网页版连红条都不会出现** ——
+ * `webStorage` 的 error 槽永远是 null，QuotaExceeded（配额满 / 隐私模式）会从 set 里抛出去，
+ * 改动只在内存、刷新即失，界面一声不吭。这条真实链路上把两个环节一起锁住：
+ * ① 写失败 → `.storage-error` 出现且带「只在内存里」；② 同一 key 再写成功 → 红条撤掉。
+ * 用接管 `Storage.prototype.setItem` 的方式确定性制造失败（不依赖把配额真的填满）。
+ */
+it.skipIf(skip)('存储写失败会顶出红条（有救命备份入口），恢复后红条消失', async () => {
+  const page = await freshPage(1440, 900)
+  // 接管 setItem：modulo.* 一律抛配额错误
+  await page.evaluate(() => {
+    const orig = Storage.prototype.setItem
+    ;(window as unknown as { __origSetItem: typeof orig }).__origSetItem = orig
+    Storage.prototype.setItem = function (k: string, v: string) {
+      if (String(k).startsWith('modulo.')) throw new DOMException('QuotaExceededError: forced', 'QuotaExceededError')
+      return orig.call(this, k, v)
+    }
+  })
+
+  // 触发一次真实写：进编辑器加一张卡（apply → storage.set → 抛）
+  await enterEditor(page)
+  await openCatalog(page)
+  await page.evaluate(() => document.querySelector<HTMLElement>('.add-menu [role="menuitem"]')!.click())
+  await settle(500)
+
+  const banner = await page.evaluate(() => {
+    const el = document.querySelector('.storage-error')
+    return el
+      ? {
+          text: (el.textContent || '').trim(),
+          rescue: !!el.querySelector('.rescue'),
+        }
+      : null
+  })
+  expect(banner, '写失败要顶出红条（此前网页版完全没有提示）').not.toBeNull()
+  expect(banner!.text, '文案要说清"只在内存里"').toContain('只在内存里')
+  expect(banner!.rescue, '带一枚「立刻下载备份」救命入口').toBe(true)
+
+  // 换回原 setItem → 再写一次成功 → 红条撤掉
+  await page.evaluate(() => {
+    Storage.prototype.setItem = (window as unknown as { __origSetItem: typeof Storage.prototype.setItem }).__origSetItem
+  })
+  await page.evaluate(() => document.querySelector<HTMLElement>('.add-menu [role="menuitem"]')?.click())
+  await settle(500)
+  // 目录可能已关（加过一张后菜单关闭）——再开一次点一张
+  await openCatalog(page)
+  await page.evaluate(() => document.querySelector<HTMLElement>('.add-menu [role="menuitem"]')!.click())
+  await settle(500)
+  expect(await page.evaluate(() => !!document.querySelector('.storage-error')), '写恢复后红条消失').toBe(false)
+  await page.close()
 })

@@ -27,7 +27,7 @@ function submit(e: KeyboardEvent) {
             <input type="checkbox" :checked="t.done" @change="cards.toggleTodo(t.id)" />
             <span>{{ t.text }}</span>
           </label>
-          <button class="del" title="删除" @click="cards.removeTodo(t.id)">×</button>
+          <button class="del" :aria-label="`删除待办：${t.text}`" title="删除" @click="cards.removeTodo(t.id)">×</button>
         </li>
       </ul>
       <template v-if="showDone && done.length">
@@ -38,7 +38,7 @@ function submit(e: KeyboardEvent) {
           </li>
         </ul>
       </template>
-      <input v-model="draft" class="add" placeholder="添加待办，回车确认" @keydown="submit" />
+      <input v-model="draft" class="add" placeholder="添加待办，回车确认" aria-label="添加待办" @keydown="submit" />
     </div>
   </div>
 </template>
@@ -85,11 +85,23 @@ function submit(e: KeyboardEvent) {
   text-decoration: line-through;
 }
 .del {
+  position: relative;
   border: none;
   background: transparent;
   color: var(--text-3);
   padding: 0 var(--space-1);
   line-height: 1;
+}
+/* 视觉只有 18×13px，手指几乎点不中（2026-10-13 无障碍走查：全仓最小热区就这两枚）。
+   行距 23px：垂直各扩 6px 后命中区 31×25，恰好铺满行、不越到相邻行（同行头图标钮的做法）。
+   注意：外扩会让 scrollWidth > clientWidth —— 「不裁字」守卫已按"文本自身放得下"排除这种
+   热区伪元素，不然它会把 18px 宽的 × 误判成被裁文本（实测踩过一次）。 */
+.del::after {
+  content: '';
+  position: absolute;
+  inset: -6px;
+  min-width: 26px;
+  min-height: 25px;
 }
 .add {
   width: 100%;
