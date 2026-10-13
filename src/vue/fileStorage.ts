@@ -20,6 +20,21 @@ export const DATA_KEYS: readonly string[] = [
   'modulo.template.v1',
 ]
 
+
+/**
+ * 落盘通知（2026-10-13 浮窗配套）：主窗写 doc 后广播 `modulo:doc-written`，
+ * 浮窗重读同一份文件。用动态 import 是为了网页版不带 @tauri-apps/api 的事件模块进包
+ * —— 没有 Tauri 时这行会 reject，吞掉即可。
+ */
+async function notifyWritten(key: string): Promise<void> {
+  try {
+    const { emit } = await import('@tauri-apps/api/event')
+    await emit('modulo:doc-written', { key })
+  } catch {
+    /* 网页版没有 Tauri 事件总线：属正常路径 */
+  }
+}
+
 export interface PersistentStorage extends StorageAdapter {
   /** 落盘失败必须让用户看见：静默失败的存储迟早会变成"我明明存了"的数据丢失 */
   error: Ref<string | null>
@@ -66,6 +81,9 @@ export function createFileStorage(initial: Record<string, string | null>, write:
       queued(k, v).then(
         () => {
           if (error.value?.startsWith(`「${k}」`)) error.value = null
+          // 广播"这条 key 落盘了"：浮窗（独立 WebviewWindow）据此重读数据。
+          // 只在桌面壳有监听者；网页版 emit 一次没人听，可忽略。
+          void notifyWritten(k)
         },
         (e: unknown) => {
           error.value = `「${k}」没能写入磁盘：${String(e)}。当前改动只在内存里，重启会丢。`

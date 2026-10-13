@@ -9,6 +9,7 @@ mod feeds;
  * （STATUS_ENTRYPOINT_NOT_FOUND），一个测试都跑不了。已排除的原因见 `src/web.rs`
  * 里 winhttp 模块的注释。纯解析函数不受影响，仍在测试壳里正常跑单测。
  */
+mod floatwin;
 pub mod monitor;
 pub mod net;
 mod sysmon;
@@ -355,6 +356,7 @@ pub fn run() {
     let mut builder = tauri::Builder::default()
         .manage(HideOnClose::default())
         .manage(Shortcuts::default())
+        .manage(floatwin::initial_state())
         .invoke_handler(tauri::generate_handler![
             set_hide_on_close,
             global_shortcuts,
@@ -365,9 +367,17 @@ pub fn run() {
             web::bing_daily,
             monitor::web_probe,
             sysmon::sys_stats,
-            feeds::fetch_text
+            feeds::fetch_text,
+            floatwin::list_floats,
+            floatwin::float_card,
+            floatwin::unfloat_card
         ])
         .on_window_event(|window, event| {
+            // 浮窗（float-*）的几何与生命周期由 floatwin 接管：关掉浮窗 = 卡片回工作台
+            if window.label().starts_with("float-") {
+                floatwin::on_float_window_event(window.app_handle(), window.label(), event);
+                return;
+            }
             if let WindowEvent::CloseRequested { api, .. } = event {
                 if *window.app_handle().state::<HideOnClose>().0.lock().unwrap() {
                     api.prevent_close();
@@ -403,6 +413,8 @@ pub fn run() {
                 }
                 desktop::build_tray(&handle)?;
                 desktop::register_shortcuts(&handle);
+                // 上次退出时还在浮动的卡片：恢复成浮窗（几何/开关持久化在 detached.json）
+                floatwin::restore_all(&handle);
                 Ok(())
             });
     }
