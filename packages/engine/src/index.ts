@@ -39,6 +39,7 @@ export * from './autoLayout.js'
 
 export * from './watch.js'
 export * from './http.js'
+export * from './launcher.js'
 export * from './fixed.js'
 export * from './shift.js'
 export * from './yearcalendar.js'

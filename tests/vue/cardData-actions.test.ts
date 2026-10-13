@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { nextTick } from 'vue'
-import { createCardData } from '../../src/vue/cardData'
+import { createCardData, sanitizeCardData } from '../../src/vue/cardData'
+import { emptyCardData } from '../../src/vue/backup'
 
 /**
  * `createCardData()` 的**写入动作**层。
@@ -378,6 +379,46 @@ describe('网页取数端点：加一条过同一条边界，删一条按 id，�
     d.tuneEndpoint(id, { path: 'a["b"]', refreshSec: 1 })
     expect(d.state.endpoints[0].path).toBe('')
     expect(d.state.endpoints[0].refreshSec).toBe(30)
+  })
+})
+
+describe('速达：加一条只认绝对路径/http(s)，删一条按 id', () => {
+  it('加：合法收下并兜底显示名；裸命令名/空目标拒绝（返回 false）', () => {
+    const d = memStorage().api()
+    expect(d.addLaunch('', 'C:\\Apps\\Code.exe')).toBe(true)
+    expect(d.state.launch).toHaveLength(1)
+    expect(d.state.launch[0].label, '空 label 兜底取末段').toBe('Code')
+    expect(d.state.launch[0].kind).toBe('file')
+    for (const bad of ['explorer.exe', '', 'ms-settings:']) {
+      expect(d.addLaunch('坏', bad), `不该收下 ${bad}`).toBe(false)
+    }
+    expect(d.state.launch).toHaveLength(1)
+  })
+
+  it('删：按 id；同目标重复加会被去重', () => {
+    const d = memStorage().api()
+    d.addLaunch('甲', 'https://e.com/a')
+    d.addLaunch('乙', 'https://e.com/a')
+    expect(d.state.launch).toHaveLength(1)
+    d.removeLaunch(d.state.launch[0].id)
+    expect(d.state.launch).toHaveLength(0)
+  })
+
+  it('导入路径：不是数组回退；坏条目丢弃并告警（同 watch/endpoints 骨架）', () => {
+    // fallback 用**真实的** emptyCardData()：手搓一个薄对象会缺嵌套结构（ledger/duty…），
+    // sanitizeCardData 读它会炸 —— 这不是它在测的形状
+    const fallback = emptyCardData()
+    expect(sanitizeCardData({ launch: 'x' }, fallback).launch).toEqual([])
+    const warned: string[] = []
+    const orig = console.warn
+    console.warn = (m) => void warned.push(String(m))
+    try {
+      const r = sanitizeCardData({ launch: [{ target: 'C:\\a\\b.exe' }, { target: 'cmd.exe' }] }, fallback)
+      expect(r.launch.map((x) => x.target)).toEqual(['C:\\a\\b.exe'])
+      expect(warned.some((m) => m.includes('速达')), '丢弃要回显').toBe(true)
+    } finally {
+      console.warn = orig
+    }
   })
 })
 

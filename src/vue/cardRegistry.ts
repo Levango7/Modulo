@@ -357,6 +357,18 @@ export const REGISTRY: ModuleRegistry = [
     ],
   },
   {
+    id: 'launcher',
+    title: '速达',
+    group: '工具',
+    // 数学：桌面壳用 ShellExecuteW（等价双击，UAC 由系统弹）；网页版只列不打开
+    blurb: '常用程序 / 网页 / 文件收成点一下就开的收藏',
+    defaultVariant: 'grid',
+    variants: [
+      { id: 'grid', name: '图标墙', minW: 3, minH: 2, idealW: 4, idealH: 3 },
+      { id: 'list', name: '清单', minW: 3, minH: 3, idealW: 4, idealH: 4 },
+    ],
+  },
+  {
     id: 'fixed',
     title: '整数位计算',
     group: '工具',
