@@ -20,6 +20,15 @@ import { chromePath } from './chrome'
 // CI 上没装 Chrome 就整体跳过（与 layout.spec 同一约定）——本地 Windows 有 Chrome 照常跑
 const EXE = chromePath()
 const skip = !EXE
+/**
+ * 目标地址由全局 setup 决定：`vitest.e2e.setup.ts` 会以 production 构建起一个**随机端口**的
+ * preview 服务并写进 `MODULO_URL`。早先这里硬编码 1430，本机（preview 恰好也 1430）绿、
+ * CI 上 "ERR_CONNECTION_REFUSED"（2026-10-13 实际踩到）—— 与 layout.spec 同一口径。
+ */
+let url = 'http://localhost:1430'
+beforeAll(() => {
+  url = process.env.MODULO_URL ?? url
+})
 const wait = (ms: number) => new Promise((r) => setTimeout(r, ms))
 const STUB_SOURCE = readFileSync(resolve(__dirname, 'tauri-stub.js'), 'utf8')
 
@@ -48,7 +57,7 @@ describe.skipIf(skip)('脱离浮窗：前端整链（Tauri 桩）', () => {
     }, STUB_SOURCE)
     const errs: string[] = []
     page.on('pageerror', (e: unknown) => errs.push('PAGEERROR ' + String((e as Error).message).slice(0, 160)))
-    await page.goto('http://127.0.0.1:1430/', { waitUntil: 'networkidle2', timeout: 30000 })
+    await page.goto(url, { waitUntil: 'networkidle2', timeout: 30000 })
     await wait(900)
 
     expect(errs, `页面不该有报错：${errs.join(' | ')}`).toEqual([])
