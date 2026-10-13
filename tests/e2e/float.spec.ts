@@ -15,15 +15,19 @@ import { resolve } from 'node:path'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import puppeteer from 'puppeteer-core'
 import type { Browser } from 'puppeteer-core'
+import { chromePath } from './chrome'
 
-const EXE = 'C:/Program Files/Google/Chrome/Application/chrome.exe'
+// CI 上没装 Chrome 就整体跳过（与 layout.spec 同一约定）——本地 Windows 有 Chrome 照常跑
+const EXE = chromePath()
+const skip = !EXE
 const wait = (ms: number) => new Promise((r) => setTimeout(r, ms))
 const STUB_SOURCE = readFileSync(resolve(__dirname, 'tauri-stub.js'), 'utf8')
 
 let browser: Browser
 beforeAll(async () => {
+  if (skip) return
   browser = await puppeteer.launch({
-    executablePath: EXE,
+    executablePath: EXE!,
     headless: true,
     args: ['--no-sandbox', '--disable-gpu'],
     userDataDir: `F:/tmp/pptr-profile-${Date.now()}`,
@@ -33,7 +37,7 @@ afterAll(async () => {
   await browser?.close()
 })
 
-describe('脱离浮窗：前端整链（Tauri 桩）', () => {
+describe.skipIf(skip)('脱离浮窗：前端整链（Tauri 桩）', () => {
   it('脱离键把卡片请出工作台，关浮窗后卡片回来', async () => {
     const page = await browser.newPage()
     await page.setViewport({ width: 1440, height: 900, deviceScaleFactor: 1 })

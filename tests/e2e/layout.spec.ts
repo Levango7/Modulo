@@ -1,23 +1,11 @@
-import { existsSync } from 'node:fs'
 import { afterAll, beforeAll, expect, it } from 'vitest'
 import puppeteer from 'puppeteer-core'
 import type { Browser, Page } from 'puppeteer-core'
 import { REGISTRY } from '../../src/vue/cardRegistry'
+import { chromePath } from './chrome'
 
 let browser: Browser
 let url: string
-
-function chromePath(): string | undefined {
-  return [
-    process.env.CHROME_PATH,
-    'C:/Program Files/Google/Chrome/Application/chrome.exe',
-    '/usr/bin/google-chrome',
-    '/usr/bin/chromium',
-    '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
-  ]
-    .filter(Boolean)
-    .find((p) => existsSync(p as string))
-}
 
 const EXE = chromePath()
 
