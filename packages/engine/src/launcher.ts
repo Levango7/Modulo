@@ -48,12 +48,14 @@ export function kindOf(target: string): LaunchKind | null {
 export function fallbackLabel(target: string, kind: LaunchKind): string {
   const t = target.trim().replace(/^"|"$/g, '')
   if (kind === 'url') {
-    try {
-      const u = new URL(t)
-      return (u.hostname + (u.pathname === '/' ? '' : u.pathname)).slice(0, MAX_LAUNCH_LABEL)
-    } catch {
-      return t.slice(0, MAX_LAUNCH_LABEL)
-    }
+    // **不用全局 `URL`**：引擎包要对任何宿主成立（`tsconfig.build.json` 没有 DOM lib，
+    // CI 的"引擎包独立构建"门禁当场抓到过）。手写解析只为取"主机名 + 路径"这一件事：
+    // `https://host:port/path?query#frag` → `host/path`（host 带端口，路径去掉查询与片段）
+    const m = /^https?:\/\/([^/?#]+)([^?#]*)/i.exec(t)
+    if (!m) return t.slice(0, MAX_LAUNCH_LABEL)
+    const host = m[1]
+    const path = m[2] && m[2] !== '/' ? m[2] : ''
+    return (host + path).slice(0, MAX_LAUNCH_LABEL)
   }
   const seg = t.split(/[\\/]/).filter(Boolean).pop() ?? t
   return seg.replace(/\.[A-Za-z0-9]{1,6}$/, '').slice(0, MAX_LAUNCH_LABEL) || '未命名'
