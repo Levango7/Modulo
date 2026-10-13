@@ -344,6 +344,19 @@ export const REGISTRY: ModuleRegistry = [
     ],
   },
   {
+    id: 'http',
+    title: '网页取数',
+    group: '联网',
+    // 声明式扩展第一层（2026-10-13 批 3）：填 https 接口 + 取值路径，宿主抓取渲染。
+    // 边界与网页监控同源（只 https、拒私网）；网页版先试原生 fetch、失败如实说需要桌面壳
+    blurb: '自定一个 JSON 接口，取某个字段显示（热搜/汇率/股价…）',
+    defaultVariant: 'value',
+    variants: [
+      { id: 'value', name: '大数字', minW: 3, minH: 2, idealW: 4, idealH: 3 },
+      { id: 'list', name: '列表', minW: 3, minH: 3, idealW: 4, idealH: 4 },
+    ],
+  },
+  {
     id: 'fixed',
     title: '整数位计算',
     group: '工具',

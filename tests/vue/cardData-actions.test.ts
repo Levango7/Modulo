@@ -337,6 +337,50 @@ describe('快捷链接与网页监控：加一条要过同一套清洗', () => {
   })
 })
 
+describe('网页取数端点：加一条过同一条边界，删一条按 id，显示参数可改', () => {
+  it('加：正常 https 收下；非 https / 私网 / 保留主机名一律拒绝（返回 false，不静默丢）', () => {
+    const d = memStorage().api()
+    expect(d.addEndpoint('汇率', 'https://open.er-api.com/v6/latest/CNY')).toBe(true)
+    expect(d.state.endpoints).toHaveLength(1)
+    expect(d.state.endpoints[0].refreshSec).toBe(300)
+    for (const bad of ['http://x.com/a', 'https://127.0.0.1/a', 'https://router.local/a', '']) {
+      expect(d.addEndpoint('坏', bad), `不该收下 ${bad}`).toBe(false)
+    }
+    expect(d.state.endpoints, '被拒的不该进名单').toHaveLength(1)
+  })
+
+  it('同 URL 去重（sanitizeEndpoints 的骨架与 watch 同源）', () => {
+    const d = memStorage().api()
+    d.addEndpoint('甲', 'https://a.example/x')
+    d.addEndpoint('乙', 'https://a.example/x')
+    expect(d.state.endpoints).toHaveLength(1)
+  })
+
+  it('删：按 id；改：路径/刷新/金额模式原地生效，URL 不动', () => {
+    const d = memStorage().api()
+    d.addEndpoint('甲', 'https://a.example/x')
+    const id = d.state.endpoints[0].id
+    d.tuneEndpoint(id, { path: 'data[0].price', refreshSec: 60, scale100: true, label: '股价' })
+    const e = d.state.endpoints[0]
+    expect(e.url, 'URL 不动').toBe('https://a.example/x')
+    expect(e.path).toBe('data[0].price')
+    expect(e.refreshSec).toBe(60)
+    expect(e.scale100).toBe(true)
+    expect(e.label).toBe('股价')
+    d.removeEndpoint(id)
+    expect(d.state.endpoints).toHaveLength(0)
+  })
+
+  it('改路径到非法形状 → 归零（取整份响应），刷新越界 → 夹到区间', () => {
+    const d = memStorage().api()
+    d.addEndpoint('甲', 'https://a.example/x')
+    const id = d.state.endpoints[0].id
+    d.tuneEndpoint(id, { path: 'a["b"]', refreshSec: 1 })
+    expect(d.state.endpoints[0].path).toBe('')
+    expect(d.state.endpoints[0].refreshSec).toBe(30)
+  })
+})
+
 describe('固定支出与值班表', () => {
   it('基数与费率各自截长度', () => {
     const d = memStorage().api()
