@@ -13,6 +13,8 @@ import { useAppearance } from './vue/useAppearance'
 import { useBackup } from './vue/useBackup'
 import { useSchemes } from './vue/useSchemes'
 import { isDesktop, useShell } from './vue/useShell'
+import { useDetached } from './vue/useDetached'
+import { floatCard, floatingSupported } from './float/api'
 import GridLayout from './vue/components/GridLayout.vue'
 import CanvasEditor from './vue/components/CanvasEditor.vue'
 import StackEditor from './vue/components/StackEditor.vue'
@@ -123,7 +125,25 @@ const stageEl = ref<HTMLElement | null>(null)
 const editorRef = ref<InstanceType<typeof CanvasEditor> | null>(null)
 /** 宽给 1200 / 高给 0：挂载前算出的列数与行高与改动前完全一致，尺寸到位后才有一次抬升 */
 const { width: stageW, height: stageH } = useElementSize(stageEl, 1200, 0)
-const { cols, rowPx, gap, projection, mode } = useProjection(store, stageW, stageH)
+/** 脱离浮窗的卡不参与工作台投影（文档不动，回工作台时原样复位） */
+const { detached } = useDetached()
+const { cols, rowPx, gap, projection, mode } = useProjection(store, stageW, stageH, detached)
+
+/**
+ * 把卡片脱离成桌面浮窗（2026-10-13 第一批，参考 x-hub 的脱离机制）。
+ * 首次脱离的窗口尺寸取该卡在**当前形态下的理想格数**换算成像素（与浏览态同口径），
+ * 之后由用户拖出来/缩出来的几何记忆在 Rust 侧。网页版隐藏入口。
+ */
+function detachCard(id: string): void {
+  const p = store.doc.value.items.find((q) => q.id === id)
+  const mod = store.reg.find((m) => m.id === id)
+  const v = mod?.variants.find((x) => x.id === (p?.variant ?? mod?.defaultVariant)) ?? mod?.variants[0]
+  // 列宽与浏览态同口径：12 列等分舞台宽、列间 gap 从总宽里先扣掉
+  const colW = Math.max(40, (stageW.value - gap * (cols.value - 1)) / cols.value)
+  const w = (v?.idealW ?? 4) * (colW + gap) - gap
+  const h = (v?.idealH ?? 3) * (rowPx.value + gap)
+  void floatCard(id, Math.round(Math.max(240, w)), Math.round(Math.max(160, h)) + 24)
+}
 
 onMounted(() => {
   window.addEventListener('keydown', onGlobalKey)
@@ -314,7 +334,14 @@ function onGlobalKey(e: KeyboardEvent) {
         <p v-if="projection.collapsed.length" class="collapsed muted">
           当前宽度放不下：{{ projection.collapsed.map((c) => c.id).join('、') }}
         </p>
-        <GridLayout :rects="projection.rects" :cols="cols" :row-px="rowPx" :gap="gap" />
+        <GridLayout
+          :rects="projection.rects"
+          :cols="cols"
+          :row-px="rowPx"
+          :gap="gap"
+          :can-detach="floatingSupported()"
+          @detach="detachCard"
+        />
         <p v-if="!projection.rects.length" class="empty muted">版面是空的，去「布局编辑」拖几张卡进来。</p>
       </template>
 
