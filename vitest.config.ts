@@ -53,7 +53,10 @@ const GATED_VUE_MODULES = [
   'src/vue/backup.ts',
   'src/vue/cardData.ts',
   'src/vue/chord.ts',
+  'src/vue/commandBus.ts',
+  'src/vue/commands.ts',
   'src/vue/keyboard.ts',
+  'src/vue/paletteIndex.ts',
   'src/vue/store.ts',
   'src/vue/useWeather.ts',
 ]
@@ -95,6 +98,11 @@ export default defineConfig({
         // store.ts 是这张表存在的头号理由：82.22% 而 CI 绿了很久。
         'src/vue/store.ts': { branches: 82 },
         'src/vue/useWeather.ts': { branches: 92 },
+        // 命令层（2026-10-13 批 2）：新加进受测层的文件必须同步登记地板（见上面第 2 条纪律）。
+        // 三条都被表驱动测试全覆盖，90 是"留一点呼吸"而不是现状回填。
+        'src/vue/commands.ts': { branches: 90 },
+        'src/vue/commandBus.ts': { branches: 90 },
+        'src/vue/paletteIndex.ts': { branches: 90 },
 
         // ── 逐文件棘轮：6 个低于 90 的引擎文件 ─────────────────────────────
         'packages/engine/src/breakpoints.ts': { branches: 75 },
