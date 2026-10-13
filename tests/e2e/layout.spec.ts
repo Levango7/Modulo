@@ -1109,6 +1109,7 @@ const ALL_MODULE_IDS = [
   'matrix', 'probe', 'sysmon',
   'stocks', 'rss',
   'http',
+  'launcher',
 ]
 
 const ALL_MODULES_DOC = {

@@ -11,6 +11,7 @@ mod feeds;
  */
 mod fetchjson;
 mod floatwin;
+mod launcher;
 pub mod monitor;
 pub mod net;
 mod sysmon;
@@ -370,6 +371,7 @@ pub fn run() {
             sysmon::sys_stats,
             feeds::fetch_text,
             fetchjson::fetch_json,
+            launcher::launch_target,
             floatwin::list_floats,
             floatwin::float_card,
             floatwin::unfloat_card

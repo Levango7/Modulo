@@ -22,6 +22,7 @@ import {
   type Watch,
 } from '@levango7/engine'
 import { sanitizeEndpoints, type HttpEndpoint } from '@levango7/engine/http'
+import { sanitizeLaunch, type LaunchItem } from '@levango7/engine/launcher'
 import { browserStorage } from './store'
 
 /** 四个计时器在 `timers` 里的键名。动作共用一份实现（状态形状一样），所以键名也集中一处 */
@@ -203,6 +204,8 @@ export interface CardData {
    * —— 备份要外发，别人的接口数据不该跟着走。
    */
   endpoints: HttpEndpoint[]
+  /** 速达收藏（用户写的，进备份）：点一下就打开的程序/网页/文件 */
+  launch: LaunchItem[]
   /** 固定整数位计算的输入草稿；结果全在引擎算，这里只存两个输入 */
   fixed: { base: string; rate: string; symbol: string }
   duty: DutySetting
@@ -508,6 +511,12 @@ const pickSeen = new Set<string>()
       if (r.rejected > 0) console.warn(`导入的取数端点里有 ${r.rejected} 条不合规（不是 https，或指向私有网段），已丢弃`)
       return r.endpoints
     })(),
+    launch: (() => {
+      if (!Array.isArray(o.launch)) return fallback.launch
+      const r = sanitizeLaunch(o.launch as { id?: unknown; label?: unknown; target?: unknown }[])
+      if (r.rejected > 0) console.warn(`导入的速达名单里有 ${r.rejected} 条不合规（既不是 http(s) 链接也不是绝对路径），已丢弃`)
+      return r.items
+    })(),
     fixed: {
       base: typeof o.fixed === 'object' && o.fixed !== null && !Array.isArray(o.fixed) ? textOf((o.fixed as Record<string, unknown>).base, 20).trim() : fallback.fixed.base,
       rate: typeof o.fixed === 'object' && o.fixed !== null && !Array.isArray(o.fixed) ? textOf((o.fixed as Record<string, unknown>).rate, 12).trim() : fallback.fixed.rate,
@@ -572,6 +581,7 @@ export function createCardData(storage = browserStorage()) {
     feeds: [],
   watch: [],
   endpoints: [],
+  launch: [],
     fixed: { base: '', rate: '', symbol: '¥' },
     duty: { roster: [], anchor: '' },
   }
@@ -600,6 +610,7 @@ export function createCardData(storage = browserStorage()) {
       feeds: [...state.feeds],
   watch: [...state.watch],
       endpoints: [...state.endpoints],
+      launch: [...state.launch],
       'duty.roster': [...state.duty.roster],
       timers: {
         stopwatch: { ...state.timers.stopwatch },
@@ -819,6 +830,16 @@ export function createCardData(storage = browserStorage()) {
     /** 改显示参数（路径 / 刷新 / 金额模式 / 显示名）——URL 与 id 不动 */
     tuneEndpoint(id: string, patch: { path?: string; refreshSec?: number; scale100?: boolean; label?: string }) {
       state.endpoints = sanitizeEndpoints(state.endpoints.map((e) => (e.id === id ? { ...e, ...patch } : e))).endpoints
+    },
+    /** 速达：加一条；返回 false = 目标形状不合规（调用方据此提示） */
+    addLaunch(label: string, target: string) {
+      const { items, rejected } = sanitizeLaunch([...state.launch, { label, target }])
+      if (rejected > 0) return false
+      state.launch = items
+      return true
+    },
+    removeLaunch(id: string) {
+      state.launch = state.launch.filter((x) => x.id !== id)
     },
     addWatch(label: string, url: string) {
       const clean = normalizeUrl(url)
