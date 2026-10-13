@@ -1108,6 +1108,7 @@ const ALL_MODULE_IDS = [
   'holiday', 'chart', 'commands',
   'matrix', 'probe', 'sysmon',
   'stocks', 'rss',
+  'http',
 ]
 
 const ALL_MODULES_DOC = {

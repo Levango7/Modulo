@@ -21,6 +21,7 @@ import {
   type QuickLink,
   type Watch,
 } from '@levango7/engine'
+import { sanitizeEndpoints, type HttpEndpoint } from '@levango7/engine/http'
 import { browserStorage } from './store'
 
 /** 四个计时器在 `timers` 里的键名。动作共用一份实现（状态形状一样），所以键名也集中一处 */
@@ -196,6 +197,12 @@ export interface CardData {
   feeds: FeedSource[]
   /** 网页监控的名单。边界（只 https、不许私网 IP）见 watch.ts 文件头 */
   watch: Watch[]
+  /**
+   * 网页取数端点（声明式扩展，2026-10-13 批 3）：用户填 URL + 取值路径，宿主抓取渲染。
+   * 判据与 watch 同源（sanitizeEndpoints 内部复用 normalizeUrl）；**取到的数据不进备份**
+   * —— 备份要外发，别人的接口数据不该跟着走。
+   */
+  endpoints: HttpEndpoint[]
   /** 固定整数位计算的输入草稿；结果全在引擎算，这里只存两个输入 */
   fixed: { base: string; rate: string; symbol: string }
   duty: DutySetting
@@ -492,6 +499,15 @@ const pickSeen = new Set<string>()
       if (r.rejected > 0) console.warn(`导入的网页监控名单里有 ${r.rejected} 条不合规（不是 https，或指向私有网段），已丢弃`)
       return r.watch
     })(),
+    // 取数端点同 watch 的骨架：丢不合规 + 计数回显（导入别人的备份时，私网 URL 在这一步被挡）
+    endpoints: (() => {
+      if (!Array.isArray(o.endpoints)) return fallback.endpoints
+      const r = sanitizeEndpoints(
+        o.endpoints as { id?: unknown; label?: unknown; url?: unknown; refreshSec?: unknown; path?: unknown; scale100?: unknown }[],
+      )
+      if (r.rejected > 0) console.warn(`导入的取数端点里有 ${r.rejected} 条不合规（不是 https，或指向私有网段），已丢弃`)
+      return r.endpoints
+    })(),
     fixed: {
       base: typeof o.fixed === 'object' && o.fixed !== null && !Array.isArray(o.fixed) ? textOf((o.fixed as Record<string, unknown>).base, 20).trim() : fallback.fixed.base,
       rate: typeof o.fixed === 'object' && o.fixed !== null && !Array.isArray(o.fixed) ? textOf((o.fixed as Record<string, unknown>).rate, 12).trim() : fallback.fixed.rate,
@@ -555,6 +571,7 @@ export function createCardData(storage = browserStorage()) {
     stocks: [],
     feeds: [],
   watch: [],
+  endpoints: [],
     fixed: { base: '', rate: '', symbol: '¥' },
     duty: { roster: [], anchor: '' },
   }
@@ -582,6 +599,7 @@ export function createCardData(storage = browserStorage()) {
       stocks: [...state.stocks],
       feeds: [...state.feeds],
   watch: [...state.watch],
+      endpoints: [...state.endpoints],
       'duty.roster': [...state.duty.roster],
       timers: {
         stopwatch: { ...state.timers.stopwatch },
@@ -788,6 +806,20 @@ export function createCardData(storage = browserStorage()) {
      * 但这**不是**安全边界 —— 页面能被 XSS 改，真正的判定在 Rust 侧（`net.rs`），
      * 两边各判一次是有意的冗余，不是重复实现。
      */
+    /** 网页取数：加一个端点；返回 false = URL 不合规（调用方据此提示，不静默丢弃） */
+    addEndpoint(label: string, url: string) {
+      const { endpoints, rejected } = sanitizeEndpoints([...state.endpoints, { label, url }])
+      if (rejected > 0) return false
+      state.endpoints = endpoints
+      return true
+    },
+    removeEndpoint(id: string) {
+      state.endpoints = state.endpoints.filter((e) => e.id !== id)
+    },
+    /** 改显示参数（路径 / 刷新 / 金额模式 / 显示名）——URL 与 id 不动 */
+    tuneEndpoint(id: string, patch: { path?: string; refreshSec?: number; scale100?: boolean; label?: string }) {
+      state.endpoints = sanitizeEndpoints(state.endpoints.map((e) => (e.id === id ? { ...e, ...patch } : e))).endpoints
+    },
     addWatch(label: string, url: string) {
       const clean = normalizeUrl(url)
       if (!clean) return

@@ -45,6 +45,7 @@ import CommandsCard from '../app/cards/CommandsCard.vue'
 import MatrixCard from '../app/cards/MatrixCard.vue'
 import ProbeCard from '../app/cards/ProbeCard.vue'
 import SysMonCard from '../app/cards/SysMonCard.vue'
+import HttpCard from '../app/cards/HttpCard.vue'
 import StockCard from '../app/cards/StockCard.vue'
 import RssCard from '../app/cards/RssCard.vue'
 
@@ -101,6 +102,7 @@ export const CARD_COMPONENTS: Record<string, Component> = {
   matrix: MatrixCard,
   probe: ProbeCard,
   sysmon: SysMonCard,
+  http: HttpCard,
   stocks: StockCard,
   rss: RssCard,
 }

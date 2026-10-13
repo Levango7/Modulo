@@ -68,7 +68,8 @@ export function emptyCardData(): CardData {
     probes: [],
     stocks: [],
     feeds: [],
-  watch: [],
+    watch: [],
+    endpoints: [],
     fixed: { base: '', rate: '', symbol: '' },
     duty: { roster: [], anchor: '' },
   }
@@ -111,6 +112,7 @@ export function buildBackup(input: BackupInput): BackupPayload {
       probes: input.cardData.probes.map((p) => ({ ...p })),
       stocks: input.cardData.stocks.map((s2) => ({ ...s2 })),
       feeds: input.cardData.feeds.map((f) => ({ ...f })),
+      endpoints: input.cardData.endpoints.map((e) => ({ ...e })),
   watch: input.cardData.watch.map((w) => ({ ...w })),
       fixed: { ...input.cardData.fixed },
       duty: { ...input.cardData.duty, roster: [...input.cardData.duty.roster] },

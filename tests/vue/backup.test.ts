@@ -58,6 +58,7 @@ const cardData: CardData = {
   stocks: [{ id: 's1', label: '上证指数', code: 'sh000001' }],
   feeds: [{ id: 'f1', label: '周刊', url: 'https://www.ruanyifeng.com/blog/atom.xml' }],
   watch: [],
+  endpoints: [],
   fixed: { base: '1,280.00', rate: '6%', symbol: '¥' },
   duty: { roster: ['张三', '李四'], anchor: '2026-01-01' },
 }
@@ -137,6 +138,7 @@ describe('buildBackup：三样东西必须都在里面', () => {
       stocks: [{ id: 's1', label: '上证指数', code: 'sh000001' }],
       feeds: [{ id: 'f1', label: '周刊', url: 'https://www.ruanyifeng.com/blog/atom.xml' }],
   watch: [],
+  endpoints: [],
       fixed: { base: '100', rate: '10%', symbol: '¥' },
       duty: { roster: ['原样'], anchor: '2026-01-01' },
     }

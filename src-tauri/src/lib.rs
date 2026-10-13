@@ -9,6 +9,7 @@ mod feeds;
  * （STATUS_ENTRYPOINT_NOT_FOUND），一个测试都跑不了。已排除的原因见 `src/web.rs`
  * 里 winhttp 模块的注释。纯解析函数不受影响，仍在测试壳里正常跑单测。
  */
+mod fetchjson;
 mod floatwin;
 pub mod monitor;
 pub mod net;
@@ -368,6 +369,7 @@ pub fn run() {
             monitor::web_probe,
             sysmon::sys_stats,
             feeds::fetch_text,
+            fetchjson::fetch_json,
             floatwin::list_floats,
             floatwin::float_card,
             floatwin::unfloat_card
