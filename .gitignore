@@ -32,3 +32,6 @@ packages/engine/LICENSE
 # 真被 `git add -f` 强行加进去的，由 `scripts/coord-gate.mjs` 判据 4 拦下并报红（**事后**红）。
 # 两条腿缺一不可：只挡不查，`-f` 一下就穿了；只查不挡，每次都要靠红灯才知道踩了坑。
 tmp-*
+
+# 视觉回归探针输出（tests/e2e/visual-kit/probe.mjs 与 spec 的 dumpReport）
+_probe/
