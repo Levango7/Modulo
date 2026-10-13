@@ -16,8 +16,33 @@ import { defineConfig } from 'vitest/config'
  *    `useBackup` 这些要真 DOM 与真事件，属于 E2E 的地盘（§10.3 的 19 条），
  *    把它们塞进单测门禁只会逼人写假测试。
  *
- * 余量故意不大：以后往这几个文件加带分支而没测到的代码，CI 就该红 ——
- * 处理方式是补用例，不是调低阈值。
+ * ── "余量故意不大"这句话，2026-10-13 修正 ────────────────────────────────
+ * 这里原先写着「以后往这几个文件加带分支而没测到的代码，CI 就该红」。
+ * **那句话当时不成立。** `thresholds.branches: 90` 卡的是下面这些文件的**聚合值**
+ * （实测 94.12%），不是逐个文件 —— 于是有 7 个文件实际低于 90 而 CI 全绿：
+ *
+ *     src/vue/store.ts            82.22%（函数覆盖 66.66%）
+ *     engine/breakpoints.ts       75.00%
+ *     engine/shift.ts             75.00%
+ *     engine/schemes.ts           79.24%
+ *     engine/convert.ts           82.14%
+ *     engine/downgrade.ts         83.33%
+ *     engine/fitHeight.ts         83.33%
+ *
+ * 56 个高分文件（chord / keyboard / worldclock 那些 100%）在替它们兜底。
+ * 这是"门禁脚本存在 ≠ 门禁在跑"的**同族问题**：上次是脚本根本没被 CI 调用，
+ * 这次是调用被一句话解释了、但**判据与声明的语义不一致**。同一个坑换了件马甲。
+ *
+ * 修法：把承诺落到逐文件（见下面 `thresholds` 里的棘轮表），
+ * 值取 2026-10-12 的实测值（整数下取整）。语义是**只往下锁、不往上抬** ——
+ * 涨了不必改这张表，跌了必须补用例，**不许调低它**。
+ *
+ * 这张表**盖不住两件事**，写在这儿免得下一个人以为它全包了：
+ *   1. 高于 90 的**引擎**文件没有逐文件锁 —— 从 95 掉到 91，聚合值与这张表都不会红。
+ *      要不要逐个锁（引擎 56 个 + 这里 7 个 = 63 行）是个取舍，本轮没做。
+ *   2. **新加进受测层的文件不会自动获得地板**，得同步在这张表里登记。
+ *      这条与 `GATED_VUE_MODULES` 本身是同一种纪律：受测层是**显式清单**，不是扫出来的。
+ *      引擎层另有一条兜底（下面那条 `packages/engine/src/**`）管新文件。
  *
  * 纳入门禁的判据不是"它在 src/vue 下"，而是"**它能在不开浏览器的情况下被断言**"。
  * `useWeather` 在 2026-10-04 补进来：它是**网络层**，而网络是会失败的那一半 ——
@@ -50,7 +75,37 @@ export default defineConfig({
       provider: 'v8',
       include: ['packages/engine/src/**/*.ts', ...GATED_VUE_MODULES],
       reporter: ['text', 'json-summary'],
-      thresholds: { branches: 90 },
+      thresholds: {
+        // 聚合线（原样保留）：受测层整体分支覆盖 ≥90。
+        // 注意它**不能**代替下面的棘轮表 —— 聚合值会被高分文件抬起来。
+        branches: 90,
+
+        // 引擎层兜底：任何一个引擎文件都不得低于"当前引擎层最差文件"那条线。
+        // 存在理由是**显式棘轮表管不到以后新加的文件**：新引擎文件若带 0% 覆盖率进来，
+        // 聚合值上完全看不出来。75 不是拍的，是 2026-10-13 实测的最低值。
+        'packages/engine/src/**/*.ts': { perFile: { branches: 75 } },
+
+        // ── 逐文件棘轮：7 个受单测门禁的 src/vue 模块（全锁，含 100% 的两个）──────
+        // chord / keyboard 锁 100 才是那句话的本意：加一条没测到的分支，当场红。
+        'src/vue/appearance.ts': { branches: 95 },
+        'src/vue/backup.ts': { branches: 95 },
+        'src/vue/cardData.ts': { branches: 97 },
+        'src/vue/chord.ts': { branches: 100 },
+        'src/vue/keyboard.ts': { branches: 100 },
+        // store.ts 是这张表存在的头号理由：82.22% 而 CI 绿了很久。
+        'src/vue/store.ts': { branches: 82 },
+        'src/vue/useWeather.ts': { branches: 92 },
+
+        // ── 逐文件棘轮：6 个低于 90 的引擎文件 ─────────────────────────────
+        'packages/engine/src/breakpoints.ts': { branches: 75 },
+        'packages/engine/src/shift.ts': { branches: 75 },
+        'packages/engine/src/schemes.ts': { branches: 79 },
+        // convert.ts 归 #55（进制转换输入长度上限）在改，这条地板排在它之后取值；
+        // 若那边补了用例把覆盖率抬上去，改高这张表是欢迎的。
+        'packages/engine/src/convert.ts': { branches: 82 },
+        'packages/engine/src/downgrade.ts': { branches: 83 },
+        'packages/engine/src/fitHeight.ts': { branches: 83 },
+      },
     },
   },
 })
