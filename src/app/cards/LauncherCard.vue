@@ -234,7 +234,7 @@ onBeforeUnmount(() => window.clearTimeout(flashTimer))
 .lerr {
   grid-column: 1 / -1;
   margin: 0;
-  font-size: 10px;
+  font-size: 11px;
   color: var(--c-red);
   overflow: hidden;
 }
@@ -265,7 +265,7 @@ onBeforeUnmount(() => window.clearTimeout(flashTimer))
   display: inline-flex;
   align-items: center;
   gap: 3px;
-  font-size: 10px;
+  font-size: 11px;
   color: var(--text-4);
 }
 </style>

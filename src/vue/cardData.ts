@@ -23,6 +23,7 @@ import {
 } from '@levango7/engine'
 import { sanitizeEndpoints, type HttpEndpoint } from '@levango7/engine/http'
 import { sanitizeLaunch, type LaunchItem } from '@levango7/engine/launcher'
+import { MAX_HTML_CARDS, sanitizeHtmlCards, validateSnippet, type HtmlCard } from '@levango7/engine/htmlcard'
 import { browserStorage } from './store'
 
 /** 四个计时器在 `timers` 里的键名。动作共用一份实现（状态形状一样），所以键名也集中一处 */
@@ -206,6 +207,11 @@ export interface CardData {
   endpoints: HttpEndpoint[]
   /** 速达收藏（用户写的，进备份）：点一下就打开的程序/网页/文件 */
   launch: LaunchItem[]
+  /**
+   * HTML 扩展（自定卡，用户写的，进备份）：一段 HTML 片段渲染成一张卡。
+   * 渲染走 `sandbox="allow-scripts"` 的 iframe（隔离边界见引擎 htmlcard.ts 文件头）。
+   */
+  htmlCards: HtmlCard[]
   /** 固定整数位计算的输入草稿；结果全在引擎算，这里只存两个输入 */
   fixed: { base: string; rate: string; symbol: string }
   duty: DutySetting
@@ -511,6 +517,12 @@ const pickSeen = new Set<string>()
       if (r.rejected > 0) console.warn(`导入的取数端点里有 ${r.rejected} 条不合规（不是 https，或指向私有网段），已丢弃`)
       return r.endpoints
     })(),
+    htmlCards: (() => {
+      if (!Array.isArray(o.htmlCards)) return fallback.htmlCards
+      const r = sanitizeHtmlCards(o.htmlCards as { id?: unknown; title?: unknown; html?: unknown }[])
+      if (r.rejected > 0) console.warn(`导入的自定卡里有 ${r.rejected} 条没能通过校验（空片段/超长/带 </script>），已丢弃`)
+      return r.cards
+    })(),
     launch: (() => {
       if (!Array.isArray(o.launch)) return fallback.launch
       const r = sanitizeLaunch(o.launch as { id?: unknown; label?: unknown; target?: unknown }[])
@@ -582,6 +594,7 @@ export function createCardData(storage = browserStorage()) {
   watch: [],
   endpoints: [],
   launch: [],
+  htmlCards: [],
     fixed: { base: '', rate: '', symbol: '¥' },
     duty: { roster: [], anchor: '' },
   }
@@ -611,6 +624,7 @@ export function createCardData(storage = browserStorage()) {
   watch: [...state.watch],
       endpoints: [...state.endpoints],
       launch: [...state.launch],
+      htmlCards: state.htmlCards.map((c) => ({ ...c })),
       'duty.roster': [...state.duty.roster],
       timers: {
         stopwatch: { ...state.timers.stopwatch },
@@ -832,6 +846,28 @@ export function createCardData(storage = browserStorage()) {
       state.endpoints = sanitizeEndpoints(state.endpoints.map((e) => (e.id === id ? { ...e, ...patch } : e))).endpoints
     },
     /** 速达：加一条；返回 false = 目标形状不合规（调用方据此提示） */
+    /** 自定卡：加一张；返回原因字符串（null = 成功）—— 校验信息要能原样显示给用户 */
+    addHtmlCard(title: string, html: string): string | null {
+      const check = validateSnippet(html)
+      if (!check.ok) return check.reason ?? '这条没能通过校验'
+      if (state.htmlCards.length >= MAX_HTML_CARDS) return `自定卡最多 ${MAX_HTML_CARDS} 张`
+      const id = `h${Date.now().toString(36)}`
+      state.htmlCards = [...state.htmlCards, { id, title: title.trim().slice(0, 24) || '自定卡', html }]
+      return null
+    },
+    updateHtmlCard(id: string, patch: { title?: string; html?: string }): string | null {
+      if (patch.html !== undefined) {
+        const check = validateSnippet(patch.html)
+        if (!check.ok) return check.reason ?? '这条没能通过校验'
+      }
+      state.htmlCards = state.htmlCards.map((c) =>
+        c.id === id ? { ...c, ...patch, title: (patch.title ?? c.title).trim().slice(0, 24) || c.title } : c,
+      )
+      return null
+    },
+    removeHtmlCard(id: string) {
+      state.htmlCards = state.htmlCards.filter((c) => c.id !== id)
+    },
     addLaunch(label: string, target: string) {
       const { items, rejected } = sanitizeLaunch([...state.launch, { label, target }])
       if (rejected > 0) return false

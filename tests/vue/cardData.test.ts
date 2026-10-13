@@ -27,6 +27,7 @@ const fallback: CardData = {
   watch: [],
   endpoints: [],
   launch: [],
+  htmlCards: [],
   fixed: { base: '', rate: '', symbol: '¥' },
   duty: { roster: [], anchor: '' },
 }
@@ -55,6 +56,7 @@ describe('sanitizeCardData：盘上数据先清洗再用', () => {
       watch: fallback.watch,
       endpoints: fallback.endpoints,
       launch: fallback.launch,
+      htmlCards: fallback.htmlCards,
       fixed: fallback.fixed,
       duty: fallback.duty,
     })
@@ -147,7 +149,7 @@ describe('sanitizeCardData：盘上数据先清洗再用', () => {
   it('__proto__ 之类的键不会漏进状态：只认白名单字段', () => {
     const r = sanitizeCardData(JSON.parse('{"__proto__":{"polluted":1},"sticky":"ok"}'), fallback)
     expect(Object.keys(r).sort()).toEqual([
-      'birthdays', 'commands', 'countdown', 'duty', 'elapsed', 'endpoints', 'feeds', 'fixed', 'habit', 'launch', 'ledger', 'links', 'matrix', 'meeting', 'notes', 'pickList', 'probes', 'sticky', 'stocks', 'timers', 'todos', 'watch',
+      'birthdays', 'commands', 'countdown', 'duty', 'elapsed', 'endpoints', 'feeds', 'fixed', 'habit', 'htmlCards', 'launch', 'ledger', 'links', 'matrix', 'meeting', 'notes', 'pickList', 'probes', 'sticky', 'stocks', 'timers', 'todos', 'watch',
     ])
     expect({} as Record<string, unknown>).not.toHaveProperty('polluted')
   })
