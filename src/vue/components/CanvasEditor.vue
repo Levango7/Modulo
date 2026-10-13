@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, inject, nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
+import { computed, inject, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import * as E from '@levango7/engine'
 import { Lock, LockOpen, Shuffle, X, LayoutGrid, Trash2, GripVertical, Plus, Rows3 } from 'lucide-vue-next'
 import type { LayoutStore } from '../store'
@@ -8,9 +8,16 @@ import RowBand from './RowBand.vue'
 import CardCatalogMenu from './CardCatalogMenu.vue'
 import { useCellFocus } from '../useCellFocus'
 import { cellIntent, globalIntent, isEditableTarget, shouldPrevent } from '../keyboard'
+import type { CommandBus } from '../commandBus'
 
 const store = inject<LayoutStore>('store')!
+const commandBus = inject<CommandBus>('commandBus')!
 const reg = store.reg
+
+const emit = defineEmits<{
+  (e: 'selectionChange', ids: string[]): void
+  (e: 'focusChange', id: string | null): void
+}>()
 
 /**
  * 「全部卡片」下拉（2026-10-12 从顶栏搬进来）：模块库只列**还没放置**的卡，
@@ -187,17 +194,19 @@ function runIntent(intent: ReturnType<typeof cellIntent> | ReturnType<typeof glo
     case 'toggleSelect':
       toggleSelect(intent.id)
       break
+    /** 以下三条走**命令总线**（2026-10-13 批 2）：键盘与命令面板从同一条命令表出发，
+     *  可用性校验与实现都是同一份 —— 面板里做得到的事，键盘必然按得到，反过来也一样。 */
     case 'cycleVariant':
-      store.cycleVariant(intent.id)
+      commandBus.dispatch('card.cycleVariant', { cardId: intent.id })
       break
     case 'toggleLock':
-      store.toggleLock(intent.id)
+      commandBus.dispatch('card.toggleLock', { cardId: intent.id })
       break
     case 'remove': {
       const p = items.value.find((q) => q.id === intent.id)
       if (!p) break
       const rest = items.value.filter((q) => q.id !== p.id)
-      store.remove(p.id)
+      commandBus.dispatch('card.remove', { cardId: p.id })
       focusNearest(rest, p)
       break
     }
@@ -227,6 +236,29 @@ function removeSelected() {
   clearSel()
 }
 
+/** 焦点卡变化广播（Delete / Enter / L 这类单格命令的目标；见 commands.ts 的 targetCard 注释） */
+function onCellFocus(id: string): void {
+  emit('focusChange', id)
+}
+
+/** 选中集变化向上广播（App 的 command context 用它决定"当前目标卡"） */
+watch(
+  sel,
+  (v) => emit('selectionChange', [...v]),
+  { deep: true },
+)
+
+/** 命令面板「跳到某张卡」用：选中它并把它闪一下（在画布里找得到，而不是"滚过去了但不知道在哪"） */
+const flashId = ref<string | null>(null)
+let flashTimer = 0
+function revealCard(id: string): void {
+  sel.value = new Set([id])
+  flashId.value = id
+  window.clearTimeout(flashTimer)
+  flashTimer = window.setTimeout(() => (flashId.value = null), 1600)
+}
+onBeforeUnmount(() => window.clearTimeout(flashTimer))
+
 /**
  * 给 App 的 Esc 编排用：编辑器里"有东西可退"（选中/批量条/添加下拉）时由这里吞掉，
  * 返回 true 表示已消费 —— 否则 App 会把它当成"取消这次编辑"（有改动还会弹确认）。
@@ -242,7 +274,7 @@ function escapePressed(): boolean {
   }
   return false
 }
-defineExpose({ escapePressed })
+defineExpose({ escapePressed, revealCard })
 </script>
 
 <template>
@@ -314,10 +346,11 @@ defineExpose({ escapePressed })
           class="cell"
           :data-module="p.id"
           :ref="(el: unknown) => setCellRef(p.id, el)"
-          :class="{ locked: p.locked, selected: isSelected(p.id) }"
+          :class="{ locked: p.locked, selected: isSelected(p.id), flash: flashId === p.id }"
           :style="cellStyle(p)"
           tabindex="0"
           role="group"
+          @focus="onCellFocus(p.id)"
           :aria-label="`${titleOf(p)}，${p.w} 乘 ${p.h} 格。拖动标题带移动，方向键移动，Shift 加方向键缩放，空格切换选入，回车切换形态，Delete 移回模块库`"
           @keydown="onCellKeydown(p, $event)"
         >
@@ -543,6 +576,9 @@ defineExpose({ escapePressed })
 }
 .cell:hover {
   box-shadow: var(--frost-edge), var(--shadow-hover);
+}
+.cell.flash {
+  box-shadow: 0 0 0 2px var(--brand-glow);
 }
 .cell.selected {
   outline: 2px solid var(--brand-500);

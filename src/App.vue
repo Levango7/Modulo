@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, inject, onBeforeUnmount, onMounted, provide, ref } from 'vue'
+import { computed, inject, nextTick, onBeforeUnmount, onMounted, provide, ref } from 'vue'
 import { LayoutGrid, LayoutTemplate, Redo2, Settings, SlidersHorizontal, TriangleAlert, Undo2, Wand2, Check, ChevronDown, X } from 'lucide-vue-next'
 import { useElementSize } from './vue/useElementSize'
 import { useProjection } from './vue/useProjection'
@@ -14,7 +14,10 @@ import { useBackup } from './vue/useBackup'
 import { useSchemes } from './vue/useSchemes'
 import { isDesktop, useShell } from './vue/useShell'
 import { useDetached } from './vue/useDetached'
-import { floatCard, floatingSupported } from './float/api'
+import CommandPalette from './vue/components/CommandPalette.vue'
+import { createCommandBus, type CommandBus } from './vue/commandBus'
+import type { CommandContext } from './vue/commands'
+import { floatCard, floatingSupported, unfloatCard } from './float/api'
 import GridLayout from './vue/components/GridLayout.vue'
 import CanvasEditor from './vue/components/CanvasEditor.vue'
 import StackEditor from './vue/components/StackEditor.vue'
@@ -181,6 +184,57 @@ function closeTemplates() {
   if (!store.templateId.value) store.setTemplateChoice(E.DEFAULT_TEMPLATE_ID)
 }
 
+/**
+ * 命令总线（2026-10-13 批 2）：入口只发命令，执行只有一条路。
+ * 上下文里的界面钩子都指向本组件已有的函数 —— 命令表不知道"界面长什么样"，
+ * 只知道"有个动作叫切到工作台"（要 UI 的分支在这里收口）。
+ */
+const paletteOpen = ref(false)
+/** 编辑器选中集（经 CanvasEditor 广播同步；工作台为空集） */
+const selection = ref<ReadonlySet<string>>(new Set())
+/** 焦点所在的卡（键盘单格操作的目标；命令的 targetCard 用） */
+const focusedCard = ref<string | null>(null)
+const cmdCtx: CommandContext = {
+  store,
+  view,
+  selection,
+  focusedCard,
+  editDirty,
+  detached,
+  floatingSupported: floatingSupported(),
+  stageW,
+  cols,
+  gap,
+  rowPx,
+  detach: (id) => detachCard(id),
+  unfloat: (id) => void unfloatCard(id),
+  openUI: (name) => {
+    if (name === 'palette') paletteOpen.value = true
+    else if (name === 'settings') settingsOpen.value = true
+    else if (name === 'templates') templatesOpen.value = true
+    else if (name === 'workbench' && view.value === 'edit') cancelEdit()
+    else if (name === 'edit') enterEdit()
+  },
+}
+const commandBus: CommandBus = createCommandBus(cmdCtx)
+provide('commandBus', commandBus)
+
+/** 宿主拦截项：这些命令的实现在本组件（要编辑基线/要真实渲染高度），文案与可用性仍在命令表里 */
+commandBus.registerIntercept('edit.save', () => saveEdit())
+commandBus.registerIntercept('layout.fit', () => runArrange(fitContent))
+commandBus.registerIntercept('layout.compact', () => runArrange(compact))
+commandBus.registerIntercept('view.edit', () => enterEdit())
+commandBus.registerIntercept('view.workbench', () => {
+  if (view.value === 'edit') cancelEdit()
+})
+
+/** 面板里"跳到某张卡"：切到布局编辑并交给编辑器选中+滚动到视野 */
+function goCard(id: string): void {
+  enterEdit()
+  void nextTick(() => editorRef.value?.revealCard(id))
+}
+
+
 /** 收紧/紧凑要读真实渲染出来的卡片高度，编辑器里没有那张 .grid，所以只能在工作台用 */
 const onlyWorkbench = '回「工作台」可用：这一步要按真实渲染的卡片高度测量'
 
@@ -193,10 +247,11 @@ const isEditable = (el: EventTarget | null): boolean => {
 /** 撤销/重做是全局能力：整理、换模板这类动作也可能在工作台上做，不能只在编辑器里可撤销 */
 function onGlobalKey(e: KeyboardEvent) {
   if (e.key === 'Escape') {
-    /** Esc 从最上面一层往下走：先关确认框，再交编辑器自退（选中/批量条/目录下拉），
+    /** Esc 从最上面一层往下走：先关命令面板与确认框，再交编辑器自退（选中/批量条/目录下拉），
      *  然后才是"取消这次编辑"，最后是各弹层。编辑器先吃 —— 它手里有比"取消整场编辑"
      *  更局部的"退一步"（清选中），否则选了卡按 Esc 会直接弹放弃确认。 */
-    if (cancelAskOpen.value) cancelAskOpen.value = false
+    if (paletteOpen.value) paletteOpen.value = false
+    else if (cancelAskOpen.value) cancelAskOpen.value = false
     else if (editorRef.value?.escapePressed()) {
       /* 编辑器消费掉了（清选中/关目录下拉） */
     } else if (view.value === 'edit') cancelEdit()
@@ -204,15 +259,21 @@ function onGlobalKey(e: KeyboardEvent) {
     else if (templatesOpen.value) closeTemplates()
     else if (settingsOpen.value) settingsOpen.value = false
   }
+  // Ctrl+K 是全局键：即使在输入框里也生效（这是"任何地方唤出"的语义）
+  if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') {
+    e.preventDefault()
+    paletteOpen.value = true
+    return
+  }
   if (isEditable(e.target)) return
   const k = e.key.toLowerCase()
+  // 撤销/重做也并入总线（可用性谓词与面板同源：面板里灰着的时候，键也按不动）
   if ((e.ctrlKey || e.metaKey) && k === 'z') {
     e.preventDefault()
-    if (e.shiftKey) store.redo()
-    else store.undo()
+    commandBus.dispatch(e.shiftKey ? 'layout.redo' : 'layout.undo')
   } else if ((e.ctrlKey || e.metaKey) && k === 'y') {
     e.preventDefault()
-    store.redo()
+    commandBus.dispatch('layout.redo')
   }
 }
 </script>
@@ -345,7 +406,13 @@ function onGlobalKey(e: KeyboardEvent) {
         <p v-if="!projection.rects.length" class="empty muted">版面是空的，去「布局编辑」拖几张卡进来。</p>
       </template>
 
-      <CanvasEditor v-else-if="mode === 'canvas'" ref="editorRef" :row-px="rowPx">
+      <CanvasEditor
+        v-else-if="mode === 'canvas'"
+        ref="editorRef"
+        :row-px="rowPx"
+        @selection-change="(ids: string[]) => (selection = new Set(ids))"
+        @focus-change="(id: string | null) => (focusedCard = id)"
+      >
         <template #default="{ item }">
           <component :is="CARD_COMPONENTS[item.id]" :variant="item.variant" :module-id="item.id" :chromeless="true" />
         </template>
@@ -366,6 +433,8 @@ function onGlobalKey(e: KeyboardEvent) {
         </div>
       </div>
     </div>
+
+    <CommandPalette v-if="paletteOpen" :ctx="cmdCtx" @close="paletteOpen = false" @go-card="goCard" />
 
     <TemplatePicker v-if="templatesOpen" @close="closeTemplates" @edit="pickAndEdit" />
 
