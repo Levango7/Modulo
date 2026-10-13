@@ -353,7 +353,7 @@ onBeforeUnmount(() => {
   flex: none;
   display: flex;
   justify-content: space-between;
-  font-size: 10px;
+  font-size: 11px;
   color: var(--text-4);
   padding-top: 2px;
   border-top: 1px solid var(--border-soft);
@@ -391,7 +391,7 @@ onBeforeUnmount(() => {
 }
 .cfgsel {
   font: inherit;
-  font-size: 10px;
+  font-size: 11px;
   background: var(--input-bg);
   border: 1px solid var(--border-soft);
   border-radius: var(--radius-sm);
@@ -401,7 +401,7 @@ onBeforeUnmount(() => {
   display: inline-flex;
   align-items: center;
   gap: 2px;
-  font-size: 10px;
+  font-size: 11px;
   color: var(--text-3);
   white-space: nowrap;
 }

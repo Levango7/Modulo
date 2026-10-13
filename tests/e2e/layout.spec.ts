@@ -1110,6 +1110,7 @@ const ALL_MODULE_IDS = [
   'stocks', 'rss',
   'http',
   'launcher',
+  'htmlcard',
 ]
 
 const ALL_MODULES_DOC = {

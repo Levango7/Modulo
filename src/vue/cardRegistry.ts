@@ -369,6 +369,18 @@ export const REGISTRY: ModuleRegistry = [
     ],
   },
   {
+    id: 'htmlcard',
+    title: '自定卡',
+    group: '工具',
+    // 数学：片段跑在 sandbox="allow-scripts" 的 iframe 里（opaque origin，实测父 DOM/storage 全拒）
+    blurb: '自己写一段 HTML 渲染成卡（沙箱里跑，碰不到应用数据）',
+    defaultVariant: 'panel',
+    variants: [
+      { id: 'panel', name: '整卡', minW: 3, minH: 3, idealW: 4, idealH: 4 },
+      { id: 'mini', name: '小格', minW: 2, minH: 2, idealW: 3, idealH: 3 },
+    ],
+  },
+  {
     id: 'fixed',
     title: '整数位计算',
     group: '工具',

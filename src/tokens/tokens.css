@@ -244,6 +244,7 @@ input[type='checkbox'] {
 [data-module='sysmon'] { --mod: var(--c-blue); }
 [data-module='http'] { --mod: var(--c-blue); }
 [data-module='launcher'] { --mod: var(--c-purple); }
+[data-module='htmlcard'] { --mod: var(--c-amber); }
 [data-module='stocks'] { --mod: var(--c-red); }
 [data-module='rss'] { --mod: var(--c-amber); }
 .card-head svg {

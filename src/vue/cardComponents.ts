@@ -47,6 +47,7 @@ import ProbeCard from '../app/cards/ProbeCard.vue'
 import SysMonCard from '../app/cards/SysMonCard.vue'
 import HttpCard from '../app/cards/HttpCard.vue'
 import LauncherCard from '../app/cards/LauncherCard.vue'
+import HtmlCard from '../app/cards/HtmlCard.vue'
 import StockCard from '../app/cards/StockCard.vue'
 import RssCard from '../app/cards/RssCard.vue'
 
@@ -105,6 +106,7 @@ export const CARD_COMPONENTS: Record<string, Component> = {
   sysmon: SysMonCard,
   http: HttpCard,
   launcher: LauncherCard,
+  htmlcard: HtmlCard,
   stocks: StockCard,
   rss: RssCard,
 }
