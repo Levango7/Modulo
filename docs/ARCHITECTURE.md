@@ -1993,8 +1993,34 @@ SignPath 的 GitHub 集成本身就是这个形状：上传未签名产物 → �
 ### 12.8 还差什么（用户侧，不在代码里）
 
 1. **npm 账号名必须是 `levango7`**（见 12.1）—— 这是唯一的硬前提；
-2. 建一个 **automation token**（或 granular token，带 publish 权限）放进仓库 secret `NPM_TOKEN`；
-3. 之后每个 `v*` tag 会自动带上引擎包。**没配 token 之前，发布流程照常能跑**（跳过那一步并给一条 warning）。
+2. **凭据二选一**（两条都能让那一步真的跑起来，差别在"仓里存不存长期密钥"）：
+   - **A 路（发一把钥匙）**：npmjs.com → Account → Access Tokens → **Create a Granular Token**，
+     范围只给 `@levango7/engine`、权限 **Read and change**、勾 **Bypass 2FA**（不勾 CI 里会要 OTP）、
+     有效期挑短的；明文只显示一次，拿到就存进仓库 secret **`NPM_TOKEN`**。
+     代价自己认：这是长期凭据，泄露=别人能发你的包，而**发出去撤不回**（协调板「机器资源认领」表里
+     `irreversible:release-npm-tag` 那一行就是为这件事立的）。要收紧就把它放进 **environment**；
+   - **B 路（免钥匙，trusted publishing / OIDC）**：在 npm 侧给这个包配 **Trusted Publisher**
+     （owner `Levango7` + repository `Modulo` + workflow 文件名 `ci.yml` + 允许的 ref 按 tag `refs/tags/v*`），
+     仓库里就**不需要任何 secret**。前提是包必须已存在才能配（已满足）。
+     **还有一个版本门槛**：这条路要 **npm CLI ≥ 11.5.1**，而 release job 现在是 `node-version: 22`
+     （自带 npm 10.x），所以真走这条要在 step 里显式装 npm 11。
+     ⚠️ 这个版本号我只有一篇 2026-01 的实现笔记作出处 —— `docs.npmjs.com/trusted-publishers` 那页在本机
+     抓回来是空的（只有样式、没有正文），**落地前请在页面上自己确认**，别照抄这里写的数。
+3. 之后每个 `v*` tag 会自动带上引擎包。**两条路都没配之前，发布流程照常能跑**（跳过那一步并给一条 warning）。
+4. **provenance 只能随下一个版本带上**：`0.8.1` 已经发出去了，而 npm **同一版本号不可重发、发布不可撤回** ——
+   配好凭据之后受益的是 `0.8.2+`，不是把 0.8.1 补上证明。
 
-顺手要说明的一个事实：**这个包在 npm 上没有历史**。第一个发出去的版本号会是当时应用的版本号
-（当前是 `0.8.1`），而不是从 `0.1.0` 补齐 —— npm 不要求版本连续，也不需要补发。
+**2026-10-15 实测更正（这一段替代原先那句"这个包在 npm 上没有历史" —— 那句已经过期）**：包**已在线**。
+registry 实测 `dist-tags.latest = 0.8.1`、`versions = ['0.0.0-stage', '0.8.1']`、
+`created 10-13 03:03:00Z`（那条 `0.0.0-stage`）与 `0.8.1` 的 `03:08:11Z`（**相隔 5 分钟的两条 = 手工本机发布的形状**），
+`maintainers` 只有 `levango7` 一个。由此两条口径要分开写：
+
+- 「**引擎包开始对外分发**」成立；「**供应链可验证**」不成立 ——
+  `GET https://registry.npmjs.org/-/npm/v1/attestations/@levango7%2Fengine@0.8.1` 实测
+  **HTTP 404 `{"error":"Not found"}`**（404 是结论，不是网络故障）。
+- 工作流里那句 `npm run engine:publish -- --provenance` 是 `4ccc698`（2026-10-09）加的，**但它从未被执行过**：
+  本仓 Actions secrets 实测只有 `TAURI_SIGNING_PRIVATE_KEY` 一个名字、**没有 `NPM_TOKEN`**，
+  于是上面那条例外分支（`查有没有 NPM_TOKEN` 的 output）恒假。
+  ⇒ **别把"CI 里写了 provenance"读成"发出去的包有 provenance"** —— 这就是"函数正确≠被调用"在交付面上的形状。
+  原句「第一个发出去的版本号会是当时应用的版本号（当前是 `0.8.1`），而不是从 `0.1.0` 补齐」这件事本身仍然成立
+  （npm 不要求版本连续，不需要补发），但读者要按"已经发生"去读，不是"将来会发生"。
