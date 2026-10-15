@@ -7,6 +7,10 @@
 //! 分包纪律：audio（cpal 采集）与 asr（sherpa-onnx 转写）与 session（状态机）
 //! 各自成文件，单文件 ≤300 行，入口只装配。纯函数在 audio_resample.rs。
 
+pub mod asr;
+pub mod asr_engine;
+pub mod asr_errors;
+pub mod asr_models;
 pub mod audio;
 pub mod audio_errors;
 pub mod audio_resample;

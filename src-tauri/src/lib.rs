@@ -391,6 +391,8 @@ pub fn run() {
             capture::winlist::win_list,
             capture::preview::win_preview_start,
             capture::preview::win_preview_stop,
+            meeting::asr::asr_model_status,
+            meeting::asr::asr_model_download,
             feeds::fetch_text,
             fetchjson::fetch_json,
             launcher::launch_target,
