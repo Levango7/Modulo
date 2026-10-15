@@ -110,6 +110,8 @@ fn to_info(d: &Device, kind: &'static str, default_id: Option<&str>) -> Result<D
 }
 
 /// 枚举可用麦克风（AC-18 设备选择）
+///
+/// 命令外壳见 [`audio_devices`] —— 设备枚举本身不碰 tauri，方便单独测。
 pub fn list_input_devices() -> Result<Vec<DeviceInfo>, String> {
     let host = cpal::default_host();
     let default_id = host.default_input_device().and_then(|d| d.id().ok().map(|i| i.to_string()));
@@ -138,6 +140,20 @@ pub fn list_output_devices() -> Result<Vec<DeviceInfo>, String> {
         if let Ok(info) = to_info(&d, "output", default_id.as_deref()) {
             out.push(info);
         }
+    }
+    Ok(out)
+}
+
+/// 契约外新增（D-15）：AC-15 的音源选择要求"可选设备"，但契约里 `meeting_start`
+/// 只收 `deviceId`、没有任何列设备的命令，前端无从选起。这里一次给全，用
+/// `kind`（input / output）区分，与 `meeting_start.source` 对应。
+#[tauri::command]
+pub fn audio_devices() -> Result<Vec<DeviceInfo>, String> {
+    let mut out = list_input_devices()?;
+    match list_output_devices() {
+        Ok(v) => out.extend(v),
+        // 输出设备枚举失败不该让麦克风也跟着消失（有的机器禁了 loopback）
+        Err(e) => eprintln!("[audio] 枚举输出设备失败：{e}"),
     }
     Ok(out)
 }
