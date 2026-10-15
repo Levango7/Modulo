@@ -50,6 +50,8 @@ import LauncherCard from '../app/cards/LauncherCard.vue'
 import HtmlCard from '../app/cards/HtmlCard.vue'
 import StockCard from '../app/cards/StockCard.vue'
 import RssCard from '../app/cards/RssCard.vue'
+import MinutesCard from '../app/cards/MinutesCard.vue'
+import WinViewCard from '../app/cards/WinViewCard.vue'
 
 /**
  * 模块 id → 渲染组件。单独一个文件是因为 `cardRegistry.ts` 只放尺寸契约、必须能被
@@ -109,4 +111,6 @@ export const CARD_COMPONENTS: Record<string, Component> = {
   htmlcard: HtmlCard,
   stocks: StockCard,
   rss: RssCard,
+  minutes: MinutesCard,
+  winview: WinViewCard,
 }

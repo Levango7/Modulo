@@ -169,20 +169,33 @@ function ciJobFacts() {
  *
  * 必须扣：`tests/release_signature.rs` 那条是**发布门禁**，CI 上没有安装包产物、默认不跑，
  * 而文档报的是 `cargo test` 实际执行的条数。不扣就和 CI 的输出对不上。
- * 不递归、只走 `src-tauri/src` 与 `src-tauri/tests` 两个目录，也**绝不进 `src-tauri/target/`**
+ * 从 `src-tauri/src` 与 `src-tauri/tests` **递归**收集，只跳过 `target/`
  * （那底下有依赖源码副本，数进来会大一个数量级）。
+ *
+ * ── 2026-10-16 修：这里原来是**不递归**的 ────────────────────────────────
+ * 原写法用 `readdirSync(dir)` 只取顶层 `.rs`，而 `#[test]` 早就有一半住在子目录里
+ * （`ai/`、`capture/`、`meeting/`）。于是它数出 **46**，而 `cargo test` 实跑 **93** ——
+ * 差的那 47 条一条都没进判据。这与本文件开头批的那两个坑是同一族：
+ * **判据与它声明的语义不一致**（声明"Rust 单测条数"，实际只数了顶层文件），
+ * 而它又不报错，看上去一直在守。改递归后实测 95 − 2 = 93，与 `cargo test` 逐条对上。
  */
 function rustFacts() {
   let tests = 0;
   let ignored = 0;
-  for (const dir of [resolve(root, 'src-tauri/src'), resolve(root, 'src-tauri/tests')]) {
-    if (!existsSync(dir)) continue;
-    for (const f of readdirSync(dir)) {
-      if (!f.endsWith('.rs')) continue;
-      const src = readFileSync(join(dir, f), 'utf8');
-      tests += (src.match(/^\s*#\[test\]/gm) ?? []).length;
-      ignored += (src.match(/^\s*#\[ignore\b/gm) ?? []).length;
+  const walk = (dir) => {
+    for (const e of readdirSync(dir, { withFileTypes: true })) {
+      if (e.isDirectory()) {
+        if (e.name === 'target') continue; // 依赖源码副本，绝不能进去
+        walk(join(dir, e.name));
+      } else if (e.name.endsWith('.rs')) {
+        const src = readFileSync(join(dir, e.name), 'utf8');
+        tests += (src.match(/^\s*#\[test\]/gm) ?? []).length;
+        ignored += (src.match(/^\s*#\[ignore\b/gm) ?? []).length;
+      }
     }
+  };
+  for (const dir of [resolve(root, 'src-tauri/src'), resolve(root, 'src-tauri/tests')]) {
+    if (existsSync(dir)) walk(dir);
   }
   return { rust: tests - ignored, rustIgnored: ignored };
 }
