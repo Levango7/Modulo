@@ -14,6 +14,7 @@ mod feeds;
 mod fetchjson;
 mod floatwin;
 mod launcher;
+pub mod meeting;
 pub mod monitor;
 pub mod net;
 mod sysmon;
