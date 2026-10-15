@@ -6,3 +6,5 @@
 
 pub mod keys;
 pub mod openai_compat;
+pub mod protocol;
+pub mod settings;
