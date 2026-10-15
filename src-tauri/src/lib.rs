@@ -1,5 +1,6 @@
 use std::sync::Mutex;
 
+mod ai;
 mod feeds;
 /**
  * `pub` 是为了让 `tests/` 里的集成测试能直接调 `bing_daily`。
@@ -369,6 +370,9 @@ pub fn run() {
             web::bing_daily,
             monitor::web_probe,
             sysmon::sys_stats,
+            sysmon::proc_list,
+            ai::keys::ai_set_key,
+            ai::keys::ai_delete_key,
             feeds::fetch_text,
             fetchjson::fetch_json,
             launcher::launch_target,
