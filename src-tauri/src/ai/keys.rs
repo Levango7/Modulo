@@ -61,8 +61,6 @@ pub fn set_key(provider_id: &str, key: &str) -> Result<(), String> {
 
 /// 读密钥。**仅 Rust 内部使用**（openai_compat 组请求头、ai_providers 算
 /// keyConfigured）。没存过返回 `Ok(None)`，不是错误。
-/// （allow 期限：施工顺序 4 的 openai_compat 接入后即摘）
-#[allow(dead_code)]
 pub fn get_key(provider_id: &str) -> Result<Option<String>, String> {
     match entry(provider_id)?.get_password() {
         Ok(k) => Ok(Some(k)),

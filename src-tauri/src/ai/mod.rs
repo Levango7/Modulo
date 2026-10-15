@@ -5,3 +5,4 @@
 //! 本文件随施工推进逐个挂子模块，不提前引用还没写的文件。
 
 pub mod keys;
+pub mod openai_compat;
