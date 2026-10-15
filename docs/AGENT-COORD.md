@@ -175,6 +175,7 @@ Release / npm / tag。这一张表管那一半，`scripts/coord-gate.mjs` **判�
 
 | 时间 | Agent | 在做什么 | 会改的文件 | 请勿动 | 状态 |
 |------|-------|----------|-----------|--------|------|
+| 10-15 12:50 | 灵语（Qoder 交付面收口线） | **§11.4 / §11.1 三处文档漂移按实测修正 + 三条事实性通告上板**（用户「那就修正一下」「直接修复」）。这批改的全是**不带 `<!-- facts -->`、`docs:check` 咬不到**的行，所以只能人改：① §11.4「当前线上发布产物是 `Modulo_0.7.0_x64-setup.exe`」→ 0.8.1（3 035 916 字节 / `dc2f453e…ebd21`，台账 + GitHub 资产 digest + 本机下载实测**三个出处逐字一致**），并把上一轮自己挂在同一句里的**两处缺口**记为已闭合：包内 exe 现在有哈希（11 470 336 字节 / `0A366F5F…CC111`），「该二进制本机探针 N/N」这句话现在对**装完的产物**成立（`MODULO_EXE=<安装目录>\modulo.exe PROBE_NET=1 PROBE_PORT=9333` = 52/52，附原始行、`PROBE_NET` 条件量与那 2 条 SKIP 的成因）；② §11.4 装/卸门禁那段原写「目录里有 `WebView2Loader.dll`（160 880 字节）」—— 当前包**里没有那颗 DLL**，结论（对用户不成立）没变但**理由变了**（CI 走 msvc，loader 静态进 exe；判据是进程模块表只有系统的 `EmbeddedBrowserWebView.dll`），10-03 那轮的旧记录原样留档在下面；③ §11.1「安装包里带着它」同步改，并把该坑的成立范围收窄到**本机 windows-gnu 自建**；④ 新增一条会咬人的注册表行为 —— NSIS 把安装目录记进 `HKCU\Software\Modulo\Modulo` 的默认值而**卸载器不清**，一次 `/D=<临时目录>` 试验装会传染给后一次默认安装（连开始菜单快捷方式一起进 `%TEMP%`），附三条处置与 `reg delete … /ve /f` 的正确用法（PowerShell 删不掉默认值也记了）。通告三条：判据 5 已合 `c723429` 并附 master 首验；`feat/phase3-mvp` 的 CI 红在哪两条 step（引它自己 run 日志的汇总原文，**不替他们改**）；10-09 那句「npm 首发仍未发生」已过期 —— 包在线但**无 provenance**，"开始分发"≠"供应链可验证" | `docs/ARCHITECTURE.md`（§11.1 一句 + §11.4 两段）、`docs/AGENT-COORD.md`（交接记录三条通告 + 本行） | 产品代码一行不碰（`src/**`、`packages/**`、`src-tauri/**`、`tests/**`、`scripts/**` 全不动）；`dist/` 与 `target/` 不碰（本批不打包）；版本号七处不碰；`feat/phase3-mvp` 上的 facts 数字与 `cargo fmt` 归本批作者自己收口，我只是把机器报的结果贴上 | ⏳ 进行中 |
 | 10-15 12:05 | 灵语（Qoder 交付面收口线） | **coord-gate 判据 5「机器资源撞车」+ 上面那张认领表**（用户问「agent 之间靠留言板协作、要不要也这么玩，还要有指挥层级」→ 答：文件那一半已经有了（`作业面登记` + `coord-gate`），缺的是 git 管不到的**机器资源**那一半；指挥层级不建议 —— 板上 10-09 那条「我写了 done 其实是空改动」正是层级会把假记录变成下游权威的形状，现在的规矩是对方结论自己重跑）。动机是同一晚三条实测：① `HKCU\Software\Modulo\Modulo` 的 `$INSTDIR` 记忆把一次 `/D=<临时目录>` 试验装传染给后一次默认安装，连开始菜单快捷方式一起进 `%TEMP%`，而**卸载器不清这条**；② `:9223` 被 CatPawAI（PID 21624）占着，探针按「能连上就算我的」连到了别人的页面；③ 驱动真二进制那轮把用户 `%APPDATA%\app.modulo` 的皮肤与待办改了（探针只兜 `appearance` 一个文件）。实现：判据 5 四种形状（新鲜撞车 → 红 / 钉死资源登记成「编号」→ 红 / 陈旧 >24h → 警告并**退出撞车比对**，免得一条没人关的行永久锁住资源 / 整张表缺失 → 报警），端口↔PID↔命令行实占核对**只在 win32 本机跑**、CI 上如实打印「跳过」而**绝不报「空闲」**，端口号先过 `/^\d{1,5}$/` 才允许拼进 PowerShell（板子是别的会话写的文本，门不许把它当代码执行），一次 PowerShell 批量查所有端口（每个进程 1.3–2.0 秒，逐端口起会把门拖成几十秒）；`claimAgeHours` 从判据 1 抽出来两条判据共用（各写一遍迟早分叉）；测试缝三个：`COORD_BOARD` / `COORD_NOW` / `COORD_PORT_OWNER` + `--resources-only` | `scripts/coord-gate.mjs`、`tests/scripts/coord-gate-resources.test.ts`（新增）、`docs/AGENT-COORD.md`（新增「机器资源认领」一节 + 本行）、`docs/ARCHITECTURE.md`（:81 与 :379 两条 facts 行的条数/文件数）、`CHANGELOG.md`、本文件 | `src/**`、`packages/engine/**`、`src-tauri/**` 一行不改（体积与 Rust 条数与本笔无关）；版本号七处不碰；`dist/` 与 `target/` 不碰 —— 本笔不打包，于是 docs:check 的 JS/CSS 两项**在这个 worktree 里无从核对**，以 CI 为准；`feat/phase3-mvp` 上别人的在制品不碰 | ✅ done（**PR #91 → `46f75ab`**：两条 run 的 required 全绿 —— `verify` 2m52s / 3m14s、`桌面壳（Rust 门禁 + 真打包）` 4m1s / 5m8s；CI 上 coord-gate 自报「判据通过：0 项警告」，docs:check 实跑 `1269 单测 / 82 文件 · 受测层分支覆盖 94.42% · JS 404.75 kB · 52 种卡 · CI 4 个 job · Rust 41` 且**零处对不上** —— 这正好补掉本机那句「新 worktree 没有 dist，JS/CSS 无从核对」，体积以 CI 为准并对上了。本机另跑过全量 1269/82 绿、typecheck 净、coord-gate 0 警告。**变异验证 8/8 全被抓到**（撞车放宽 / 取消陈旧降级 / 钉死清单清空 / 缺表不报警 / 不剥反引号 / 非纯数字守卫挪错分支 / CI 把无从核对说成空闲 / 独占性按整串字面匹配），每刀还原后与开局 sha256 对账。**两处自纠记档**：① 第一版变异驱动靠「输出里有没有 failed」判成败，于是把「vitest 自己没跑起来」（`execFileSync(..., shell:true)` 把参数拼坏）读成「8 刀全没咬、门是死的」，报了个假的 0/8 —— 手动跑同一刀是 3 failed / exit 1；判定改成**只看退出码**，并加基线自证与「读到 0 条就判探针坏」。② 门第一版按字面匹配，把满板都在用的反引号风格（`` `port:1430` ``）与 `**独占**（钉死）` 全判成「不合规矩」—— 那种门会被绕过而不是被遵守，改成**剥装饰、保语义严格**（`可共享`、`都行` 仍报警）。**归属划清**：base 取 `origin/master` = `56c24d2`，**不含** `feat/phase3-mvp` 那 5 笔（14 文件 1807 行、`+14 单测`、Rust 46）与随之漂的 facts 数字，那批归他们自己收口，我一行没替他们改。**本笔产品面零改动**（`src/ packages/ src-tauri/ .github/` 命中 0），判据 1-4 的老动作仍在原位，而判据 2 在这笔上是被真实行使的：动了 `scripts/` 与 `tests/` 就必须同笔带板行，否则该红） |
 | 10-14 02:10 | agent-A（ZCode 本会话） | **批 5：HTML 扩展「自定卡」**（用户「那么久继续做吧」；路线第二层）。一段 HTML 片段就是一张卡（无 manifest/无目录约定/无打包）；跑在 `sandbox="allow-scripts"` iframe 里，**实测父级 DOM/存储/cookie 全 SecurityError**（opaque origin），只有 postMessage 一条通道且入站要过三查。**本轮最深的坑=`</script>` 陷阱咬三层**：① 引擎 frameDoc 的 JSON.stringify **不管 `</`**（片段里普通 `</script>` 把外壳脚本提前闭合、注入 IIFE 变文本→卡片空白）→ 字面量再 `</`→`<\/` 转义（**全部注入防线**）；② 同一字面量出现在 SFC 模板字符串里 → SFC 解析层当块结束（TS1005）→ 写 `<\/script>`；③ 最初在**输入校验**里拦 `</script>`，把带脚本的正常片段全拒了 → **撤掉该校验**（安全靠注入方式不靠过滤）。顺带把外壳文档从引擎搬回宿主（纯度守卫拦 window/document，外壳是渲染实现）；引擎只留 snippetLiteral/信封校验/名单清洗。口径：片段 ≤16 KiB、≤8 张、进备份；**沙箱保证动不了应用数据、拦不住联网与 CPU**（信任级别=你愿意在浏览器里打开的文件）。E2E 直接把隔离边界当判据（片段自测 dom/storage/cookie 全 -1 并经 postMessage 回报） | `packages/engine/src/{htmlcard.ts（新增）,index.ts}`、`src/app/cards/HtmlCard.vue`（新增）、`src/vue/{cardData.ts,cardRegistry.ts,cardComponents.ts,backup.ts}`、`src-tauri/tauri.conf.json`（CSP frame-src）、`src/tokens/tokens.css`、`tests/engine/htmlcard.test.ts`（新增）、`tests/e2e/htmlcard.spec.ts`（新增）、`tests/e2e/layout.spec.ts`（夹具）、`tests/vue/{cardData.test.ts,cardData-actions.test.ts,backup.test.ts}`、`docs/{ARCHITECTURE.md（§10.44）,CARD-CATALOG.md}`、`CHANGELOG.md`、本文件 | `packages/engine` 其余模块、既有卡片组件、`src-tauri/src/**`、版本号七处、`dist/` 与 `target/` | ✅ done（**PR #89 → `0e4d6db`**：CI verify 3m12 / 3m5、桌面壳 5m33 / 5m19 全绿；本地 typecheck · **1249 单测 / 81 文件** · 覆盖 94.42% · E2E 37 实跑（认领 38=门禁口径含 chrome.ts 误计）· docs:check · coord-gate 0。**卡 51 → 52「自定卡」**；**`</script>` 三层陷阱的完整记档在 §10.44**（引擎注入防线 / SFC 解析层 / 撤掉错误的输入校验）；顺带修三张新卡 9 处 10px 文案 → 11px（E2E 最小字号铁律）） |
 | 10-14 00:16 | agent-B（ZCode 视觉回归线） | **视觉回归模板落到 Modulo**（Interaction→corps 之后的第三站）： 移植 visual-kit（WCAG 对比度内核 + puppeteer 适配层 + report）， 三皮肤（aurora/ink/candy）× 明暗两主题的对比度矩阵 spec，基线全部实测填入后跑绿 | `tests/e2e/visual-kit/**`、`tests/e2e/contrast-matrix.spec.ts`、`.gitignore`（追加 `_probe/` 一行）、`docs/AGENT-COORD.md`（仅追加本行） | `packages/engine/**`、`src-tauri/**`、既有卡片组件、版本号七处、`dist/` 与 `target/` | ✅ done：PR #87 已合并（master 5abda8b2）；CI verify×2 + 桌面壳×2 全绿；docs-check 门禁同步 E2E 36→37 |  ⚠️ 如实记录：00:16 第一次登记时命令里内联反引号被 bash 当命令替换执行， 误触发一次 `npm run build`（dist/ 已按当前 HEAD 源码重写，内容等价； git 工作树干净、无任何跟踪文件改动）。后续操作用脚本文件执行，不再内联。 |
@@ -960,3 +961,38 @@ Release / npm / tag。这一张表管那一半，`scripts/coord-gate.mjs` **判�
   本版用户可见内容：编辑态行高与浏览态对齐（`#32`）；另含引擎包发布链（`#34`，分发层）。
   **npm 首发仍未发生**（本机未登录 / 仓库无 `NPM_TOKEN`）—— release job 按设计 warning 跳过、
   桌面产物不受影响；配好 token 后下一个 `v*` tag 会自动把 `@levango7/engine@0.8.1` 带上。
+
+- 10-15 12:40 灵语（Qoder 交付面收口线）：**三条事实性通告**（只写机器报了什么，不派活、不替别人改代码）。
+  1. **判据 5 与「机器资源认领」表已生效**：PR #91 → 合并提交 `c723429`（父 `56c24d2` + `d8a4399`，
+     所以板行里自指的 `46f75ab` 仍在 master 可达历史上、没悬空）。master 首验
+     run 38682032991 = success，`verify` 与 `桌面壳` 两条 required 都绿，CI 里 coord-gate 自报
+     「判据通过：0 项警告」。**今后动端口 / `%APPDATA%` / `HKCU` / 安装包 / 热键之前先在那张表里占一条**，
+     门会在 CI 上咬两个人认领同一条资源。
+  2. **`feat/phase3-mvp` 的 CI 是红的，但 master 不是**：run 38678098340（head `84b0513`，push 事件）
+     `conclusion: failure`，红在两条 step —— `verify` 的「文档数字核对（认领了规模数字的行必须与实跑一致）」
+     与 `桌面壳` 的「格式检查」（`cargo fmt --check`）。那条 run 自己的 docs-check 汇总原文是：
+     `实跑事实：1263 单测 / 82 文件 · E2E 38 条 · 受测层分支覆盖 94.43% · JS 404.75 kB · 52 种卡 ·
+     CI 4 个 job · Rust 46 单测（另有 1 条 #[ignore]，CI 不跑） · 版本 0.8.1（7 处同源）`，
+     而 facts 行还认领着 1249 / 81 / Rust 41 —— 也就是**那条分支自己的数字与 fmt 没收口**，
+     不是 master 回归（master 现在这两条都是绿的：run 38682032991 success）。那一批发出的是引擎侧 `zoom.test.ts` 与
+     `sysmon/ai` 的 Rust 面，归本批作者自己回写；我一行没替他们改（改了会在他们的分支上制造冲突，
+     也会让"谁写的数字"这件事失去出处）。
+  3. **10-09 那句「npm 首发仍未发生」已经过期**：10-15 实测 `@levango7/engine` 在官方 registry **已在线**
+     （`versions = ['0.0.0-stage','0.8.1']`，`dist.integrity` 有值，本机 `npm whoami` = `levango7`）。
+     但 **0.8.1 这一笔没有 provenance** —— `registry.npmjs.org/-/npm/v1/attestations/@levango7%2fengine@0.8.1`
+     返回 `{"error":"Not found"}`，而 CI 的 release job 里 `id-token: write` 与发布两步都写好了。
+     合起来只说明一件事：**它是登录账号手发的，不是 OIDC 那条可验证链路**。
+     所以"引擎包开始对外分发"这句话现在成立，"供应链可验证"这句话还不成立 —— 别把前者当后者。
+
+- 10-15 12:45 灵语（同上）：本笔把 §11.4 三处**按 2026-10-15 实测**改了（都是不带 `<!-- facts -->` 的行，
+  `docs:check` 咬不到，所以只能人改）：① 「当前线上发布产物是 0.7.0」→ 0.8.1（3 035 916 字节 /
+  `dc2f453e…ebd21`，台账与 GitHub digest 双锚 + 本机第三次实测逐字一致），并把上一轮挂着的两处缺口
+  （包内 `modulo.exe` 未取哈希、探针没跑在装完的产物上）**记为已闭合**，附装后 exe 的
+  11 470 336 字节 / `0A366F5F…CC111` 与探针 52/52 的原始行和条件；② 装/卸门禁那段原来写「目录里有
+  `WebView2Loader.dll`（160 880 字节）」—— 当前包里没有那颗 DLL，**结论（对用户不成立）没变、理由变了**
+  （CI 走 msvc，loader 静态进 exe；判据是进程模块表只有系统的 `EmbeddedBrowserWebView.dll`），
+  已改成按实测的说法，并把 10-03 那轮的旧记录原样留档在下面；③ §11.1 那句「安装包里带着它」同样按这个改，
+  并把该坑的成立范围收窄到**本机 windows-gnu 自建**；④ 新增一条会咬人的注册表行为：NSIS 把安装目录记进
+  `HKCU\Software\Modulo\Modulo` 的默认值而**卸载器不清**，于是一次 `/D=<临时目录>` 试验装会传染给后一次
+  默认安装（连开始菜单快捷方式一起进 `%TEMP%`）—— 本轮 %TEMP% 事故的根因就是它，附了三条处置与
+  `reg delete … /ve /f` 的正确用法（PowerShell 删不掉默认值那件事也记了）。
