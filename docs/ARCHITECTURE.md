@@ -2018,9 +2018,30 @@ registry 实测 `dist-tags.latest = 0.8.1`、`versions = ['0.0.0-stage', '0.8.1'
 - 「**引擎包开始对外分发**」成立；「**供应链可验证**」不成立 ——
   `GET https://registry.npmjs.org/-/npm/v1/attestations/@levango7%2Fengine@0.8.1` 实测
   **HTTP 404 `{"error":"Not found"}`**（404 是结论，不是网络故障）。
-- 工作流里那句 `npm run engine:publish -- --provenance` 是 `4ccc698`（2026-10-09）加的，**但它从未被执行过**：
-  本仓 Actions secrets 实测只有 `TAURI_SIGNING_PRIVATE_KEY` 一个名字、**没有 `NPM_TOKEN`**，
+- 工作流里那句 `npm run engine:publish -- --provenance` 是 `4ccc698`（2026-10-09）加的，**但在 2026-10-15 之前它从未被执行过**：
+  当时本仓 Actions secrets 实测只有 `TAURI_SIGNING_PRIVATE_KEY` 一个名字、没有 `NPM_TOKEN`，
   于是上面那条例外分支（`查有没有 NPM_TOKEN` 的 output）恒假。
-  ⇒ **别把"CI 里写了 provenance"读成"发出去的包有 provenance"** —— 这就是"函数正确≠被调用"在交付面上的形状。
+  ⇒ **别把「CI 里写了 provenance」读成「发出去的包有 provenance」** —— 这就是「函数正确≠被调用」在交付面上的形状。
   原句「第一个发出去的版本号会是当时应用的版本号（当前是 `0.8.1`），而不是从 `0.1.0` 补齐」这件事本身仍然成立
-  （npm 不要求版本连续，不需要补发），但读者要按"已经发生"去读，不是"将来会发生"。
+  （npm 不要求版本连续，不需要补发），但读者要按「已经发生」去读，不是「将来会发生」。
+
+**2026-10-15 09:49Z 状态变更（同一件事的另一半，别只读上面那段就下结论）**
+
+- `NPM_TOKEN` 这个 secret **已经建好**：`gh secret list --repo Levango7/Modulo` 现在返回
+  `NPM_TOKEN 2026-10-15T09:49:27Z` 与 `TAURI_SIGNING_PRIVATE_KEY 2026-10-05T11:04:14Z`。
+  这条命令只给**名字与时间戳**，值既读不到也不该读；仓库里也**不写任何 token 片段**（写了就是永久泄露）。
+- 这把凭据**能认证**是用正反对照验的，不是「它存在所以它有效」：同一个只读端点
+  `GET https://registry.npmjs.org/-/npm/v1/tokens` 上，真凭据回 **200**、故意打坏的回 **401**、匿名回 **401**。
+- 但**范围与有效期机器读不到**：那个端点对 granular token 不 enumerate（实测 `tokens` 数组长度为 0）。
+  所以「它只限 `@levango7/engine`、勾没勾 Bypass 2FA、多久过期」这三件事**只能由维护者在 npm 页面核对**，
+  本文不声称已验证。
+- **仍未验证的那句**：「引擎包带上了 provenance」。`NPM_TOKEN` 存在 ≠ 发布成功 —— 这句话要等**下一个 `v*` tag
+  真的跑过 `发 @levango7/engine 到 npm` 那一步**才算有证据；在那之前上面那条「供应链可验证不成立」继续适用。
+- 一条**由这次变更引入的操作风险**（写下来免得下一个发版的人踩）：publish 那一步现在会真的执行，
+  而它在 `gh release create` **之后**。对**已经发布过的 tag** 重跑（`workflow_dispatch` 填 `release_tag=v0.8.1`）
+  会撞上 npm「同一版本号只能发一次」而失败，把一个**已经建好的 Release 留在红 job 上**。
+  ⇒ 别对已存在的 tag 重派；要重做就切新版本（版本号一致性由前面那道「`校验 tag 与两处 package.json 版本一致`」挡）。
+- 凭据卫生：这把 token 曾出现在维护者的会话记录里，属于**半暴露**；建议方便时到 npm 页面 rotate 一次，
+  轮换后 `gh secret set NPM_TOKEN` 更新一遍即可（一条命令，代码不用改）。
+  还要知道的爆炸半径：secret 是**仓库级**的，任何能把 workflow 推到这个仓的人（含并行协作的 agent）
+  结构上都有机会读到它 —— 要收紧就得把它挪进 **environment** 并给 release job 加审批人，那是另一笔改动。
