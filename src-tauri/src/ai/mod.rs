@@ -4,6 +4,7 @@
 //! 历史落盘，D-02 拆分）各自成文件，单文件 ≤300 行，入口只装配。
 //! 本文件随施工推进逐个挂子模块，不提前引用还没写的文件。
 
+pub mod history;
 pub mod keys;
 pub mod openai_compat;
 pub mod protocol;

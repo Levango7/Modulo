@@ -131,14 +131,26 @@ pub async fn ai_chat(
     let base = cfg.base_url.clone();
     let model = cfg.model.clone();
     let task_conv = conv_id.clone();
+    let app2 = app.clone();
     tauri::async_runtime::spawn(async move {
         let _permit = chat_sem().acquire().await;
-        let result = run_chat(&base, &model, key, messages, &token, &sink).await;
-        let error = match result {
-            Ok(()) => None,
-            Err(msg) => Some(msg),
-        };
-        let _ = sink.send(AiChunk { delta: String::new(), done: true, error });
+        // 历史落盘用：入参全量消息 + 流式累积的 assistant 回复 = 完整一轮
+        let mut full: Vec<(String, String)> = messages
+            .iter()
+            .map(|m| (m.role.clone(), m.content.clone()))
+            .collect();
+        match run_chat(&base, &model, key, messages, &token, &sink).await {
+            Ok(reply) => {
+                let _ = sink.send(AiChunk { delta: String::new(), done: true, error: None });
+                if !reply.trim().is_empty() {
+                    full.push(("assistant".to_string(), reply));
+                    let _ = super::history::upsert_conversation(&app2, &task_conv, &full);
+                }
+            }
+            Err(msg) => {
+                let _ = sink.send(AiChunk { delta: String::new(), done: true, error: Some(msg) });
+            }
+        }
         chat_tasks().lock().unwrap().remove(&task_conv);
     });
     Ok(ConversationRef { conversation_id: conv_id })
@@ -167,7 +179,7 @@ async fn run_chat(
     messages: Vec<Msg>,
     token: &CancellationToken,
     sink: &Channel<AiChunk>,
-) -> Result<(), String> {
+) -> Result<String, String> {
     ensure_crypto_provider();
     validate_base_url(base)?;
     let client = reqwest::Client::builder()
@@ -200,23 +212,27 @@ async fn run_chat(
     // **字节缓冲**：SSE 按 \n 切行后才做 UTF-8 解码——中文多字节字符可能被
     // 网络分块从中间劈开，直接对 chunk 做 lossy 会出替换符
     let mut buf: Vec<u8> = Vec::new();
+    // 累积 assistant 全文：流结束后原样交给 history 落盘（D-02）。
+    // 只累积不做二次加工——前端已收到的 delta 与这里的一致，落盘即所见
+    let mut reply = String::new();
     loop {
         let bytes = token
             .run_until_cancelled(resp.chunk())
             .await
             .ok_or_else(|| "已中止".to_string())?
             .map_err(|e| format!("读模型响应失败：{e}"))?;
-        let Some(bytes) = bytes else { return Ok(()) }; // 流正常收尾（无 [DONE] 也算完）
+        let Some(bytes) = bytes else { return Ok(reply) }; // 流正常收尾（无 [DONE] 也算完）
         buf.extend_from_slice(&bytes);
         while let Some(pos) = buf.iter().position(|&b| b == b'\n') {
             let line_bytes: Vec<u8> = buf.drain(..=pos).collect();
             let line = String::from_utf8_lossy(&line_bytes[..line_bytes.len() - 1]);
             match parse_sse_data_line(&line) {
                 Some(SseEvent::Delta(delta)) => {
+                    reply.push_str(&delta);
                     sink.send(AiChunk { delta, done: false, error: None })
                         .map_err(|_| "输出通道已关闭，已停止".to_string())?;
                 }
-                Some(SseEvent::Done) => return Ok(()),
+                Some(SseEvent::Done) => return Ok(reply),
                 None => {}
             }
         }
