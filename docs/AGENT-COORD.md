@@ -137,10 +137,45 @@ git diff --stat origin/master <分支>
 
 ---
 
+## 机器资源认领
+
+上面那张「作业面登记」串行化的是**文件**。但两个 worktree 各有各的 `src/`，却共用
+**同一台机器**上的一批状态 —— 端口、`%APPDATA%`、`HKCU` 键、全局热键，以及发出去收不回来的
+Release / npm / tag。这一张表管那一半，`scripts/coord-gate.mjs` **判据 5** 逐条咬：
+
+- 两条都在 24 小时内的「进行中」认领同一条资源 → **红**（谁先到谁就把对方的现场改了）。
+- 把标了**钉死**的资源登记成「编号」→ **红**（换号并行走不通，见备注列的出处）。
+- 认领挂过 24 小时 → 警告并退出撞车比对（免得一条没人关的行永久锁住这台机器上的资源）。
+- 这张表整张被删 → 警告。**缺表时判据 5 一行都不跑**，它的绿和「没人撞车」是同一种输出。
+
+怎么填三条：**别改别人的行，追加一行**（撞车就是这么抓出来的，追加也不会跟别人的提交打架）；
+**用完把状态改成「已释放」**并带上时间，别人看不出那条端口到底还归不归你；
+**认领人写你会话的名字**，不是写「agent」——现查核对照不出是哪一个。
+
+| 资源 | 独占性 | 认领人 | 时间 | 状态 | 备注（为什么是这一档） |
+|------|--------|--------|------|------|------------------------|
+| `port:1430` | **独占**（钉死） | — | — | 已释放 | 三处钉死：`vite.config.ts` 的 server/preview、`tauri.conf.json` 的 `devUrl`、devCSP 里的 `ws://localhost:1430`。**换端口要动的是安全策略，不是启动参数**，所以只能排他、不能各用各的。E2E 七处 fallback 也写死 1430 |
+| `port:9223` | 编号 | — | — | 空闲 | 桌面探针的 CDP 默认口（`desktop-probe.mjs:17`），`PROBE_PORT` 可换。**2026-10-15 实测**：本机被 CatPawAI（PID 21624）占着，探针连过去读到的是别人的页面 —— 「能连上就算我的」这条判据当时就假阳了一次，所以判据换成端口↔PID↔命令行 |
+| `appdata:app.modulo` | **独占**（钉死） | — | — | 已释放 | `Roaming\app.modulo\data\*.json` 是**用户自己的桌面数据**，写下去不在任何 worktree 的副本里。探针只备份还原 `appearance` 一个文件，`carddata` / `layout` 没有兜 —— 10-15 那一轮就把用户的皮肤 `candy` 改成了 `aurora`、勾掉一条待办。凡驱动**真二进制**跑 UI 的会话都要先占这条 |
+| `registry:HKCU\Software\Modulo` | **独占**（钉死） | — | — | 已释放 | NSIS 的 `$INSTDIR` 记忆。装一次就改，**而卸载器不清它** —— 10-15 那次「默认安装被拽进 %TEMP%」的根因就是某次 `/D=<临时目录>` 试验装留下的路径。改它之前先 `reg export` 留回退件 |
+| `dir:%LOCALAPPDATA%\Modulo` | 独占 | — | — | 已释放 | 装出来的 `modulo.exe` + `uninstall.exe` 本体；开始菜单 `Modulo.lnk` 指到这里。验安装包=动这条 |
+| `dir:src-tauri/target` | 独占 | — | — | 已释放 | 与 `dir:dist` 同一条老规矩：不独占不许 `npm run build` / `tauri build` —— 会重写别人正在验的那颗二进制。这里只是把它从口头搬进表里 |
+| `dir:node_modules` | 独占 | — | — | 已释放 | 它是 **junction**，指向主仓真身（见上面「目录联接」那一节）：worktree 里 `rm -rf node_modules` 删的是**所有人**的依赖 |
+| `hotkey:Ctrl+Alt+Shift+M` | 独占（**跨仓**） | — | — | 已释放 | `RegisterHotKey` 是系统级的，同机的另一个项目一样会抢。1409 有两种成因（别的程序占着 / 另一个 modulo 实例占着），测热键的会话要声明这条；本机默认档见 `src-tauri/src/lib.rs:114` |
+| `irreversible:release-npm-tag` | 独占（**单人执裁**） | — | — | 已释放 | Release 是 `immutable` 的、`npm publish` 不可撤回、公开 tag 不能改 —— 这类不是「认领了别人等一下」，是**做错了没人能回退**。整条发布链一人执裁，另起一切实验都禁止碰这三个出口 |
+
+判据 5 的端口实占核对**只在 Windows 本机跑**：CI 与非 win32 上读不到 owning PID，
+那种情况如实打印「跳过」，**绝不报「空闲」**（把无从核对说成空闲就是假绿）。
+测试要注入现查结果走 `COORD_PORT_OWNER`，要冻住陈旧口径走 `COORD_NOW`，只想跑这一条判据走
+`--resources-only`；门自己也可以被指到别的板子：`COORD_BOARD`。
+
+---
+
 ## 作业面登记
 
 | 时间 | Agent | 在做什么 | 会改的文件 | 请勿动 | 状态 |
 |------|-------|----------|-----------|--------|------|
+| 10-15 12:05 | 灵语（Qoder 交付面收口线） | **coord-gate 判据 5「机器资源撞车」+ 上面那张认领表**（用户问「agent 之间靠留言板协作、要不要也这么玩，还要有指挥层级」→ 答：文件那一半已经有了（`作业面登记` + `coord-gate`），缺的是 git 管不到的**机器资源**那一半；指挥层级不建议 —— 板上 10-09 那条「我写了 done 其实是空改动」正是层级会把假记录变成下游权威的形状，现在的规矩是对方结论自己重跑）。动机是同一晚三条实测：① `HKCU\Software\Modulo\Modulo` 的 `$INSTDIR` 记忆把一次 `/D=<临时目录>` 试验装传染给后一次默认安装，连开始菜单快捷方式一起进 `%TEMP%`，而**卸载器不清这条**；② `:9223` 被 CatPawAI（PID 21624）占着，探针按「能连上就算我的」连到了别人的页面；③ 驱动真二进制那轮把用户 `%APPDATA%\app.modulo` 的皮肤与待办改了（探针只兜 `appearance` 一个文件）。实现：判据 5 四种形状（新鲜撞车 → 红 / 钉死资源登记成「编号」→ 红 / 陈旧 >24h → 警告并**退出撞车比对**，免得一条没人关的行永久锁住资源 / 整张表缺失 → 报警），端口↔PID↔命令行实占核对**只在 win32 本机跑**、CI 上如实打印「跳过」而**绝不报「空闲」**，端口号先过 `/^\d{1,5}$/` 才允许拼进 PowerShell（板子是别的会话写的文本，门不许把它当代码执行），一次 PowerShell 批量查所有端口（每个进程 1.3–2.0 秒，逐端口起会把门拖成几十秒）；`claimAgeHours` 从判据 1 抽出来两条判据共用（各写一遍迟早分叉）；测试缝三个：`COORD_BOARD` / `COORD_NOW` / `COORD_PORT_OWNER` + `--resources-only` | `scripts/coord-gate.mjs`、`tests/scripts/coord-gate-resources.test.ts`（新增）、`docs/AGENT-COORD.md`（新增「机器资源认领」一节 + 本行）、`docs/ARCHITECTURE.md`（:81 与 :379 两条 facts 行的条数/文件数）、`CHANGELOG.md`、本文件 | `src/**`、`packages/engine/**`、`src-tauri/**` 一行不改（体积与 Rust 条数与本笔无关）；版本号七处不碰；`dist/` 与 `target/` 不碰 —— 本笔不打包，于是 docs:check 的 JS/CSS 两项**在这个 worktree 里无从核对**，以 CI 为准；`feat/phase3-mvp` 上别人的在制品不碰 | ⏳ 进行中 |
 | 10-14 02:10 | agent-A（ZCode 本会话） | **批 5：HTML 扩展「自定卡」**（用户「那么久继续做吧」；路线第二层）。一段 HTML 片段就是一张卡（无 manifest/无目录约定/无打包）；跑在 `sandbox="allow-scripts"` iframe 里，**实测父级 DOM/存储/cookie 全 SecurityError**（opaque origin），只有 postMessage 一条通道且入站要过三查。**本轮最深的坑=`</script>` 陷阱咬三层**：① 引擎 frameDoc 的 JSON.stringify **不管 `</`**（片段里普通 `</script>` 把外壳脚本提前闭合、注入 IIFE 变文本→卡片空白）→ 字面量再 `</`→`<\/` 转义（**全部注入防线**）；② 同一字面量出现在 SFC 模板字符串里 → SFC 解析层当块结束（TS1005）→ 写 `<\/script>`；③ 最初在**输入校验**里拦 `</script>`，把带脚本的正常片段全拒了 → **撤掉该校验**（安全靠注入方式不靠过滤）。顺带把外壳文档从引擎搬回宿主（纯度守卫拦 window/document，外壳是渲染实现）；引擎只留 snippetLiteral/信封校验/名单清洗。口径：片段 ≤16 KiB、≤8 张、进备份；**沙箱保证动不了应用数据、拦不住联网与 CPU**（信任级别=你愿意在浏览器里打开的文件）。E2E 直接把隔离边界当判据（片段自测 dom/storage/cookie 全 -1 并经 postMessage 回报） | `packages/engine/src/{htmlcard.ts（新增）,index.ts}`、`src/app/cards/HtmlCard.vue`（新增）、`src/vue/{cardData.ts,cardRegistry.ts,cardComponents.ts,backup.ts}`、`src-tauri/tauri.conf.json`（CSP frame-src）、`src/tokens/tokens.css`、`tests/engine/htmlcard.test.ts`（新增）、`tests/e2e/htmlcard.spec.ts`（新增）、`tests/e2e/layout.spec.ts`（夹具）、`tests/vue/{cardData.test.ts,cardData-actions.test.ts,backup.test.ts}`、`docs/{ARCHITECTURE.md（§10.44）,CARD-CATALOG.md}`、`CHANGELOG.md`、本文件 | `packages/engine` 其余模块、既有卡片组件、`src-tauri/src/**`、版本号七处、`dist/` 与 `target/` | ✅ done（**PR #89 → `0e4d6db`**：CI verify 3m12 / 3m5、桌面壳 5m33 / 5m19 全绿；本地 typecheck · **1249 单测 / 81 文件** · 覆盖 94.42% · E2E 37 实跑（认领 38=门禁口径含 chrome.ts 误计）· docs:check · coord-gate 0。**卡 51 → 52「自定卡」**；**`</script>` 三层陷阱的完整记档在 §10.44**（引擎注入防线 / SFC 解析层 / 撤掉错误的输入校验）；顺带修三张新卡 9 处 10px 文案 → 11px（E2E 最小字号铁律）） |
 | 10-14 00:16 | agent-B（ZCode 视觉回归线） | **视觉回归模板落到 Modulo**（Interaction→corps 之后的第三站）： 移植 visual-kit（WCAG 对比度内核 + puppeteer 适配层 + report）， 三皮肤（aurora/ink/candy）× 明暗两主题的对比度矩阵 spec，基线全部实测填入后跑绿 | `tests/e2e/visual-kit/**`、`tests/e2e/contrast-matrix.spec.ts`、`.gitignore`（追加 `_probe/` 一行）、`docs/AGENT-COORD.md`（仅追加本行） | `packages/engine/**`、`src-tauri/**`、既有卡片组件、版本号七处、`dist/` 与 `target/` | ✅ done：PR #87 已合并（master 5abda8b2）；CI verify×2 + 桌面壳×2 全绿；docs-check 门禁同步 E2E 36→37 |  ⚠️ 如实记录：00:16 第一次登记时命令里内联反引号被 bash 当命令替换执行， 误触发一次 `npm run build`（dist/ 已按当前 HEAD 源码重写，内容等价； git 工作树干净、无任何跟踪文件改动）。后续操作用脚本文件执行，不再内联。 |
 | 10-13 23:50 | agent-A（ZCode 本会话） | **批 4：桌面工具箱「速达启动器」**（用户「批3 批4 自己看着办，都做完吧」）。先量后做：托盘（唤出/置顶/退出）与两个全局快捷键**早就在** → 批 4 真正缺的是"点一下就打开"。做「速达」：收藏程序/网页/文件，点一下用系统默认方式打开。**边界（敢做"点开就执行"的前提）**：引擎 `kindOf` 只认 http(s) 与**绝对路径**（盘符/UNC/POSIX），**裸命令名一律拒**（否则"打开"=执行任意命令）；Rust `shape_ok` **再判一次**（前端能被 XSS 改）；打开走 `ShellExecuteW`（等价双击，**UAC 由系统弹，不代劳静默提权** —— x-hub 的 runas 静默提权会让被改过的收藏项拿到管理员会话）。Rust **不加依赖**：ShellExecuteW 裸 FFI（同 net.rs 的 winhttp 手法）；失败码翻人话。**明确没做的一半**：不扫全机已安装应用/不解析 .lnk/不提取图标（如实写在卡与文档）；**剪贴板历史本批不做并记账**（需新 crate + 新浮窗 + 新快捷键，体量与回归面大一档，按"不半成品"口径留路线）。 | `packages/engine/src/{launcher.ts（新增）,index.ts}`、`src-tauri/src/{launcher.rs（新增）,lib.rs}`、`src/app/cards/LauncherCard.vue`（新增）、`src/vue/{cardData.ts,cardRegistry.ts,cardComponents.ts,backup.ts}`、`src/tokens/tokens.css`、`tests/engine/launcher.test.ts`（新增）、`tests/e2e/{launcher.spec.ts（新增）,layout.spec.ts（夹具）}`、`tests/vue/{cardData-actions.test.ts,cardData.test.ts,backup.test.ts}`、`docs/{ARCHITECTURE.md（§10.43）,CARD-CATALOG.md}`、`CHANGELOG.md`、本文件 | `packages/engine` 其余模块、既有卡片组件、版本号七处、`dist/` 与 `target/` | ✅ done（**PR #85 → `89b2161`**：CI verify 3m15 / 3m5、桌面壳 4m15 / 5m30 全绿；本地 typecheck · **1229 单测 / 80 文件** · 覆盖 94.27% · **E2E 36** · cargo test 41 · clippy 净 · docs:check · coord-gate 0。**卡 50 → 51「速达」**；一条「本机绿 CI 红」新形状：引擎包 tsconfig 无 DOM lib，`new URL` 被「引擎包独立构建」门禁当场抓到 → 手写解析替换。**批 3 + 批 4 至此收官；路线剩「HTML 扩展 / 原生卡扩展」未开工，剪贴板历史按记账留路线**） |
