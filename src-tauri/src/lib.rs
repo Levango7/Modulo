@@ -1,6 +1,7 @@
 use std::sync::Mutex;
 
 mod ai;
+mod capture;
 mod feeds;
 /**
  * `pub` 是为了让 `tests/` 里的集成测试能直接调 `bing_daily`。
@@ -377,6 +378,11 @@ pub fn run() {
             ai::openai_compat::ai_chat,
             ai::openai_compat::ai_chat_cancel,
             ai::openai_compat::ai_summarize,
+            capture::shot::shot_full,
+            capture::shot::shot_region,
+            capture::shot::shot_window,
+            capture::shot::shot_list,
+            capture::shot::shot_delete,
             feeds::fetch_text,
             fetchjson::fetch_json,
             launcher::launch_target,
