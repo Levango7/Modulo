@@ -13,7 +13,8 @@
  *
  * ## 它守住什么
  * 单测条数与文件数、**逐文件单测条数**、E2E 条数、受测层分支覆盖率、构建产物体积、
- * **注册表卡数**、**CI job 数**、**Rust 单测条数**、**版本号同源**。
+ * **注册表卡数**、**CI job 数**、**Rust 单测条数**、**线上产物口径**（安装包名 + sha256，期望值取自
+ * `release-manifest.json` 台账，见 `release-artifact-facts.mjs`）、**版本号同源**。
  * 全部实跑或实读文件，不接受任何"文档里写的"作为输入。
  * 其中覆盖率是**下限承诺**（`≥N%`）：同一份代码在不同 V8 / 平台间会差出 0.01 个百分点以上，
  * 等值核对会把环境抖动报成文档漂移（实测 CI 两次跑出 93.74 / 93.75，本机与 CI 的逐文件
@@ -28,6 +29,7 @@
 import { execSync } from 'node:child_process';
 import { readFileSync, readdirSync, statSync, existsSync } from 'node:fs';
 import { join, resolve, relative } from 'node:path';
+import { checkArtifactLine, latestArtifact } from './release-artifact-facts.mjs';
 
 const root = resolve(process.cwd());
 const MARK = '<!-- facts -->';
@@ -187,6 +189,17 @@ function rustFacts() {
   return { rust: tests - ignored, rustIgnored: ignored };
 }
 
+/**
+ * 线上产物：期望值来自台账，不来自文档。
+ * 台账本身由 `release-manifest.mjs` 与 GitHub 真实资产对账，所以这一维是"文档 ⇐ 台账 ⇐ 线上"的链条，
+ * 中间不需要人再抄一次哈希。
+ */
+function releaseFacts() {
+  const path = process.env.DOCS_RELEASE_MANIFEST ?? resolve(root, 'release-manifest.json');
+  const { rel, why } = latestArtifact(path);
+  return { release: rel, releaseWhy: why, releasePath: path };
+}
+
 const facts = {
   ...unitFacts(),
   e2e: e2eFacts(),
@@ -195,6 +208,7 @@ const facts = {
   ...registryFacts(),
   ...ciJobFacts(),
   ...rustFacts(),
+  ...releaseFacts(),
 };
 
 /**
@@ -335,6 +349,19 @@ const RULES = [
     kw: /Rust[^\n]{0,8}单测[^\n]{0,10}条/,
     want: () => String(facts.rust),
     re: (v) => new RegExp(`Rust[^\\n]{0,8}单测\\s*(?:\\*\\*)?${v}(?:\\*\\*)?\\s*条`),
+  },
+  {
+    // 「当前线上发布产物是 `Modulo_x.y.z_x64-setup.exe`（sha256 …）」这类**对外承诺**。
+    // 它此前不在任何门的射程里，于是 §11.4 那一句在线上已经 0.8.1 的情况下停在 0.7.0 好几版。
+    // 判据与来历见 `release-artifact-facts.mjs`：走**存在式**核对（行里要出现台账认定的那个安装包名，
+    // 且行里认领的哈希至少一条对得上）—— 同一行还合法地留着一长串**历史**版本与哈希，
+    // 按"最后一个数"或"每个数都要对"去比就是把留档当现状，那是误报，而误报的门会被绕过。
+    key: '线上产物',
+    kw: /Modulo_\d+\.\d+\.\d+_x64-setup\.exe/,
+    custom: (line) =>
+      facts.releaseWhy
+        ? { ok: false, why: `${facts.releaseWhy} —— 产物口径核对不了，不许算通过（台账：${facts.releasePath}）` }
+        : checkArtifactLine(line, facts.release),
   },
 ];
 
