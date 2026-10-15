@@ -1,5 +1,18 @@
 name: CI
 
+# sherpa-onnx 预编译库的出处与校验和（R-01 供应链）：desktop 与 release 两个 job 共用。
+# **版本一升，这三行必须同步改**（URL 与校验和是绑死的，漏改一处就是下载到别人那份）。
+#
+# 为什么是我们自己取、而不是让 crate 的 build.rs 自己下：build.rs 在
+# `SHERPA_ONNX_ARCHIVE_DIR` 找到归档就直接解压用，找不到就去 GitHub 现下 ——
+# CI 上当然下得动，但**没有校验的下载等于供应链裸奔**，而且每次构建都重下。
+# 为什么是共享档（8MB）而不是 crate 默认的静态档（123MB）：Windows x64 只有 MSVC
+# 货，静态档是 13 个 MSVC `.lib` + 123MB，共享档是 4 个 DLL + 3 个 `.lib` + 8MB（见 D-14）。
+env:
+  SHERPA_ONNX_VERSION: '1.13.8'
+  SHERPA_ONNX_ARCHIVE: sherpa-onnx-v1.13.8-win-x64-shared-MT-Release-lib.tar.bz2
+  SHERPA_ONNX_ARCHIVE_SHA256: b8eedf41bd6d3779218887b48367bb7a3ece5aaa7667f01f69ee823a12b0a9e7
+
 on:
   push:
     branches: ['**']
@@ -110,6 +123,21 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: src-tauri
+      - name: 取 sherpa-onnx 预编译库（sha256 校验后交给 build.rs）
+        shell: pwsh
+        run: |
+          $dir = Join-Path $env:RUNNER_TEMP 'sherpa-archive'
+          New-Item -ItemType Directory -Force -Path $dir | Out-Null
+          $file = Join-Path $dir $env:SHERPA_ONNX_ARCHIVE
+          $url = "https://github.com/k2-fsa/sherpa-onnx/releases/download/v$env:SHERPA_ONNX_VERSION/$env:SHERPA_ONNX_ARCHIVE"
+          Invoke-WebRequest -Uri $url -OutFile $file
+          $got = (Get-FileHash -Algorithm SHA256 $file).Hash.ToLower()
+          if ($got -ne $env:SHERPA_ONNX_ARCHIVE_SHA256) {
+            Write-Error "sherpa-onnx 归档 sha256 不匹配（期望 $env:SHERPA_ONNX_ARCHIVE_SHA256，实际 $got）"
+            exit 1
+          }
+          # build.rs 认这个变量：有归档就地解压，不去联网
+          "SHERPA_ONNX_ARCHIVE_DIR=$dir" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
       - run: npm ci
       - name: 格式检查
         working-directory: src-tauri
@@ -189,6 +217,21 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: src-tauri
+      - name: 取 sherpa-onnx 预编译库（sha256 校验后交给 build.rs）
+        shell: pwsh
+        run: |
+          $dir = Join-Path $env:RUNNER_TEMP 'sherpa-archive'
+          New-Item -ItemType Directory -Force -Path $dir | Out-Null
+          $file = Join-Path $dir $env:SHERPA_ONNX_ARCHIVE
+          $url = "https://github.com/k2-fsa/sherpa-onnx/releases/download/v$env:SHERPA_ONNX_VERSION/$env:SHERPA_ONNX_ARCHIVE"
+          Invoke-WebRequest -Uri $url -OutFile $file
+          $got = (Get-FileHash -Algorithm SHA256 $file).Hash.ToLower()
+          if ($got -ne $env:SHERPA_ONNX_ARCHIVE_SHA256) {
+            Write-Error "sherpa-onnx 归档 sha256 不匹配（期望 $env:SHERPA_ONNX_ARCHIVE_SHA256，实际 $got）"
+            exit 1
+          }
+          # build.rs 认这个变量：有归档就地解压，不去联网
+          "SHERPA_ONNX_ARCHIVE_DIR=$dir" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
       - run: npm ci
 
       # 版本号对齐先挡一次：tag 必须等于 package.json 里的版本，否则 `make-latest-json`
