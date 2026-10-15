@@ -83,8 +83,8 @@ impl AsrEngine {
         rec_cfg.model_config.model_type = Some("sense_voice".into());
         rec_cfg.model_config.num_threads = 2;
         rec_cfg.model_config.provider = Some("cpu".into());
-        let recognizer =
-            sherpa_onnx::OfflineRecognizer::create(&rec_cfg).ok_or_else(|| engine_failure("转写"))?;
+        let recognizer = sherpa_onnx::OfflineRecognizer::create(&rec_cfg)
+            .ok_or_else(|| engine_failure("转写"))?;
 
         let punct = asr_models::find_ext(&punc_dir, "onnx")
             .and_then(|p| p.to_str().map(str::to_string))

@@ -56,7 +56,11 @@ pub fn sessions() -> &'static Mutex<HashMap<String, Session>> {
 
 /// 转写线程：吃帧 → VAD 断句 → 转写 → emit。
 /// 流结束（采集句柄被 drop）后 flush 尾巴，把引擎一并交回，供 resume 复用。
-pub fn run_worker(app: AppHandle, mut engine: AsrEngine, capture: AudioCapture) -> (AsrEngine, Vec<Utterance>) {
+pub fn run_worker(
+    app: AppHandle,
+    mut engine: AsrEngine,
+    capture: AudioCapture,
+) -> (AsrEngine, Vec<Utterance>) {
     let mut out = Vec::new();
     while let Some(ev) = capture.recv() {
         match ev {
@@ -85,8 +89,6 @@ pub fn run_worker(app: AppHandle, mut engine: AsrEngine, capture: AudioCapture) 
 pub fn take_worker(s: &mut Session) -> Option<(AsrEngine, Vec<Utterance>)> {
     s.capture.take();
     let h = s.worker.take()?;
-    match h.join() {
-        Ok(v) => Some(v),
-        Err(_) => None, // 线程 panic：引擎已随线程销毁，只能从头再来
-    }
+    // 线程 panic 时返回 None：引擎已随线程销毁，只能重开一场
+    h.join().ok()
 }

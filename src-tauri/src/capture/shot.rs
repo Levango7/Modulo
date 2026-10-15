@@ -114,7 +114,8 @@ fn save_shot(app: &AppHandle, img: RgbaImage) -> Result<ShotRef, String> {
     let dir = shots_dir(app)?;
     let final_path = dir.join(format!("{id}.png"));
     let tmp_path = dir.join(format!("{id}.tmp.png"));
-    img.save(&tmp_path).map_err(|e| format!("编码 PNG 失败: {e}"))?;
+    img.save(&tmp_path)
+        .map_err(|e| format!("编码 PNG 失败: {e}"))?;
     fs::rename(&tmp_path, &final_path).map_err(|e| format!("替换截图文件失败: {e}"))?;
 
     let item = ShotRef {
@@ -199,7 +200,11 @@ pub fn shot_window(app: AppHandle, hwnd: isize) -> Result<ShotRef, String> {
 
 /// 截图列表（新的在前）。limit 0 视同默认，超上限夹紧——同 proc_list 口径
 #[tauri::command]
-pub fn shot_list(app: AppHandle, limit: Option<u32>, offset: Option<u32>) -> Result<ShotPage, String> {
+pub fn shot_list(
+    app: AppHandle,
+    limit: Option<u32>,
+    offset: Option<u32>,
+) -> Result<ShotPage, String> {
     let all = read_index(&app)?;
     let offset = offset.unwrap_or(0) as usize;
     let limit = match limit.unwrap_or(LIST_LIMIT_DEFAULT) {

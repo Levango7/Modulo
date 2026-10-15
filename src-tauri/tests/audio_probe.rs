@@ -197,12 +197,15 @@ fn probe_loopback_and_devices() {
         .default_output_config()
         .map_err(|e| format!("默认输出设备 {name} 拿不到 mix format：{e}"))
         .unwrap();
-    println!("[probe] === loopback 目标：{name} — {} ===", describe_config(&mix));
+    println!(
+        "[probe] === loopback 目标：{name} — {} ===",
+        describe_config(&mix)
+    );
 
     // 3. loopback @ mix format（audio.rs 将来要走的路）
     let mix_stats = capture_round(
         &device,
-        StreamConfig::from(mix.clone()),
+        StreamConfig::from(mix),
         mix.sample_format(),
         "loopback@mix",
     )
@@ -219,7 +222,7 @@ fn probe_loopback_and_devices() {
     );
 
     // 4. 直接请求 16kHz 单声道（D-04 实证：能过就省重采样器）
-    let mut cfg16 = StreamConfig::from(mix.clone());
+    let mut cfg16 = StreamConfig::from(mix);
     cfg16.channels = 1;
     cfg16.sample_rate = 16000; // SampleRate 是 u32 别名，别写成元组构造
     cfg16.buffer_size = cpal::BufferSize::Default;
@@ -236,6 +239,10 @@ fn probe_loopback_and_devices() {
         mix.sample_rate(),
         mix.channels(),
         mix.sample_format(),
-        if mix_stats.non_zero > 0 { "有非零内容" } else { "全零（本机静音中，帧流本身正常）" }
+        if mix_stats.non_zero > 0 {
+            "有非零内容"
+        } else {
+            "全零（本机静音中，帧流本身正常）"
+        }
     );
 }

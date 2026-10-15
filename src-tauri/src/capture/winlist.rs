@@ -14,11 +14,11 @@
 use serde::Serialize;
 use windows::Win32::Foundation::{CloseHandle, HWND, LPARAM, RECT};
 use windows::Win32::System::Threading::{
-    OpenProcess, QueryFullProcessImageNameW, PROCESS_QUERY_LIMITED_INFORMATION, PROCESS_NAME_WIN32,
+    OpenProcess, QueryFullProcessImageNameW, PROCESS_NAME_WIN32, PROCESS_QUERY_LIMITED_INFORMATION,
 };
 use windows::Win32::UI::WindowsAndMessaging::{
     EnumWindows, GetWindow, GetWindowDisplayAffinity, GetWindowRect, GetWindowTextLengthW,
-    GetWindowTextW, GetWindowThreadProcessId, IsIconic, IsWindowVisible, WDA_NONE, GW_OWNER,
+    GetWindowTextW, GetWindowThreadProcessId, IsIconic, IsWindowVisible, GW_OWNER, WDA_NONE,
 };
 
 /// 一条可预览窗口（返回与契约 win_list 同形，camelCase）
@@ -135,8 +135,7 @@ fn process_image_name(pid: u32) -> String {
         .ok()
         .map(|()| String::from_utf16_lossy(&buf[..size as usize]));
         let _ = CloseHandle(handle);
-        name.map(|n| image_tail(&n).to_string())
-            .unwrap_or_default()
+        name.map(|n| image_tail(&n).to_string()).unwrap_or_default()
     }
 }
 
@@ -165,7 +164,10 @@ mod tests {
 
     #[test]
     fn 进程名只要末段镜像名() {
-        assert_eq!(image_tail(r"C:\Windows\System32\notepad.exe"), "notepad.exe");
+        assert_eq!(
+            image_tail(r"C:\Windows\System32\notepad.exe"),
+            "notepad.exe"
+        );
         // 尾分隔符不产出空段
         assert_eq!(image_tail(r"C:\Windows\System32\"), "System32");
         // 裸名原样

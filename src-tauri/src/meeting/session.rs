@@ -27,7 +27,6 @@ use super::audio::{self, AudioSource};
 use super::session_live::{now_ms, run_worker, sessions, take_worker, Session};
 use super::session_store;
 
-
 fn parse_source(s: Option<&str>) -> Result<AudioSource, String> {
     match s.unwrap_or("mic") {
         "mic" => Ok(AudioSource::Mic),
@@ -226,10 +225,9 @@ pub async fn meeting_summarize(app: AppHandle, id: String) -> Result<SummaryOut,
     }
 
     let providers = crate::ai::openai_compat::ai_providers(app.clone()).await?;
-    let provider = providers
-        .into_iter()
-        .find(|p| p.ready)
-        .ok_or_else(|| "还没有可用的模型服务：请先在 AI 设置里配置并测试一个 provider".to_string())?;
+    let provider = providers.into_iter().find(|p| p.ready).ok_or_else(|| {
+        "还没有可用的模型服务：请先在 AI 设置里配置并测试一个 provider".to_string()
+    })?;
 
     let summary = crate::ai::openai_compat::ai_summarize(app.clone(), provider.id, text, None)
         .await?

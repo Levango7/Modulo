@@ -133,7 +133,7 @@ fn pick_top(mut procs: Vec<ProcInfo>, sort: &str, limit: usize) -> ProcPage {
     match sort {
         // cpu_percent 是 f32，可能出 NaN —— partial_cmp 拿不到序就当相等，
         // 让 NaN 自然沉底，绝不 panic
-        "mem" => procs.sort_by(|a, b| b.mem_bytes.cmp(&a.mem_bytes)),
+        "mem" => procs.sort_by_key(|b| std::cmp::Reverse(b.mem_bytes)),
         _ => procs.sort_by(|a, b| {
             b.cpu_percent
                 .partial_cmp(&a.cpu_percent)
@@ -199,14 +199,23 @@ mod tests {
     }
 
     fn p(pid: u32, name: &str, cpu: f32, mem: u64) -> ProcInfo {
-        ProcInfo { pid, name: name.into(), cpu_percent: cpu, mem_bytes: mem }
+        ProcInfo {
+            pid,
+            name: name.into(),
+            cpu_percent: cpu,
+            mem_bytes: mem,
+        }
     }
 
     /// sort=cpu：按占用率降序。
     #[test]
     fn 排序_cpu降序() {
         let page = pick_top(
-            vec![p(1, "a", 5.0, 100), p(2, "b", 30.0, 100), p(3, "c", 12.0, 100)],
+            vec![
+                p(1, "a", 5.0, 100),
+                p(2, "b", 30.0, 100),
+                p(3, "c", 12.0, 100),
+            ],
             "cpu",
             10,
         );
@@ -219,7 +228,11 @@ mod tests {
     #[test]
     fn 排序_内存降序() {
         let page = pick_top(
-            vec![p(1, "a", 99.0, 300), p(2, "b", 1.0, 900), p(3, "c", 50.0, 600)],
+            vec![
+                p(1, "a", 99.0, 300),
+                p(2, "b", 1.0, 900),
+                p(3, "c", 50.0, 600),
+            ],
             "mem",
             10,
         );
@@ -242,9 +255,13 @@ mod tests {
 
     /// 未知 sort 一律按 cpu 处理（诚实降级），NaN 占用率不炸排序。
     #[test]
-    fn 坏值降级与NaN不炸() {
+    fn 坏值降级与_nan_不炸() {
         let page = pick_top(
-            vec![p(1, "a", 5.0, 100), p(2, "b", 30.0, 100), p(3, "c", f32::NAN, 100)],
+            vec![
+                p(1, "a", 5.0, 100),
+                p(2, "b", 30.0, 100),
+                p(3, "c", f32::NAN, 100),
+            ],
             "什么都不是",
             10,
         );

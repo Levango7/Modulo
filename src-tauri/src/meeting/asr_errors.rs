@@ -58,8 +58,10 @@ pub fn humanize_io(msg: &str, ctx: &str) -> String {
         return "磁盘空间不足——模型解压后约 220MB，请清理后再试".into();
     }
     if m.contains("permission") || m.contains("denied") || m.contains("access") {
-        return format!("没有写入权限（{ctx}）——若安装在 Program Files 下请以管理员运行，\
-                        或改装到用户目录");
+        return format!(
+            "没有写入权限（{ctx}）——若安装在 Program Files 下请以管理员运行，\
+                        或改装到用户目录"
+        );
     }
     if m.contains("os error 32") {
         return format!("文件被占用（{ctx}）——请关闭正在使用的程序后重试");

@@ -19,7 +19,9 @@ use tokio::sync::Semaphore;
 use tokio_util::sync::CancellationToken;
 
 use super::keys;
-use super::protocol::{humanize_connect, humanize_status, parse_sse_data_line, validate_base_url, SseEvent};
+use super::protocol::{
+    humanize_connect, humanize_status, parse_sse_data_line, validate_base_url, SseEvent,
+};
 use super::settings::{load_provider, load_settings, ProviderCfg, ProviderView};
 
 /// 一次性摘要的整体超时；流式对话不设整体超时（长对话合法），只有连接超时
@@ -141,19 +143,29 @@ pub async fn ai_chat(
             .collect();
         match run_chat(&base, &model, key, messages, &token, &sink).await {
             Ok(reply) => {
-                let _ = sink.send(AiChunk { delta: String::new(), done: true, error: None });
+                let _ = sink.send(AiChunk {
+                    delta: String::new(),
+                    done: true,
+                    error: None,
+                });
                 if !reply.trim().is_empty() {
                     full.push(("assistant".to_string(), reply));
                     let _ = super::history::upsert_conversation(&app2, &task_conv, &full);
                 }
             }
             Err(msg) => {
-                let _ = sink.send(AiChunk { delta: String::new(), done: true, error: Some(msg) });
+                let _ = sink.send(AiChunk {
+                    delta: String::new(),
+                    done: true,
+                    error: Some(msg),
+                });
             }
         }
         chat_tasks().lock().unwrap().remove(&task_conv);
     });
-    Ok(ConversationRef { conversation_id: conv_id })
+    Ok(ConversationRef {
+        conversation_id: conv_id,
+    })
 }
 
 /// 中止一次进行中的对话（D-08）。会话不存在/已结束是幂等成功
@@ -188,7 +200,11 @@ async fn run_chat(
         .map_err(|e| format!("创建 HTTP 客户端失败：{e}"))?;
     let mut req = client
         .post(format!("{}/chat/completions", base.trim_end_matches('/')))
-        .json(&ChatRequest { model, messages: &messages, stream: true });
+        .json(&ChatRequest {
+            model,
+            messages: &messages,
+            stream: true,
+        });
     if let Some(k) = &key {
         req = req.bearer_auth(k);
     }
@@ -229,8 +245,12 @@ async fn run_chat(
             match parse_sse_data_line(&line) {
                 Some(SseEvent::Delta(delta)) => {
                     reply.push_str(&delta);
-                    sink.send(AiChunk { delta, done: false, error: None })
-                        .map_err(|_| "输出通道已关闭，已停止".to_string())?;
+                    sink.send(AiChunk {
+                        delta,
+                        done: false,
+                        error: None,
+                    })
+                    .map_err(|_| "输出通道已关闭，已停止".to_string())?;
                 }
                 Some(SseEvent::Done) => return Ok(reply),
                 None => {}
@@ -262,33 +282,47 @@ pub async fn ai_summarize(
     validate_base_url(&cfg.base_url)?;
     let _permit = chat_sem().acquire().await;
 
-    let system = if style.as_deref() == Some("plain") { PLAIN_PROMPT } else { MEETING_PROMPT };
+    let system = if style.as_deref() == Some("plain") {
+        PLAIN_PROMPT
+    } else {
+        MEETING_PROMPT
+    };
     let messages = vec![
-        Msg { role: "system".into(), content: system.into() },
-        Msg { role: "user".into(), content: text },
+        Msg {
+            role: "system".into(),
+            content: system.into(),
+        },
+        Msg {
+            role: "user".into(),
+            content: text,
+        },
     ];
     let client = reqwest::Client::builder()
         .timeout(SUMMARIZE_TIMEOUT)
         .build()
         .map_err(|e| format!("创建 HTTP 客户端失败：{e}"))?;
     let mut req = client
-        .post(format!("{}/chat/completions", cfg.base_url.trim_end_matches('/')))
-        .json(&ChatRequest { model: &cfg.model, messages: &messages, stream: false });
+        .post(format!(
+            "{}/chat/completions",
+            cfg.base_url.trim_end_matches('/')
+        ))
+        .json(&ChatRequest {
+            model: &cfg.model,
+            messages: &messages,
+            stream: false,
+        });
     if let Some(k) = &key {
         req = req.bearer_auth(k);
     }
-    let resp = req
-        .send()
-        .await
-        .map_err(|e| {
-            if e.is_connect() {
-                humanize_connect(&cfg.base_url)
-            } else if e.is_timeout() {
-                "模型服务响应超时（超过 2 分钟），稍后再试".into()
-            } else {
-                format!("连接模型服务失败：{e}")
-            }
-        })?;
+    let resp = req.send().await.map_err(|e| {
+        if e.is_connect() {
+            humanize_connect(&cfg.base_url)
+        } else if e.is_timeout() {
+            "模型服务响应超时（超过 2 分钟），稍后再试".into()
+        } else {
+            format!("连接模型服务失败：{e}")
+        }
+    })?;
     if !resp.status().is_success() {
         return Err(humanize_status(resp.status().as_u16()));
     }
@@ -306,7 +340,10 @@ pub async fn ai_summarize(
     struct FullMessage {
         content: Option<String>,
     }
-    let full: Full = resp.json().await.map_err(|e| format!("解析模型响应失败：{e}"))?;
+    let full: Full = resp
+        .json()
+        .await
+        .map_err(|e| format!("解析模型响应失败：{e}"))?;
     let summary = full
         .choices
         .first()

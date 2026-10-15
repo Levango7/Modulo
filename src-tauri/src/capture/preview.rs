@@ -26,9 +26,7 @@ use tauri::ipc::{Channel, InvokeResponseBody};
 use tauri::{AppHandle, Emitter};
 use windows::Win32::Foundation::HWND;
 use windows::Win32::UI::WindowsAndMessaging::{IsIconic, IsWindow};
-use windows_capture::capture::{
-    CaptureControl, Context, GraphicsCaptureApiHandler,
-};
+use windows_capture::capture::{CaptureControl, Context, GraphicsCaptureApiHandler};
 use windows_capture::graphics_capture_api::InternalCaptureControl;
 use windows_capture::settings::{
     ColorFormat, CursorCaptureSettings, DirtyRegionSettings, DrawBorderSettings,
@@ -126,10 +124,13 @@ pub fn win_preview_start(
     );
     match PreviewHandler::start_free_threaded(settings) {
         Ok(control) => {
-            sessions()
-                .lock()
-                .unwrap()
-                .insert(session.clone(), SessionEntry { hwnd: hwnd.0 as isize, control });
+            sessions().lock().unwrap().insert(
+                session.clone(),
+                SessionEntry {
+                    hwnd: hwnd.0 as isize,
+                    control,
+                },
+            );
             Ok(session)
         }
         Err(e) => Err(humanize_start_error(&e)),
@@ -146,7 +147,10 @@ pub fn win_preview_stop(app: AppHandle, session: String) -> Result<(), String> {
     entry.control.stop().map_err(humanize_stop_error)?;
     let _ = app.emit(
         "win_preview_stopped",
-        PreviewStopped { session, reason: "user".to_string() },
+        PreviewStopped {
+            session,
+            reason: "user".to_string(),
+        },
     );
     Ok(())
 }

@@ -154,13 +154,26 @@ mod tests {
 
     #[test]
     fn sse_行解析() {
-        let delta = parse_sse_data_line(
-            r#"data: {"choices":[{"delta":{"content":"你好"}}]}"#,
+        let delta = parse_sse_data_line(r#"data: {"choices":[{"delta":{"content":"你好"}}]}"#);
+        assert_eq!(
+            match delta {
+                Some(SseEvent::Delta(d)) => d,
+                _ => panic!("应是 Delta"),
+            },
+            "你好"
         );
-        assert_eq!(match delta { Some(SseEvent::Delta(d)) => d, _ => panic!("应是 Delta") }, "你好");
-        assert!(matches!(parse_sse_data_line("data: [DONE]"), Some(SseEvent::Done)));
+        assert!(matches!(
+            parse_sse_data_line("data: [DONE]"),
+            Some(SseEvent::Done)
+        ));
         // 忽略类：注释、无 data 前缀、畸形 JSON、role 帧（无 content）、空增量
-        for ignored in [": keep-alive", "event: ping", "data: {oops", r#"data: {"choices":[{"delta":{"role":"assistant"}}]}"#, r#"data: {"choices":[{"delta":{"content":""}}]}"#] {
+        for ignored in [
+            ": keep-alive",
+            "event: ping",
+            "data: {oops",
+            r#"data: {"choices":[{"delta":{"role":"assistant"}}]}"#,
+            r#"data: {"choices":[{"delta":{"content":""}}]}"#,
+        ] {
             assert!(parse_sse_data_line(ignored).is_none(), "{ignored} 应被忽略");
         }
     }
@@ -175,7 +188,13 @@ mod tests {
 
     #[test]
     fn 人话_连接错误分本地与云端() {
-        assert_eq!(humanize_connect("http://127.0.0.1:11434/v1"), "没连上本地模型服务，确认 Ollama 已启动");
-        assert_eq!(humanize_connect("https://api.example.com/v1"), "网络连不上模型服务，检查连接后重试");
+        assert_eq!(
+            humanize_connect("http://127.0.0.1:11434/v1"),
+            "没连上本地模型服务，确认 Ollama 已启动"
+        );
+        assert_eq!(
+            humanize_connect("https://api.example.com/v1"),
+            "网络连不上模型服务，检查连接后重试"
+        );
     }
 }

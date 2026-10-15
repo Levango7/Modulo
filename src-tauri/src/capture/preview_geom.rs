@@ -85,7 +85,10 @@ mod tests {
         assert_eq!(fps_interval(1), Duration::from_secs(1));
         // 6fps ≈ 166.67ms：不逐 ns 钉死，夹一个毫秒级窗口
         let six = fps_interval(6);
-        assert!((six.as_millis() as i64 - 167).abs() <= 1, "6fps 间隔 {six:?}");
+        assert!(
+            (six.as_millis() as i64 - 167).abs() <= 1,
+            "6fps 间隔 {six:?}"
+        );
         // 0 走默认档而不是除零 panic
         assert_eq!(fps_interval(0), fps_interval(FPS_DEFAULT));
     }

@@ -168,7 +168,7 @@ pub fn ai_history_list(app: AppHandle) -> Result<Vec<HistoryItem>, String> {
         })
         .collect();
     // 最近更新的在前（upsert 不换位，这里排序保证）
-    items.sort_by(|a, b| b.updated_at.cmp(&a.updated_at));
+    items.sort_by_key(|c| std::cmp::Reverse(c.updated_at));
     Ok(items)
 }
 
@@ -213,7 +213,10 @@ mod tests {
     fn title_取首条user消息并截断() {
         let msgs = vec![
             ("system".to_string(), "你是助手".to_string()),
-            ("user".to_string(), "帮我把这份会议纪要整理成三条要点，控制在两百字以内".to_string()),
+            (
+                "user".to_string(),
+                "帮我把这份会议纪要整理成三条要点，控制在两百字以内".to_string(),
+            ),
         ];
         let title = title_from(&msgs);
         assert_eq!(title.chars().count(), TITLE_MAX_CHARS + 1); // 24 字 + 省略号

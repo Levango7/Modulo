@@ -115,7 +115,6 @@ pub fn refresh_status(root: &Path) {
     set_status(st, if st == AsrState::Ready { 1.0 } else { 0.0 }, 0, None);
 }
 
-
 /// 契约 `asr_model_status`
 #[tauri::command]
 pub fn asr_model_status(app: AppHandle) -> AsrStatus {
@@ -190,8 +189,7 @@ async fn fetch_one(
     let total = resp.content_length().unwrap_or(0);
     set_status(AsrState::Downloading, 0.0, total, None);
 
-    let mut file =
-        File::create(&part).map_err(|e| humanize_io(&e.to_string(), "创建临时文件"))?;
+    let mut file = File::create(&part).map_err(|e| humanize_io(&e.to_string(), "创建临时文件"))?;
     let mut got: u64 = 0;
     // 用 `chunk()` 而不是 `bytes_stream()`：后者要引 futures-util 才能 `.next()`，
     // 为本就够用的一件事多加一个依赖不划算。155MB 是分块落盘的，不进内存。
@@ -236,8 +234,7 @@ async fn fetch_one(
             fs::rename(&part, &dest).map_err(|e| humanize_io(&e.to_string(), "安装模型"))?;
         }
         asr_models::Kind::Archive => {
-            asr_models::extract(&part, root)
-                .map_err(|e| humanize_io(&e, "解压模型"))?;
+            asr_models::extract(&part, root).map_err(|e| humanize_io(&e, "解压模型"))?;
             let _ = fs::remove_file(&part);
         }
     }

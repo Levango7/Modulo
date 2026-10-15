@@ -69,7 +69,12 @@ mod tests {
     #[test]
     fn 换算_无缩放() {
         // 单屏 1920x1080 @ (0,0) sf=1.0：选区逻辑 (100,50,400,300) → 同值
-        let mon = PhysRect { x: 0, y: 0, w: 1920, h: 1080 };
+        let mon = PhysRect {
+            x: 0,
+            y: 0,
+            w: 1920,
+            h: 1080,
+        };
         assert_eq!(
             logical_region_to_phys(100, 50, 400, 300, mon, 1.0),
             Some((100, 50, 400, 300))
@@ -80,19 +85,34 @@ mod tests {
     fn 换算_各缩放档() {
         // 副屏物理 (1920,0,1600,900) sf=1.25。入参是**绝对逻辑坐标**：
         // 逻辑 2120 × 1.25 = 物理 2650，减显示器物理原点 1920 → 显示器相对 730
-        let mon = PhysRect { x: 1920, y: 0, w: 1600, h: 900 };
+        let mon = PhysRect {
+            x: 1920,
+            y: 0,
+            w: 1600,
+            h: 900,
+        };
         assert_eq!(
             logical_region_to_phys(1920 + 200, 100, 400, 200, mon, 1.25),
             Some((730, 125, 500, 250))
         );
         // 1.5 档：逻辑宽 300 → 物理 450
-        let mon = PhysRect { x: 0, y: 0, w: 2880, h: 1800 };
+        let mon = PhysRect {
+            x: 0,
+            y: 0,
+            w: 2880,
+            h: 1800,
+        };
         assert_eq!(
             logical_region_to_phys(0, 0, 300, 200, mon, 1.5),
             Some((0, 0, 450, 300))
         );
         // 2.0 档
-        let mon = PhysRect { x: 0, y: 0, w: 3840, h: 2160 };
+        let mon = PhysRect {
+            x: 0,
+            y: 0,
+            w: 3840,
+            h: 2160,
+        };
         assert_eq!(
             logical_region_to_phys(10, 20, 100, 50, mon, 2.0),
             Some((20, 40, 200, 100))
@@ -101,7 +121,12 @@ mod tests {
 
     #[test]
     fn 换算_越界夹紧与退化() {
-        let mon = PhysRect { x: 0, y: 0, w: 1000, h: 1000 };
+        let mon = PhysRect {
+            x: 0,
+            y: 0,
+            w: 1000,
+            h: 1000,
+        };
         // 选区一半在屏外 → 压扁到屏内，不是报错
         assert_eq!(
             logical_region_to_phys(900, 900, 400, 400, mon, 1.0),
@@ -124,13 +149,35 @@ mod tests {
         // （公式下副屏逻辑区 [1280,2560) 与主屏 [0,1920) 有重叠带 1280-1920：
         //  现实里 Windows 不会这么排布，重叠带命中哪个都合理，first-match 确定性即可）
         let monitors = vec![
-            (PhysRect { x: 0, y: 0, w: 1920, h: 1080 }, 1.0),
-            (PhysRect { x: 1920, y: 0, w: 1920, h: 1080 }, 1.5),
+            (
+                PhysRect {
+                    x: 0,
+                    y: 0,
+                    w: 1920,
+                    h: 1080,
+                },
+                1.0,
+            ),
+            (
+                PhysRect {
+                    x: 1920,
+                    y: 0,
+                    w: 1920,
+                    h: 1080,
+                },
+                1.5,
+            ),
         ];
         // 主屏内一点
-        assert_eq!(find_monitor_by_logical_point(&monitors, 100, 100), Some((0, 1.0)));
+        assert_eq!(
+            find_monitor_by_logical_point(&monitors, 100, 100),
+            Some((0, 1.0))
+        );
         // 副屏无歧义区（>1920）
-        assert_eq!(find_monitor_by_logical_point(&monitors, 2000, 100), Some((1, 1.5)));
+        assert_eq!(
+            find_monitor_by_logical_point(&monitors, 2000, 100),
+            Some((1, 1.5))
+        );
         // 两屏之外
         assert_eq!(find_monitor_by_logical_point(&monitors, 9999, 9999), None);
     }

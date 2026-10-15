@@ -56,7 +56,9 @@ pub fn set_key(provider_id: &str, key: &str) -> Result<(), String> {
     if key.trim().is_empty() {
         return Err("密钥不能为空".into());
     }
-    entry(provider_id)?.set_password(key).map_err(|e| humanize(&e))
+    entry(provider_id)?
+        .set_password(key)
+        .map_err(|e| humanize(&e))
 }
 
 /// 读密钥。**仅 Rust 内部使用**（openai_compat 组请求头、ai_providers 算
@@ -126,7 +128,10 @@ mod tests {
     fn 错误映射_通配臂() {
         let e = KeyringError::Invalid("service".into(), "bad".into());
         let msg = humanize(&e);
-        assert!(msg.starts_with("系统凭据库操作失败"), "通配臂要给人话前缀: {msg}");
+        assert!(
+            msg.starts_with("系统凭据库操作失败"),
+            "通配臂要给人话前缀: {msg}"
+        );
     }
 
     /// set_key 对空/纯空白密钥的拒绝不碰凭据库（在 Entry 构造之前就返回）

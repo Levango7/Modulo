@@ -58,7 +58,9 @@ pub struct MeetingItem {
 pub fn is_safe_id(id: &str) -> bool {
     !id.is_empty()
         && id.len() <= 64
-        && id.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_')
+        && id
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_')
 }
 
 /// 生成一个新会话 id：`<毫秒时间戳>-<纳秒低 4 位十六进制>`。
@@ -97,9 +99,9 @@ pub fn write_transcript(root: &Path, t: &Transcript) -> Result<String, String> {
     let tmp = dir.join("transcript.json.tmp");
     fs::write(&tmp, &bytes).map_err(|e| format!("写转写临时文件失败：{e}"))?;
     fs::rename(&tmp, &path).map_err(|e| format!("替换转写文件失败：{e}"))?;
-    path.to_str().map(str::to_string).ok_or_else(|| {
-        "转写路径不是合法 UTF-8（数据目录含非 UTF-8 字符？）".to_string()
-    })
+    path.to_str()
+        .map(str::to_string)
+        .ok_or_else(|| "转写路径不是合法 UTF-8（数据目录含非 UTF-8 字符？）".to_string())
 }
 
 /// 读一份转写。**id 不合法直接拒绝**，不给文件系统任何机会。
@@ -131,7 +133,14 @@ pub fn title_of(t: &Transcript) -> String {
         return format!("{}…", s.chars().take(24).collect::<String>());
     }
     let secs = t.created_at / 1000;
-    format!("{}-{:02}-{:02} {:02}:{:02}", 1970 + secs / 31_557_600, 1 + (secs / 2_630_000) % 12, 1 + (secs / 86_400) % 31, (secs / 3600) % 24, (secs / 60) % 60)
+    format!(
+        "{}-{:02}-{:02} {:02}:{:02}",
+        1970 + secs / 31_557_600,
+        1 + (secs / 2_630_000) % 12,
+        1 + (secs / 86_400) % 31,
+        (secs / 3600) % 24,
+        (secs / 60) % 60
+    )
 }
 
 /// 列出全部会议。**单份损坏不牵连整表**：解析失败的那条跳过并在 stderr 留痕，
@@ -159,7 +168,7 @@ pub fn list_meetings(root: &Path) -> Vec<MeetingItem> {
             }
         })
         .collect();
-    items.sort_by(|a, b| b.created_at.cmp(&a.created_at));
+    items.sort_by_key(|m| std::cmp::Reverse(m.created_at));
     items
 }
 
@@ -243,8 +252,18 @@ mod tests {
             created_at: 0,
             duration_ms: 0,
             segments: vec![
-                Segment { start_ms: 0, end_ms: 10, text: "   ".into(), speaker: None },
-                Segment { start_ms: 10, end_ms: 20, text: "正经内容".into(), speaker: None },
+                Segment {
+                    start_ms: 0,
+                    end_ms: 10,
+                    text: "   ".into(),
+                    speaker: None,
+                },
+                Segment {
+                    start_ms: 10,
+                    end_ms: 20,
+                    text: "正经内容".into(),
+                    speaker: None,
+                },
             ],
             speaker_names: HashMap::new(),
             summary: None,
@@ -278,11 +297,20 @@ mod tests {
         assert_eq!(back.segments[0].text, "你好");
 
         // 穿越 id 写不进去也读不出来
-        assert!(write_transcript(&d, &Transcript { id: "../evil".into(), ..t.clone() }).is_err());
+        assert!(write_transcript(
+            &d,
+            &Transcript {
+                id: "../evil".into(),
+                ..t.clone()
+            }
+        )
+        .is_err());
         assert!(read_transcript(&d, "../evil").is_err());
 
         // 不存在 → not found 人话
-        assert!(read_transcript(&d, "nope").unwrap_err().contains("找不到会话"));
+        assert!(read_transcript(&d, "nope")
+            .unwrap_err()
+            .contains("找不到会话"));
 
         let items = list_meetings(&d);
         assert_eq!(items.len(), 1);

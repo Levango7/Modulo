@@ -114,12 +114,11 @@ fn to_info(d: &Device, kind: &'static str, default_id: Option<&str>) -> Result<D
 /// 命令外壳见 [`audio_devices`] —— 设备枚举本身不碰 tauri，方便单独测。
 pub fn list_input_devices() -> Result<Vec<DeviceInfo>, String> {
     let host = cpal::default_host();
-    let default_id = host.default_input_device().and_then(|d| d.id().ok().map(|i| i.to_string()));
+    let default_id = host
+        .default_input_device()
+        .and_then(|d| d.id().ok().map(|i| i.to_string()));
     let mut out = Vec::new();
-    for d in host
-        .input_devices()
-        .map_err(|e| humanize_cpal_error(&e))?
-    {
+    for d in host.input_devices().map_err(|e| humanize_cpal_error(&e))? {
         if let Ok(info) = to_info(&d, "input", default_id.as_deref()) {
             out.push(info);
         }
@@ -131,12 +130,11 @@ pub fn list_input_devices() -> Result<Vec<DeviceInfo>, String> {
 /// 但列出来前端才有的选
 pub fn list_output_devices() -> Result<Vec<DeviceInfo>, String> {
     let host = cpal::default_host();
-    let default_id = host.default_output_device().and_then(|d| d.id().ok().map(|i| i.to_string()));
+    let default_id = host
+        .default_output_device()
+        .and_then(|d| d.id().ok().map(|i| i.to_string()));
     let mut out = Vec::new();
-    for d in host
-        .output_devices()
-        .map_err(|e| humanize_cpal_error(&e))?
-    {
+    for d in host.output_devices().map_err(|e| humanize_cpal_error(&e))? {
         if let Ok(info) = to_info(&d, "output", default_id.as_deref()) {
             out.push(info);
         }
@@ -160,15 +158,16 @@ pub fn audio_devices() -> Result<Vec<DeviceInfo>, String> {
 
 /// 开采集。device_id 为 None 取默认设备；System 音源下 None = 默认输出设备
 /// （AC-15 的"系统音频"就是"你在扬声器里听到的"，默认输出即此意）
-pub fn open_capture(
-    source: AudioSource,
-    device_id: Option<&str>,
-) -> Result<AudioCapture, String> {
+pub fn open_capture(source: AudioSource, device_id: Option<&str>) -> Result<AudioCapture, String> {
     let host = cpal::default_host();
     let device = pick_device(&host, source, device_id)?;
     // 主路径：直接向引擎要 16k 单声道（本机实测引擎会转；省一个重采样依赖）
     match build_stream(&device, TARGET_RATE, 1) {
-        Ok((stream, rx, dropped)) => Ok(AudioCapture { _stream: stream, rx, dropped }),
+        Ok((stream, rx, dropped)) => Ok(AudioCapture {
+            _stream: stream,
+            rx,
+            dropped,
+        }),
         Err(primary) => {
             // 兜底：按设备 mix format 采，Rust 侧降混 + 线性插值到 16k。
             // 仍然请求 F32——共享模式下引擎会在 PCM/浮点间转换（探针就是 F32）
@@ -178,7 +177,11 @@ pub fn open_capture(
             }
             .map_err(|e| humanize_cpal_error(&e))?;
             build_stream(&device, mix.sample_rate(), mix.channels() as u32)
-                .map(|(stream, rx, dropped)| AudioCapture { _stream: stream, rx, dropped })
+                .map(|(stream, rx, dropped)| AudioCapture {
+                    _stream: stream,
+                    rx,
+                    dropped,
+                })
                 .map_err(|fallback| format!("{primary}；回退到设备原生格式也失败：{fallback}"))
         }
     }
@@ -196,11 +199,16 @@ fn pick_device(
         }
         .ok_or_else(|| match source {
             AudioSource::Mic => "没有可用的麦克风设备".to_string(),
-            AudioSource::System => "没有可用的音频输出设备（系统音频需要能播放声音的设备）".to_string(),
+            AudioSource::System => {
+                "没有可用的音频输出设备（系统音频需要能播放声音的设备）".to_string()
+            }
         }),
         Some(want) => {
             let list: Vec<Device> = match source {
-                AudioSource::Mic => host.input_devices().map_err(|e| humanize_cpal_error(&e))?.collect(),
+                AudioSource::Mic => host
+                    .input_devices()
+                    .map_err(|e| humanize_cpal_error(&e))?
+                    .collect(),
                 AudioSource::System => host
                     .output_devices()
                     .map_err(|e| humanize_cpal_error(&e))?
@@ -264,7 +272,10 @@ fn push_frame(tx: &SyncSender<AudioEvent>, dropped: &Arc<AtomicUsize>, samples: 
     if samples.is_empty() {
         return;
     }
-    let frame = AudioEvent::Frame(AudioFrame { samples, ts_ms: now_ms() });
+    let frame = AudioEvent::Frame(AudioFrame {
+        samples,
+        ts_ms: now_ms(),
+    });
     if tx.try_send(frame).is_err() {
         // 下游（ASR）没跟上：丢这一帧而不是堆内存或卡住音频回调
         dropped.fetch_add(1, Ordering::Relaxed);

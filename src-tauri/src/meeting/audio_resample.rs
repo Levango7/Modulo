@@ -62,12 +62,18 @@ mod tests {
     #[test]
     fn 降混丢弃不完整的最后一帧() {
         // 5 个样本 / 2 声道 = 2 帧 + 1 个残样：残样丢（chunks_exact）
-        assert_eq!(downmix_to_mono(&[1.0, 1.0, 0.0, 0.0, 9.0], 2), vec![1.0, 0.0]);
+        assert_eq!(
+            downmix_to_mono(&[1.0, 1.0, 0.0, 0.0, 9.0], 2),
+            vec![1.0, 0.0]
+        );
     }
 
     #[test]
     fn 同率重采样是直通() {
-        assert_eq!(resample_linear(&[0.1, 0.2, 0.3], 16000, 16000), vec![0.1, 0.2, 0.3]);
+        assert_eq!(
+            resample_linear(&[0.1, 0.2, 0.3], 16000, 16000),
+            vec![0.1, 0.2, 0.3]
+        );
     }
 
     #[test]

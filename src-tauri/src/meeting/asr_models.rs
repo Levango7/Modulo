@@ -229,10 +229,7 @@ mod tests {
 
     #[test]
     fn url_拼得对() {
-        assert_eq!(
-            url(&VAD),
-            format!("{BASE_ASR}/silero_vad.int8.onnx")
-        );
+        assert_eq!(url(&VAD), format!("{BASE_ASR}/silero_vad.int8.onnx"));
         assert!(url(&PUNC).starts_with(BASE_PUNC));
     }
 
@@ -246,7 +243,10 @@ mod tests {
         // 排序后取第一个 → 稳定地是 a.onnx
         assert_eq!(find_ext(&d, "onnx").unwrap().file_name().unwrap(), "a.onnx");
         assert!(find_ext(&d, "bin").is_none());
-        assert_eq!(find_ext(&d, "txt").unwrap().file_name().unwrap(), "tokens.txt");
+        assert_eq!(
+            find_ext(&d, "txt").unwrap().file_name().unwrap(),
+            "tokens.txt"
+        );
         let _ = fs::remove_dir_all(&d);
     }
 

@@ -16,7 +16,9 @@ pub fn humanize_cpal_error(e: &Error) -> String {
         // 麦克风被别的程序独占（会议软件/录音机开着）——让用户去关，不是我们重试
         K::DeviceBusy => "音频设备被其他程序占用，关掉那个程序后重试".to_string(),
         // 系统隐私设置没给麦克风权限
-        K::PermissionDenied => "系统未允许访问音频设备，请在系统隐私设置里打开麦克风权限".to_string(),
+        K::PermissionDenied => {
+            "系统未允许访问音频设备，请在系统隐私设置里打开麦克风权限".to_string()
+        }
         // 拔了/禁用了/驱动崩了 —— 上层据此提示"设备已断开"
         K::DeviceNotAvailable => "音频设备已断开或被禁用".to_string(),
         // 默认设备路由变了（插了耳机、换了输出）——AC-18 的"音频设备已切换"：
@@ -27,7 +29,9 @@ pub fn humanize_cpal_error(e: &Error) -> String {
         K::HostUnavailable => "系统音频服务不可用，检查音频设备与驱动".to_string(),
         // 请求 16k 单声道被拒（老设备/独占模式）
         K::UnsupportedConfig => "该音频设备不支持所需的录音格式".to_string(),
-        K::UnsupportedOperation => "该音频设备不支持这种用法（比如对麦克风做系统音频采集）".to_string(),
+        K::UnsupportedOperation => {
+            "该音频设备不支持这种用法（比如对麦克风做系统音频采集）".to_string()
+        }
         K::InvalidInput => "音频采集参数不合法".to_string(),
         K::ResourceExhausted => "系统音频资源耗尽，关闭其它录音程序再试".to_string(),
         // 抖动：WASAPI 起流头一帧常见（本机探针就是这么报的），**不是故障**，
