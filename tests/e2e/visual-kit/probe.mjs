@@ -45,6 +45,7 @@ const PAIRS = {
   'text-1/bg-card-solid': ['--text-1', '--bg-card-solid'],
   'accent/bg-page': ['--accent', '--bg-page'],
   'c-red/bg-page': ['--c-red', '--bg-page'],
+  'text-1/brand-50': ['--text-1', '--brand-50'],
 }
 const SKINS = ['aurora', 'ink', 'candy']
 const THEMES = ['light', 'dark']

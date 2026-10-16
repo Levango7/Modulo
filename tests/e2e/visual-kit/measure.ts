@@ -73,7 +73,35 @@ export async function readPairs(
       const cs = getComputedStyle(document.documentElement)
       const g = (k: string): string => cs.getPropertyValue(k).trim()
       const vk = window.__vk
-      const base = g(baseToken)
+
+      /* 声明原文 → 内核能吃的 rgb/rgba。内核只认 legacy 写法（hex / rgb / rgba），
+         而本仓的**派生**令牌用的是 `color-mix(in oklab, …)`（--brand-50 等）。
+         自定义属性的计算值只是「var() 已代入的 token 流」，color-mix 不会被求值；
+         借真实属性（如 color）读回来 —— 2026-10-17 探针实测 —— 得到的仍是
+         `oklab(…)`，内核照样解析不了。唯一「什么写法都能画进去、读回来一定是
+         8bit sRGB」的口径是 canvas：fillStyle 接受 color-mix，fillRect +
+         getImageData 取回的就是用户实际看到的字节（越色域部分由 canvas clamp 到
+         sRGB，正好是屏幕上的结果）。**legacy 值原样返回**，保证既有配对的测量结果
+         逐字节不变 —— 这一层只为 color-mix 这类新写法兜底。 */
+      const cv = document.createElement('canvas')
+      cv.width = 1
+      cv.height = 1
+      const cctx = cv.getContext('2d')
+      /** 哨兵：明显不可能是设计令牌的值。赋值失败时 fillStyle 会留在它上面，据此判无效。 */
+      const SENTINEL = '#010203'
+      const resolveColor = (raw: string): string => {
+        if (!raw || !cctx) return raw
+        if (vk && vk.parse(raw)) return raw
+        cctx.fillStyle = SENTINEL
+        cctx.fillStyle = raw // 无效值会被忽略，fillStyle 仍是哨兵
+        if (cctx.fillStyle === SENTINEL && raw.trim().toLowerCase() !== SENTINEL) return raw
+        cctx.clearRect(0, 0, 1, 1)
+        cctx.fillRect(0, 0, 1, 1)
+        const d = cctx.getImageData(0, 0, 1, 1).data
+        return `rgba(${d[0]}, ${d[1]}, ${d[2]}, ${(d[3] / 255).toFixed(3)})`
+      }
+
+      const base = resolveColor(g(baseToken))
       const alphaOf = (s: string): number => {
         /* Chrome 对半透明令牌的两种序列化都要认：rgba(...) 与 8 位 hex #rrggbbaa
            （Modulo 探针实测——--bg-card-solid 的 rgba(255,253,249,.92) 被序列化成 #fffdf9eb） */
@@ -95,8 +123,8 @@ export async function readPairs(
       }
       const out: Record<string, { fg: string; bg: string; bgEff: string; c: number | null }> = {}
       for (const k of Object.keys(pairs)) {
-        const fg = g(pairs[k][0])
-        const bg = g(pairs[k][1])
+        const fg = resolveColor(g(pairs[k][0]))
+        const bg = resolveColor(g(pairs[k][1]))
         const bgEff = composite(bg, base)
         out[k] = { fg, bg, bgEff, c: vk && vk.contrast ? vk.contrast(fg, bgEff) : null }
       }

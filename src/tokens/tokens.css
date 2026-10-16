@@ -72,6 +72,19 @@
 
 [data-theme='dark'] {
   --accent: #6fae97;
+  /* --brand-50 在 :root 里是「accent 12% + #fff」—— 亮色下表示"很淡的一层品牌色"，
+     但暗色下不覆盖就会变成近白（aurora #eef5f2 / ink #fff0ea / candy #ffedf0），
+     而按钮文字继承 --text-1（暗色下是浅色），`button:hover` 的文字基本消失。
+     2026-10-17 canvas 回读实测 text-1/brand-50：**aurora 1.04 / ink 1.01 / candy 1.01**
+     —— 三皮肤全部低于 ABS_FLOOR 1.5（等于"读不出来"）。
+     修法：按同一语义反向混色，仍是"很淡的一层品牌色"，方向朝背景走。刻意用
+     var(--bg-page) 而不是写死色值 —— 这样 aurora / ink / candy 三种皮肤各自的暗底色
+     都自动跟上（ink/candy 的暗色块不重定义 --brand-50，落到本块声明，而块内
+     var(--accent)/var(--bg-page) 在**同一元素**上按各自皮肤的高特异性值解析）。
+     修后实测：**aurora 11.32 / ink 13.31 / candy 11.97**。
+     配套门禁：tests/e2e/contrast-matrix.spec.ts 的 PAIRS 有 `text-1/brand-50` 守着
+     （该配对是 2026-10-17 为堵这个漏洞新加的）—— 删掉它或改坏本变量都会红。 */
+  --brand-50: color-mix(in oklab, var(--accent) 22%, var(--bg-page));
   --bg-page: #141714;
   --bg-card: rgba(30, 33, 29, 0.72);
   --bg-card-solid: rgba(32, 35, 31, 0.94);
