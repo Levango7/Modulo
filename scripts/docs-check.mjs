@@ -30,6 +30,7 @@ import { execSync } from 'node:child_process';
 import { readFileSync, readdirSync, statSync, existsSync } from 'node:fs';
 import { join, resolve, relative } from 'node:path';
 import { checkArtifactLine, latestArtifact } from './release-artifact-facts.mjs';
+import { claimRe } from './docs-check-claims.mjs';
 
 const root = resolve(process.cwd());
 const MARK = '<!-- facts -->';
@@ -47,10 +48,53 @@ function sh(cmd) {
   return execSync(cmd, { cwd: root, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
 }
 
+/**
+ * vitest 非零退出时，把**是哪条测试红**打出来再收场。
+ *
+ * 来历（2026-10-16 变异抽查现场）：这里原先直接让 `execSync` 抛出去，于是任何一条单测红 ——
+ * 哪怕跟文档一个字的关系都没有 —— 这条门都以一段 Node 堆栈结束。两个后果：
+ *   1. CI 日志里看不到失败测试的名字（堆栈只有 `Error: Command failed` + `status: 1`）；
+ *   2. 「文档数字漂了」与「单测本身红了」共用同一个 exit 1，排查的人按错的方向查。
+ * 报告文件在 vitest 失败时**通常仍然写出来了**（json reporter 在退出前落盘），所以先读它。
+ */
+function bailOnRedTests(reportPath, err) {
+  console.error('✗ 单测没全绿 —— 文档数字核对无从谈起（先修测试，再谈哪一行的数字漂了）。');
+  let listed = 0;
+  try {
+    const raw = JSON.parse(readFileSync(resolve(root, reportPath), 'utf8'));
+    const fails = [];
+    for (const f of raw.testResults ?? []) {
+      for (const t of f.assertionResults ?? []) {
+        if (t.status === 'failed') {
+          fails.push(`${relative(root, f.name ?? '')} :: ${t.title}（${Math.round(t.duration ?? -1)} ms）`);
+        }
+      }
+    }
+    listed = fails.length;
+    for (const s of fails.slice(0, 10)) console.error(`    ${s}`);
+    if (fails.length > 10) console.error(`    …另有 ${fails.length - 10} 条`);
+  } catch {
+    /* 报告没落盘或不可解析：下面如实说读不到，不猜 */
+  }
+  if (!listed) console.error(`    拿不到失败清单（${reportPath} 缺失或读不出 JSON）`);
+  const tail = String(err?.stderr ?? err?.message ?? '')
+    .trim()
+    .split(/\r?\n/)
+    .filter(Boolean)
+    .slice(-3)
+    .join(' | ');
+  if (tail) console.error(`    vitest 原始输出末尾：${tail.slice(0, 300)}`);
+  process.exit(1);
+}
+
 /** 单测与属性测试：条数 + 测试**文件**数。走 vitest 自己的 json reporter，不数 `it(` 那种会漏的写法 */
 function unitFacts() {
   const out = 'node_modules/.tmp/docs-check-vitest.json';
-  sh(`npx vitest run --reporter=json --outputFile=${out}`);
+  try {
+    sh(`npx vitest run --reporter=json --outputFile=${out}`);
+  } catch (err) {
+    bailOnRedTests(out, err);
+  }
   const raw = JSON.parse(readFileSync(resolve(root, out), 'utf8'));
   // 注意别用 numTotalTestSuites —— 那是 describe 块 + 文件的合计，与文档里"27 个文件"口径不同。
   // 文档写的是**文件数**，所以直接数 tests/ 下的 .test.ts。
@@ -271,7 +315,7 @@ if (process.argv.includes('--print')) {
  * 后者是"一个星号、可选第二个"，对 `**312**` 永远不匹配（害我把三处正确数字报成红）。
  */
 const RULES = [
-  { key: '单测条数', kw: /单测[^\n]{0,24}条/, want: () => String(facts.tests), re: (v) => new RegExp(`(?:\\*\\*)?${v}(?:\\*\\*)?\\s*条`) },
+  { key: '单测条数', kw: /单测[^\n]{0,24}条/, want: () => String(facts.tests), re: (v) => claimRe(v, '条') },
   {
     // 逐文件单测条数：只核对**紧跟测试文件路径后的那个数**，真值取自 `facts.perFile`。
     //
@@ -306,8 +350,8 @@ const RULES = [
       return { ok: true };
     },
   },
-  { key: '单测文件数', kw: /\d+\s*(?:个)?文件/, want: () => String(facts.files), re: (v) => new RegExp(`${v}\\s*(?:个)?文件`) },
-  { key: 'E2E 条数', kw: /E2E[^\n]{0,12}条/, want: () => String(facts.e2e), re: (v) => new RegExp(`(?:\\*\\*)?${v}(?:\\*\\*)?\\s*条`) },
+  { key: '单测文件数', kw: /\d+\s*(?:个)?文件/, want: () => String(facts.files), re: (v) => claimRe(v, '(?:个)?文件') },
+  { key: 'E2E 条数', kw: /E2E[^\n]{0,12}条/, want: () => String(facts.e2e), re: (v) => claimRe(v, '条') },
   {
     // 覆盖率是全表唯一一条**下限承诺**，不做等值核对：这个数会随环境与运行抖动
     // （实测 CI 两次跑出 93.74 / 93.75；本机 Node 26 与 CI Node 22 的 V8 对个别文件的分支计数
@@ -346,13 +390,13 @@ const RULES = [
     key: '注册表卡数',
     kw: /\d+\s*种卡/,
     want: () => String(facts.cards),
-    re: (v) => new RegExp(`(?:\\*\\*)?${v}(?:\\*\\*)?\\s*种卡`),
+    re: (v) => claimRe(v, '种卡'),
   },
   {
     key: 'CI job 数',
     kw: /\d+\s*个\s*job/,
     want: () => String(facts.jobs),
-    re: (v) => new RegExp(`(?:\\*\\*)?${v}(?:\\*\\*)?\\s*个\\s*job`),
+    re: (v) => claimRe(v, '个\\s*job'),
   },
   {
     // 「Rust 单测 N 条」的写法要连着 Rust 才算这个维度，否则 ARCHITECTURE 那行里的
@@ -361,7 +405,7 @@ const RULES = [
     key: 'Rust 单测条数',
     kw: /Rust[^\n]{0,8}单测[^\n]{0,10}条/,
     want: () => String(facts.rust),
-    re: (v) => new RegExp(`Rust[^\\n]{0,8}单测\\s*(?:\\*\\*)?${v}(?:\\*\\*)?\\s*条`),
+    re: (v) => claimRe(v, '条', 'Rust[^\\n]{0,8}单测\\s*'),
   },
   {
     // 「当前线上发布产物是 `Modulo_x.y.z_x64-setup.exe`（sha256 …）」这类**对外承诺**。
