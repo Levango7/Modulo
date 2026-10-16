@@ -102,3 +102,10 @@ describe('节假日：调休补班日与元旦估算', () => {
     expect(newYearEstimate(at('2026-10-11'))).toEqual({ date: '2027-01-01', days: 82 })
   })
 })
+
+describe('节假日：覆盖补口（坏数据兜底）', () => {
+  it('planLength 对坏日期给 0（防御，不产出 NaN 长度）', () => {
+    expect(planLength({ name: '坏', start: '不是日期', end: '2026-01-01', workdays: [] })).toBe(0)
+    expect(planLength({ name: '坏', start: '2026-01-01', end: 'x', workdays: [] })).toBe(0)
+  })
+})

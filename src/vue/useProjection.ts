@@ -1,4 +1,4 @@
-import { computed, type Ref } from 'vue'
+import { computed, ref, type Ref } from 'vue'
 import * as E from '@levango7/engine'
 import type { LayoutStore } from './store'
 import { rowUnitPx } from './rowUnit'
@@ -18,12 +18,23 @@ import { rowUnitPx } from './rowUnit'
  *   单独给行高开口子，是因为"同一张卡在 13″ 与 27″ 屏上像素尺寸相同"是实测缺陷，
  *   而列数并没有这个问题 —— 12 列在任何屏上都成立。
  */
-export function useProjection(store: LayoutStore, stageW: Ref<number>, stageH: Ref<number>) {
+export function useProjection(
+  store: LayoutStore,
+  stageW: Ref<number>,
+  stageH: Ref<number>,
+  /** 不参与投影的卡（脱离浮窗的那些，2026-10-13）：只是**投影层过滤**，
+   *  文档本身不动 —— 卡片回工作台时坐标/形态原样还在。 */
+  hidden: Ref<ReadonlySet<string>> = ref(new Set<string>()),
+) {
   const reg = store.reg
   const cols = computed(() => E.physicalCols(stageW.value))
   const rowPx = computed(() => rowUnitPx(E.rowHeight(stageW.value), stageH.value))
   const gap = 16
-  const projection = computed(() => E.project(store.doc.value, reg, cols.value))
+  const projection = computed(() => {
+    const doc = store.doc.value
+    if (!hidden.value.size) return E.project(doc, reg, cols.value)
+    return E.project({ ...doc, items: doc.items.filter((p) => !hidden.value.has(p.id)) }, reg, cols.value)
+  })
   const mode = computed(() => E.editorMode(stageW.value))
   return { cols, rowPx, gap, projection, mode }
 }

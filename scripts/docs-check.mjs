@@ -13,7 +13,8 @@
  *
  * ## 它守住什么
  * 单测条数与文件数、**逐文件单测条数**、E2E 条数、受测层分支覆盖率、构建产物体积、
- * **注册表卡数**、**CI job 数**、**Rust 单测条数**、**版本号同源**。
+ * **注册表卡数**、**CI job 数**、**Rust 单测条数**、**线上产物口径**（安装包名 + sha256，期望值取自
+ * `release-manifest.json` 台账，见 `release-artifact-facts.mjs`）、**版本号同源**。
  * 全部实跑或实读文件，不接受任何"文档里写的"作为输入。
  * 其中覆盖率是**下限承诺**（`≥N%`）：同一份代码在不同 V8 / 平台间会差出 0.01 个百分点以上，
  * 等值核对会把环境抖动报成文档漂移（实测 CI 两次跑出 93.74 / 93.75，本机与 CI 的逐文件
@@ -28,19 +29,72 @@
 import { execSync } from 'node:child_process';
 import { readFileSync, readdirSync, statSync, existsSync } from 'node:fs';
 import { join, resolve, relative } from 'node:path';
+import { checkArtifactLine, latestArtifact } from './release-artifact-facts.mjs';
+import { claimRe } from './docs-check-claims.mjs';
 
 const root = resolve(process.cwd());
 const MARK = '<!-- facts -->';
-const TARGETS = ['README.md', 'docs/ARCHITECTURE.md'];
+// CARD-CATALOG 是 2026-10-12 纳进来的，理由与 CHANGELOG 被排除的理由正好是一对：
+//   · CHANGELOG **不该进** —— 它记的是"当时那一刻"（发布说明里的「新增 N 条单测」），
+//     拿今天的文件去比是必然的误报；
+//   · CARD-CATALOG **该进** —— 它是"当前有多少种卡"的**权威声明**，而且它此前就已经
+//     和 README / ARCHITECTURE 记着同一个事实（那两处有门禁、它这一处没有）。
+//     加卡的人会被 README 那道门逼着改，却不会想起这里 —— 同一事实只守住一半，等于没守。
+// 2026-10-12 实测这个缺口**当场就付过代价**：批次 5 把注册表推到 49 种卡时，
+// ARCHITECTURE:369 的权威值被更新了，而 CARD-CATALOG 首行停在「41 张」没人动。
+const TARGETS = ['README.md', 'docs/ARCHITECTURE.md', 'docs/CARD-CATALOG.md'];
 
 function sh(cmd) {
   return execSync(cmd, { cwd: root, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
 }
 
+/**
+ * vitest 非零退出时，把**是哪条测试红**打出来再收场。
+ *
+ * 来历（2026-10-16 变异抽查现场）：这里原先直接让 `execSync` 抛出去，于是任何一条单测红 ——
+ * 哪怕跟文档一个字的关系都没有 —— 这条门都以一段 Node 堆栈结束。两个后果：
+ *   1. CI 日志里看不到失败测试的名字（堆栈只有 `Error: Command failed` + `status: 1`）；
+ *   2. 「文档数字漂了」与「单测本身红了」共用同一个 exit 1，排查的人按错的方向查。
+ * 报告文件在 vitest 失败时**通常仍然写出来了**（json reporter 在退出前落盘），所以先读它。
+ */
+function bailOnRedTests(reportPath, err) {
+  console.error('✗ 单测没全绿 —— 文档数字核对无从谈起（先修测试，再谈哪一行的数字漂了）。');
+  let listed = 0;
+  try {
+    const raw = JSON.parse(readFileSync(resolve(root, reportPath), 'utf8'));
+    const fails = [];
+    for (const f of raw.testResults ?? []) {
+      for (const t of f.assertionResults ?? []) {
+        if (t.status === 'failed') {
+          fails.push(`${relative(root, f.name ?? '')} :: ${t.title}（${Math.round(t.duration ?? -1)} ms）`);
+        }
+      }
+    }
+    listed = fails.length;
+    for (const s of fails.slice(0, 10)) console.error(`    ${s}`);
+    if (fails.length > 10) console.error(`    …另有 ${fails.length - 10} 条`);
+  } catch {
+    /* 报告没落盘或不可解析：下面如实说读不到，不猜 */
+  }
+  if (!listed) console.error(`    拿不到失败清单（${reportPath} 缺失或读不出 JSON）`);
+  const tail = String(err?.stderr ?? err?.message ?? '')
+    .trim()
+    .split(/\r?\n/)
+    .filter(Boolean)
+    .slice(-3)
+    .join(' | ');
+  if (tail) console.error(`    vitest 原始输出末尾：${tail.slice(0, 300)}`);
+  process.exit(1);
+}
+
 /** 单测与属性测试：条数 + 测试**文件**数。走 vitest 自己的 json reporter，不数 `it(` 那种会漏的写法 */
 function unitFacts() {
   const out = 'node_modules/.tmp/docs-check-vitest.json';
-  sh(`npx vitest run --reporter=json --outputFile=${out}`);
+  try {
+    sh(`npx vitest run --reporter=json --outputFile=${out}`);
+  } catch (err) {
+    bailOnRedTests(out, err);
+  }
   const raw = JSON.parse(readFileSync(resolve(root, out), 'utf8'));
   // 注意别用 numTotalTestSuites —— 那是 describe 块 + 文件的合计，与文档里"27 个文件"口径不同。
   // 文档写的是**文件数**，所以直接数 tests/ 下的 .test.ts。
@@ -161,22 +215,46 @@ function ciJobFacts() {
  *
  * 必须扣：`tests/release_signature.rs` 那条是**发布门禁**，CI 上没有安装包产物、默认不跑，
  * 而文档报的是 `cargo test` 实际执行的条数。不扣就和 CI 的输出对不上。
- * 不递归、只走 `src-tauri/src` 与 `src-tauri/tests` 两个目录，也**绝不进 `src-tauri/target/`**
+ * 从 `src-tauri/src` 与 `src-tauri/tests` **递归**收集，只跳过 `target/`
  * （那底下有依赖源码副本，数进来会大一个数量级）。
+ *
+ * ── 2026-10-16 修：这里原来是**不递归**的 ────────────────────────────────
+ * 原写法用 `readdirSync(dir)` 只取顶层 `.rs`，而 `#[test]` 早就有一半住在子目录里
+ * （`ai/`、`capture/`、`meeting/`）。于是它数出 **46**，而 `cargo test` 实跑 **93** ——
+ * 差的那 47 条一条都没进判据。这与本文件开头批的那两个坑是同一族：
+ * **判据与它声明的语义不一致**（声明"Rust 单测条数"，实际只数了顶层文件），
+ * 而它又不报错，看上去一直在守。改递归后实测 95 − 2 = 93，与 `cargo test` 逐条对上。
  */
 function rustFacts() {
   let tests = 0;
   let ignored = 0;
-  for (const dir of [resolve(root, 'src-tauri/src'), resolve(root, 'src-tauri/tests')]) {
-    if (!existsSync(dir)) continue;
-    for (const f of readdirSync(dir)) {
-      if (!f.endsWith('.rs')) continue;
-      const src = readFileSync(join(dir, f), 'utf8');
-      tests += (src.match(/^\s*#\[test\]/gm) ?? []).length;
-      ignored += (src.match(/^\s*#\[ignore\b/gm) ?? []).length;
+  const walk = (dir) => {
+    for (const e of readdirSync(dir, { withFileTypes: true })) {
+      if (e.isDirectory()) {
+        if (e.name === 'target') continue; // 依赖源码副本，绝不能进去
+        walk(join(dir, e.name));
+      } else if (e.name.endsWith('.rs')) {
+        const src = readFileSync(join(dir, e.name), 'utf8');
+        tests += (src.match(/^\s*#\[test\]/gm) ?? []).length;
+        ignored += (src.match(/^\s*#\[ignore\b/gm) ?? []).length;
+      }
     }
+  };
+  for (const dir of [resolve(root, 'src-tauri/src'), resolve(root, 'src-tauri/tests')]) {
+    if (existsSync(dir)) walk(dir);
   }
   return { rust: tests - ignored, rustIgnored: ignored };
+}
+
+/**
+ * 线上产物：期望值来自台账，不来自文档。
+ * 台账本身由 `release-manifest.mjs` 与 GitHub 真实资产对账，所以这一维是"文档 ⇐ 台账 ⇐ 线上"的链条，
+ * 中间不需要人再抄一次哈希。
+ */
+function releaseFacts() {
+  const path = process.env.DOCS_RELEASE_MANIFEST ?? resolve(root, 'release-manifest.json');
+  const { rel, why } = latestArtifact(path);
+  return { release: rel, releaseWhy: why, releasePath: path };
 }
 
 const facts = {
@@ -187,6 +265,7 @@ const facts = {
   ...registryFacts(),
   ...ciJobFacts(),
   ...rustFacts(),
+  ...releaseFacts(),
 };
 
 /**
@@ -236,7 +315,7 @@ if (process.argv.includes('--print')) {
  * 后者是"一个星号、可选第二个"，对 `**312**` 永远不匹配（害我把三处正确数字报成红）。
  */
 const RULES = [
-  { key: '单测条数', kw: /单测[^\n]{0,24}条/, want: () => String(facts.tests), re: (v) => new RegExp(`(?:\\*\\*)?${v}(?:\\*\\*)?\\s*条`) },
+  { key: '单测条数', kw: /单测[^\n]{0,24}条/, want: () => String(facts.tests), re: (v) => claimRe(v, '条') },
   {
     // 逐文件单测条数：只核对**紧跟测试文件路径后的那个数**，真值取自 `facts.perFile`。
     //
@@ -271,8 +350,8 @@ const RULES = [
       return { ok: true };
     },
   },
-  { key: '单测文件数', kw: /\d+\s*(?:个)?文件/, want: () => String(facts.files), re: (v) => new RegExp(`${v}\\s*(?:个)?文件`) },
-  { key: 'E2E 条数', kw: /E2E[^\n]{0,12}条/, want: () => String(facts.e2e), re: (v) => new RegExp(`(?:\\*\\*)?${v}(?:\\*\\*)?\\s*条`) },
+  { key: '单测文件数', kw: /\d+\s*(?:个)?文件/, want: () => String(facts.files), re: (v) => claimRe(v, '(?:个)?文件') },
+  { key: 'E2E 条数', kw: /E2E[^\n]{0,12}条/, want: () => String(facts.e2e), re: (v) => claimRe(v, '条') },
   {
     // 覆盖率是全表唯一一条**下限承诺**，不做等值核对：这个数会随环境与运行抖动
     // （实测 CI 两次跑出 93.74 / 93.75；本机 Node 26 与 CI Node 22 的 V8 对个别文件的分支计数
@@ -311,13 +390,13 @@ const RULES = [
     key: '注册表卡数',
     kw: /\d+\s*种卡/,
     want: () => String(facts.cards),
-    re: (v) => new RegExp(`(?:\\*\\*)?${v}(?:\\*\\*)?\\s*种卡`),
+    re: (v) => claimRe(v, '种卡'),
   },
   {
     key: 'CI job 数',
     kw: /\d+\s*个\s*job/,
     want: () => String(facts.jobs),
-    re: (v) => new RegExp(`(?:\\*\\*)?${v}(?:\\*\\*)?\\s*个\\s*job`),
+    re: (v) => claimRe(v, '个\\s*job'),
   },
   {
     // 「Rust 单测 N 条」的写法要连着 Rust 才算这个维度，否则 ARCHITECTURE 那行里的
@@ -326,7 +405,20 @@ const RULES = [
     key: 'Rust 单测条数',
     kw: /Rust[^\n]{0,8}单测[^\n]{0,10}条/,
     want: () => String(facts.rust),
-    re: (v) => new RegExp(`Rust[^\\n]{0,8}单测\\s*(?:\\*\\*)?${v}(?:\\*\\*)?\\s*条`),
+    re: (v) => claimRe(v, '条', 'Rust[^\\n]{0,8}单测\\s*'),
+  },
+  {
+    // 「当前线上发布产物是 `Modulo_x.y.z_x64-setup.exe`（sha256 …）」这类**对外承诺**。
+    // 它此前不在任何门的射程里，于是 §11.4 那一句在线上已经 0.8.1 的情况下停在 0.7.0 好几版。
+    // 判据与来历见 `release-artifact-facts.mjs`：走**存在式**核对（行里要出现台账认定的那个安装包名，
+    // 且行里认领的哈希至少一条对得上）—— 同一行还合法地留着一长串**历史**版本与哈希，
+    // 按"最后一个数"或"每个数都要对"去比就是把留档当现状，那是误报，而误报的门会被绕过。
+    key: '线上产物',
+    kw: /Modulo_\d+\.\d+\.\d+_x64-setup\.exe/,
+    custom: (line) =>
+      facts.releaseWhy
+        ? { ok: false, why: `${facts.releaseWhy} —— 产物口径核对不了，不许算通过（台账：${facts.releasePath}）` }
+        : checkArtifactLine(line, facts.release),
   },
 ];
 

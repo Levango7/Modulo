@@ -308,6 +308,30 @@ export const REGISTRY: ModuleRegistry = [
     ],
   },
   {
+    id: 'stocks',
+    title: '股票行情',
+    group: '联网',
+    // 东财 push2：CORS 全开 + UTF-8 + 价格给「分」整数 —— 纯前端可做，网页/桌面一致
+    blurb: '自选指数/个股的现价与涨跌（东财数据）',
+    defaultVariant: 'list',
+    variants: [
+      { id: 'list', name: '可增删', minW: 3, minH: 3, idealW: 4, idealH: 5 },
+      { id: 'quick', name: '只看行情', minW: 2, minH: 2, idealW: 3, idealH: 3 },
+    ],
+  },
+  {
+    id: 'rss',
+    title: 'RSS 订阅',
+    group: '联网',
+    // 真实源实测全无 CORS 头 → 浏览器侧拦死；桌面壳走 fetch_text 全读（还解 GBK）
+    blurb: '常读源的最新标题（桌面壳每 5 分钟）',
+    defaultVariant: 'list',
+    variants: [
+      { id: 'list', name: '带管理', minW: 3, minH: 4, idealW: 4, idealH: 6 },
+      { id: 'quick', name: '只看标题', minW: 3, minH: 3, idealW: 4, idealH: 4 },
+    ],
+  },
+  {
     id: 'sysmon',
     title: '系统监控',
     group: '工具',
@@ -317,6 +341,43 @@ export const REGISTRY: ModuleRegistry = [
     variants: [
       { id: 'panel', name: '全指标', minW: 3, minH: 3, idealW: 4, idealH: 4 },
       { id: 'mini', name: '精简', minW: 2, minH: 2, idealW: 3, idealH: 3 },
+    ],
+  },
+  {
+    id: 'http',
+    title: '网页取数',
+    group: '联网',
+    // 声明式扩展第一层（2026-10-13 批 3）：填 https 接口 + 取值路径，宿主抓取渲染。
+    // 边界与网页监控同源（只 https、拒私网）；网页版先试原生 fetch、失败如实说需要桌面壳
+    blurb: '自定一个 JSON 接口，取某个字段显示（热搜/汇率/股价…）',
+    defaultVariant: 'value',
+    variants: [
+      { id: 'value', name: '大数字', minW: 3, minH: 2, idealW: 4, idealH: 3 },
+      { id: 'list', name: '列表', minW: 3, minH: 3, idealW: 4, idealH: 4 },
+    ],
+  },
+  {
+    id: 'launcher',
+    title: '速达',
+    group: '工具',
+    // 数学：桌面壳用 ShellExecuteW（等价双击，UAC 由系统弹）；网页版只列不打开
+    blurb: '常用程序 / 网页 / 文件收成点一下就开的收藏',
+    defaultVariant: 'grid',
+    variants: [
+      { id: 'grid', name: '图标墙', minW: 3, minH: 2, idealW: 4, idealH: 3 },
+      { id: 'list', name: '清单', minW: 3, minH: 3, idealW: 4, idealH: 4 },
+    ],
+  },
+  {
+    id: 'htmlcard',
+    title: '自定卡',
+    group: '工具',
+    // 数学：片段跑在 sandbox="allow-scripts" 的 iframe 里（opaque origin，实测父 DOM/storage 全拒）
+    blurb: '自己写一段 HTML 渲染成卡（沙箱里跑，碰不到应用数据）',
+    defaultVariant: 'panel',
+    variants: [
+      { id: 'panel', name: '整卡', minW: 3, minH: 3, idealW: 4, idealH: 4 },
+      { id: 'mini', name: '小格', minW: 2, minH: 2, idealW: 3, idealH: 3 },
     ],
   },
   {
@@ -507,6 +568,35 @@ export const REGISTRY: ModuleRegistry = [
     variants: [
       { id: 'next', name: '下一假', minW: 2, minH: 2, idealW: 3, idealH: 3 },
       { id: 'list', name: '全年表', minW: 3, minH: 4, idealW: 4, idealH: 6 },
+    ],
+  },
+  // ---- Phase 3 新增（2026-10-16）----
+  {
+    id: 'minutes',
+    title: '会议速记',
+    group: '记录',
+    // 归「记录」而不是「工具」：它产出的是留档的转写稿，与「速记」是同一族
+    // 录制与转写全程在本机（Rust 侧 cpal 采 + sherpa-onnx 断句），没有云端调用；
+    // 网页版拿不到本机音频、也起不了录音会话 → 如实说不可用，不摆一排点了没反应的假控件
+    blurb: '录麦克风 / 系统声音，本机断句成转写稿（仅桌面壳）',
+    defaultVariant: 'panel',
+    variants: [
+      // panel 要放下：音源与设备两行 + 计时 + 主按钮 + 实时字幕，3×4 起
+      { id: 'panel', name: '带设备与字幕', minW: 3, minH: 4, idealW: 4, idealH: 6 },
+      { id: 'compact', name: '紧凑', minW: 3, minH: 3, idealW: 4, idealH: 4 },
+    ],
+  },
+  {
+    id: 'winview',
+    title: '窗口预览',
+    group: '工具',
+    // 仅桌面壳（Rust WGC 捕获，帧走 Channel 的 Raw 字节）；网页版读不到本机窗口画面
+    blurb: '实时看某个窗口的画面（仅桌面壳）',
+    defaultVariant: 'panel',
+    variants: [
+      // panel = 画面 + 帧率/宽度档 + 窗口列表，3×3 起；mini 砍掉档位与列表，只留画面
+      { id: 'panel', name: '带窗口列表', minW: 3, minH: 3, idealW: 4, idealH: 5 },
+      { id: 'mini', name: '只留画面', minW: 2, minH: 2, idealW: 3, idealH: 3 },
     ],
   },
 ]

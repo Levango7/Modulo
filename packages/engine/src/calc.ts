@@ -13,6 +13,15 @@
  * 计算器私货 —— 那套规则每个厂商都不一样，猜错比没有更糟。
  *
  * 永不抛异常：坏表达给 `error`，`value` 为 `NaN`。
+ *
+ * ## 嵌套深度上限（2026-10-11 补）
+ *
+ * 递归下降是**按嵌套深度吃栈**的：`primary → expression → term → unary → postfix → primary`
+ * 每层括号约 6 个栈帧。实测（node 22，本机默认栈）：**1000 层括号正常、2000 层抛
+ * `RangeError: Maximum call stack size exceeded`** —— 而上面那句「永不抛异常」当时**并不成立**：
+ * `evaluate` 的 catch 只接 `CalcError`，栈溢出会原样漏给调用方（浏览器的栈通常比 node 更小，
+ * 会更早触发）。修法是两道：`MAX_DEPTH` 先给出**明确的用户话术**，`RangeError` 再兜一层 ——
+ * 契约既然写了「永不抛」，就不能留任何一条漏出去的路径。
  */
 
 export interface CalcResult {
@@ -24,6 +33,12 @@ type Token = { type: 'num'; value: number } | { type: 'op'; value: string } | { 
 
 /** 解析内部的失败信号：`evaluate` 捕获后转成 `error` 文案。它**不会**漏到调用方去 */
 class CalcError extends Error {}
+
+/**
+ * 嵌套深度上限。取值依据是实测：1000 层才接近栈的物理极限（2000 层溢出），
+ * 而**真实用户不会写超过个位数层的括号** —— 100 层既远离危险区，又不可能误伤正常输入。
+ */
+const MAX_DEPTH = 100
 
 function tokenize(src: string): Token[] | null {
   const tokens: Token[] = []
@@ -60,8 +75,21 @@ function tokenize(src: string): Token[] | null {
 
 function makeParser(tokens: Token[]) {
   let pos = 0
+  /** 当前递归深度。两个会自我递归的地方（括号、一元负号）进来前都要过这一关 */
+  let depth = 0
   const peek = (): Token | null => tokens[pos] ?? null
   const take = (): Token | null => tokens[pos++] ?? null
+
+  /** 进一层递归。用 try/finally 包住，保证无论正常返回还是抛错都退回来 */
+  function descend<T>(f: () => T): T {
+    depth += 1
+    if (depth > MAX_DEPTH) throw new CalcError('嵌套太深了')
+    try {
+      return f()
+    } finally {
+      depth -= 1
+    }
+  }
 
   function expression(): number {
     let left = term()
@@ -94,7 +122,8 @@ function makeParser(tokens: Token[]) {
     const t = peek()
     if (t && t.type === 'op' && t.value === '-') {
       take()
-      return -unary()
+      // `----1` 这种连续负号也是递归，一样要计入深度
+      return descend(() => -unary())
     }
     return postfix()
   }
@@ -116,7 +145,7 @@ function makeParser(tokens: Token[]) {
       return t.value
     }
     if (t.type === 'paren' && t.value === '(') {
-      const v = expression()
+      const v = descend(expression)
       const close = take()
       if (!close || close.type !== 'paren' || close.value !== ')') throw new CalcError('括号没配对')
       return v
@@ -140,6 +169,10 @@ export function evaluate(expr: string): CalcResult {
     return { value: makeParser(tokens)(), error: null }
   } catch (e) {
     if (e instanceof CalcError) return { value: Number.NaN, error: e.message }
+    // 兜底：`MAX_DEPTH` 本应先挡住，但**栈的物理极限随宿主变化**（浏览器的栈通常比 node 小），
+    // 所以这里再兜一层。文件头承诺「永不抛异常」，就不能有任何一条路径漏出去。
+    // 只兜 RangeError（栈溢出），其他异常照旧上抛 —— 别把真正的 bug 一起吞了。
+    if (e instanceof RangeError) return { value: Number.NaN, error: '表达式太深，算不了' }
     throw e
   }
 }

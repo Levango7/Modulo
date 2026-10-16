@@ -1,6 +1,7 @@
 import { LOGICAL_COLS, SCHEMA_VERSION } from './types.js'
 import type { LayoutDoc, ModuleRegistry } from './types.js'
-import { sanitizeItems } from './validate.js'
+import { sanitizeItems, sanitizeRows } from './validate.js'
+import { pruneRows } from './rows.js'
 
 export interface ParseResult {
   doc: LayoutDoc
@@ -93,8 +94,12 @@ export function parseLayout(raw: string, reg: ModuleRegistry, to: number = CURRE
   const obj = (m.raw ?? {}) as Partial<LayoutDoc>
   const cols = typeof obj.cols === 'number' && obj.cols > 0 ? Math.min(obj.cols, LOGICAL_COLS) : LOGICAL_COLS
   const { items, warnings } = sanitizeItems(obj.items, reg, cols)
+  // 行容器：清洗 + 孤儿剥除后，空行连同行头那一行一起收回（pruneRows 会平移下方内容）
+  const rowsRes = sanitizeRows(obj.rows, items)
+  warnings.push(...rowsRes.warnings)
+  const withRows = rowsRes.rows.length ? pruneRows({ schemaVersion: CURRENT_SCHEMA_VERSION, cols, items: rowsRes.items, rows: rowsRes.rows }) : { items: rowsRes.items, rows: undefined }
   if (m.note) warnings.unshift(m.note)
   // 迁不动的（缺步骤、数据不是对象）仍按原路径读，让 sanitize 去处理
   else if (version > CURRENT_SCHEMA_VERSION) warnings.push(`schemaVersion ${version} 高于当前支持版本，按 v${CURRENT_SCHEMA_VERSION} 读取`)
-  return { doc: { schemaVersion: CURRENT_SCHEMA_VERSION, cols, items }, warnings }
+  return { doc: { schemaVersion: CURRENT_SCHEMA_VERSION, cols, items: withRows.items, ...(withRows.rows?.length ? { rows: withRows.rows } : {}) }, warnings }
 }

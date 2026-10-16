@@ -11,7 +11,7 @@ const cards = inject<CardDataApi>('cardData')!
   <div class="card">
     <div v-if="!chromeless" class="card-head"><StickyNote :size="14" /><span>便签</span></div>
     <div class="card-body">
-      <textarea v-model="cards.state.sticky" class="pad" placeholder="随手记…" spellcheck="false" />
+      <textarea v-model="cards.state.sticky" class="pad" placeholder="随手记…" aria-label="便签内容" spellcheck="false" />
     </div>
   </div>
 </template>

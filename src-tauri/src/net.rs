@@ -261,6 +261,49 @@ pub fn get(url: &str) -> Result<HttpResult, String> {
     })
 }
 
+/// 从响应体前 1KB 里嗅探 XML/HTML 声明的 `encoding="…"`，给不出就按 UTF-8。
+///
+/// 为什么从**内容**嗅探而不是查 Content-Type 响应头：本机的 WinHttpQueryHeaders
+/// 对各种 info level 一律返回 ERROR_WINHTTP_SECURE_FAILURE（见文件头），头这条路
+/// 是坏的 —— 内容里的 XML 声明（`<?xml version="1.0" encoding="gbk"?>`）反而是
+/// RSS/Atom 里最可靠的声明位置。纯函数，测试壳里可单测。
+pub fn sniff_charset(head: &[u8]) -> &'static str {
+    // 只看前 1KB：声明必然在最前面，多看浪费
+    let window = &head[..head.len().min(1024)];
+    let lower: Vec<u8> = window.iter().map(|b| b.to_ascii_lowercase()).collect();
+    let needle = b"encoding=";
+    let mut from = 0usize;
+    while let Some(at) = find_sub(&lower[from..], needle) {
+        let start = from + at + needle.len();
+        // 标签可能带引号：encoding="gbk" / encoding='gb2312'
+        let mut rest = &lower[start..];
+        rest = rest
+            .strip_prefix(b"\"")
+            .or_else(|| rest.strip_prefix(b"'"))
+            .unwrap_or(rest);
+        rest = &rest[..rest.len().min(8)];
+        // GB2312 是 GBK 的子集，声明 gb2312 的按 gbk 解最稳
+        if rest.starts_with(b"gbk") || rest.starts_with(b"gb2312") {
+            return "gbk";
+        }
+        if rest.starts_with(b"big5") {
+            return "big5";
+        }
+        from = start;
+        if from >= lower.len() {
+            break;
+        }
+    }
+    "utf-8"
+}
+
+fn find_sub(hay: &[u8], needle: &[u8]) -> Option<usize> {
+    if needle.is_empty() || hay.len() < needle.len() {
+        return None;
+    }
+    (0..=hay.len() - needle.len()).find(|&i| &hay[i..i + needle.len()] == needle)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -272,6 +315,21 @@ mod tests {
         assert!(split_target("ftp://example.com/").is_err());
         assert!(split_target("https://").is_err());
         assert!(split_target("https:///path").is_err());
+    }
+
+    #[test]
+    fn 嗅探字符集只在_encoding_后认标签() {
+        // XML 声明带引号：gb2312 归一成 gbk（子集按超集解最稳）
+        let gbk_head = b"<?xml version=\"1.0\" encoding=\"gb2312\"?><rss>".to_vec();
+        assert_eq!(sniff_charset(&gbk_head), "gbk");
+        let gbk_head2 = b"<?xml version=\"1.0\" encoding=\"GBK\"?><rss>".to_vec();
+        assert_eq!(sniff_charset(&gbk_head2), "gbk");
+        // 单引号形式
+        let big5_head = b"<?xml version='1.0' encoding='big5'?><feed>".to_vec();
+        assert_eq!(sniff_charset(&big5_head), "big5");
+        // 没有声明按 UTF-8
+        assert_eq!(sniff_charset(b"<?xml version=\"1.0\"?><rss>"), "utf-8");
+        assert_eq!(sniff_charset(b""), "utf-8");
     }
 
     #[test]

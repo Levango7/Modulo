@@ -8,6 +8,39 @@ Modulo 的布局投影引擎。**一份 12 列逻辑版面，按容器宽度投�
 import { project, projectForWidth, parseLayout, EMPTY_REGISTRY } from '@levango7/engine'
 ```
 
+## 安装
+
+```bash
+npm install @levango7/engine
+```
+
+**已发布**：npm 上 `latest` = `0.8.1`（2026-10-13 首发，发行名 `@levango7/engine`）。
+
+## 最小示例
+
+```js
+import { project, projectForWidth, emptyDoc } from '@levango7/engine'
+
+// 卡片形态注册表：最小字段 id/title/defaultVariant/variants
+const registry = [{
+  id: 'clock', title: '时钟', defaultVariant: 'big',
+  variants: [{ id: 'big', name: '大时钟', minW: 3, minH: 3, idealW: 4, idealH: 3 }],
+}]
+
+// 布局文档：emptyDoc() 给出 { schemaVersion, cols: 12, items: [] }
+const doc = {
+  ...emptyDoc(),
+  items: [{ id: 'clock', variant: 'big', x: 0, y: 0, w: 4, h: 3 }],
+}
+
+// 按容器宽直接投影（390px → 自动降档到 1 档堆叠，不产生碎片卡）
+const { rects } = projectForWidth(doc, registry, 390)
+// rects: [{ id: 'clock', x, y, w, h, downgraded, ... }]
+
+// 或指定物理列数（12 即逻辑坐标逐字段等同）
+const fixed = project(doc, registry, 12)
+```
+
 ## 包内有什么
 
 - `projection` / `breakpoints` / `downgrade` / `fit` / `fitHeight` —— 投影与降档；

@@ -1,5 +1,6 @@
 import { anyCollides, clamp } from './geometry.js'
 import { findFreeSpot } from './spot.js'
+import { pruneRows } from './rows.js'
 import { findModule, resolveVariant, TITLE_MAX } from './types.js'
 import type { LayoutDoc, ModuleRegistry, Placement } from './types.js'
 
@@ -45,13 +46,14 @@ export function addItem(
 
 export function removeItem(doc: LayoutDoc, id: string): LayoutDoc | null {
   if (!indexOf(doc, id)) return null
-  return withItems(doc, others(doc, id))
+  // 删卡后剪空行：行里最后一张卡被移走 = 行没了（连行头那一行一起收回）
+  return pruneRows(withItems(doc, others(doc, id)))
 }
 
 export function removeMany(doc: LayoutDoc, ids: readonly string[]): LayoutDoc | null {
   const set = new Set(ids)
   if (!ids.length || !doc.items.some((p) => set.has(p.id))) return null
-  return withItems(doc, doc.items.filter((p) => !set.has(p.id)))
+  return pruneRows(withItems(doc, doc.items.filter((p) => !set.has(p.id))))
 }
 
 /**
@@ -178,5 +180,6 @@ export function toggleLock(doc: LayoutDoc, id: string): LayoutDoc | null {
 }
 
 export function clearLayout(doc: LayoutDoc): LayoutDoc {
-  return withItems(doc, [])
+  // 清空版面必须连行一起清：留着孤儿行，下一次加载 sanitize 才收掉，会话内它们已经看不见了
+  return { ...withItems(doc, []), rows: undefined }
 }

@@ -108,7 +108,7 @@ fn last_error_code() -> u32 {
 /// 证书校验用 WinHTTP 默认行为（会验）：没有必要为省一次握手把校验关掉，
 /// 而关掉它就等于允许任意中间人替换响应体 —— 对「监控」这种要拿结果做判断的功能，
 /// 那会让整个判据失去意义。
-pub fn get(host: &str, target: &str, url: &str) -> Result<(Option<u16>, String), String> {
+fn get_bytes(host: &str, target: &str, url: &str) -> Result<(Option<u16>, Vec<u8>), String> {
     // SAFETY: 下面每个指针都指向本函数里活着的 Vec<u16>，长度以 NUL 结尾，
     // 且句柄都由 Handle 持有并在退出时关闭。
     unsafe {
@@ -221,9 +221,18 @@ pub fn get(host: &str, target: &str, url: &str) -> Result<(Option<u16>, String),
             }
         }
 
-        let body = String::from_utf8_lossy(&body).into_owned();
         Ok((status, body))
     }
+}
+
+/// 同一次取数，按内容声明选解码：先在前 1KB 里找 XML/HTML 的 encoding 声明，
+/// 找不到按 UTF-8。WinHTTP 查响应头这条路在本机是坏的（见文件头），charset 只能从内容嗅探。
+pub fn get(host: &str, target: &str, url: &str) -> Result<(Option<u16>, String), String> {
+    let (status, bytes) = get_bytes(host, target, url)?;
+    let label = crate::net::sniff_charset(&bytes);
+    let encoding = encoding_rs::Encoding::for_label(label.as_bytes()).unwrap_or(encoding_rs::UTF_8);
+    let (text, _enc, _had_errors) = encoding.decode(&bytes);
+    Ok((status, text.into_owned()))
 }
 
 /// 查 HTTP 状态码。
