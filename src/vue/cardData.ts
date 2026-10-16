@@ -8,15 +8,22 @@ import {
   normalizeHhmm,
   normalizeUrl,
   sanitizeCommands,
+  sanitizeFeeds,
   sanitizeProbes,
+  sanitizeStocks,
   sanitizeLinks,
   sanitizeWatch,
   sanitizeMeetingCityIds,
   type CommandEntry,
+  type FeedSource,
   type ProbeTarget,
+  type StockEntry,
   type QuickLink,
   type Watch,
 } from '@levango7/engine'
+import { sanitizeEndpoints, type HttpEndpoint } from '@levango7/engine/http'
+import { sanitizeLaunch, type LaunchItem } from '@levango7/engine/launcher'
+import { MAX_HTML_CARDS, sanitizeHtmlCards, validateSnippet, type HtmlCard } from '@levango7/engine/htmlcard'
 import { browserStorage } from './store'
 
 /** 四个计时器在 `timers` 里的键名。动作共用一份实现（状态形状一样），所以键名也集中一处 */
@@ -186,8 +193,25 @@ export interface CardData {
   matrix: MatrixTodo[]
   /** 连通性探测的端点名单；**历史样本是机器采的，不进备份**（存独立 key） */
   probes: ProbeTarget[]
+  /** 股票自选：名单是用户写的，进备份；行情是机器采的，只在内存里 */
+  stocks: StockEntry[]
+  /** RSS 订阅名单，进备份；抓到的条目存独立 key */
+  feeds: FeedSource[]
   /** 网页监控的名单。边界（只 https、不许私网 IP）见 watch.ts 文件头 */
   watch: Watch[]
+  /**
+   * 网页取数端点（声明式扩展，2026-10-13 批 3）：用户填 URL + 取值路径，宿主抓取渲染。
+   * 判据与 watch 同源（sanitizeEndpoints 内部复用 normalizeUrl）；**取到的数据不进备份**
+   * —— 备份要外发，别人的接口数据不该跟着走。
+   */
+  endpoints: HttpEndpoint[]
+  /** 速达收藏（用户写的，进备份）：点一下就打开的程序/网页/文件 */
+  launch: LaunchItem[]
+  /**
+   * HTML 扩展（自定卡，用户写的，进备份）：一段 HTML 片段渲染成一张卡。
+   * 渲染走 `sandbox="allow-scripts"` 的 iframe（隔离边界见引擎 htmlcard.ts 文件头）。
+   */
+  htmlCards: HtmlCard[]
   /** 固定整数位计算的输入草稿；结果全在引擎算，这里只存两个输入 */
   fixed: { base: string; rate: string; symbol: string }
   duty: DutySetting
@@ -473,6 +497,8 @@ const pickSeen = new Set<string>()
     commands: Array.isArray(o.commands) ? sanitizeCommands(o.commands as { id?: unknown; label?: unknown; cmd?: unknown }[]) : fallback.commands,
     matrix: Array.isArray(o.matrix) ? matrix : fallback.matrix,
     probes: Array.isArray(o.probes) ? sanitizeProbes(o.probes as { id?: unknown; label?: unknown; url?: unknown }[]) : fallback.probes,
+    stocks: Array.isArray(o.stocks) ? sanitizeStocks(o.stocks as { id?: unknown; label?: unknown; code?: unknown }[]) : fallback.stocks,
+    feeds: Array.isArray(o.feeds) ? sanitizeFeeds(o.feeds as { id?: unknown; label?: unknown; url?: unknown }[]) : fallback.feeds,
     // 同理走引擎的 `sanitizeWatch`。它比 sanitizeLinks 多做一件事：**丢弃不合规的条目并计数**。
     // 那是边界 5（导入别人的备份时不该把私网地址带进来）—— 被挡掉的条数要回显给用户，
     // 否则他只会看到自己的名单莫名其妙少了几条。
@@ -481,6 +507,27 @@ const pickSeen = new Set<string>()
       const r = sanitizeWatch(o.watch as { id?: unknown; label?: unknown; url?: unknown }[])
       if (r.rejected > 0) console.warn(`导入的网页监控名单里有 ${r.rejected} 条不合规（不是 https，或指向私有网段），已丢弃`)
       return r.watch
+    })(),
+    // 取数端点同 watch 的骨架：丢不合规 + 计数回显（导入别人的备份时，私网 URL 在这一步被挡）
+    endpoints: (() => {
+      if (!Array.isArray(o.endpoints)) return fallback.endpoints
+      const r = sanitizeEndpoints(
+        o.endpoints as { id?: unknown; label?: unknown; url?: unknown; refreshSec?: unknown; path?: unknown; scale100?: unknown }[],
+      )
+      if (r.rejected > 0) console.warn(`导入的取数端点里有 ${r.rejected} 条不合规（不是 https，或指向私有网段），已丢弃`)
+      return r.endpoints
+    })(),
+    htmlCards: (() => {
+      if (!Array.isArray(o.htmlCards)) return fallback.htmlCards
+      const r = sanitizeHtmlCards(o.htmlCards as { id?: unknown; title?: unknown; html?: unknown }[])
+      if (r.rejected > 0) console.warn(`导入的自定卡里有 ${r.rejected} 条没能通过校验（空片段/超长/带 </script>），已丢弃`)
+      return r.cards
+    })(),
+    launch: (() => {
+      if (!Array.isArray(o.launch)) return fallback.launch
+      const r = sanitizeLaunch(o.launch as { id?: unknown; label?: unknown; target?: unknown }[])
+      if (r.rejected > 0) console.warn(`导入的速达名单里有 ${r.rejected} 条不合规（既不是 http(s) 链接也不是绝对路径），已丢弃`)
+      return r.items
     })(),
     fixed: {
       base: typeof o.fixed === 'object' && o.fixed !== null && !Array.isArray(o.fixed) ? textOf((o.fixed as Record<string, unknown>).base, 20).trim() : fallback.fixed.base,
@@ -542,7 +589,12 @@ export function createCardData(storage = browserStorage()) {
     commands: [],
     matrix: [],
     probes: [],
+    stocks: [],
+    feeds: [],
   watch: [],
+  endpoints: [],
+  launch: [],
+  htmlCards: [],
     fixed: { base: '', rate: '', symbol: '¥' },
     duty: { roster: [], anchor: '' },
   }
@@ -567,7 +619,12 @@ export function createCardData(storage = browserStorage()) {
       commands: [...state.commands],
       matrix: [...state.matrix],
       probes: [...state.probes],
+      stocks: [...state.stocks],
+      feeds: [...state.feeds],
   watch: [...state.watch],
+      endpoints: [...state.endpoints],
+      launch: [...state.launch],
+      htmlCards: state.htmlCards.map((c) => ({ ...c })),
       'duty.roster': [...state.duty.roster],
       timers: {
         stopwatch: { ...state.timers.stopwatch },
@@ -749,11 +806,77 @@ export function createCardData(storage = browserStorage()) {
     removeProbe(id: string) {
       state.probes = state.probes.filter((p) => p.id !== id)
     },
+    /** 股票自选：代码过引擎规范化（同码不同所：前缀保留），坏代码静默拒 */
+    addStock(label: string, code: string) {
+      if (!code.trim()) return
+      const next = sanitizeStocks([...state.stocks, { label, code }])
+      if (next.length === state.stocks.length && !next.some((x) => x.code === code.trim().toLowerCase())) return
+      state.stocks = next
+    },
+    removeStock(id: string) {
+      state.stocks = state.stocks.filter((x) => x.id !== id)
+    },
+    /** RSS 订阅：与 watch/probe 同一条 URL 边界（sanitizeFeeds 走 normalizeUrl） */
+    addFeed(label: string, url: string) {
+      if (!url.trim()) return
+      const next = sanitizeFeeds([...state.feeds, { label, url }])
+      if (next.length === state.feeds.length && !next.some((x) => x.url === url.trim())) return
+      state.feeds = next
+    },
+    removeFeed(id: string) {
+      state.feeds = state.feeds.filter((f) => f.id !== id)
+    },
     /**
      * 加一条监控。`normalizeUrl` 先在**前端**过一遍边界，用户敲错时立刻有反馈；
      * 但这**不是**安全边界 —— 页面能被 XSS 改，真正的判定在 Rust 侧（`net.rs`），
      * 两边各判一次是有意的冗余，不是重复实现。
      */
+    /** 网页取数：加一个端点；返回 false = URL 不合规（调用方据此提示，不静默丢弃） */
+    addEndpoint(label: string, url: string) {
+      const { endpoints, rejected } = sanitizeEndpoints([...state.endpoints, { label, url }])
+      if (rejected > 0) return false
+      state.endpoints = endpoints
+      return true
+    },
+    removeEndpoint(id: string) {
+      state.endpoints = state.endpoints.filter((e) => e.id !== id)
+    },
+    /** 改显示参数（路径 / 刷新 / 金额模式 / 显示名）——URL 与 id 不动 */
+    tuneEndpoint(id: string, patch: { path?: string; refreshSec?: number; scale100?: boolean; label?: string }) {
+      state.endpoints = sanitizeEndpoints(state.endpoints.map((e) => (e.id === id ? { ...e, ...patch } : e))).endpoints
+    },
+    /** 速达：加一条；返回 false = 目标形状不合规（调用方据此提示） */
+    /** 自定卡：加一张；返回原因字符串（null = 成功）—— 校验信息要能原样显示给用户 */
+    addHtmlCard(title: string, html: string): string | null {
+      const check = validateSnippet(html)
+      if (!check.ok) return check.reason ?? '这条没能通过校验'
+      if (state.htmlCards.length >= MAX_HTML_CARDS) return `自定卡最多 ${MAX_HTML_CARDS} 张`
+      const id = `h${Date.now().toString(36)}`
+      state.htmlCards = [...state.htmlCards, { id, title: title.trim().slice(0, 24) || '自定卡', html }]
+      return null
+    },
+    updateHtmlCard(id: string, patch: { title?: string; html?: string }): string | null {
+      if (patch.html !== undefined) {
+        const check = validateSnippet(patch.html)
+        if (!check.ok) return check.reason ?? '这条没能通过校验'
+      }
+      state.htmlCards = state.htmlCards.map((c) =>
+        c.id === id ? { ...c, ...patch, title: (patch.title ?? c.title).trim().slice(0, 24) || c.title } : c,
+      )
+      return null
+    },
+    removeHtmlCard(id: string) {
+      state.htmlCards = state.htmlCards.filter((c) => c.id !== id)
+    },
+    addLaunch(label: string, target: string) {
+      const { items, rejected } = sanitizeLaunch([...state.launch, { label, target }])
+      if (rejected > 0) return false
+      state.launch = items
+      return true
+    },
+    removeLaunch(id: string) {
+      state.launch = state.launch.filter((x) => x.id !== id)
+    },
     addWatch(label: string, url: string) {
       const clean = normalizeUrl(url)
       if (!clean) return

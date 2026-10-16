@@ -36,15 +36,21 @@ fn doc_path(app: &AppHandle, name: &str) -> Result<PathBuf, String> {
     Ok(dir.join(format!("{name}.json")))
 }
 
-#[tauri::command]
-pub fn read_doc(app: AppHandle, name: String) -> Result<Option<String>, String> {
-    let path = doc_path(&app, &name)?;
+/// Rust 内部读 doc（非命令版）：ai 模块读 provider 配置等复用这里，
+/// 与 read_doc 共用同一套 safe_name + 路径规则，不另造一套。
+pub(crate) fn read_doc_raw(app: &AppHandle, name: &str) -> Result<Option<String>, String> {
+    let path = doc_path(app, name)?;
     match std::fs::read_to_string(&path) {
         Ok(text) => Ok(Some(text)),
         // 首次启动没有文件是正常状态，不是错误
         Err(err) if err.kind() == std::io::ErrorKind::NotFound => Ok(None),
         Err(err) => Err(format!("读 {} 失败: {err}", path.display())),
     }
+}
+
+#[tauri::command]
+pub fn read_doc(app: AppHandle, name: String) -> Result<Option<String>, String> {
+    read_doc_raw(&app, &name)
 }
 
 #[tauri::command]

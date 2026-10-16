@@ -80,6 +80,13 @@ export function createLayoutStore(opts: {
     return true
   }
 
+  /** 见 return 里 placedIds 的注释 */
+  const placedIds = computed(() => {
+    const ids = new Set(doc.value.items.map((p) => p.id))
+    for (const row of doc.value.rows ?? []) for (const st of row.stash ?? []) ids.add(st.id)
+    return ids
+  })
+
   return {
     reg,
     doc,
@@ -87,7 +94,9 @@ export function createLayoutStore(opts: {
     canUndo: computed(() => E.canUndo(hist.value)),
     canRedo: computed(() => E.canRedo(hist.value)),
     /** 库里只展示未放置的模块 */
-    available: computed(() => reg.filter((m) => !doc.value.items.some((p) => p.id === m.id))),
+    placedIds,
+    /** 库里只展示未放置的模块（含折叠现场 —— 见 placedIds） */
+    available: computed(() => reg.filter((m) => !placedIds.value.has(m.id))),
 
     add: (id: string, x: number, y: number, variant?: string) => apply(E.addItem(doc.value, reg, id, x, y, variant)),
     move: (id: string, x: number, y: number, mergeKey?: string) => apply(E.moveItem(doc.value, id, x, y), mergeKey),
@@ -104,6 +113,30 @@ export function createLayoutStore(opts: {
     moveMany: (ids: readonly string[], dx: number, dy: number, mergeKey?: string) =>
       apply(E.moveMany(doc.value, ids, dx, dy), mergeKey),
     removeMany: (ids: readonly string[]) => apply(E.removeMany(doc.value, ids)),
+    /* ---- 行容器（单层分组，引擎 rows.ts）---- */
+    /** 成组为行：成员与其下方内容下移 1 行腾出行头（见 rows.ts 文件头的偏离说明） */
+    groupIntoRow: (ids: readonly string[], title?: string) => apply(E.groupIntoRow(doc.value, ids, title)),
+    /** 解组：收回行头那一行；折叠中的行先展开 */
+    ungroupRow: (rowId: string) => apply(E.ungroupRow(doc.value, rowId)),
+    renameRow: (rowId: string, title: string) => apply(E.setRowTitle(doc.value, rowId, title)),
+    /** 折叠/展开：可逆的整段位移（折叠=隐藏成员+下方上移，展开=还原+让位） */
+    toggleRow: (rowId: string) => apply(E.toggleRowCollapsed(doc.value, rowId)),
+    /**
+     * 一键重排该行成员（阶段 C）：参数一并存进 row.auto，供「所有行重排」复用。
+     * 显式动作、可 Ctrl+Z —— 刻意不做连续自动（不偷覆盖手工微调）。
+     */
+    reflowRow: (rowId: string, params: E.AutoParams) => {
+      const next = E.autoLayout(doc.value, reg, { row: rowId }, params)
+      if (!next) return
+      apply({ ...next, rows: (next.rows ?? []).map((r) => (r.id === rowId ? { ...r, auto: { per: params.per, rowH: params.rowH } } : r)) })
+    },
+    /** 所有行各按自己存的参数重排一遍（排布菜单入口） */
+    reflowAllRows: () => apply(E.autoLayoutAllRows(doc.value, reg)),
+        /** 行头拖动 = 整组移动（复用 moveMany 的语义与让位规则） */
+    moveRow: (rowId: string, dx: number, dy: number) => {
+      const members = doc.value.items.filter((p) => p.row === rowId).map((p) => p.id)
+      if (members.length) apply(E.moveMany(doc.value, members, dx, dy))
+    },
     toggleLockMany: (ids: readonly string[]) => {
       const set = new Set(ids)
       const next = !doc.value.items.find((p) => set.has(p.id))?.locked
@@ -124,6 +157,12 @@ export function createLayoutStore(opts: {
     templateId,
     firstRun,
     restoreStarter: () => applyTemplate(E.DEFAULT_TEMPLATE_ID),
+    /**
+     * 整份替换成快照 —— 编辑器的「取消」用它（进编辑器时拍一张，取消时还原）。
+     * 刻意复用 apply 而不是直接赋值：还原因此**本身就是一步可撤销的历史**
+     * （Ctrl+Z 能把"取消"再踩回去），而不是把历史撕开一个洞。
+     */
+    restore: (snapshot: E.LayoutDoc) => apply(snapshot),
     undo: () => {
       hist.value = E.undo(hist.value)
       doc.value = E.currentDoc(hist.value)

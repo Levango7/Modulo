@@ -113,3 +113,67 @@ describe('layout store', () => {
     expect(s.warnings.value.length).toBeGreaterThan(0)
   })
 })
+
+describe('行容器与 store 的交互（阶段 B）', () => {
+  it('折叠的成员不回流模块库（placedIds 含折叠现场；曾能从库里再拖一份进来）', () => {
+    const s = fresh()
+    s.add('clock', 0, 0)
+    s.add('sticky', 0, 4)
+    s.groupIntoRow(['clock'])
+    expect(s.available.value.some((m) => m.id === 'clock'), '成组后仍在版面上（不该回流）').toBe(false)
+    const rowId = s.doc.value.rows![0].id
+    s.toggleRow(rowId)
+    expect(s.doc.value.items.some((p) => p.id === 'clock'), '折叠后不在 items 里').toBe(false)
+    expect(s.available.value.some((m) => m.id === 'clock'), '折叠≠卸载：也不该回流模块库').toBe(false)
+    expect(s.placedIds.value.has('clock')).toBe(true)
+    // 展开后原样回来
+    s.toggleRow(rowId)
+    expect(s.doc.value.items.some((p) => p.id === 'clock')).toBe(true)
+  })
+
+  it('删光行里的卡：行自动消失（pruneRows 的真实入口）', () => {
+    const s = fresh()
+    s.add('clock', 0, 0)
+    s.add('sticky', 0, 4)
+    s.groupIntoRow(['clock'])
+    expect(s.doc.value.rows).toHaveLength(1)
+    s.remove('clock')
+    expect(s.doc.value.rows ?? []).toHaveLength(0)
+  })
+})
+
+describe('编辑器事务的 store 原语（restore，2026-10-12）', () => {
+  it('restore 把整份版面换回快照，并写进存储', () => {
+    const storage = memoryStorage()
+    // 出厂模板已含 clock/sticky（add 会被去重成 no-op）—— 用"移动"制造一份真实改动
+    const s = createLayoutStore({ registry: REG, storage })
+    const snapshot = s.doc.value
+    s.move('sticky', 0, 5)
+    expect(JSON.stringify(s.doc.value)).not.toBe(JSON.stringify(snapshot))
+    s.restore(snapshot)
+    expect(JSON.stringify(s.doc.value)).toBe(JSON.stringify(snapshot))
+    expect(storage.get('modulo.layout.v1')).toBe(JSON.stringify(snapshot))
+  })
+
+  it('restore 是历史里的一步：Ctrl+Z 能把"取消"再踩回去，重做也成对', () => {
+    const s = fresh()
+    const snapshot = s.doc.value
+    s.move('sticky', 0, 5)
+    const edited = JSON.stringify(s.doc.value)
+    s.restore(snapshot)
+    expect(JSON.stringify(s.doc.value)).toBe(JSON.stringify(snapshot))
+    expect(s.canUndo.value, '还原本身压了一步历史').toBe(true)
+    s.undo()
+    expect(JSON.stringify(s.doc.value), '撤销"取消"找回改动').toBe(edited)
+    s.redo()
+    expect(JSON.stringify(s.doc.value), '重做回去仍是快照').toBe(JSON.stringify(snapshot))
+  })
+
+  it('restore 同一份快照是 no-op（不产生空历史步）', () => {
+    const s = fresh()
+    const snapshot = s.doc.value
+    const undoableBefore = s.canUndo.value
+    s.restore(snapshot)
+    expect(s.canUndo.value).toBe(undoableBefore)
+  })
+})

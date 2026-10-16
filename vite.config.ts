@@ -22,6 +22,20 @@ const engineSrc = join(dirname(fileURLToPath(import.meta.url)), 'packages/engine
 export default defineConfig({
   base: process.env.PUBLIC_BASE || '/',
   plugins: [vue()],
+  /**
+   * 多页入口：`float.html` 是「脱离浮窗」的宿主页（2026-10-13）。
+   * 浮窗是独立 WebviewWindow，要加载自己的 HTML —— 不登记在这里，
+   * `vite build` 不会为它产出产物，桌面端脱离卡片就是白屏。
+   * 网页版（无 Tauri）用不到它，但产物多几 kB，换两种运行形态同一份构建。
+   */
+  build: {
+    rollupOptions: {
+      input: {
+        index: join(dirname(fileURLToPath(import.meta.url)), 'index.html'),
+        float: join(dirname(fileURLToPath(import.meta.url)), 'float.html'),
+      },
+    },
+  },
   resolve: {
     alias: [
       { find: /^@levango7\/engine$/, replacement: join(engineSrc, 'index.ts') },

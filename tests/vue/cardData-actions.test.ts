@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { nextTick } from 'vue'
-import { createCardData } from '../../src/vue/cardData'
+import { createCardData, sanitizeCardData } from '../../src/vue/cardData'
+import { emptyCardData } from '../../src/vue/backup'
 
 /**
  * `createCardData()` 的**写入动作**层。
@@ -337,6 +338,212 @@ describe('快捷链接与网页监控：加一条要过同一套清洗', () => {
   })
 })
 
+describe('网页取数端点：加一条过同一条边界，删一条按 id，显示参数可改', () => {
+  it('加：正常 https 收下；非 https / 私网 / 保留主机名一律拒绝（返回 false，不静默丢）', () => {
+    const d = memStorage().api()
+    expect(d.addEndpoint('汇率', 'https://open.er-api.com/v6/latest/CNY')).toBe(true)
+    expect(d.state.endpoints).toHaveLength(1)
+    expect(d.state.endpoints[0].refreshSec).toBe(300)
+    for (const bad of ['http://x.com/a', 'https://127.0.0.1/a', 'https://router.local/a', '']) {
+      expect(d.addEndpoint('坏', bad), `不该收下 ${bad}`).toBe(false)
+    }
+    expect(d.state.endpoints, '被拒的不该进名单').toHaveLength(1)
+  })
+
+  it('同 URL 去重（sanitizeEndpoints 的骨架与 watch 同源）', () => {
+    const d = memStorage().api()
+    d.addEndpoint('甲', 'https://a.example/x')
+    d.addEndpoint('乙', 'https://a.example/x')
+    expect(d.state.endpoints).toHaveLength(1)
+  })
+
+  it('删：按 id；改：路径/刷新/金额模式原地生效，URL 不动', () => {
+    const d = memStorage().api()
+    d.addEndpoint('甲', 'https://a.example/x')
+    const id = d.state.endpoints[0].id
+    d.tuneEndpoint(id, { path: 'data[0].price', refreshSec: 60, scale100: true, label: '股价' })
+    const e = d.state.endpoints[0]
+    expect(e.url, 'URL 不动').toBe('https://a.example/x')
+    expect(e.path).toBe('data[0].price')
+    expect(e.refreshSec).toBe(60)
+    expect(e.scale100).toBe(true)
+    expect(e.label).toBe('股价')
+    d.removeEndpoint(id)
+    expect(d.state.endpoints).toHaveLength(0)
+  })
+
+  it('改路径到非法形状 → 归零（取整份响应），刷新越界 → 夹到区间', () => {
+    const d = memStorage().api()
+    d.addEndpoint('甲', 'https://a.example/x')
+    const id = d.state.endpoints[0].id
+    d.tuneEndpoint(id, { path: 'a["b"]', refreshSec: 1 })
+    expect(d.state.endpoints[0].path).toBe('')
+    expect(d.state.endpoints[0].refreshSec).toBe(30)
+  })
+})
+
+describe('速达：加一条只认绝对路径/http(s)，删一条按 id', () => {
+  it('加：合法收下并兜底显示名；裸命令名/空目标拒绝（返回 false）', () => {
+    const d = memStorage().api()
+    expect(d.addLaunch('', 'C:\\Apps\\Code.exe')).toBe(true)
+    expect(d.state.launch).toHaveLength(1)
+    expect(d.state.launch[0].label, '空 label 兜底取末段').toBe('Code')
+    expect(d.state.launch[0].kind).toBe('file')
+    for (const bad of ['explorer.exe', '', 'ms-settings:']) {
+      expect(d.addLaunch('坏', bad), `不该收下 ${bad}`).toBe(false)
+    }
+    expect(d.state.launch).toHaveLength(1)
+  })
+
+  it('删：按 id；同目标重复加会被去重', () => {
+    const d = memStorage().api()
+    d.addLaunch('甲', 'https://e.com/a')
+    d.addLaunch('乙', 'https://e.com/a')
+    expect(d.state.launch).toHaveLength(1)
+    d.removeLaunch(d.state.launch[0].id)
+    expect(d.state.launch).toHaveLength(0)
+  })
+
+  it('导入路径：不是数组回退；坏条目丢弃并告警（同 watch/endpoints 骨架）', () => {
+    // fallback 用**真实的** emptyCardData()：手搓一个薄对象会缺嵌套结构（ledger/duty…），
+    // sanitizeCardData 读它会炸 —— 这不是它在测的形状
+    const fallback = emptyCardData()
+    expect(sanitizeCardData({ launch: 'x' }, fallback).launch).toEqual([])
+    const warned: string[] = []
+    const orig = console.warn
+    console.warn = (m) => void warned.push(String(m))
+    try {
+      const r = sanitizeCardData({ launch: [{ target: 'C:\\a\\b.exe' }, { target: 'cmd.exe' }] }, fallback)
+      expect(r.launch.map((x) => x.target)).toEqual(['C:\\a\\b.exe'])
+      expect(warned.some((m) => m.includes('速达')), '丢弃要回显').toBe(true)
+    } finally {
+      console.warn = orig
+    }
+  })
+})
+
+describe('自定卡（HTML 扩展）：加/改/删与校验原因', () => {
+  it('加：合法片段收下；空片段/超长返回原因（不静默丢）', () => {
+    const d = memStorage().api()
+    expect(d.addHtmlCard('测试', '<b>你好</b>')).toBeNull()
+    expect(d.state.htmlCards).toHaveLength(1)
+    expect(d.state.htmlCards[0].title).toBe('测试')
+    expect(d.addHtmlCard('', '  '), '空片段要给原因').toContain('写点什么')
+    expect(d.addHtmlCard('', 'x'.repeat(17000)), '超长要给原因').toContain('太长')
+    expect(d.state.htmlCards, '被拒的不进名单').toHaveLength(1)
+  })
+
+  it('带脚本的片段是正常写法（不得被拒）——早先拦 </script> 的校验已撤', () => {
+    const d = memStorage().api()
+    expect(d.addHtmlCard('脚本', '<b>x</b><script>1</' + 'script>')).toBeNull()
+    expect(d.state.htmlCards).toHaveLength(1)
+  })
+
+  it('改：合法改标题/片段；非法片段返回原因且**不改动**', () => {
+    const d = memStorage().api()
+    d.addHtmlCard('甲', '<b>1</b>')
+    const id = d.state.htmlCards[0].id
+    expect(d.updateHtmlCard(id, { title: '乙', html: '<i>2</i>' })).toBeNull()
+    expect(d.state.htmlCards[0]).toMatchObject({ title: '乙', html: '<i>2</i>' })
+    expect(d.updateHtmlCard(id, { html: '' }), '非法改要给原因').toBeTruthy()
+    expect(d.state.htmlCards[0].html, '拒绝时不该动原值').toBe('<i>2</i>')
+    d.removeHtmlCard(id)
+    expect(d.state.htmlCards).toHaveLength(0)
+  })
+
+  it('导入路径：不是数组回退；坏条目丢弃并告警', () => {
+    const fallback = emptyCardData()
+    expect(sanitizeCardData({ htmlCards: 'x' }, fallback).htmlCards).toEqual([])
+    const warned: string[] = []
+    const orig = console.warn
+    console.warn = (m) => void warned.push(String(m))
+    try {
+      const r = sanitizeCardData({ htmlCards: [{ html: '<b>ok</b>' }, { html: 7 }] }, fallback)
+      expect(r.htmlCards.map((c) => c.html)).toEqual(['<b>ok</b>'])
+      expect(warned.some((m) => m.includes('自定卡'))).toBe(true)
+    } finally {
+      console.warn = orig
+    }
+  })
+})
+
+describe('各家动作的"坏输入不落库"边界（棘轮缺口补齐）', () => {
+  it('空输入一律不动状态：命令/待办/四象限/探测/自选/订阅', () => {
+    const d = memStorage().api()
+    const before = JSON.stringify(d.state)
+    d.addCommand('名', '   ') // 空命令文本：sanitizeCommands 会丢掉 → 长度不变 → 早退
+    d.addTodo('   ')
+    d.addProbe('甲', '   ')
+    d.addStock('甲', '   ')
+    d.addFeed('甲', '   ')
+    d.addMatrixTodo('   ', 'do')
+    expect(JSON.stringify(d.state), '空输入不该动任何字段').toBe(before)
+  })
+
+  it('四象限：坏象限归到 do；勾选/挪动对不存在的 id 是 no-op', () => {
+    const d = memStorage().api()
+    d.addMatrixTodo('条目', '不存在的象限' as never)
+    expect(d.state.matrix[0].q, '坏象限归位 do').toBe('do')
+    const before = JSON.stringify(d.state.matrix)
+    d.toggleMatrixTodo('不存在')
+    d.moveMatrixTodo('不存在', 'plan')
+    expect(JSON.stringify(d.state.matrix)).toBe(before)
+  })
+
+  it('倒数日：坏日期在清洗层当"没设"（countdown.date 的守卫）', () => {
+    const r = sanitizeCardData({ countdown: { label: ' 元旦 ', date: '2026-02-30' } }, emptyCardData())
+    expect(r.countdown.date, '坏日期当"没设"').toBe('')
+    expect(r.countdown.label).toBe('元旦')
+    const r2 = sanitizeCardData({ countdown: { label: '元旦', date: '2027-01-01' } }, emptyCardData())
+    expect(r2.countdown.date).toBe('2027-01-01')
+  })
+
+  it('习惯：days 不是数组就归空；数组里的坏日期被过滤', () => {
+    const d = memStorage().api()
+    // 直接喂盘上形状（setHabit 的路径经过清洗）
+    const r = sanitizeCardData({ habit: { name: '跑步', days: 'not-array' } }, emptyCardData())
+    expect(r.habit.days).toEqual([])
+    const r2 = sanitizeCardData({ habit: { name: '跑步', days: ['2026-01-01', 'garbage', '2026-02-30'] } }, emptyCardData())
+    expect(r2.habit.days).toEqual(['2026-01-01'])
+    void d
+  })
+})
+
+describe('最后一圈边界：坏条目/上限/兜底', () => {
+  it('notes：条目既无 title 也无 body 时被丢弃（不是留着空壳）', () => {
+    const r = sanitizeCardData({ notes: [{ id: 'n1' }, { id: 'n2', body: '有正文' }] }, emptyCardData())
+    expect(r.notes.map((n) => n.id), '空壳丢掉、有正文的留下').toEqual(['n2'])
+  })
+
+  it('自定卡：空标题兜底成「自定卡」；到上限后加不进来（返回原因）', () => {
+    const d = memStorage().api()
+    expect(d.addHtmlCard('   ', '<b>1</b>')).toBeNull()
+    expect(d.state.htmlCards[0].title, '空标题兜底').toBe('自定卡')
+    // 填到上限
+    for (let i = 0; i < 12; i++) d.addHtmlCard(`第${i}张`, `<b>${i}</b>`)
+    expect(d.state.htmlCards.length).toBe(8)
+    expect(d.addHtmlCard('超标', '<b>x</b>'), '到上限要给原因').toContain('最多')
+  })
+
+  it('自定卡：updateHtmlCard 只改标题（html 不动）也走通', () => {
+    const d = memStorage().api()
+    d.addHtmlCard('甲', '<b>1</b>')
+    const id = d.state.htmlCards[0].id
+    expect(d.updateHtmlCard(id, { title: '乙' })).toBeNull()
+    expect(d.state.htmlCards[0]).toMatchObject({ title: '乙', html: '<b>1</b>' })
+  })
+
+  it('命令速查：同名同命令重复加不进来；同名不同命令可以并存', () => {
+    const d = memStorage().api()
+    d.addCommand('甲', 'echo hi')
+    const n = d.state.commands.length
+    d.addCommand('甲', 'echo hi') // 完全重复 → 去重 → 长度不变 → 早退
+    expect(d.state.commands.length).toBe(n)
+    d.addCommand('乙', 'echo hi') // 同名不同名但同命令：两回事，允许并存（去重键是 名字+命令）
+    expect(d.state.commands.length).toBe(n + 1)
+  })
+})
+
 describe('固定支出与值班表', () => {
   it('基数与费率各自截长度', () => {
     const d = memStorage().api()
@@ -473,5 +680,31 @@ describe('连通性探测名单：加一条过同一条边界', () => {
     const id = d.state.probes[0].id
     d.removeProbe(id)
     expect(d.state.probes).toHaveLength(0)
+  })
+})
+
+describe('股票自选与 RSS 订阅的写入规则', () => {
+  it('坏代码不入库；同码去重；明文/私网订阅进不来', () => {
+    const d = memStorage().api()
+    d.addStock('茅台', '600519')
+    const n = d.state.stocks.length
+    d.addStock('重复', 'SH600519') // 规范化后同码 → 去重
+    expect(d.state.stocks.length).toBe(n)
+    d.addStock('坏', '789') // 猜不出交易所 → 拒
+    expect(d.state.stocks.length).toBe(n)
+    d.addFeed('明文', 'http://x.test/feed')
+    d.addFeed('内网', 'https://192.168.1.1/f')
+    expect(d.state.feeds).toEqual([])
+    d.addFeed('周刊', 'https://www.ruanyifeng.com/blog/atom.xml')
+    expect(d.state.feeds).toHaveLength(1)
+  })
+  it('removeStock / removeFeed 按 id 删', () => {
+    const d = memStorage().api()
+    d.addStock('上证', 'sh000001')
+    d.addFeed('周刊', 'https://www.ruanyifeng.com/blog/atom.xml')
+    d.removeStock(d.state.stocks[0].id)
+    d.removeFeed(d.state.feeds[0].id)
+    expect(d.state.stocks).toEqual([])
+    expect(d.state.feeds).toEqual([])
   })
 })
