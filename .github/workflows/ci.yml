@@ -1,5 +1,29 @@
 name: CI
 
+# sherpa-onnx 预编译库的出处与校验和（R-01 供应链）：desktop 与 release 两个 job 共用。
+# **版本一升，这三行必须同步改**（URL 与校验和是绑死的，漏改一处就是下载到别人那份）。
+#
+# 为什么是我们自己取、而不是让 crate 的 build.rs 自己下：build.rs 找不到本地库就去
+# GitHub 现下 —— CI 上当然下得动，但**没有校验的下载等于供应链裸奔**，而且每次构建都重下。
+# 为什么是共享档（8MB）而不是 crate 默认的静态档（123MB）：Windows x64 只有 MSVC
+# 货，静态档是 13 个 MSVC `.lib` + 123MB，共享档是 4 个 DLL + 3 个 `.lib` + 8MB（见 D-14）。
+#
+# ── 2026-10-16：交给 build.rs 的东西从「归档目录」换成「解压好的 lib 目录」──
+# 上一版只设 `SHERPA_ONNX_ARCHIVE_DIR`，让 build.rs 自己去解压。它在 run 38794574273 的
+# 桌面壳 job 上红了：`LNK1181: cannot open input file 'sherpa-onnx-c-api.lib'`，
+# 而 linker 的 `/LIBPATH` 明确指向 `target/sherpa-onnx-prebuilt/<stem>/lib` ——
+# **目录在，里面的 `.lib` 不在**。成因是那条路上有个「把目录在不在当成内容全不全」的假设：
+# build.rs 的 `if lib_dir.is_dir() { return }`（sherpa-onnx-sys 1.13.8 `build.rs:167`）
+# 见到目录就直接用它、跳过解压，而 `target/` 恰好被 rust-cache 恢复成一份**不完整**的解压目录。
+# 改用 `SHERPA_ONNX_LIB_DIR`（build.rs 里优先级最高、**完全不经过 `target/`** 的那条分支）
+# 之后，缓存怎么删都影响不到它；取件步骤自己解压，并把「7 个文件齐不齐」变成一句人话。
+# 布局是本地实测的（用 runner 同族的 `C:\Windows\System32\tar.exe -xjf`）：
+# 解压出来是 `<stem>/lib/`，里面正好 3 个导入库 + 4 个运行时 DLL。
+env:
+  SHERPA_ONNX_VERSION: '1.13.8'
+  SHERPA_ONNX_ARCHIVE: sherpa-onnx-v1.13.8-win-x64-shared-MT-Release-lib.tar.bz2
+  SHERPA_ONNX_ARCHIVE_SHA256: b8eedf41bd6d3779218887b48367bb7a3ece5aaa7667f01f69ee823a12b0a9e7
+
 on:
   push:
     branches: ['**']
@@ -53,6 +77,25 @@ jobs:
       # 与 x-hub 的反面教材相对：它写了 164 个 Rust 测试，但 CI 只跑 vue-tsc + cargo check，一个测试都不执行
       - name: 浏览器交互 E2E（拖拽 / 框选 / 键盘 / 撤销 / 三档视口）
         run: npm run test:e2e
+
+      # 拖拽的**计数型**预算门禁（2026-10-12 接上）。
+      #
+      # 为什么不靠 E2E 里那条 §8 帧率门禁：那条断言是"连拖期间帧距中位数 ≤ 18.2ms"，
+      # 而 headless 的 rAF 被钉在 60Hz（实测 median=16.7ms / p95=16.7ms），它量的是**节拍**、
+      # 不是**成本** —— 只有成本逼近 16.7ms 才翻红。实测背景：一次"每帧全量重排"的退化把
+      # 主线程从 2.85ms/帧 拉到 8ms/帧（四倍），那条门禁全程一声不吭。而且只看中位数，
+      # 对"卡顿感"所在的尾部无感。
+      #
+      # 这条改量 Blink 自己的计数器：`LayoutCount / pointermove` 与 `RecalcStyleCount / pointermove`。
+      # 数字是**确定性**的（同产物连跑三轮逐字一致），跨机器一致，不会因为 runner 忙而假红。
+      # 实测两端：每帧重排时 1.00 次/move（红），修好之后 0.05 次/move（绿），预算 0.5。
+      #
+      # 位置在 E2E **之后**：它要 dist/，而 E2E 的 globalSetup 会以 production 重建一遍
+      # （vitest.e2e.setup.ts），所以排在这里量到的是要发出去的那份产物。
+      # 没有 Chrome 时脚本自己跳过（与 E2E 的 `skipIf(!EXE)` 同一条约定：假红比没门禁更糟）。
+      - name: 拖拽预算（每次 move 不许重排版面 —— 计数型，与刷新率无关）
+        run: npm run drag:budget
+
       # 文档里的规模数字是人抄的，抄错不会让任何测试变红 —— 所以让机器核对。
       # 只认显式标记过的行（`<!-- facts -->`），历史数字与说明段不会被误判。
       # 量的是 dist/ 与 coverage/：coverage 来自上面的门禁步骤；dist 由「构建」产出，
@@ -91,6 +134,31 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: src-tauri
+      - name: 取 sherpa-onnx 预编译库（sha256 校验 → 解压 → SHERPA_ONNX_LIB_DIR）
+        shell: pwsh
+        run: |
+          $dir = Join-Path $env:RUNNER_TEMP 'sherpa'
+          New-Item -ItemType Directory -Force -Path $dir | Out-Null
+          $file = Join-Path $dir $env:SHERPA_ONNX_ARCHIVE
+          $url = "https://github.com/k2-fsa/sherpa-onnx/releases/download/v$env:SHERPA_ONNX_VERSION/$env:SHERPA_ONNX_ARCHIVE"
+          Invoke-WebRequest -Uri $url -OutFile $file
+          $got = (Get-FileHash -Algorithm SHA256 $file).Hash.ToLower()
+          if ($got -ne $env:SHERPA_ONNX_ARCHIVE_SHA256) {
+            Write-Error "sherpa-onnx 归档 sha256 不匹配（期望 $env:SHERPA_ONNX_ARCHIVE_SHA256，实际 $got）"
+            exit 1
+          }
+          tar -xjf $file -C $dir
+          if ($LASTEXITCODE -ne 0) { Write-Error "解压 sherpa-onnx 归档失败（tar 退出码 $LASTEXITCODE）"; exit 1 }
+          $lib = Join-Path (Join-Path $dir ($env:SHERPA_ONNX_ARCHIVE -replace '\.tar\.bz2$', '')) 'lib'
+          # 这 7 个必须齐（3 导入库 + 4 运行时 DLL，清单由来见文件头 D-14）。缺 `.lib` 时
+          # build.rs 一声不吭，会拖到几十秒后以 linker 的 LNK1181 冒出来，看日志的人无从下手。
+          $need = @('sherpa-onnx-c-api.lib', 'sherpa-onnx-cxx-api.lib', 'onnxruntime.lib',
+                    'sherpa-onnx-c-api.dll', 'sherpa-onnx-cxx-api.dll', 'onnxruntime.dll',
+                    'onnxruntime_providers_shared.dll')
+          $missing = $need | Where-Object { -not (Test-Path (Join-Path $lib $_)) }
+          if ($missing) { Write-Error "sherpa-onnx 解压后缺少：$($missing -join '、')（目录 $lib）"; exit 1 }
+          # build.rs 里优先级最高的那条分支：指到哪用哪，**完全不经过 target/**（理由见文件头）
+          "SHERPA_ONNX_LIB_DIR=$lib" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
       - run: npm ci
       - name: 格式检查
         working-directory: src-tauri
@@ -145,10 +213,56 @@ jobs:
           # 为什么不把这一行写进仓库那份 .npmrc：那是**每台机器都会读**的文件，
           # 而 token 只在 CI 里存在。发 npm 的凭据不该让本地 `npm install` 也去解析。
           registry-url: https://registry.npmjs.org
+
+      # ── 发版门禁：CI 没绿，不许发（2026-10-12 接上）──────────────────────────────
+      #
+      # 实跑出来的事实（2026-10-04 复核）：v0.4.0 那次 CI `failure 10:00:12`，
+      # Release 在 `10:00:50` 就建好了 —— 差 38 秒。五次发版里唯一一次红灯是运气，
+      # 前四次也没等 CI，只是恰好都绿。病根不是"人没看 CI"，是**发布链路与 CI 之间
+      # 没有依赖关系**：tag 一推、Release 一建就完事，CI 挂在旁边观察，对结果没有否决权。
+      #
+      # 为什么不能靠 `needs: verify`：release 由 **tag push** 触发，和 verify 是两条独立的
+      # workflow run；`needs` 只表达同一条 workflow 内 job 之间的先后，管不到"这个 commit
+      # 上一轮 CI 绿不绿"。所以只能由这道门按 commit sha 回头查结论 —— 它看得见历史 run。
+      #
+      # 排在最前面是省钱：出安装包要 30+ 分钟，注定失败的发版不该占满 runner。
+      # 它**不认 pending** —— "还没出结论"不等于"通过"，刚合完就打 tag 会被挡，这是设计。
+      # 当前这条 run 由脚本自己按 GITHUB_RUN_ID 排除（否则它永远判自己"还在跑"，门永远红）。
+      - name: 发版门禁（该 tag 的 CI 没绿 → 直接失败，不许发）
+        env:
+          # 不传也能查（公开仓库），但匿名只有 60 req/h；显式传是 5000 req/h
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: node scripts/release-gate.mjs --tag ${{ github.event.inputs.release_tag || github.ref_name }}
+
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: src-tauri
+      - name: 取 sherpa-onnx 预编译库（sha256 校验 → 解压 → SHERPA_ONNX_LIB_DIR）
+        shell: pwsh
+        run: |
+          $dir = Join-Path $env:RUNNER_TEMP 'sherpa'
+          New-Item -ItemType Directory -Force -Path $dir | Out-Null
+          $file = Join-Path $dir $env:SHERPA_ONNX_ARCHIVE
+          $url = "https://github.com/k2-fsa/sherpa-onnx/releases/download/v$env:SHERPA_ONNX_VERSION/$env:SHERPA_ONNX_ARCHIVE"
+          Invoke-WebRequest -Uri $url -OutFile $file
+          $got = (Get-FileHash -Algorithm SHA256 $file).Hash.ToLower()
+          if ($got -ne $env:SHERPA_ONNX_ARCHIVE_SHA256) {
+            Write-Error "sherpa-onnx 归档 sha256 不匹配（期望 $env:SHERPA_ONNX_ARCHIVE_SHA256，实际 $got）"
+            exit 1
+          }
+          tar -xjf $file -C $dir
+          if ($LASTEXITCODE -ne 0) { Write-Error "解压 sherpa-onnx 归档失败（tar 退出码 $LASTEXITCODE）"; exit 1 }
+          $lib = Join-Path (Join-Path $dir ($env:SHERPA_ONNX_ARCHIVE -replace '\.tar\.bz2$', '')) 'lib'
+          # 这 7 个必须齐（3 导入库 + 4 运行时 DLL，清单由来见文件头 D-14）。缺 `.lib` 时
+          # build.rs 一声不吭，会拖到几十秒后以 linker 的 LNK1181 冒出来，看日志的人无从下手。
+          $need = @('sherpa-onnx-c-api.lib', 'sherpa-onnx-cxx-api.lib', 'onnxruntime.lib',
+                    'sherpa-onnx-c-api.dll', 'sherpa-onnx-cxx-api.dll', 'onnxruntime.dll',
+                    'onnxruntime_providers_shared.dll')
+          $missing = $need | Where-Object { -not (Test-Path (Join-Path $lib $_)) }
+          if ($missing) { Write-Error "sherpa-onnx 解压后缺少：$($missing -join '、')（目录 $lib）"; exit 1 }
+          # build.rs 里优先级最高的那条分支：指到哪用哪，**完全不经过 target/**（理由见文件头）
+          "SHERPA_ONNX_LIB_DIR=$lib" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
       - run: npm ci
 
       # 版本号对齐先挡一次：tag 必须等于 package.json 里的版本，否则 `make-latest-json`

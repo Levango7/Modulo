@@ -4,7 +4,7 @@
  * 有 2^53+1 那颗 Number 会数错的数）。这里只有输入、进制选择与结果。
  */
 import { computed, ref } from 'vue'
-import { isValidInBase, toBase } from '@levango7/engine/baseconv'
+import { isValidInBase, MAX_VALUE_LEN, toBase } from '@levango7/engine/baseconv'
 
 const props = defineProps<{ variant: string }>()
 
@@ -16,6 +16,8 @@ const BASES = [2, 8, 10, 16, 32, 36]
 
 const out = computed(() => toBase(value.value, from.value, to.value))
 const inValid = computed(() => value.value.trim() !== '' && isValidInBase(value.value, from.value))
+/** 太长是**另一种**拒因，不能混进「位不属于 N 进制」里 —— 那会骗用户（位其实是对的） */
+const tooLong = computed(() => value.value.trim().replace(/^-/, '').length > MAX_VALUE_LEN)
 </script>
 
 <template>
@@ -37,6 +39,7 @@ const inValid = computed(() => value.value.trim() !== '' && isValidInBase(value.
       </div>
       <div class="out" role="status">
         <template v-if="value.trim() === ''">输入一个值</template>
+        <template v-else-if="tooLong">太长了，最多 {{ MAX_VALUE_LEN }} 位</template>
         <template v-else-if="!inValid">这个值里有的位不属于 {{ from }} 进制</template>
         <template v-else-if="out === null">—</template>
         <template v-else><code>{{ out }}</code></template>

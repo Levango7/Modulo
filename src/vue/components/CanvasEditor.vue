@@ -1,14 +1,67 @@
 <script setup lang="ts">
-import { computed, inject, onBeforeUnmount, onMounted, ref } from 'vue'
+import { computed, inject, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import * as E from '@levango7/engine'
-import { Lock, LockOpen, Shuffle, X, LayoutGrid, Trash2, GripVertical } from 'lucide-vue-next'
+import { Lock, LockOpen, Shuffle, X, LayoutGrid, Trash2, GripVertical, Plus, Rows3 } from 'lucide-vue-next'
 import type { LayoutStore } from '../store'
 import { useCanvasDrag } from '../useCanvasDrag'
+import RowBand from './RowBand.vue'
+import CardCatalogMenu from './CardCatalogMenu.vue'
 import { useCellFocus } from '../useCellFocus'
 import { cellIntent, globalIntent, isEditableTarget, shouldPrevent } from '../keyboard'
+import type { CommandBus } from '../commandBus'
 
 const store = inject<LayoutStore>('store')!
+const commandBus = inject<CommandBus>('commandBus')!
 const reg = store.reg
+
+const emit = defineEmits<{
+  (e: 'selectionChange', ids: string[]): void
+  (e: 'focusChange', id: string | null): void
+}>()
+
+/**
+ * 「全部卡片」下拉（2026-10-12 从顶栏搬进来）：模块库只列**还没放置**的卡，
+ * 但卡片到 49 张后，库里的卡挨个看也不如按分组翻一遍目录来得快 ——
+ * 这正是原「添加卡片」菜单的用途，只是入口按用户口径（"添加卡片应该是布局编辑里面
+ * 才有的选项"）收进编辑器。菜单有 max-height 且 aside 是滚动容器，会把它裁掉 ——
+ * 所以定位用 fixed + 按钮的矩形现算（随 open 一次性写入）。菜单本体是
+ * `CardCatalogMenu.vue`（与将来可能的其他调用方共用一套外观）。
+ */
+const addOpen = ref(false)
+const addBtnEl = ref<HTMLElement | null>(null)
+const menuStyle = ref<Record<string, string>>({})
+const missingCount = computed(() => reg.filter((m) => !store.placedIds.value.has(m.id)).length)
+async function toggleAddMenu(): Promise<void> {
+  if (addOpen.value) {
+    addOpen.value = false
+    return
+  }
+  addOpen.value = true
+  await nextTick()
+  const r = addBtnEl.value?.getBoundingClientRect()
+  if (r) {
+    menuStyle.value = {
+      position: 'fixed',
+      left: `${Math.round(r.left)}px`,
+      top: `${Math.round(r.bottom + 6)}px`,
+      zIndex: 'var(--z-menu)',
+    }
+  }
+}
+/** 点菜单空白处/外部就关：菜单可能被裁出 aside，用文档级监听 */
+function onDocPointerDown(e: PointerEvent): void {
+  if (!addOpen.value) return
+  const t = e.target as Node
+  if (addBtnEl.value?.contains(t)) return
+  const menuEl = document.getElementById('editor-add-menu')
+  if (menuEl?.contains(t)) return
+  addOpen.value = false
+}
+/** 从目录里加一张：落位交给引擎的 findFreeSpot（与库里拖入同一条路径） */
+function addFromCatalog(id: string): void {
+  addOpen.value = false
+  store.add(id, 0, 0)
+}
 
 /**
  * 行轨高度来自 `useProjection().rowPx` —— **与浏览态是同一个数**。
@@ -51,6 +104,30 @@ function onBodyDown(p: E.Placement, e: PointerEvent) {
   if (!sel.value.has(p.id)) sel.value = new Set([p.id])
 }
 
+/* ---- 行容器（单层分组）：行头渲染 + 整组拖动 + 成组动作 ---- */
+
+const bands = computed(() => E.rowsBands(store.doc.value))
+
+/** 选中的卡里**还能成组的**（不在任何行里）——批量条按钮据此启停与取材 */
+const groupableIds = computed(() => [...sel.value].filter((id) => items.value.some((p) => p.id === id && !p.row)))
+
+function groupSelected(): void {
+  if (!groupableIds.value.length) return
+  store.groupIntoRow(groupableIds.value)
+  clearSel()
+}
+
+/**
+ * 行头拖动 = 整组移动：先把成员全部选入，再交给**既有拖拽状态机**的 group 模式 ——
+ * 实时预览、ghost 标签、让位规则（含"含锁定项整组不动"）全部复用，不新造一套。
+ */
+function startRowDrag(band: E.RowView, e: PointerEvent): void {
+  const members = band.members.map((id) => items.value.find((p) => p.id === id)).filter((p): p is E.Placement => !!p)
+  if (!members.length) return
+  sel.value = new Set(band.members)
+  startMove(members[0], e)
+}
+
 const titleOf = (p: E.Placement) => p.title ?? E.findModule(reg, p.id)?.title ?? p.id
 const variantName = (p: E.Placement) => variantOf(p)?.name ?? ''
 const hasVariants = (id: string) => (E.findModule(reg, id)?.variants.length ?? 0) > 1
@@ -63,11 +140,13 @@ function badge(p: E.Placement) {
 
 onBeforeUnmount(() => {
   window.removeEventListener('keydown', onGlobalKey)
+  document.removeEventListener('pointerdown', onDocPointerDown)
 })
 onMounted(() => {
   /** 挂 window 而不是容器：拖拽时 pointerdown 被 preventDefault，焦点可能仍留在 body 上，
    *  容器级监听会收不到键盘事件（实测 Ctrl+Z 失效） */
   window.addEventListener('keydown', onGlobalKey)
+  document.addEventListener('pointerdown', onDocPointerDown)
 })
 
 function cellStyle(p: E.Placement) {
@@ -115,17 +194,19 @@ function runIntent(intent: ReturnType<typeof cellIntent> | ReturnType<typeof glo
     case 'toggleSelect':
       toggleSelect(intent.id)
       break
+    /** 以下三条走**命令总线**（2026-10-13 批 2）：键盘与命令面板从同一条命令表出发，
+     *  可用性校验与实现都是同一份 —— 面板里做得到的事，键盘必然按得到，反过来也一样。 */
     case 'cycleVariant':
-      store.cycleVariant(intent.id)
+      commandBus.dispatch('card.cycleVariant', { cardId: intent.id })
       break
     case 'toggleLock':
-      store.toggleLock(intent.id)
+      commandBus.dispatch('card.toggleLock', { cardId: intent.id })
       break
     case 'remove': {
       const p = items.value.find((q) => q.id === intent.id)
       if (!p) break
       const rest = items.value.filter((q) => q.id !== p.id)
-      store.remove(p.id)
+      commandBus.dispatch('card.remove', { cardId: p.id })
       focusNearest(rest, p)
       break
     }
@@ -154,12 +235,66 @@ function removeSelected() {
   store.removeMany([...sel.value])
   clearSel()
 }
+
+/** 焦点卡变化广播（Delete / Enter / L 这类单格命令的目标；见 commands.ts 的 targetCard 注释） */
+function onCellFocus(id: string): void {
+  emit('focusChange', id)
+}
+
+/** 选中集变化向上广播（App 的 command context 用它决定"当前目标卡"） */
+watch(
+  sel,
+  (v) => emit('selectionChange', [...v]),
+  { deep: true },
+)
+
+/** 命令面板「跳到某张卡」用：选中它并把它闪一下（在画布里找得到，而不是"滚过去了但不知道在哪"） */
+const flashId = ref<string | null>(null)
+let flashTimer = 0
+function revealCard(id: string): void {
+  sel.value = new Set([id])
+  flashId.value = id
+  window.clearTimeout(flashTimer)
+  flashTimer = window.setTimeout(() => (flashId.value = null), 1600)
+}
+onBeforeUnmount(() => window.clearTimeout(flashTimer))
+
+/**
+ * 给 App 的 Esc 编排用：编辑器里"有东西可退"（选中/批量条/添加下拉）时由这里吞掉，
+ * 返回 true 表示已消费 —— 否则 App 会把它当成"取消这次编辑"（有改动还会弹确认）。
+ */
+function escapePressed(): boolean {
+  if (addOpen.value) {
+    addOpen.value = false
+    return true
+  }
+  if (sel.value.size) {
+    clearSel()
+    return true
+  }
+  return false
+}
+defineExpose({ escapePressed, revealCard })
 </script>
 
 <template>
   <div class="editor">
     <aside class="lib">
-      <h3><LayoutGrid :size="14" /> 模块库</h3>
+      <h3>
+        <LayoutGrid :size="14" /> 模块库
+        <CardCatalogMenu v-if="addOpen" :menu-id="'editor-add-menu'" :style="menuStyle" @pick="addFromCatalog" />
+        <button
+          ref="addBtnEl"
+          class="add-cat"
+          :disabled="!missingCount"
+          :title="missingCount ? '还没放置的卡片都在这里（与库里拖入同一条落位路径）' : '所有卡片都已在版面上'"
+          aria-haspopup="menu"
+          :aria-expanded="addOpen"
+          @click="toggleAddMenu"
+        >
+          <Plus :size="12" /> 全部卡片
+        </button>
+      </h3>
       <p v-if="!store.available.value.length" class="muted small">全部模块都已放置</p>
       <div v-for="m in store.available.value" :key="m.id" class="lib-item">
         <div class="lib-title" @pointerdown="startNew(m.id, m.defaultVariant, $event)">{{ m.title }}</div>
@@ -184,16 +319,38 @@ function removeSelected() {
         :style="{ gridTemplateRows: `repeat(${rowCount}, ${rowPx}px)` }"
         @pointerdown="onCanvasPointerDown"
       >
+        <!-- 行容器：围合框先画（cells 在 DOM 之后、天然盖在上面），行头占它自己那一行 -->
+        <template v-for="band in bands" :key="band.row.id">
+          <div
+            class="rowframe"
+            :data-collapsed="!!band.row.collapsed"
+            :style="{ gridColumn: '1 / span 12', gridRow: `${band.row.y + 1} / span ${band.h}` }"
+          />
+          <div class="rowslot" :style="{ gridColumn: '1 / span 12', gridRow: `${band.row.y + 1}` }">
+            <RowBand
+              :title="band.row.title"
+              :count="band.members.length"
+              :collapsed="!!band.row.collapsed"
+              :auto="band.row.auto ?? E.DEFAULT_AUTO"
+              @drag="startRowDrag(band, $event)"
+              @reflow="(p2: number, rh: number) => store.reflowRow(band.row.id, { per: p2, rowH: rh })"
+              @toggle="store.toggleRow(band.row.id)"
+              @ungroup="store.ungroupRow(band.row.id)"
+              @rename="(t: string) => store.renameRow(band.row.id, t)"
+            />
+          </div>
+        </template>
         <div
           v-for="p in items"
           :key="p.id"
           class="cell"
           :data-module="p.id"
           :ref="(el: unknown) => setCellRef(p.id, el)"
-          :class="{ locked: p.locked, selected: isSelected(p.id) }"
+          :class="{ locked: p.locked, selected: isSelected(p.id), flash: flashId === p.id }"
           :style="cellStyle(p)"
           tabindex="0"
           role="group"
+          @focus="onCellFocus(p.id)"
           :aria-label="`${titleOf(p)}，${p.w} 乘 ${p.h} 格。拖动标题带移动，方向键移动，Shift 加方向键缩放，空格切换选入，回车切换形态，Delete 移回模块库`"
           @keydown="onCellKeydown(p, $event)"
         >
@@ -263,6 +420,7 @@ function removeSelected() {
         </p>
         <div v-if="selCount > 1" class="batch">
           <span>已选 {{ selCount }} 个</span>
+          <button :disabled="!groupableIds.length" title="把选中且未归行的卡合成一行（行头插在它们上方）" @click="groupSelected()"><Rows3 :size="13" /> 成组为行</button>
           <button @click="store.toggleLockMany([...sel])">锁定/解锁</button>
           <button @click="removeSelected()"><Trash2 :size="13" /> 批量移回库</button>
           <button @click="clearSel()">取消选择</button>
@@ -270,7 +428,21 @@ function removeSelected() {
       </div>
     </section>
 
-    <div v-if="drag?.started && drag.label" class="ghost" :style="{ left: `${ghost.x}px`, top: `${ghost.y}px` }">
+    <!-- 幽灵块的位置**只走 transform**。这段原来写的是 `left/top`，而 `left/top` 是
+         布局属性 —— 指针每动一次就改一次，等于每帧 InvalidateLayout → PrePaint →
+         Layerize → Paint 整条管线走一遍。transform 只影响合成，不碰布局。
+
+         实测（1440×900，26 张卡，60 次 pointermove，Chrome trace 计数）：
+
+           阶段         left/top      transform
+           Layout        62 次          6 次     ← 只在跨格时才算，与指针无关
+           Paint        178 次         65 次     ← 65 ≈ 1 次/帧，已是"每帧脏一次"的地板
+           管线总耗时   170.7ms       121.6ms
+
+         数字是确定性的（连跑三轮计数完全一致），所以这条能当回归基线用。
+         注意 `left/top: 0` 不能省：不写的话 fixed 元素退回"静态位置"，transform
+         就从那个位置起算，幽灵块会跑偏。 -->
+    <div v-if="drag?.started && drag.label" class="ghost" :style="{ transform: `translate(${ghost.x + 10}px, ${ghost.y + 12}px)` }">
       {{ drag.label }}
     </div>
   </div>
@@ -297,6 +469,31 @@ function removeSelected() {
   letter-spacing: 0.06em;
   color: var(--text-3);
   margin: 0 0 var(--space-3);
+}
+/* 「全部卡片」目录入口：贴 h3 右侧的小按钮。字号跟 h3 同档（11px 下限守 E2E） */
+.add-cat {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  height: 20px;
+  padding: 0 var(--space-2);
+  font-size: 11px;
+  letter-spacing: 0.02em;
+  text-transform: none;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-pill);
+  background: var(--bg-card);
+  color: var(--text-2);
+  cursor: pointer;
+}
+.add-cat:hover:not(:disabled) {
+  color: var(--text-1);
+  border-color: var(--brand-500);
+}
+.add-cat:disabled {
+  opacity: 0.5;
+  cursor: default;
 }
 .lib-item {
   border: 1px solid var(--border-strong);
@@ -379,6 +576,9 @@ function removeSelected() {
 }
 .cell:hover {
   box-shadow: var(--frost-edge), var(--shadow-hover);
+}
+.cell.flash {
+  box-shadow: 0 0 0 2px var(--brand-glow);
 }
 .cell.selected {
   outline: 2px solid var(--brand-500);
@@ -522,6 +722,19 @@ function removeSelected() {
   background: linear-gradient(135deg, transparent 50%, var(--brand-glow) 50%);
   border-radius: 0 0 var(--radius-lg) 0;
 }
+.rowframe {
+  pointer-events: none;
+  border: 1px dashed color-mix(in srgb, var(--brand-500) 38%, transparent);
+  border-radius: var(--radius-lg);
+  background: color-mix(in srgb, var(--brand-500) 4%, transparent);
+}
+.rowframe[data-collapsed='true'] {
+  background: transparent;
+}
+.rowslot {
+  min-width: 0;
+  padding: 3px 0;
+}
 .preview {
   pointer-events: none;
   border: 2px dashed var(--brand-500);
@@ -588,8 +801,14 @@ function removeSelected() {
 }
 .ghost {
   position: fixed;
+  /* 定位只走 transform（见模板处注释与实测数字）。left/top 必须显式归零 ——
+     不写会退回静态位置。 */
+  left: 0;
+  top: 0;
   z-index: var(--z-overlay);
-  transform: translate(10px, 12px);
+  /* 保证走合成路径。headless（软件合成）下量到与不加这条持平，所以它不是为了
+     眼前这几个数字 —— 真实 GPU 合成里这条才是"只合成、不重绘"的保证。 */
+  will-change: transform;
   pointer-events: none;
   background: var(--bg-card-solid);
   border: 1px solid var(--border-strong);

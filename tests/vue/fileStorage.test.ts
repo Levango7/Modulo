@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { DATA_KEYS, createFileStorage, hydrateData } from '../../src/vue/fileStorage'
+import { DATA_KEYS, createFileStorage, hydrateData, webStorage } from '../../src/vue/fileStorage'
 
 const settle = (ms = 60) => new Promise((r) => setTimeout(r, ms))
 
@@ -95,5 +95,54 @@ describe('桌面壳的数据落盘适配器', () => {
     })
     expect(Object.keys(out).sort()).toEqual([...DATA_KEYS].sort())
     expect(Object.values(out).every((v) => v === null)).toBe(true)
+  })
+})
+
+describe('网页版的 localStorage 适配器：错误必须可见（2026-10-13）', () => {
+  /** 假 localStorage：可控地在 set/get 上抛错（等价于配额满 / 隐私模式限制） */
+  const fakeLS = (opts: { failSet?: boolean; failGet?: boolean } = {}) => {
+    const map = new Map<string, string>()
+    return {
+      get: (k: string) => {
+        if (opts.failGet) throw new DOMException('SecurityError: denied', 'SecurityError')
+        return map.get(k) ?? null
+      },
+      set: (k: string, v: string) => {
+        if (opts.failSet) throw new DOMException('QuotaExceededError: full', 'QuotaExceededError')
+        map.set(k, v)
+      },
+      map,
+    }
+  }
+
+  it('写失败：error 被填上（此前永远是 null，界面毫无提示），改动不再往外抛', () => {
+    const s = webStorage(fakeLS({ failSet: true }))
+    expect(() => s.set('modulo.layout.v1', '{}')).not.toThrow()
+    expect(s.error.value).toContain('modulo.layout.v1')
+    expect(s.error.value).toContain('只在内存里')
+  })
+
+  it('写恢复：同一 key 再写成功把红条清掉（与桌面壳同样的"恢复即消警"）', () => {
+    let fail = true
+    const ls = fakeLS()
+    const s = webStorage({
+      get: ls.get,
+      set: (k, v) => {
+        if (fail) throw new DOMException('QuotaExceededError: full', 'QuotaExceededError')
+        ls.set(k, v)
+      },
+    })
+    s.set('modulo.layout.v1', 'a')
+    expect(s.error.value).not.toBeNull()
+    fail = false
+    s.set('modulo.layout.v1', 'b')
+    expect(s.error.value).toBeNull()
+    expect(ls.get('modulo.layout.v1')).toBe('b')
+  })
+
+  it('读失败：按"没有存档"处理并留下提示，不让应用起不来', () => {
+    const s = webStorage(fakeLS({ failGet: true }))
+    expect(s.get('modulo.layout.v1')).toBeNull()
+    expect(s.error.value).toContain('没能读进浏览器存储')
   })
 })

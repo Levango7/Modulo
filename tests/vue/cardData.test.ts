@@ -22,7 +22,12 @@ const fallback: CardData = {
   commands: [],
   matrix: [],
   probes: [],
+  stocks: [],
+  feeds: [],
   watch: [],
+  endpoints: [],
+  launch: [],
+  htmlCards: [],
   fixed: { base: '', rate: '', symbol: '¥' },
   duty: { roster: [], anchor: '' },
 }
@@ -46,10 +51,48 @@ describe('sanitizeCardData：盘上数据先清洗再用', () => {
       commands: [],
       matrix: [],
       probes: [],
-  watch: [],
+      stocks: [],
+      feeds: [],
+      watch: fallback.watch,
+      endpoints: fallback.endpoints,
+      launch: fallback.launch,
+      htmlCards: fallback.htmlCards,
       fixed: fallback.fixed,
       duty: fallback.duty,
     })
+  })
+
+  it('endpoints：不是数组就整栏回退；带坏条目（非 https/私网）时丢弃并告警', () => {
+    expect(sanitizeCardData({ endpoints: 'x' }, fallback).endpoints).toEqual(fallback.endpoints)
+    const warned: string[] = []
+    const orig = console.warn
+    console.warn = (m?: unknown) => void warned.push(String(m))
+    try {
+      const r = sanitizeCardData(
+        { endpoints: [{ url: 'https://ok.example/a' }, { url: 'http://bad.example/a' }, { url: 'https://127.0.0.1/a' }] },
+        fallback,
+      )
+      expect(r.endpoints.map((e) => e.url)).toEqual(['https://ok.example/a'])
+      expect(warned.some((m) => m.includes('取数端点')), '丢弃要回显给用户').toBe(true)
+    } finally {
+      console.warn = orig
+    }
+  })
+
+  it('watch：带坏条目时同样丢弃并告警（与新加的 endpoints 同一套骨架）', () => {
+    const warned: string[] = []
+    const orig = console.warn
+    console.warn = (m?: unknown) => void warned.push(String(m))
+    try {
+      const r = sanitizeCardData(
+        { watch: [{ url: 'https://ok.example/a' }, { url: 'https://127.0.0.1/a' }] },
+        fallback,
+      )
+      expect(r.watch.map((w) => w.url)).toEqual(['https://ok.example/a'])
+      expect(warned.some((m) => m.includes('网页监控'))).toBe(true)
+    } finally {
+      console.warn = orig
+    }
   })
 
   it('todos 是 null 时整栏回退示例，而不是把 null 交给渲染期', () => {
@@ -106,7 +149,7 @@ describe('sanitizeCardData：盘上数据先清洗再用', () => {
   it('__proto__ 之类的键不会漏进状态：只认白名单字段', () => {
     const r = sanitizeCardData(JSON.parse('{"__proto__":{"polluted":1},"sticky":"ok"}'), fallback)
     expect(Object.keys(r).sort()).toEqual([
-      'birthdays', 'commands', 'countdown', 'duty', 'elapsed', 'fixed', 'habit', 'ledger', 'links', 'matrix', 'meeting', 'notes', 'pickList', 'probes', 'sticky', 'timers', 'todos', 'watch',
+      'birthdays', 'commands', 'countdown', 'duty', 'elapsed', 'endpoints', 'feeds', 'fixed', 'habit', 'htmlCards', 'launch', 'ledger', 'links', 'matrix', 'meeting', 'notes', 'pickList', 'probes', 'sticky', 'stocks', 'timers', 'todos', 'watch',
     ])
     expect({} as Record<string, unknown>).not.toHaveProperty('polluted')
   })
@@ -487,6 +530,28 @@ describe('sanitizeCardData：盘上数据先清洗再用', () => {
       })
       it('整块缺失或形状不对 → 空表，绝不抛', () => {
         for (const bad of [null, 'x', 42, {}, true]) expect(probes(bad), String(bad)).toEqual([])
+      })
+    })
+
+    describe('股票自选：代码规范化在引擎（stock.ts），同码不同所必须带前缀', () => {
+      const stocks = (o: unknown) => sanitizeCardData({ stocks: o }, fallback).stocks
+      it('合法代码规范化、坏代码丢、去重', () => {
+        const out = stocks([{ id: 's1', label: '茅台', code: '600519' }, { id: 's2', label: '重复', code: 'SH600519' }, { id: 's3', label: '坏', code: '789' }])
+        expect(out).toEqual([{ id: 's1', label: '茅台', code: 'sh600519' }])
+      })
+      it('整块缺失或形状不对 → 空表，绝不抛', () => {
+        for (const bad of [null, 'x', 42, {}, true]) expect(stocks(bad), String(bad)).toEqual([])
+      })
+    })
+
+    describe('RSS 订阅名单：与 watch/probe 同一条 URL 边界（引擎 sanitizeFeeds）', () => {
+      const feeds = (o: unknown) => sanitizeCardData({ feeds: o }, fallback).feeds
+      it('合规 https 保留，明文/私网进不来', () => {
+        expect(feeds([{ label: '周刊', url: 'https://www.ruanyifeng.com/blog/atom.xml' }])).toHaveLength(1)
+        expect(feeds([{ url: 'http://x.test/f' }, { url: 'https://10.0.0.1/f' }])).toEqual([])
+      })
+      it('整块缺失或形状不对 → 空表，绝不抛', () => {
+        for (const bad of [null, 'x', 42, {}, true]) expect(feeds(bad), String(bad)).toEqual([])
       })
     })
 

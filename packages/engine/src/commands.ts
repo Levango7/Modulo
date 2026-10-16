@@ -28,7 +28,8 @@ export function normalizeCommand(input: string): string | null {
 export function normalizeCmdLabel(input: string, cmd: string): string {
   const s = input.trim().slice(0, MAX_CMD_LABEL)
   if (s) return s
-  return cmd.split('\n')[0].trim().slice(0, MAX_CMD_LABEL) || cmd.slice(0, MAX_CMD_LABEL)
+  // cmd 进来前已过 `normalizeCommand`（整体 trim）—— 首行不可能为空，不需要空回退分支
+  return cmd.split('\n')[0].trim().slice(0, MAX_CMD_LABEL)
 }
 
 /** 清洗整份名单：丢坏的、去重（同名同命令）、按名字排、砍到上限；id 保证唯一 */
