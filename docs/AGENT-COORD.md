@@ -161,6 +161,7 @@ Release / npm / tag。这一张表管那一半，`scripts/coord-gate.mjs` **判�
 | `dir:%LOCALAPPDATA%\Modulo` | 独占 | — | — | 已释放 | 装出来的 `modulo.exe` + `uninstall.exe` 本体；开始菜单 `Modulo.lnk` 指到这里。验安装包=动这条 |
 | `dir:src-tauri/target` | 独占 | — | — | 已释放 | 与 `dir:dist` 同一条老规矩：不独占不许 `npm run build` / `tauri build` —— 会重写别人正在验的那颗二进制。这里只是把它从口头搬进表里 |
 | `dir:node_modules` | 独占 | — | — | 已释放 | 它是 **junction**，指向主仓真身（见上面「目录联接」那一节）：worktree 里 `rm -rf node_modules` 删的是**所有人**的依赖 |
+| `dir:node_modules` | 独占 | WorkBuddy 本会话 | 10-16 22:00 | 进行中 | **重建认领**：10-16 晚 F:/Nexus 下约 20 个项目的 node_modules 集体消失（疑似磁盘清理误伤，板上 10-16 20:25 行有记），本仓 `package-lock.json` 在位（75 KB / 10-09），需 `npm ci` 重建后才能跑本地门禁（vitest / typecheck / build）。重建完成并验证后改「已释放」 |
 | `hotkey:Ctrl+Alt+Shift+M` | 独占（**跨仓**） | — | — | 已释放 | `RegisterHotKey` 是系统级的，同机的另一个项目一样会抢。1409 有两种成因（别的程序占着 / 另一个 modulo 实例占着），测热键的会话要声明这条；本机默认档见 `src-tauri/src/lib.rs:114` |
 | `irreversible:release-npm-tag` | 独占（**单人执裁**） | — | — | 已释放 | Release 是 `immutable` 的、`npm publish` 不可撤回、公开 tag 不能改 —— 这类不是「认领了别人等一下」，是**做错了没人能回退**。整条发布链一人执裁，另起一切实验都禁止碰这三个出口 |
 
