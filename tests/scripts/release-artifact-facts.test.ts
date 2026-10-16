@@ -70,7 +70,13 @@ const run = (lineFile: string, ledgerFile?: string) => {
   return { code: r.status as number, out }
 }
 
-describe('台账里"哪个是线上最新"怎么定', () => {
+// 这个文件的每一条断言都要靠 spawnSync 起一个子进程跑那道门（不能 import，理由见文件头），
+// 底噪 500-680 ms/条，与 tests/scripts/coord-gate-resources.test.ts 完全同构：
+// 直接 vitest run 不一定红，但 **走 npx 的那轮**（scripts/docs-check.mjs 内部 execSync 起来的）
+// 更挤 —— 2026-10-17 实测连着两轮都挂在 5226 / 5787 / 7104 ms 三条上（默认 testTimeout 5000），
+// 于是整道 docs-check 被这一条卡死。预算给到 describe 级，不动断言、不动 vitest.config.ts 全局
+// （口径照 2026-10-16 PR #99 与 PR #101 那两笔）。
+describe('台账里"哪个是线上最新"怎么定', { timeout: 20_000 }, () => {
   it('按 semver 三段数字取最大，而不是按台账键序', () => {
     const led = setup({ ...rel('v0.8.1', 'Modulo_0.8.1_x64-setup.exe', D), ...rel('v0.10.0', 'Modulo_0.10.0_x64-setup.exe', D10), ...rel('v0.9.0', 'Modulo_0.9.0_x64-setup.exe', OLD) })
     const lf = line('v-newest', '当前线上发布产物是 `Modulo_0.10.0_x64-setup.exe`')
@@ -118,9 +124,10 @@ describe('台账里"哪个是线上最新"怎么定', () => {
     expect(r.code, r.out).toBe(1)
     expect(r.out).toContain('v0.9.0 这条台账里没有安装包')
   })
-})
+},
+)
 
-describe('一行的核对是存在式的', () => {
+describe('一行的核对是存在式的', { timeout: 20_000 }, () => {
   const led = setup(rel('v0.8.1', 'Modulo_0.8.1_x64-setup.exe', D))
 
   it('当前安装包名 + 完整 64 位哈希 → 过', () => {
@@ -191,9 +198,10 @@ describe('一行的核对是存在式的', () => {
     expect(r.code, r.out).toBe(1)
     expect(r.out).toContain('GitHub 侧没给 digest')
   })
-})
+},
+)
 
-describe('台账读不到时的形状', () => {
+describe('台账读不到时的形状', { timeout: 20_000 }, () => {
   const lf = line('ledger-missing', '当前线上发布产物是 `Modulo_0.8.1_x64-setup.exe`')
 
   it('路径不存在 → 判红，并把路径写进结论', () => {
@@ -215,13 +223,14 @@ describe('台账读不到时的形状', () => {
     expect(r.status).toBe(2)
     expect(`${r.stderr}`).toContain('用法')
   })
-})
+},
+)
 
 /**
  * 接线自证。这两条防的是同一类事故：**门写了、测试也全绿，但它一行都没守着** ——
  * 上一轮 §11.4 那句就是因为没有任何维度认领它才漂了好几版。
  */
-describe('这一维真的接在门上', () => {
+describe('这一维真的接在门上', { timeout: 20_000 }, () => {
   const arch = readFileSync(join(ROOT, 'docs', 'ARCHITECTURE.md'), 'utf8').split(/\r?\n/)
   const ledgerRaw = JSON.parse(readFileSync(join(ROOT, 'release-manifest.json'), 'utf8')) as {
     releases: Record<string, { draft?: boolean; assets: Record<string, string | null> }>
@@ -253,4 +262,5 @@ describe('这一维真的接在门上', () => {
     expect(r.code, r.out).toBe(0)
     expect(existsSync(CLI)).toBe(true)
   })
-})
+},
+)
