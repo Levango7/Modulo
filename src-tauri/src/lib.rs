@@ -1,5 +1,7 @@
 use std::sync::Mutex;
 
+mod ai;
+mod capture;
 mod feeds;
 /**
  * `pub` 是为了让 `tests/` 里的集成测试能直接调 `bing_daily`。
@@ -12,6 +14,7 @@ mod feeds;
 mod fetchjson;
 mod floatwin;
 mod launcher;
+pub mod meeting;
 pub mod monitor;
 pub mod net;
 mod sysmon;
@@ -369,6 +372,36 @@ pub fn run() {
             web::bing_daily,
             monitor::web_probe,
             sysmon::sys_stats,
+            sysmon::proc_list,
+            ai::keys::ai_set_key,
+            ai::keys::ai_delete_key,
+            ai::openai_compat::ai_providers,
+            ai::openai_compat::ai_chat,
+            ai::openai_compat::ai_chat_cancel,
+            ai::openai_compat::ai_summarize,
+            ai::history::ai_history_list,
+            ai::history::ai_history_get,
+            ai::history::ai_history_delete,
+            ai::history::ai_history_clear,
+            capture::shot::shot_full,
+            capture::shot::shot_region,
+            capture::shot::shot_window,
+            capture::shot::shot_list,
+            capture::shot::shot_delete,
+            capture::winlist::win_list,
+            capture::preview::win_preview_start,
+            capture::preview::win_preview_stop,
+            meeting::asr::asr_model_status,
+            meeting::asr::asr_model_download,
+            meeting::audio::audio_devices,
+            meeting::session::meeting_start,
+            meeting::session::meeting_pause,
+            meeting::session::meeting_resume,
+            meeting::session::meeting_stop,
+            meeting::session::meeting_list,
+            meeting::session::meeting_get,
+            meeting::session::meeting_delete,
+            meeting::session::meeting_summarize,
             feeds::fetch_text,
             fetchjson::fetch_json,
             launcher::launch_target,

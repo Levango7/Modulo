@@ -247,6 +247,10 @@ input[type='checkbox'] {
 [data-module='htmlcard'] { --mod: var(--c-amber); }
 [data-module='stocks'] { --mod: var(--c-red); }
 [data-module='rss'] { --mod: var(--c-amber); }
+/* 录音=红点，是这个身份色最省解释的取法；卡内「error 语气」的那条提示条走的是
+   背景淡染 + 图标两通道，与这个静态表头色不共用同一个通道，不冲突。
+   窗口预览刻意**不给身份色**：它是纯 Chrome 式工具卡，跟着 --brand-500 的中性色走。 */
+[data-module='minutes'] { --mod: var(--c-red); }
 .card-head svg {
   color: var(--mod, var(--brand-500));
 }

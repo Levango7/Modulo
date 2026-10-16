@@ -1111,6 +1111,10 @@ const ALL_MODULE_IDS = [
   'http',
   'launcher',
   'htmlcard',
+  // Phase 3（2026-10-16）：两张卡都是「仅桌面壳」—— 网页版只渲染一句不可用说明，
+  // 但这条夹具测的是**每张卡都在版面上、三档视口不溢出不裁字**，所以照样要上版。
+  'minutes',
+  'winview',
 ]
 
 const ALL_MODULES_DOC = {

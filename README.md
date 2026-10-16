@@ -46,7 +46,7 @@ const { rects } = projectForWidth(doc, registry, 390)
 
 ## 现在有什么
 
-- **49 种卡片**：时钟 / 待办 / 便签 / 图表 / 监控 / 节假日 / 股票行情 / RSS …… 清单与逐批状态见 [docs/CARD-CATALOG.md](docs/CARD-CATALOG.md)；
+- **54 种卡片**：时钟 / 待办 / 便签 / 图表 / 监控 / 节假日 / 股票行情 / RSS …… 清单与逐批状态见 [docs/CARD-CATALOG.md](docs/CARD-CATALOG.md)；<!-- facts -->
 - **双形态同源**：网页端与桌面端（Tauri）共用同一套渲染与引擎；
 - **浮窗**：卡片可以脱离工作台，变成桌面小窗常驻；
 - 版本与逐版摘要见 [CHANGELOG.md](CHANGELOG.md)。
@@ -70,7 +70,7 @@ E2E（Playwright）：`npm run test:e2e`。发布与签名口径见
 | 文档 | 内容 |
 | --- | --- |
 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | 架构与选型：投影模型、五条不变量、历史栈、渲染层取舍 |
-| [docs/CARD-CATALOG.md](docs/CARD-CATALOG.md) | 卡片目录：49 种卡的形态矩阵与交付状态 |
+| [docs/CARD-CATALOG.md](docs/CARD-CATALOG.md) | 卡片目录：54 种卡的形态矩阵与交付状态 <!-- facts --> |
 | [CONTRIBUTING.md](CONTRIBUTING.md) | 参与开发：环境、测试、提交口径 |
 | [docs/AGENT-COORD.md](docs/AGENT-COORD.md) | 多 agent 并行时的作业面协调约定（含 junction 陷阱说明） |
 

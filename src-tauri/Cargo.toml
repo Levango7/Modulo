@@ -19,7 +19,7 @@ crate-type = ["rlib"]
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
-tauri = { version = "2", features = ["tray-icon"] }
+tauri = { version = "2", features = ["tray-icon", "protocol-asset"] }
 tauri-plugin-global-shortcut = "2"
 serde = { version = "1", features = ["derive"] }
 # 别当"未使用"删掉：tauri.conf.json 里有 `plugins` 段之后，`generate_context!` 生成的
@@ -29,6 +29,24 @@ tauri-plugin-updater = "2"
 tauri-plugin-process = "2"
 sysinfo = "0.38.4"
 encoding_rs = "0.8.42"
+keyring = { version = "4.2.0", features = ["v1"] }
+tokio = { version = "1.53.1", features = ["sync", "time", "macros"] }
+tokio-util = "0.7.19"
+reqwest = { version = "0.13.5", default-features = false, features = ["rustls-no-provider"] }
+rustls = { version = "0.23.45", features = ["ring", "tls12"] }
+# ASR 引擎。**别删 default-features = false + features = ["shared"]**：
+# 默认档是 static（13 个 MSVC .lib / 123MB），本机只有 GNU 工具链（MSVC 不可用）
+# 必然链接失败；shared 档（8MB）已实测 GNU ld 能链接并运行（见 meeting/asr.rs 文件头）。
+sherpa-onnx = { version = "=1.13.8", default-features = false, features = ["shared"] }
+# 模型下载后的 sha256 校验（R-01）与 .tar.bz2 解压
+sha2 = "0.11.1"
+tar = "0.4.46"
+bzip2 = "0.6.1"
+xcap = "0.9.8"
+image = { version = "0.25.10", default-features = false, features = ["png", "jpeg"] }
+windows-capture = "2.0.1"
+windows = { version = "0.62.2", features = ["Win32_Foundation", "Win32_UI_WindowsAndMessaging", "Win32_System_Threading"] }
+cpal = "0.18.2"
 
 [profile.release]
 codegen-units = 1

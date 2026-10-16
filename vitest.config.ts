@@ -56,9 +56,11 @@ const GATED_VUE_MODULES = [
   'src/vue/commandBus.ts',
   'src/vue/commands.ts',
   'src/vue/keyboard.ts',
+  'src/vue/minutesLive.ts',
   'src/vue/paletteIndex.ts',
   'src/vue/store.ts',
   'src/vue/useWeather.ts',
+  'src/vue/winPreview.ts',
 ]
 
 /** 仓库内按源码解析引擎包（与 vite.config.ts 同一条约定） */
@@ -103,6 +105,11 @@ export default defineConfig({
         'src/vue/commands.ts': { branches: 90 },
         'src/vue/commandBus.ts': { branches: 90 },
         'src/vue/paletteIndex.ts': { branches: 90 },
+        // Phase 3 前端批（2026-10-16）：两张新卡的判定逻辑各自抽成纯模块，随卡一起进受测层。
+        // 两条都实跑 100%，锁 100 才是「加一条没测到的分支当场红」的写法 ——
+        // 它们恰好都是"所有分支都靠卡片状态穷举出来的"那种模块，没有理由留余量。
+        'src/vue/minutesLive.ts': { branches: 100 },
+        'src/vue/winPreview.ts': { branches: 100 },
 
         // ── 逐文件棘轮：6 个低于 90 的引擎文件 ─────────────────────────────
         'packages/engine/src/breakpoints.ts': { branches: 75 },

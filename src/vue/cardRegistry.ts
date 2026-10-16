@@ -570,4 +570,33 @@ export const REGISTRY: ModuleRegistry = [
       { id: 'list', name: '全年表', minW: 3, minH: 4, idealW: 4, idealH: 6 },
     ],
   },
+  // ---- Phase 3 新增（2026-10-16）----
+  {
+    id: 'minutes',
+    title: '会议速记',
+    group: '记录',
+    // 归「记录」而不是「工具」：它产出的是留档的转写稿，与「速记」是同一族
+    // 录制与转写全程在本机（Rust 侧 cpal 采 + sherpa-onnx 断句），没有云端调用；
+    // 网页版拿不到本机音频、也起不了录音会话 → 如实说不可用，不摆一排点了没反应的假控件
+    blurb: '录麦克风 / 系统声音，本机断句成转写稿（仅桌面壳）',
+    defaultVariant: 'panel',
+    variants: [
+      // panel 要放下：音源与设备两行 + 计时 + 主按钮 + 实时字幕，3×4 起
+      { id: 'panel', name: '带设备与字幕', minW: 3, minH: 4, idealW: 4, idealH: 6 },
+      { id: 'compact', name: '紧凑', minW: 3, minH: 3, idealW: 4, idealH: 4 },
+    ],
+  },
+  {
+    id: 'winview',
+    title: '窗口预览',
+    group: '工具',
+    // 仅桌面壳（Rust WGC 捕获，帧走 Channel 的 Raw 字节）；网页版读不到本机窗口画面
+    blurb: '实时看某个窗口的画面（仅桌面壳）',
+    defaultVariant: 'panel',
+    variants: [
+      // panel = 画面 + 帧率/宽度档 + 窗口列表，3×3 起；mini 砍掉档位与列表，只留画面
+      { id: 'panel', name: '带窗口列表', minW: 3, minH: 3, idealW: 4, idealH: 5 },
+      { id: 'mini', name: '只留画面', minW: 2, minH: 2, idealW: 3, idealH: 3 },
+    ],
+  },
 ]
