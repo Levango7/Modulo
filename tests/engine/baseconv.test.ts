@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { isValidInBase, toBase } from '@levango7/engine/baseconv'
+import { isValidInBase, MAX_VALUE_LEN, toBase } from '@levango7/engine/baseconv'
 
 describe('toBase：2–36 进制互转', () => {
   it('日常口径各来一例', () => {
@@ -48,5 +48,36 @@ describe('isValidInBase：只验位，不验大小', () => {
     expect(isValidInBase('2', 2)).toBe(false)
     expect(isValidInBase('', 10)).toBe(false)
     expect(isValidInBase('-', 10)).toBe(false)
+  })
+})
+
+/**
+ * 输入长度上限（2026-10-11 补）。
+ *
+ * 修前 `toBase` 是 O(n²)：实测 16000 位（36 进制）耗时 1101 ms，输入翻倍耗时约 3.7 倍。
+ * 而 `BaseCard.vue` 把 `toBase` 放在 **computed** 里（依赖用户输入），于是**每敲一个字符
+ * 就重跑一次** —— 粘贴一段长哈希就能让界面同步冻结（50 万位外推约 18 分钟，实测跑不完）。
+ */
+describe('输入长度上限：超长直接拒，不尝试转换', () => {
+  it('超过上限返回 null / false，而不是花十几分钟去算', () => {
+    const over = 'z'.repeat(MAX_VALUE_LEN + 1)
+    expect(toBase(over, 36, 2)).toBeNull()
+    expect(isValidInBase(over, 36)).toBe(false)
+  })
+
+  it('上限之内照常转换，且耗时在合理量级', () => {
+    const atLimit = 'z'.repeat(MAX_VALUE_LEN)
+    expect(isValidInBase(atLimit, 36)).toBe(true)
+    const t0 = Date.now()
+    const r = toBase(atLimit, 36, 2)
+    const dt = Date.now() - t0
+    expect(r, '上限之内的输入不该被拒').not.toBeNull()
+    // 4096 位实测约 80 ms。余量给到 1000 ms —— 只挡「数量级不对」的回归，不锁死机器性能。
+    expect(dt, `4096 位耗时 ${dt} ms`).toBeLessThan(1000)
+  })
+
+  it('负号不计入长度（与 isValidInBase 剥负号的口径一致）', () => {
+    expect(isValidInBase('-' + 'z'.repeat(MAX_VALUE_LEN), 36)).toBe(true)
+    expect(isValidInBase('-' + 'z'.repeat(MAX_VALUE_LEN + 1), 36)).toBe(false)
   })
 })
