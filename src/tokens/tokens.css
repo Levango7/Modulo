@@ -391,3 +391,21 @@ input[type='checkbox'] {
 [data-skin='candy'] button {
   border-radius: var(--radius-pill);
 }
+
+/* ---- 卡组件懒加载占位（2026-10-17 #11/#12）----
+   50 张卡改 defineAsyncComponent 后，chunk 到位前内容区由 cardComponents.ts 的
+   cardLoading / cardError 渲染这两个类。全局类而非 scoped：那两个占位组件是
+   运行时 h() 建的，没有 scoped 样式的挂靠。只借既有令牌，不造新值。 */
+.card-fallback {
+  display: grid;
+  place-items: center;
+  width: 100%;
+  height: 100%;
+  /* 与卡内微字号同档（卡片正文 13px 体系里的最小档），不新造值 */
+  font-size: 11px;
+  color: var(--text-3);
+  user-select: none;
+}
+.card-fallback--error {
+  color: var(--text-4);
+}
