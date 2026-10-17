@@ -111,6 +111,17 @@ git diff --stat origin/master <分支>
 - 输出为空 → 内容已全部入库，可以考虑删（先打锚点）
 - 有输出 → 逐个文件看那是什么。**别只看行数**，`22 files changed` 可能全是"master 已多出来的"
 
+**2026-10-17 补一条适用边界（清 9 个已合并远端分支时实测撞到）**：上面这套「diff 为空」判据
+**只对 squash 合并（分支已与 master 分叉）的分支成立**。走 **merge commit** 合并的分支，tip
+本身就是 master 的祖先 —— `git diff origin/master <分支>` 几乎必然**非空**，但显示的是 master
+自己后来的增量（方向是反的），并不代表分支藏着没入库的东西（本批 9 个里 8 个 diff 非空，
+`rev-list --count` 却全为 0）。对这类分支用：
+
+```bash
+git rev-list --count origin/master..<分支>   # 0 = 零独有提交，删了零损失
+git merge-base --is-ancestor origin/<分支> origin/master && echo 已并入
+```
+
 2026-10-08 我在这上面错了三次：先按提交图判"`f722a9c` 已被取代"（实际是平行兄弟，各有一半对方没有的），
 再判"`useElementSize.ts` 是新增的"（实际一直都在），最后判"两个分支互斥不能合并"（实际是一前一后）。
 **三次都是靠 `git diff` 和提交拓扑图核实后改回来的。**
@@ -118,19 +129,61 @@ git diff --stat origin/master <分支>
 ### 现存锚点清单 —— 别手贱删
 
 2026-10-08 那几次险情留下的保险，**本地与远端各一份**（`git ls-remote --tags origin` 可核）。
-它们的共同点：**内容都已进 master，但原始提交在 master 上已无对应 ref** —— squash 合并的必然结果，
-所以这些 ref 是它们唯一的存活证明。删掉就等于让那批工作只剩 `git gc` 前的运气。
+
+**2026-10-17 更正一处说错的判断。** 这里原来写「它们的共同点：内容都已进 master，但原始提交
+在 master 上已无对应 ref」—— **这句只有 6 个成立**，另外 14 个的提交**本来就能从 master 到达**
+（逐个用 `git merge-base --is-ancestor` 实测，不是推断）。留都可以留，但性质差一层：前者删了
+真会没，后者删了毫发无损。混在一句话里，下次就会照着这句话去误删。所以**拆成两张表**。
+
+判法（一条命令，别靠记）：
+
+```bash
+git merge-base --is-ancestor <tag>^{commit} origin/master && echo 可达 || echo 只靠锚点
+```
+
+#### 一、只靠锚点存活 —— 删了就真没了（6 个）
+
+squash 合并的产物：内容进了 master，但**原始提交在 master 上没有任何 ref**。
 
 | 锚点 tag | 提交 | 保的是什么 |
 |---|---|---|
 | `anchor/aurora-wip-f722a9c` | `f722a9c` | 出厂皮肤 ink → aurora + 只量宽的 `useElementWidth.ts`（被 `useElementSize.ts` 取代的那一版） |
 | `anchor/feat-row-unit-height` | `65cb1ff` | 行高按窗口高度抬升 + 柔光皮肤（经 #21/#22 入库，原始形态） |
 | `anchor/docs-coord-registration-rule` | `b936165` | UI 工作线全链：`aa0d5cc → d6db96b → b936165`（顶栏整合 8 元素、E2E 守卫加严、协调板登记规矩） |
-| `anchor/release-0.7.1` | `0e8265c` | v0.7.1 发布现场（七处版本号 + CHANGELOG） |
+| `anchor/feat-coord-gate-tmp-tracked` | `85710a0` | coord-gate 判据 1「别把时区差当成跨年」那笔的原始形态 |
+| `anchor/local-master-b229ab9` | `b229ab9` | 「把 5 个锚点补成清单」当时的本地 master 快照 |
 | `anchor/rescue-main-wt-arch-draft` | `67d4ce9` | 主工作区遗留的 ARCHITECTURE §10.27 中间稿（原样转存，不丢弃不改写） |
 
 另有一份同内容备份在 **`stash@{0}`**（"wip(appearance): aurora 行高抬升收尾（未验完）"）——
 板上另有一条明确写了「请勿删」，它与 `f722a9c` 内容相同，是双保险。
+
+#### 二、可从 master 到达 —— 保险，不是唯一证明（14 个）
+
+分支走的是 merge commit（不是 squash），commit 本身已在 master 历史里，所以删分支零损失；
+这些 tag 只是把「那一笔长什么样」钉成一个好记的名字。**别拿它们当"唯一存活证明"去论证
+不能删分支。**
+
+| 锚点 tag | 提交 | 保的是什么 |
+|---|---|---|
+| `anchor/chore-claim-node-modules` | `03ef390` | `node_modules` 重建认领收口时把 PR #99 那 3 个提交并进来的合并点 |
+| `anchor/ci-coverage-ratchet` | `4c446a9` | PR #79 逐文件覆盖率棘轮（7 个低于 90 的文件不再被聚合值掩护） |
+| `anchor/ci-release-gate` | `fc00668` | PR #62 发版门禁（release job 第 1 步：CI 没绿不许发） |
+| `anchor/docs-board-closeout-pr52` | `4bcb307` | PR #52 收口时把 master 并进 `feat/cargo-lock-source` 的合并点 |
+| `anchor/feat-cargo-lock-source` | `4bcb307` | **与上一行同一提交**（两个 tag 指同一个 commit，历史留下的重复；不删不改，删哪个都会让另一行读起来像断的） |
+| `anchor/docs-board-closeout-pr97` | `15bace3` | PR #97 的板行收口（Phase 3 行回填 master 首验数字） |
+| `anchor/docs-facts-copies` | `98afdf9` | PR #43 消掉会漂的「副本」（CARD-CATALOG 纳入 TARGETS、规模数字搬进门的射程） |
+| `anchor/feat-calc-depth-limit` | `eddafb1` | PR #53 收口时并 master 的合并点 |
+| `anchor/feat-phase3-mvp` | `84b0513` | Phase 3 首批施工的板行补登点。**该分支 tip 是 `4bb9032`，本锚点停在 10-15 的中间提交** —— 别拿它当分支头 |
+| `anchor/fix-baseconv-input-limit` | `3ffba52` | PR #55 收口时并 master 的合并点 |
+| `anchor/fix-coord-gate-resources-timeout` | `96017e8` | PR #101 的产出：`coord-gate-resources` 补时间预算 |
+| `anchor/fix-dark-hover-contrast` | `e5b8d8a` | PR #103 的产出：暗色皮肤 `button:hover` 对比度（P0） |
+| `anchor/perf-drag-ghost-composited` | `6dbcfd3` | PR #66 幽灵块改 transform + 计数型拖拽预算门禁 |
+| `anchor/release-0.7.1` | `0e8265c` | v0.7.1 发布现场（七处版本号 + CHANGELOG） |
+
+**2026-10-17 补的 7 个**（清远端已合并分支前按规矩补，均指向当时的**分支 tip**）：
+`anchor/chore-claim-node-modules`、`anchor/docs-board-closeout-pr97`、`anchor/feat-calc-depth-limit`、
+`anchor/feat-cargo-lock-source`、`anchor/fix-baseconv-input-limit`、
+`anchor/fix-coord-gate-resources-timeout`、`anchor/fix-dark-hover-contrast`。
 
 **要恢复任何一个**：`git branch <新名字> anchor/<名字>`。**确认某个锚点已无价值**再删，
 并按上面那三条规矩走（远端那份也一并删，别只删一边）。
@@ -178,7 +231,9 @@ Release / npm / tag。这一张表管那一半，`scripts/coord-gate.mjs` **判�
 | 时间 | Agent | 在做什么 | 会改的文件 | 请勿动 | 状态 |
 |------|-------|----------|-----------|--------|------|
 | 10-17 11:2x | 灵语（Qoder 交付面收口线） | **切 `v0.8.2`**（用户「确定不冲突 那就切」）。冲突核查已做：master 从 `1da670e` 走到 `43a3896`（对方的 #52/#102/#103/#104 全合，暗色 `button:hover` 对比度 P0 已在 `e5b8d8a`），唯一开着的 PR #105 是 card-catalog 文档、不动产品面。做法：版本号七处 0.8.1→0.8.2（`VERSION_PLACES` 那七处，机器同源）、CHANGELOG 的「未发布」段落成 `## 0.8.2`、本机跑全门禁 → PR → 两条 required 绿 → merge commit → **等 master 的 push run 绿**（发版门禁 `release-gate.mjs --tag` 就是查这个）→ `git tag -s v0.8.2` → 推 tag 触发发布 job → 台账 `release:ledger:update` 回写 → 同步 §11.4 那句「当前线上发布产物」。**这一版的额外意义：`NPM_TOKEN` 已于 10-15 09:49Z 配上，`v0.8.2` 是第一次真的执行 `发 @levango7/engine 到 npm`（含 `--provenance`）**；在那之前那句从未跑过，attestations 实测 404。 | `package.json`、`package-lock.json`、`src-tauri/Cargo.toml`、`src-tauri/Cargo.lock`、`src-tauri/tauri.conf.json`、`src/vue/useBackup.ts`、`packages/engine/package.json`、`CHANGELOG.md`、`docs/AGENT-COORD.md`；台账回写后再动 `release-manifest.json` 与 `docs/ARCHITECTURE.md` §11.4 | **不改任何产品代码与测试**（本笔只动版本号与文档）；`src/**` 逻辑、`packages/engine/src/**`、`scripts/**`、`.github/**` 一律不碰。**主工作树与它的 `node_modules/` 一行不写**（全程在私有 worktree `F:/Nexus/modulo-release`，detached 起分支）。`dir:node_modules` 与 `irreversible:release-npm-tag` 两行已按规矩处理 | ⏳ 进行中 |
-| 10-17 03:25 | WorkBuddy 本会话 | **判据 2 的 range 口径统一（本机 = CI）+ 给它补上第一份测试**。**缺陷**：判据 2 的三段 range 里，`origin/master...HEAD` 此前写成 `ci ? 'origin/master...HEAD' : null` —— **本机跑这道门时它被跳过、直接落到 `HEAD~1...HEAD`，只看最后一个提交**。后果：一个分支里前面几笔真改了产品面、最后一笔只碰文档时，**本机绿**；同一棵树推到 CI 却会红（CI 上这个 range 是启用的，`COORD_BASE` 之外就靠它）。**两岸口径不一致的代价就是"本机绿、CI 红"** —— 与本 session 在修的 `watch.ts` / `net.rs` 那类「两侧判据分叉」同病。**修法**：去掉那个三元，两侧同用 `origin/master...HEAD`（`A...B` = merge-base(A,B) 到 B，只含自己这一侧的提交，不把 master 的改动算进来）；本机若没有 `origin/master`（裸仓 / 未 fetch）→ `git diff` 抛错 → 照旧退到 `HEAD~1...HEAD`，行为不变。**这一条此前零测试覆盖**（`tests/scripts/` 下只有判据 5、docs-check-claims、release-artifact-facts 三个文件），本笔新增 `tests/scripts/coord-gate-range.test.ts` 4 条。**为什么必须在夹具仓里跑**：判据 2 读的是 `git diff <range>`，range 形状取决于真实历史（本分支几笔、`origin/master` 指哪、`COORD_BASE` 给不给），真仓里造不出这个形状 —— 所以建临时 git 仓、把门脚本**复制**进去（门的 `root` 按脚本自身位置算，与 cwd 无关）。**射程自证（本笔的重点，刻意做成一对）**：① 本机默认口径下「第一笔改产品面、最后一笔只碰文档」**必须红**；② **同一份夹具**上 `COORD_BASE=HEAD~1` 复现旧口径**必须不红** —— 一红一绿都出自同一份历史 ⇒ 结论由 range 选择驱动，而不是夹具里别的东西碰巧让它红。子进程**显式清掉 `CI`**（不清的话 CI 上那条旧写法本来就启用，测试会退化成「CI 上永远绿、本机红」的假守护 —— 而要抓的正是本机那一侧）。**变异验证**：把 `ci ? … : null` 放回去 → 第 1 条当场红（`AssertionError: 期望判据 2 报红`）；还原后 4/4 绿。**口径**：放宽的是覆盖不是判据（判据 2 的判法一字未改，改的是它看哪个 range）；`vitest.config.ts` 不动；`--resources-only` 与判据 5 路径未碰。**又一次撞到本仓那条结构性超时（照先例办）**：新文件每条断言都要建临时 git 仓（约 8 次 git 调用）+ 跑一次整道门（node 冷启动），隔离跑 4 条 7.2 s，但走 `docs-check` 那轮（它内部自己起一轮 vitest，本机 80+ 个 node 进程在跑）实测 **21.7 / 8.9 / 6.9 / 6.6 s** —— 默认 `testTimeout` 5000 全挂，而报出来是「单测没全绿」，与断言对错无关、把人往错方向带。按 PR #99 / #101 的先例给 **describe 级 `{ timeout: 40_000 }`**：4 条成本同质、挂哪条是调度运气；**放宽的是预算不是断言**（一条 expect 没动）、`vitest.config.ts` 全局不动。取 40 s 而非 20 s 是因为峰值 21.7 s 已顶到 20 s 边上，20 s 会退化成"偶尔红一次"，而间歇性红最后一定被当噪声忽略 | `scripts/coord-gate.mjs`（三段 range 去掉 `ci ?` 三元 + 文件头与判据 2 处注释说明为何两侧必须同口径）、`tests/scripts/coord-gate-range.test.ts`（新增，4 条）、`docs/AGENT-COORD.md`（本行 + 上一行状态收敛） | 判据 2 的**判法本身**（`PRODUCT` 正则、逃生阀 `no-coord-gate:`、`touchedBoard` 判定）一字不改；判据 1/3/4/5 全不碰；`vitest.config.ts`、`vitest.e2e.config.ts` 不碰；`src/**`、`packages/**`、`src-tauri/**`、其余 `tests/**`、版本号七处、`dist/` 与 `target/` 一行不碰 | 🔨 进行中（本地已实测：新增 4 条全绿 · 变异验证「放回旧写法必红 / 还原复绿」双向做过 · typecheck 净 · 单测 **1409 / 89 文件** · `docs:check` 数字全对 · `coord-gate` 0 警告。分支 `fix/coord-gate-range`；PR 号与 master 首验合并后补） |
+| 10-17 03:45 | WorkBuddy 本会话 | **清掉 9 个已合并的远端分支（删前先补锚点）+ 顺手把锚点清单从「5/13」修成完整、并改掉一处说错的判据**。**为什么删是安全的（两条独立证据，不靠提交图）**：9 个分支 `git merge-base --is-ancestor origin/<分支> origin/master` 逐个判真（tip 本身就是 master 祖先），且 `git rev-list --count origin/master..origin/<分支>` 全部为 **0**（零独有提交）。**发现一条板上旧判据的适用边界（记档）**：本文件「判断分支还有没有价值」写的「`git diff --stat origin/master <分支>` 输出为空才算入库」**只对 squash 合并（已分叉）的分支成立** —— 走 merge commit 的分支 tip 是 master 祖先，diff 非空只是 master 自己后来的增量反着显示（本批 9 个里 8 个 diff 非空但 ahead=0，两者并不矛盾）。对这类分支的正确判据是 `rev-list --count master..分支 == 0`。**执行顺序（顺序不能反）**：先 `git tag anchor/<分支名斜杠换横线> <tip>` 并推远端 7 个（`docs/board-closeout-pr52`、`feat/phase3-mvp` 两个已有锚点）→ `git ls-remote --tags` 逐个核对 7 个 tag 真落到远端且 sha 指向分支 tip → 才 `git push origin --delete` 9 个 → 本地同名分支 9 个也全 `git branch -d`（安全档，git 自己校验过合并才放行，无一例降级 `-D`）。**清后盘点**：远端剩 `master` / `gh-pages` / `rescue/main-wt-arch-draft` / `docs/coord-wrap79`（未合并，保留）；进行中的 `docs/card-catalog-status` 与 `fix/coord-gate-range` 随合并删除。**顺手修正锚点清单的一处说错**：本文件原写「它们的共同点：内容都已进 master，但原始提交在 master 上已无对应 ref」—— 实测 20 个锚点里**只有 6 个**如此（逐个 `is-ancestor` 实测），其余 14 个可从 master 到达 → 拆成「只靠锚点存活（6，删了真没了）」与「可从 master 到达（14，保险、非唯一证明）」两张表，并把清单从 5 行补成 20 行全覆盖。**另核清一处疑似数据损坏**：两个旧锚点的提交主题显示乱码，`xxd` 验原始字节为合法 UTF-8 —— 是我 `cut -c` 截断多字节字符造成的显示问题，数据无损 | `docs/AGENT-COORD.md`（本行 + 锚点清单节重写）+ 远端引用操作（7 个 tag push、9 个分支 delete） | `src/**`、`packages/**`、`src-tauri/**`、`tests/**`、`scripts/**`、版本号七处、`dist/` 与 `target/` 一行不碰 | ✅ done（产品面零改动；7 个新 tag 远端逐一核对在位、9 个分支 `ls-remote --heads` 复核已消失、本地分支同步清空） |
+| 10-17 03:35 | WorkBuddy 本会话 | **补登 PR #105（CARD-CATALOG 状态清单 + 三张漏掉的卡补成正文小节）** —— 该笔当时按逃生阀「纯文档、产品面零改动、单 agent 小修」未单独登记板行，此处补齐账面。**交付内容**：① 首部「状态」节补齐 5-②/5-③/批次 6，删掉那条自认「落后于正文」的假脚注；② 新增「批次 6 —— 声明式扩展与桌面工具箱」一节（#50 网页取数 / #51 速达 / #52 自定卡，事实取自 `ARCHITECTURE.md` §10.42–§10.44）。**比原任务重的一个发现**：原脚注称那三张卡「都在各自的小节里写了 ✅」是**假的** —— `CARD-CATALOG.md` 里 50/51/52 一个小节都没有，只在首行数字串与末尾分组清单里出现，实现取舍实际写在 `ARCHITECTURE.md` §10.42–§10.44 | `docs/CARD-CATALOG.md` | `src/**`、`packages/**`、`src-tauri/**`、`tests/**`、`scripts/**`、`docs/ARCHITECTURE.md`、版本号七处一行不碰 | ✅ done（**PR #105 → merge commit `b82d6af`**：两条 required 各两轮全绿；master 首验 run `38997886201` success。树一致性实测 —— `c3277c9` 与 `b82d6af` 的差异**恰好是 #104 的 4 个文件**，说明本笔改动原样进 master、未被吞） |
+| 10-17 03:25 | WorkBuddy 本会话 | **判据 2 的 range 口径统一（本机 = CI）+ 给它补上第一份测试**。**缺陷**：判据 2 的三段 range 里，`origin/master...HEAD` 此前写成 `ci ? 'origin/master...HEAD' : null` —— **本机跑这道门时它被跳过、直接落到 `HEAD~1...HEAD`，只看最后一个提交**。后果：一个分支里前面几笔真改了产品面、最后一笔只碰文档时，**本机绿**；同一棵树推到 CI 却会红（CI 上这个 range 是启用的，`COORD_BASE` 之外就靠它）。**两岸口径不一致的代价就是"本机绿、CI 红"** —— 与本 session 在修的 `watch.ts` / `net.rs` 那类「两侧判据分叉」同病。**修法**：去掉那个三元，两侧同用 `origin/master...HEAD`（`A...B` = merge-base(A,B) 到 B，只含自己这一侧的提交，不把 master 的改动算进来）；本机若没有 `origin/master`（裸仓 / 未 fetch）→ `git diff` 抛错 → 照旧退到 `HEAD~1...HEAD`，行为不变。**这一条此前零测试覆盖**（`tests/scripts/` 下只有判据 5、docs-check-claims、release-artifact-facts 三个文件），本笔新增 `tests/scripts/coord-gate-range.test.ts` 4 条。**为什么必须在夹具仓里跑**：判据 2 读的是 `git diff <range>`，range 形状取决于真实历史（本分支几笔、`origin/master` 指哪、`COORD_BASE` 给不给），真仓里造不出这个形状 —— 所以建临时 git 仓、把门脚本**复制**进去（门的 `root` 按脚本自身位置算，与 cwd 无关）。**射程自证（本笔的重点，刻意做成一对）**：① 本机默认口径下「第一笔改产品面、最后一笔只碰文档」**必须红**；② **同一份夹具**上 `COORD_BASE=HEAD~1` 复现旧口径**必须不红** —— 一红一绿都出自同一份历史 ⇒ 结论由 range 选择驱动，而不是夹具里别的东西碰巧让它红。子进程**显式清掉 `CI`**（不清的话 CI 上那条旧写法本来就启用，测试会退化成「CI 上永远绿、本机红」的假守护 —— 而要抓的正是本机那一侧）。**变异验证**：把 `ci ? … : null` 放回去 → 第 1 条当场红（`AssertionError: 期望判据 2 报红`）；还原后 4/4 绿。**口径**：放宽的是覆盖不是判据（判据 2 的判法一字未改，改的是它看哪个 range）；`vitest.config.ts` 不动；`--resources-only` 与判据 5 路径未碰。**又一次撞到本仓那条结构性超时（照先例办）**：新文件每条断言都要建临时 git 仓（约 8 次 git 调用）+ 跑一次整道门（node 冷启动），隔离跑 4 条 7.2 s，但走 `docs-check` 那轮（它内部自己起一轮 vitest，本机 80+ 个 node 进程在跑）实测 **21.7 / 8.9 / 6.9 / 6.6 s** —— 默认 `testTimeout` 5000 全挂，而报出来是「单测没全绿」，与断言对错无关、把人往错方向带。按 PR #99 / #101 的先例给 **describe 级 `{ timeout: 40_000 }`**：4 条成本同质、挂哪条是调度运气；**放宽的是预算不是断言**（一条 expect 没动）、`vitest.config.ts` 全局不动。取 40 s 而非 20 s 是因为峰值 21.7 s 已顶到 20 s 边上，20 s 会退化成"偶尔红一次"，而间歇性红最后一定被当噪声忽略 | `scripts/coord-gate.mjs`（三段 range 去掉 `ci ?` 三元 + 文件头与判据 2 处注释说明为何两侧必须同口径）、`tests/scripts/coord-gate-range.test.ts`（新增，4 条）、`docs/AGENT-COORD.md`（本行 + 上一行状态收敛） | 判据 2 的**判法本身**（`PRODUCT` 正则、逃生阀 `no-coord-gate:`、`touchedBoard` 判定）一字不改；判据 1/3/4/5 全不碰；`vitest.config.ts`、`vitest.e2e.config.ts` 不碰；`src/**`、`packages/**`、`src-tauri/**`、其余 `tests/**`、版本号七处、`dist/` 与 `target/` 一行不碰 | ✅ done（**PR #104 → merge commit `43a3896`**：两条 required 各两轮全绿 —— verify **3m12s / 2m58s**、桌面壳 **5m46s / 5m49s**；**master 首验 run `38997447217` success**；「进 master 的树就是跑绿的树」实测 —— `16c6ca9^{tree}` == `43a3896^{tree}` == `2eb8ce5bd110f1aee55b6361b932cd517eee0f7e`，`git diff --stat` 零输出。合并后 master 顶到 `43a3896`，随后被 #105 的 `b82d6af` 接上） |
 | 10-17 02:55 | WorkBuddy 本会话 | **修暗色皮肤 `button:hover` 对比度缺陷（P0）+ 补上「没看住它」的那道门禁**。**缺陷**：`--brand-50` 只在 `:root` 定义（`color-mix(in oklab, var(--accent) 12%, #fff)`），**三种皮肤的暗色块一个都没覆盖它**，而它唯一的消费者是 `button:hover { background: var(--brand-50) }`（`tokens.css:150`）；按钮文字是 `color: inherit` → 继承 `body` 的 `--text-1`，暗色下是**浅色**。于是暗色 hover 成了「浅底 + 浅字」。**实测（canvas 回读 8bit sRGB）text-1/brand-50 = aurora 1.04 / ink 1.01 / candy 1.01** —— 三皮肤**全部低于 `ABS_FLOOR` 1.5**，hover 时文字等于消失。**修法**：在 `[data-theme='dark']` 里重定义 `--brand-50: color-mix(in oklab, var(--accent) 22%, var(--bg-page))`。不写死色值是为了**三皮肤自动跟随** —— ink/candy 的暗色块不重定义 `--brand-50`，所以落到本块这条声明，而块内 `var(--accent)`/`var(--bg-page)` 在**同一元素**上按各自皮肤的高特异性值解析（ink dark 0,2,0 的 `#ff7a4d`/`#0c0d0f`、candy dark 的 `#ff5c8a`/`#1a1216`）。**修后实测 aurora 11.32 / ink 13.31 / candy 11.97**；亮色三组不变（仍走 `:root`）。**缺陷为什么溜过了门禁**：`contrast-matrix.spec.ts` 那六组配对**没有一组覆盖 `button:hover` 这条路径** —— 补 `text-1/brand-50` 一对。**补这一对时撞到一个新坑（值得单独记）**：`measure.ts` 取的是 `getPropertyValue` 的**声明原文**，而 `--brand-50` 是 `color-mix(in oklab, …)`。先写探针实测核实了两件事：① 自定义属性的计算值只是「var() 已代入的 token 流」，**`color-mix` 不被求值**；② 借真实属性（`color`）读回来得到的仍是 **`oklab(…)`**。两条路内核都解析不了 → `c === null` → spec 里 `if (v.c === null) continue` **静默跳过** —— 也就是说「直接往 PAIRS 里加一行」本来会是个**假守护**（写探针才看见，没写就看不出来）。**修法**：`measure.ts` 加 `resolveColor`，只在 `vk.parse` 失败时才走 canvas —— `fillStyle` 接受 `color-mix`，`fillRect` + `getImageData` 取回的就是用户实际看到的 8bit sRGB 字节（越色域部分由 canvas clamp，正好是屏幕结果）；**legacy 写法原样返回**，既有六组数字**逐字节不变**（落盘报告 42 行逐行核对，`text-1/bg-page` 六组与 10-14 基线完全一致）。**变异验证（门是真的会咬）**：把 `tokens.css` 的修复 stash 掉复跑 → 门红，原样报 `对比度退步：aurora · dark · text-1/brand-50 = 1.04（基线 11.32，下限 10.19）[#f2efe8 / rgba(238, 245, 242, 1.000)]`；恢复后绿。**放宽的是覆盖、不是断言**：一条 `expect` 没动、没有任何基线被下调（只新增 6 个条目）、`vitest.config.ts` 与 `contrast.ts`（跨项目逐字节同源的内核）**一字未改**。**本笔是「补漏 + 修缺陷」，不构成偏差登记**。临时探针 `_tmp-brand50-probe.mjs` 写在仓根、跑完即删、未进索引（判据 4）。**顺带量清一体积**（撤本笔重建 vs 含本笔重建，各一次）：**CSS 136.12 → 136.18**（+0.06 kB，只有那一条 `color-mix` 声明）、**JS 427.24 两边完全相同**；而文档原记 JS 426.90 —— 撤掉本笔仍是 427.24，**那 0.34 kB 与本笔无关**，是 PR #97 之后累积的构建漂移（一直落在 `docs-check` ±1 kB 容差内，所以没人看见）。已在 facts 行里按实跑更正并记明。 | `src/tokens/tokens.css`（`:74` 起 11 行：`[data-theme='dark']` 内加 `--brand-50` 重定义 + 注释）、`tests/e2e/contrast-matrix.spec.ts`（PAIRS 加 `text-1/brand-50` + 六组 BASELINE 新增 6 条 + 文件头补记）、`tests/e2e/visual-kit/measure.ts`（加 `resolveColor` canvas 解析层）、`tests/e2e/visual-kit/probe.mjs`（配对表同步 —— 文件自己写着「两处必须同集」）、`docs/ARCHITECTURE.md`（:379 facts 行：补 CSS/JS 体积一笔 + 按实跑更正 JS 数值）、`docs/AGENT-COORD.md`（本行） | `tests/e2e/visual-kit/contrast.ts`（**跨项目共享内核，一字不改**）、`vitest.config.ts`、`vitest.e2e.config.ts`、`scripts/**`、`packages/**`、`src-tauri/**`、`src/**` 其余（本笔只碰 `tokens.css` 一个文件）、其余 `tests/**`、版本号七处、`dist/` 与 `target/` 一行不碰 | ✅ done（**PR #103 → merge commit `e202d84`**：`pull_request` 与 `push` 两条 run 的 required 全绿；**master 首验 run `38953725173` success**（ruleset `strict=false`，合并提交自己不跑 CI，故另起一轮补看）；「进 master 的树就是跑绿的树」实测 —— `e5b8d8a^{tree}` == master tree == `274b83ad0a8033b1197af7c8b464c17be06ca8ba`。**如实记一条 CI 环境 flake**：push 那条 run 首次跑时 `tests/e2e/layout.spec.ts:226` 的 `puppeteer.launch()` 报 `TimeoutError: Timed out after 30000 ms while waiting for the WS endpoint URL to appear in stdout!`（6 个 spec 全过、只有它启动超时），**同一提交的 pull_request run 全绿** → 判定为 runner 环境抖动而非代码问题，重跑该 job 后 success） |
 | 10-17 01:55 | WorkBuddy 本会话 | **收口 PR #52（`feat/cargo-lock-source`，Cargo.lock 依赖来源门禁）** —— 三个挂起 PR 的最后一个，纯门禁、产品面零改动。冲突面同形（两个文档热点各一处，代码面零冲突），但**这一笔踩到一个新坑，值得单独记**：**`git fetch` 失败会静默留下陈旧引用**。`git fetch origin master` 连着多次失败（SSH 报「correct access rights」、HTTPS 报 schannel 中断），**`origin/master` 引用没动、也没在我看得见的地方报错** —— 于是我在 `3acc889`（PR #53 那棵树）上做了合并，测出 **1402**。而此时 master 实际已是 `36eeb6d`（PR #55 已合，= 1401），PR #52 应得 **1405**。**抓到它的是「合并后重测」** —— 1402 ≠ 1405 对不上，才回头查出 base 陈旧。**解法**：fetch 不通时用 `gh api`（走 HTTPS，比 git 协议稳）拿 master 的 tree sha 做交叉校验 —— `gh api repos/.../commits/master --jq .commit.tree.sha` = `7054bb6c…`，而本地 `3ffba52^{tree}`（PR #55 的 merge commit，其父为 `(03084f0, 3acc889)`，已含 PR #53 全部内容）**字节相同** → 它就是内容等价于 master 的 base，`git update-ref refs/remotes/origin/master 3ffba52` 校正后重做合并。**合并后重测（用正确 base）**：**88 passed / 1405 passed** —— 与预期 1401 + 4 精确吻合，文件 87 → 88。facts 行同步 1405/88，`:81` 行文件数 87 → 88 并补 `tests/release/` 明细。**本机三道**：docs-check「标记行的数字与实跑一致」（1405/88 · 94.68% · 426.9 kB · 54 卡 · Rust 93+2 · 0.8.1 七处同源）· coord-gate 0 警告 · typecheck 零错误。**另记一条环境观察**：本轮有一次全量跑出 `Failed to start forks worker` + 46 errors（只跑 42/88 文件、`Transform 511.56s` 是正常值的 12 倍），`ps -W` 显示有大量 **10-15 就已在运行的** `node.exe`（用户环境既有负载）—— 属机器负载而非代码问题，改用 `--maxWorkers=3` 低并发复跑即 88/1405 全绿 | `docs/AGENT-COORD.md`（冲突取并集 + 本行 + 上一笔状态收敛）、`docs/ARCHITECTURE.md`（:81 文件数 87→88 + 补 `tests/release/` 明细、:379 facts 行 1401→1405 + 补记） | `tests/release/cargo-lock-source.test.ts`（PR #52 的既有产出，本笔不改）、`scripts/**`、`src/**`、`src-tauri/**`、`packages/**`、`tests/**` 其余、版本号七处、`dist/` 与 `target/` 一行不碰 | ✅ done（**PR #52 → 已合入 master**：两条 required 全绿；master 首验 run `38944487772` success；「进 master 的树就是跑绿的树」实测 —— master tree == `4bcb307^{tree}` == `b437f4c14dbf8780661a48f2ef39be4b5fc0f471`。**三个挂了 5 天的 PR（#53 / #55 / #52）至此全部收口**） |
 | 10-17 00:58 | WorkBuddy 本会话 | **收口 PR #55（`fix/baseconv-input-limit`，进制转换加输入长度上限）** —— 三个挂起 PR 里的第二个，同一套路。**冲突面与 PR #53 完全同形**：两个文档热点各一处，**代码面零冲突**（`packages/engine/src/baseconv.ts`、`src/app/cards/BaseCard.vue`、`tests/engine/baseconv.test.ts` master 都没碰过）。解法照抄：板子取并集按时间倒序（我 10-11 14:10 / master 两行 10-13 12:32 与 10-11 13:10 → 共 3 行）、`ARCHITECTURE.md:379` facts 行取 master 侧为基底再重测。**合并后重测，数字不取任一边**：全量 **87 passed / 1401 passed** —— 比并用 PR #53 后的 1398 多 **3** 条（`tests/engine/baseconv.test.ts` 现 **10 条**），文件仍 **87**；与 PR #55 自己认领的「1064→1067」(+3) 对得上。facts 行同步为 1401/87 并补记。**本机三道**：docs-check「标记行的数字与实跑一致」（1401/87 · 94.68% · 426.9 kB · 54 卡 · Rust 93+2 · 0.8.1 七处同源）· coord-gate 0 警告 · typecheck 零错误 | `docs/AGENT-COORD.md`（冲突取并集 + 本行 + 上一笔状态收敛）、`docs/ARCHITECTURE.md`（:379 facts 行 1398→1401 + 补记） | `packages/engine/src/baseconv.ts`、`src/app/cards/BaseCard.vue`、`tests/engine/baseconv.test.ts`（PR #55 的既有产出，本笔不改）、`src/**`、`src-tauri/**`、`scripts/**`、其余 `tests/**`、版本号七处、`dist/` 与 `target/` 一行不碰 | ✅ done（**PR #55 → merge commit `36eeb6d`**：两条 required 全绿；master 首验 run `38939882782` success） |
