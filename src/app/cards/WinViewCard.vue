@@ -299,7 +299,7 @@ onBeforeUnmount(() => {
   display: flex;
   flex-direction: column;
   gap: clamp(4px, 1.4cqw, 10px);
-  padding: clamp(8px, 2.2cqw, 16px);
+  padding: clamp(8px, 2.2cqw, 18px);
   overflow: auto;
 }
 .stage {
