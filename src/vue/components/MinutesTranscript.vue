@@ -13,7 +13,7 @@ import { nextTick, ref, watch } from 'vue'
 import { Captions } from 'lucide-vue-next'
 import { formatSegmentTime, type Segment } from '../minutesLive'
 
-const props = defineProps<{ segments: Segment[]; active: boolean }>()
+const props = defineProps<{ segments: Segment[]; active: boolean; idleText?: string }>()
 
 const log = ref<HTMLElement | null>(null)
 /** 用户往上翻历史时不抢他的滚动位置；等他滚回贴底再恢复自动贴底（聊天窗的通行做法） */
@@ -39,7 +39,9 @@ watch(
   <ol ref="log" class="log" role="log" aria-live="polite" aria-relevant="additions" @scroll="onScroll">
     <li v-if="!segments.length" class="idle">
       <Captions :size="14" />
-      <span>{{ active ? '在听，还没断出完整的句子' : '开始后，断出的句子会逐条出现在这里' }}</span>
+      <!-- idleText：详情页复用这个列表但空态语义不同（"这场没有内容"≠"还没开始听"）；
+           不传则保持实时字幕的两态原文，既有调用零改动 -->
+      <span>{{ idleText || (active ? '在听，还没断出完整的句子' : '开始后，断出的句子会逐条出现在这里') }}</span>
     </li>
     <li v-for="s in segments" :key="s.startMs">
       <span class="at">{{ formatSegmentTime(s.startMs) }}</span>
