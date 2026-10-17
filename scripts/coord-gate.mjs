@@ -14,6 +14,8 @@
 //      否则「进行中」永远有行，下一个人永远不敢动这个仓库。
 //   2. 未登记改动：本次提交动了「产品面」文件（src/ packages/ src-tauri/ tests/ scripts/）
 //      但既没碰 AGENT-COORD.md、也不在板上任何一行声明的范围里 → 失败。
+//      **看的是「本分支相对 master 的全部提交」**（`origin/master...HEAD`），
+//      不是「最后一个提交」—— 只看最后一笔会让本机与 CI 口径分叉（2026-10-17 修，见该处注释）。
 //   3. 锚点缺失：本地存在但远端没有的分支，若其提交不在 master 上 → 警告。
 //      这条是给 `anchor/<x>` 规矩兜底的：锚点 tag 只在本地，一样会丢。
 //      **2026-10-09 补**：锚点在**本地与远端都在**时不再报警 —— 此前不管在不在都催人重打，
@@ -236,9 +238,18 @@ if (!bypass && !ONLY_RES) {
   let changed = [];
   let messages = '';
   // 浅克隆下 HEAD~1 / origin/master 可能不存在 —— 拿不到就跳过这条判据，不猜
+  //
+  // **2026-10-17 修一致性问题**：`origin/master...HEAD` 此前挂了 `ci ? … : null`，
+  // 于是**本机跑这道门时它被跳过、直接落到 `HEAD~1...HEAD`** —— 只看**最后一个提交**。
+  // 本机一个分支连写两三笔时，只要**最后那笔**碰了板子，前面几笔真改了产品面也不会红；
+  // 而同一棵树推到 CI 却会红（CI 上这个 range 是启用的，`COORD_BASE` 之外就靠它）。
+  // **两侧口径不一致的代价是"本机绿、CI 红"**，这正是本 session 在修的同一类病。
+  // 现在两侧同用 `origin/master...HEAD`（`A...B` = merge-base(A,B) 到 B，
+  // 只含**自己这一侧**的提交，不把 master 的改动算进来）。
+  // 本机若没有 `origin/master`（裸仓 / 未 fetch）→ `git diff` 抛错 → 照旧退到 `HEAD~1...HEAD`。
   for (const range of [
     process.env.COORD_BASE && `${process.env.COORD_BASE}...HEAD`,
-    ci ? 'origin/master...HEAD' : null,
+    'origin/master...HEAD',
     'HEAD~1...HEAD',
   ].filter(Boolean)) {
     try {
