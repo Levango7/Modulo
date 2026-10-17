@@ -56,6 +56,7 @@ const GATED_VUE_MODULES = [
   'src/vue/commandBus.ts',
   'src/vue/commands.ts',
   'src/vue/keyboard.ts',
+  'src/vue/meetings.ts',
   'src/vue/minutesLive.ts',
   'src/vue/paletteIndex.ts',
   'src/vue/store.ts',
@@ -109,6 +110,9 @@ export default defineConfig({
         // 两条都实跑 100%，锁 100 才是「加一条没测到的分支当场红」的写法 ——
         // 它们恰好都是"所有分支都靠卡片状态穷举出来的"那种模块，没有理由留余量。
         'src/vue/minutesLive.ts': { branches: 100 },
+        // 会议历史（2026-10-17）：minutes 卡的「历史」半边抽成纯模块（列表截断 / 日界
+        // 分组 / 字数），随本批进受测层。判定全部可由固定时钟穷举，同 minutesLive 锁 100。
+        'src/vue/meetings.ts': { branches: 100 },
         'src/vue/winPreview.ts': { branches: 100 },
 
         // ── 逐文件棘轮：6 个低于 90 的引擎文件 ─────────────────────────────

@@ -15,6 +15,13 @@
  * 已录时长由前端按 `Date.now()` 自己累（后端只在 stop 时给一次总时长，中间没有心跳）。
  * 判据与格式化全在 `src/vue/minutesLive.ts`（可单测），控件外观在
  * `src/vue/components/MinutesRecorder.vue`，这里只负责 IPC 胶水与状态。
+ *
+ * ## 历史半边（2026-10-17 接上）
+ * 录完落盘的会议有四处 UI：列表/删除自持在 `MinutesHistory.vue`（挂载即读、删除两步
+ * 确认），详情/摘要的胶水在本卡（`meeting_get` / `meeting_summarize`，见
+ * `MinutesDetail.vue`）。列表/详情/摘要的纯判定在 `src/vue/meetings.ts`（可单测）。
+ * 摘要的契约口径（D-15）：Rust 取第一个 ready 的 provider，**存过摘要的再调拿回存值**
+ * —— 所以详情页「已有摘要」时不再摆「重新生成」按钮。
  */
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { Channel, invoke } from '@tauri-apps/api/core'
@@ -22,6 +29,9 @@ import { listen, type UnlistenFn } from '@tauri-apps/api/event'
 import { CircleCheck, Mic, TriangleAlert, X } from 'lucide-vue-next'
 import { isDesktop } from '../../vue/useShell'
 import MinutesRecorder from '../../vue/components/MinutesRecorder.vue'
+import MinutesDetail from '../../vue/components/MinutesDetail.vue'
+import MinutesHistory from '../../vue/components/MinutesHistory.vue'
+import type { MeetingItem } from '../../vue/meetings'
 import {
   appendSegments,
   asModelState,
@@ -84,6 +94,12 @@ const startError = ref('')
 const result = ref<StopResult | null>(null)
 /** 开始 / 停止是异步 IPC：连点两下会开出两场会话，或者拿同一个 id 停两次 */
 const busy = ref(false)
+
+// —— 历史半边：列表/详情的 IPC 各自自持在 MinutesHistory / MinutesDetail 里，
+//    卡本体只做路由 —— 点谁开谁的详情、数据变了让列表回读落盘值 ——
+const histRef = ref<InstanceType<typeof MinutesHistory> | null>(null)
+const detailId = ref<string | null>(null)
+const detailTitle = ref('')
 let unSeg: UnlistenFn | null = null
 let unErr: UnlistenFn | null = null
 let tick: number | null = null
@@ -235,7 +251,20 @@ async function stop(): Promise<void> {
     paused.value = false
     run.value = { accumulatedMs: 0, runSince: null }
     busy.value = false
+    // 这一场已落盘，历史列表里现在该有它了
+    histRef.value?.reload()
   }
+}
+
+// —— 历史路由：列表点谁就开谁的详情；详情的取数/摘要/删除都在 MinutesDetail 内部 ——
+
+function openDetail(m: MeetingItem): void {
+  detailId.value = m.id
+  detailTitle.value = m.title
+}
+
+function closeDetail(): void {
+  detailId.value = null
 }
 
 onMounted(async () => {
@@ -252,6 +281,7 @@ onMounted(async () => {
   unErr = await listen<string>('minutes_error', (e) => {
     liveError.value = String(e.payload)
   })
+  if (isDesktop) await histRef.value?.reload()
 })
 onBeforeUnmount(() => {
   unSeg?.()
@@ -309,6 +339,17 @@ watch(sessionState, (s) => {
         @resume="resume"
         @stop="stop"
       />
+
+      <!-- 历史半边：详情打开时整块替换列表（drill-down 是这张卡自己的两态，画布上没有弹层层级）；
+           数据变更经 changed 让列表回读落盘值，返回经 close 回列表 -->
+      <MinutesDetail
+        v-if="detailId"
+        :id="detailId"
+        :title="detailTitle"
+        @close="closeDetail"
+        @changed="histRef?.reload()"
+      />
+      <MinutesHistory v-else-if="isDesktop" ref="histRef" @open="openDetail" />
     </div>
   </div>
 </template>
