@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Modulo 浮窗</title>
+    <!-- 与 index.html 同一段首屏防闪脚本（浮窗也要皮肤一致；重复一份是有意的：
+         浮窗是独立 HTML 入口，共享模块在首屏同步期反而贵）。任何异常都吞掉。 -->
+    <script>
+      ;(() => {
+        try {
+          const raw = localStorage.getItem('modulo.appearance.v1')
+          const o = raw ? JSON.parse(raw) : null
+          const a = o && typeof o === 'object' ? o : {}
+          const el = document.documentElement
+          el.dataset.skin = a.skin === 'ink' || a.skin === 'aurora' || a.skin === 'candy' ? a.skin : 'aurora'
+          const dark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches
+          if (a.mode === 'dark' || a.mode === 'light') el.dataset.theme = a.mode
+          else el.dataset.theme = dark ? 'dark' : 'light'
+          if (typeof a.accent === 'string' && /^#[0-9a-fA-F]{6}$/.test(a.accent)) {
+            el.style.setProperty('--accent', a.accent)
+          }
+        } catch {
+          /* 存储不可用则按 :root 默认配色启动 */
+        }
+      })()
+    </script>
+    <script type="module" crossorigin src="/Modulo/assets/float-DXkd_Wr5.js"></script>
+    <link rel="modulepreload" crossorigin href="/Modulo/assets/core-BTxsdRQz.js">
+    <link rel="modulepreload" crossorigin href="/Modulo/assets/tokens-C5_iSt3C.js">
+    <link rel="stylesheet" crossorigin href="/Modulo/assets/tokens-CKNqNA7C.css">
+    <link rel="stylesheet" crossorigin href="/Modulo/assets/float-Di44Skxu.css">
+  </head>
+  <body>
+    <div id="app"></div>
+  </body>
+</html>
