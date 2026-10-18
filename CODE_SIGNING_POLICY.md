@@ -2,29 +2,44 @@
 
 **Project:** Modulo — a local-first card/layout workbench (Windows desktop + web).
 **Repository:** <https://github.com/Levango7/Modulo> (Apache-2.0)
-**Last updated:** 2026-10-09
+**Last updated:** 2026-10-18
 
 > 本页按代码签名服务方（SignPath Foundation）的要求用英文撰写，供其审核与安全研究人员阅读；
 > 仓库其余文档以中文为主。
 
-Modulo's Windows release artifacts are code-signed through
-[SignPath Foundation](https://signpath.org/)'s free signing program for open-source projects.
-This page documents what is signed, who can approve signing, and how to verify a release.
+Modulo's Windows release artifacts are **not yet Authenticode-signed**. The project intends to
+use [SignPath Foundation](https://signpath.org/)'s free signing program for open-source projects,
+and this page documents both that intended arrangement and the current status; the application
+is **pending** (deferred, "one step slower", as of 2026-10-18) and has not been submitted.
+Until the program is active, releases ship unsigned: Windows SmartScreen will show
+"Unknown publisher", and update packages are protected by the Tauri updater's minisign
+signature instead (see Verification). **The "Current status" section at the bottom is
+authoritative for what is actually signed today** — earlier sections describe the process
+that will apply once signing is active, and are marked where that is the case.
 
 ## What is signed
 
-- The Windows installer published on GitHub Releases:
-  `Modulo_<version>_x64-setup.exe` (an NSIS installer containing the application binary `modulo.exe`).
-- Nothing else is Authenticode-signed. The npm package `@levango7/engine` relies on the npm
-  registry's own integrity mechanisms; the web build is served over HTTPS from GitHub Pages.
+- **Nothing is Authenticode-signed today** (baseline: v0.8.3, 2026-10-18; see Current status).
+- Once the SignPath program is active, the artifact to be signed will be the Windows installer
+  published on GitHub Releases: `Modulo_<version>_x64-setup.exe` (an NSIS installer containing
+  the application binary `modulo.exe`).
+- Nothing else will be Authenticode-signed. The npm package `@levango7/engine` relies on the npm
+  registry's own integrity mechanisms (plus npm provenance attestations); the web build is
+  served over HTTPS from GitHub Pages.
 
 ## Who signs
 
-Signing is performed by SignPath Foundation on behalf of the project. The signing key is held in
-SignPath's HSM; it never enters this repository or its CI runners. The resulting certificate
-subject is **SignPath Foundation** (as is the case for all projects using this program).
+*Applies once the SignPath application is approved.*
+
+Signing will be performed by SignPath Foundation on behalf of the project. The signing key will
+be held in SignPath's HSM; it never enters this repository or its CI runners. The resulting
+certificate subject will be **SignPath Foundation** (as is the case for all projects using this
+program).
 
 ## Roles and approval
+
+*Applies once the SignPath application is approved. Until then, no signing requests exist and
+these steps are not exercised.*
 
 The project maintains three explicit roles, as required by the SignPath open-source model:
 
@@ -43,11 +58,15 @@ on the GitHub account and on the SignPath account used for review and approval.
 1. A release starts from a **signed git tag** whose commit passed all required CI checks;
    the installer is built by CI from that exact commit (GitHub release assets show
    `github-actions[bot]` as the uploader).
-2. The unsigned installer is submitted to SignPath; the **Approver approves the signing request**
-   after checking provenance (which commit built it) and content.
-3. SignPath returns the signed installer. The updater signature (`.sig`) is then computed **over
+2. *Applies only after the SignPath application is approved — not applicable today.* The unsigned
+   installer is submitted to SignPath; the **Approver approves the signing request** after
+   checking provenance (which commit built it) and content.
+3. *Applies only after the SignPath application is approved — not applicable today.* SignPath
+   returns the signed installer. The updater signature (`.sig`) is then computed **over
    the signed bytes** — Authenticode signing always precedes the updater signature, because the
-   latter must match the exact bytes users download.
+   latter must match the exact bytes users download. (Today there is no Authenticode step, and
+   CI computes the `.sig` over the unsigned installer bytes; the two are consistent because no
+   bytes change in between.)
 4. Installer + `.sig` + `latest.json` are published to GitHub Releases; the update manifest is
    verified against the public key embedded in the application (`src-tauri/tauri.conf.json`,
    updater `pubkey`) before the release is published.
@@ -56,18 +75,37 @@ on the GitHub account and on the SignPath account used for review and approval.
 
 - **Updater signature:** every release ships `Modulo_<version>_x64-setup.exe.sig`, verifiable
   against the public key embedded in the application (minisign-compatible Tauri updater format).
-- **Authenticode (starting with the first SignPath-signed release):** on Windows,
-  `Get-AuthenticodeSignature .\Modulo_<version>_x64-setup.exe` reports a valid signature with
-  subject `SignPath Foundation`.
+  This is the integrity mechanism in force today.
+- **Authenticode:** *not yet applicable* (no release is signed). When signing is active, on
+  Windows `Get-AuthenticodeSignature .\Modulo_<version>_x64-setup.exe` should report a valid
+  signature with subject `SignPath Foundation`. As of the 2026-10-18 baseline (v0.8.3) the
+  command reports **NotSigned**; the control check on the same machine (`cmd.exe`) reports
+  **Valid**, so the negative result is about the artifact, not the command. Method note: always
+  reconcile the downloaded artifact first (size + sha256 against `release-manifest.json` and the
+  GitHub release asset digest) before running signature checks — a truncated download otherwise
+  produces a meaningless negative.
 - SHA-256 digests of release assets are recorded in the repository's release ledger
   (`release-manifest.json`) and machine-checked by CI.
 
 ## Current status
 
-As of `v0.8.1` (2026-10-09), releases are **not yet Authenticode-signed**:
-`TAURI_SIGNING_PRIVATE_KEY` covers only the in-app updater signature, so Windows SmartScreen
-still shows "Unknown publisher". SignPath Foundation integration is in progress; once active,
-every future release will be signed as described above.
+As of **2026-10-18** (baseline release: **v0.8.3**), releases are **not yet Authenticode-signed**.
+Evidence (2026-10-18, maintainer machine):
+
+- The v0.8.3 installer was re-downloaded in full from its GitHub Release: **4,042,044 bytes**,
+  sha256 **`7eb1145c…d3646`** — matching the GitHub release asset digest and
+  `release-manifest.json` (three independent sources). An initial truncated download
+  (2,732,222 bytes) failed the hash check and was discarded before any signature check.
+- `Get-AuthenticodeSignature` on the downloaded installer reports **NotSigned**. Control: the
+  same command on `C:\Windows\System32\cmd.exe` reports **Valid** on the same machine.
+- CI contains no signing step for the installer: `.github/workflows/ci.yml` only carries
+  `TAURI_SIGNING_PRIVATE_KEY`, which produces the updater's minisign `.sig`.
+- The SignPath Foundation application has **not been submitted** (deferred by project decision,
+  2026-10-18). The project intends to keep this plan; this section will be updated when the
+  status changes, and the architecture doc's release process cross-checks the actual signature
+  status of published assets against this page (a mismatch blocks the release until the page is
+  corrected — "signed but nobody knows" and "declared but not signed" are both worse than an
+  honest baseline).
 
 ## Changes and revocation
 

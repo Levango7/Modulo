@@ -1812,6 +1812,17 @@ README 主图一直用的是"点过撑满之后"的截图 —— 等于默认了
    自检过：把签名改一个字符，这条立刻红；
 4. Release 里**必须同时上传安装包 + `.sig` + `latest.json`**。端点就是
    `https://github.com/Levango7/Modulo/releases/latest/download/latest.json`。
+5. **Authenticode 状态核对（硬步骤，2026-10-18 立）**：对**发布资产**——从 GitHub Release 下载的那颗
+   `Modulo_<版本>_x64-setup.exe`，**不是**本机 `target/` 里那颗（NSIS 打包会给 exe 打
+   "bundle type information" 补丁，包内外字节不同，见下面「两个只有实测才知道的细节」）——跑
+   `Get-AuthenticodeSignature`，与 `CODE_SIGNING_POLICY.md` 的 Current status 段**比对**后才算发布完成：
+   实况与声明一致 → 放行；**若意外变成 Valid 而政策页仍写未签名 → 先改政策页再发布**。这条棘轮防的是
+   "签了却没人知道"——声明与实貌双向漂移，都比没有声明更糟（政策页受众是签名服务方审核者，过期状态页
+   同时是合规风险）。**方法（顺序不能反）**：① 从 Release 完整下载，**下载后先对账**——字节数 + sha256
+   与 `release-manifest.json` 台账、GitHub 资产 digest 一致，再验签（2026-10-18 实测踩过：一次残包
+   2,732,222 B 哈希不符，作废重下；不复盘就验签，阴性结论没有意义）；② `Get-AuthenticodeSignature`；
+   ③ 与政策页 Current status 比对。**当前基线（2026-10-18）：v0.8.3 实测 NotSigned，政策页同步写未签名 ——
+   一致，放行。** 同机对照 `cmd.exe` = Valid，证明阴性结论归于产物而非命令失效。
 
 **两个只有实测才知道的细节**：
 
