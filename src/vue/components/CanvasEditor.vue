@@ -8,6 +8,7 @@ import RowBand from './RowBand.vue'
 import CardCatalogMenu from './CardCatalogMenu.vue'
 import { useCellFocus } from '../useCellFocus'
 import { cellIntent, globalIntent, isEditableTarget, shouldPrevent } from '../keyboard'
+import { preloadCard } from '../cardComponents'
 import type { CommandBus } from '../commandBus'
 
 const store = inject<LayoutStore>('store')!
@@ -296,7 +297,7 @@ defineExpose({ escapePressed, revealCard })
         </button>
       </h3>
       <p v-if="!store.available.value.length" class="muted small">全部模块都已放置</p>
-      <div v-for="m in store.available.value" :key="m.id" class="lib-item">
+      <div v-for="m in store.available.value" :key="m.id" class="lib-item" @pointerenter="preloadCard(m.id)">
         <div class="lib-title" @pointerdown="startNew(m.id, m.defaultVariant, $event)">{{ m.title }}</div>
         <div class="lib-variants">
           <button
