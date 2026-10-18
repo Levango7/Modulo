@@ -64,6 +64,8 @@ npm run verify     # 提交前的综合校验
 
 E2E（Playwright）：`npm run test:e2e`。发布与签名口径见
 [CODE_SIGNING_POLICY.md](CODE_SIGNING_POLICY.md) 与 `release-manifest.json`。
+当前版本**尚未做 Windows 代码签名（Authenticode）**——安装时 SmartScreen 会提示「未知发布者」；
+更新包另有 minisign 签名（应用内更新据此验签）。签名状态以政策页 Current status 段为准。
 
 ## 文档索引
 
