@@ -1,14 +1,14 @@
 <script setup lang="ts">
-import { computed, inject, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { computed, inject, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import * as E from '@levango7/engine'
-import { Lock, LockOpen, Shuffle, X, LayoutGrid, Trash2, GripVertical, Plus, Rows3 } from 'lucide-vue-next'
+import { Lock, LockOpen, Shuffle, X, GripVertical } from 'lucide-vue-next'
 import type { LayoutStore } from '../store'
 import { useCanvasDrag } from '../useCanvasDrag'
 import RowBand from './RowBand.vue'
-import CardCatalogMenu from './CardCatalogMenu.vue'
+import ModuleLibrary from './ModuleLibrary.vue'
+import BatchActionBar from './BatchActionBar.vue'
 import { useCellFocus } from '../useCellFocus'
 import { cellIntent, globalIntent, isEditableTarget, shouldPrevent } from '../keyboard'
-import { preloadCard } from '../cardComponents'
 import type { CommandBus } from '../commandBus'
 
 const store = inject<LayoutStore>('store')!
@@ -21,48 +21,13 @@ const emit = defineEmits<{
 }>()
 
 /**
- * 「全部卡片」下拉（2026-10-12 从顶栏搬进来）：模块库只列**还没放置**的卡，
- * 但卡片到 49 张后，库里的卡挨个看也不如按分组翻一遍目录来得快 ——
- * 这正是原「添加卡片」菜单的用途，只是入口按用户口径（"添加卡片应该是布局编辑里面
- * 才有的选项"）收进编辑器。菜单有 max-height 且 aside 是滚动容器，会把它裁掉 ——
- * 所以定位用 fixed + 按钮的矩形现算（随 open 一次性写入）。菜单本体是
- * `CardCatalogMenu.vue`（与将来可能的其他调用方共用一套外观）。
+ * 模块库（含「全部卡片」目录入口）已拆到 `ModuleLibrary.vue`（2026-10-19，本文件 834 行时）。
+ * 抽它的理由：接口只有三个（`store` 注入 + `startNew` + 开合状态），却是全文件** churn 最集中**
+ * 的块 —— 加卡预取、目录搬移都落在这里，不该让每次改动都认领整份文件的读写面。
+ * 没一并抽走的：`runIntent` 键盘枢纽（与命令面板同源，7 个依赖或把 sel 级联搬走，二选一都不划算）、
+ * `.cell` 一族样式（浏览态 `GridLayout.vue` 另有自己一套且差异刻意）、拖拽浮层（preview/marquee
+ * 必须是 `.canvas` 的 Grid 子元素才能定位）—— 这三块不是"不够大"，是抽走会造出两份真相。
  */
-const addOpen = ref(false)
-const addBtnEl = ref<HTMLElement | null>(null)
-const menuStyle = ref<Record<string, string>>({})
-const missingCount = computed(() => reg.filter((m) => !store.placedIds.value.has(m.id)).length)
-async function toggleAddMenu(): Promise<void> {
-  if (addOpen.value) {
-    addOpen.value = false
-    return
-  }
-  addOpen.value = true
-  await nextTick()
-  const r = addBtnEl.value?.getBoundingClientRect()
-  if (r) {
-    menuStyle.value = {
-      position: 'fixed',
-      left: `${Math.round(r.left)}px`,
-      top: `${Math.round(r.bottom + 6)}px`,
-      zIndex: 'var(--z-menu)',
-    }
-  }
-}
-/** 点菜单空白处/外部就关：菜单可能被裁出 aside，用文档级监听 */
-function onDocPointerDown(e: PointerEvent): void {
-  if (!addOpen.value) return
-  const t = e.target as Node
-  if (addBtnEl.value?.contains(t)) return
-  const menuEl = document.getElementById('editor-add-menu')
-  if (menuEl?.contains(t)) return
-  addOpen.value = false
-}
-/** 从目录里加一张：落位交给引擎的 findFreeSpot（与库里拖入同一条路径） */
-function addFromCatalog(id: string): void {
-  addOpen.value = false
-  store.add(id, 0, 0)
-}
 
 /**
  * 行轨高度来自 `useProjection().rowPx` —— **与浏览态是同一个数**。
@@ -75,6 +40,8 @@ function addFromCatalog(id: string): void {
 const props = defineProps<{ rowPx: number }>()
 
 const gridEl = ref<HTMLElement | null>(null)
+/** 模块库实例：Esc 编排要问它"目录下拉开着吗"（见 `escapePressed`）—— 开合状态不复制到母组件 */
+const libEl = ref<InstanceType<typeof ModuleLibrary> | null>(null)
 const sel = ref<Set<string>>(new Set())
 const selCount = computed(() => sel.value.size)
 
@@ -141,13 +108,11 @@ function badge(p: E.Placement) {
 
 onBeforeUnmount(() => {
   window.removeEventListener('keydown', onGlobalKey)
-  document.removeEventListener('pointerdown', onDocPointerDown)
 })
 onMounted(() => {
   /** 挂 window 而不是容器：拖拽时 pointerdown 被 preventDefault，焦点可能仍留在 body 上，
    *  容器级监听会收不到键盘事件（实测 Ctrl+Z 失效） */
   window.addEventListener('keydown', onGlobalKey)
-  document.addEventListener('pointerdown', onDocPointerDown)
 })
 
 function cellStyle(p: E.Placement) {
@@ -265,10 +230,8 @@ onBeforeUnmount(() => window.clearTimeout(flashTimer))
  * 返回 true 表示已消费 —— 否则 App 会把它当成"取消这次编辑"（有改动还会弹确认）。
  */
 function escapePressed(): boolean {
-  if (addOpen.value) {
-    addOpen.value = false
-    return true
-  }
+  /** 目录下拉先退 —— 它在 `ModuleLibrary` 里，问它比把 addOpen 复制一份到母组件好 */
+  if (libEl.value?.closeMenu()) return true
   if (sel.value.size) {
     clearSel()
     return true
@@ -280,38 +243,7 @@ defineExpose({ escapePressed, revealCard })
 
 <template>
   <div class="editor">
-    <aside class="lib">
-      <h3>
-        <LayoutGrid :size="14" /> 模块库
-        <CardCatalogMenu v-if="addOpen" :menu-id="'editor-add-menu'" :style="menuStyle" @pick="addFromCatalog" />
-        <button
-          ref="addBtnEl"
-          class="add-cat"
-          :disabled="!missingCount"
-          :title="missingCount ? '还没放置的卡片都在这里（与库里拖入同一条落位路径）' : '所有卡片都已在版面上'"
-          aria-haspopup="menu"
-          :aria-expanded="addOpen"
-          @click="toggleAddMenu"
-        >
-          <Plus :size="12" /> 全部卡片
-        </button>
-      </h3>
-      <p v-if="!store.available.value.length" class="muted small">全部模块都已放置</p>
-      <div v-for="m in store.available.value" :key="m.id" class="lib-item" @pointerenter="preloadCard(m.id)">
-        <div class="lib-title" @pointerdown="startNew(m.id, m.defaultVariant, $event)">{{ m.title }}</div>
-        <div class="lib-variants">
-          <button
-            v-for="v in m.variants"
-            :key="v.id"
-            class="chip"
-            :data-active="v.id === m.defaultVariant"
-            @pointerdown="startNew(m.id, v.id, $event)"
-          >
-            {{ v.name }} {{ v.idealW }}×{{ v.idealH }}
-          </button>
-        </div>
-      </div>
-    </aside>
+    <ModuleLibrary ref="libEl" :start-new="startNew" />
 
     <section class="stage">
       <div
@@ -419,13 +351,16 @@ defineExpose({ escapePressed, revealCard })
         <p class="hint">
           拖动标题带移动 · 方向键移动 · Shift+方向键缩放 · 空格选入 · Enter 切形态 · Delete 移回库 · L 锁定 · Shift+点选/空白框选 · Ctrl+A 全选 · Esc 取消
         </p>
-        <div v-if="selCount > 1" class="batch">
-          <span>已选 {{ selCount }} 个</span>
-          <button :disabled="!groupableIds.length" title="把选中且未归行的卡合成一行（行头插在它们上方）" @click="groupSelected()"><Rows3 :size="13" /> 成组为行</button>
-          <button @click="store.toggleLockMany([...sel])">锁定/解锁</button>
-          <button @click="removeSelected()"><Trash2 :size="13" /> 批量移回库</button>
-          <button @click="clearSel()">取消选择</button>
-        </div>
+        <!-- 批量条本体在 `BatchActionBar.vue`：取材（groupableIds）与执行（store.* + 清选中）都留在
+             这里，因为它们是选中集的语义，而选中集是下面这个键盘枢纽在管的。 -->
+        <BatchActionBar
+          :count="selCount"
+          :can-group="!!groupableIds.length"
+          @group="groupSelected"
+          @lock="store.toggleLockMany([...sel])"
+          @remove="removeSelected"
+          @clear="clearSel"
+        />
       </div>
     </section>
 
@@ -456,81 +391,6 @@ defineExpose({ escapePressed, revealCard })
   gap: var(--space-4);
   height: 100%;
   min-height: 0;
-}
-.lib {
-  overflow: auto;
-  padding-right: var(--space-2);
-}
-.lib h3 {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-  font-size: 12px;
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-  color: var(--text-3);
-  margin: 0 0 var(--space-3);
-}
-/* 「全部卡片」目录入口：贴 h3 右侧的小按钮。字号跟 h3 同档（11px 下限守 E2E） */
-.add-cat {
-  margin-left: auto;
-  display: inline-flex;
-  align-items: center;
-  gap: 3px;
-  height: 20px;
-  padding: 0 var(--space-2);
-  font-size: 11px;
-  letter-spacing: 0.02em;
-  text-transform: none;
-  border: 1px solid var(--border-strong);
-  border-radius: var(--radius-pill);
-  background: var(--bg-card);
-  color: var(--text-2);
-  cursor: pointer;
-}
-.add-cat:hover:not(:disabled) {
-  color: var(--text-1);
-  border-color: var(--brand-500);
-}
-.add-cat:disabled {
-  opacity: 0.5;
-  cursor: default;
-}
-.lib-item {
-  border: 1px solid var(--border-strong);
-  border-radius: var(--radius-lg);
-  background: var(--bg-card);
-  padding: var(--space-3);
-  margin-bottom: var(--space-3);
-  /* pan-y：竖直滑动交给浏览器滚列表；抓手（.lib-title / .chip）各自 touch-action: none，
-     划在那上面 = 拖卡片进画布，不交还滚动 —— 与画布侧的标题带同一套区域语义 */
-  touch-action: pan-y;
-  transition: box-shadow var(--dur-micro) var(--ease-out), transform var(--dur-micro) var(--ease-out);
-}
-.lib-item:hover {
-  box-shadow: var(--shadow-hover);
-  transform: translateY(-1px);
-}
-.lib-title {
-  font-weight: 600;
-  margin-bottom: var(--space-2);
-  cursor: grab;
-  touch-action: none;
-}
-.lib-variants {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--space-1);
-}
-.chip {
-  font-size: 11px;
-  padding: 2px 7px;
-  border-radius: var(--radius-pill);
-  cursor: grab;
-  touch-action: none;
-}
-.small {
-  font-size: 12px;
 }
 .stage {
   min-width: 0;
@@ -784,22 +644,6 @@ defineExpose({ escapePressed, revealCard })
   font-size: 12px;
   color: var(--text-3);
 }
-.batch {
-  margin-left: auto;
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-  font-size: 12px;
-  padding: var(--space-1) var(--space-2);
-  border-radius: var(--radius-pill);
-  background: var(--brand-50);
-}
-.batch button {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  font-size: 12px;
-}
 .ghost {
   position: fixed;
   /* 定位只走 transform（见模板处注释与实测数字）。left/top 必须显式归零 ——
@@ -827,8 +671,7 @@ defineExpose({ escapePressed, revealCard })
     grid-template-columns: 1fr;
     grid-template-rows: auto minmax(0, 1fr);
   }
-  .lib {
-    max-height: 196px;
-  }
+  /* `.lib` 收成限高滚动带那半条规则在 `ModuleLibrary.vue` —— 一条媒体查询横跨两个文件，
+     这是"共享样式制造两份真相"的现实形状：只能各管各的那一半，E2E「窄屏堆叠」守着它。 */
 }
 </style>
