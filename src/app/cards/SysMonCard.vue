@@ -121,7 +121,7 @@ onBeforeUnmount(() => {
   flex-direction: column;
   justify-content: center;
   gap: clamp(4px, 1.6cqw, 10px);
-  padding: clamp(8px, 2.2cqw, 16px);
+  padding: clamp(8px, 2.2cqw, 18px);
 }
 .row {
   display: flex;

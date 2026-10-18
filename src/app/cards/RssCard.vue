@@ -175,7 +175,7 @@ onBeforeUnmount(() => {
   flex-direction: column;
   justify-content: center;
   gap: clamp(3px, 1cqw, 8px);
-  padding: clamp(8px, 2.2cqw, 16px);
+  padding: clamp(8px, 2.2cqw, 18px);
   max-block-size: 100%;
   overflow: auto;
 }

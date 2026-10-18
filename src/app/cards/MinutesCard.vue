@@ -359,7 +359,7 @@ watch(sessionState, (s) => {
   display: flex;
   flex-direction: column;
   gap: clamp(4px, 1.4cqw, 10px);
-  padding: clamp(8px, 2.2cqw, 16px);
+  padding: clamp(8px, 2.2cqw, 18px);
   overflow: hidden;
 }
 /* 语气用背景淡染 + 图标两个通道一起表达，不做彩色左边框（设计 §0.4 明文禁的那条） */
