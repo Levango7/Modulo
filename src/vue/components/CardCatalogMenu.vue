@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, inject } from 'vue'
 import type { LayoutStore } from '../store'
+import { preloadCard } from '../cardComponents'
 
 /**
  * 「全部还没放置的卡片」目录菜单 —— 与顶栏各下拉同一套外观（实底 + 模糊 + 分组吸顶）。
@@ -38,7 +39,14 @@ const missingByGroup = computed(() => {
   <div :id="menuId" class="add-menu" role="menu" aria-label="可添加的卡片" :style="props.style">
     <template v-for="g in missingByGroup" :key="g.name">
       <div class="gh" role="presentation">{{ g.name }}</div>
-      <button v-for="m in g.cards" :key="m.id" role="menuitem" @click="emit('pick', m.id)">
+      <button
+        v-for="m in g.cards"
+        :key="m.id"
+        role="menuitem"
+        @pointerenter="preloadCard(m.id)"
+        @focus="preloadCard(m.id)"
+        @click="emit('pick', m.id)"
+      >
         <span class="t">{{ m.title }}</span>
         <span class="v">{{ m.blurb }}</span>
       </button>

@@ -1086,6 +1086,87 @@ it.skipIf(skip)('编辑器事务：保存生效 / 取消先确认再还原 / 工
 })
 
 /**
+ * 加卡的第一帧不许是空壳（2026-10-18，#10「操作稳定性」实测收口）。
+ *
+ * 卡片是懒加载的（`cardComponents.ts` 的 `defineAsyncComponent`），chunk 到位前先渲染占位。
+ * 原 `delay: 200` 在慢网下实测是**三段入场**：`+58ms 空卡 → +225ms 「加载中…」→ +406ms 内容`。
+ * 空卡那一格最伤 —— 用户刚点完加卡，看到的是一个空壳，读起来就是"点了没反应"。
+ *
+ * 这条锁**空白帧的上限**，而不是锁某个具体实现：把卡片 chunk 人为延迟 600ms，加一张卡，
+ * 逐帧采那张卡的卡体，空白帧不得超过 **4 帧**（≈64ms，给两帧余量）。
+ * `delay: 200` 时空白会持续 ~12 帧，这条当场红；`delay: 32` 时是 2 帧。
+ *
+ * 为什么是"空白帧"而不是"必须出现「加载中…」"：Vue 的 `delayed` 标记**自己不会触发重渲染**，
+ * 占位能不能上屏取决于期间有没有别的更新（加卡本身会撑高画布，通常会触发）。
+ * 拿它当判据会造出一条看运气变红的门禁 —— 而"卡体空了多久"是用户真正能看见的东西。
+ */
+it.skipIf(skip)('加卡不许先空一格：chunk 慢到 600ms 时卡体空白 ≤ 4 帧', async () => {
+  const page = await freshPage(1440, 900)
+  await enterEditor(page)
+  await openCatalog(page)
+
+  // 只延迟卡片 chunk（.js）；HTML/CSS 照常，否则页面根本起不来
+  await page.setRequestInterception(true)
+  page.on('request', (req) => {
+    if (/\/assets\/.*\.js$/.test(req.url())) setTimeout(() => void req.continue(), 600)
+    else void req.continue()
+  })
+
+  const picked = await page.evaluate(async () => {
+    const frame = () => new Promise<void>((r) => requestAnimationFrame(() => r()))
+    /**
+     * 采**新加那张卡**，不是 `.at(-1)`：点击后 DOM 更新是异步的（Vue 的 nextTick），
+     * 第一帧读 `.at(-1)` 拿到的还是上一张**已加载完**的卡，会当场读成 content 并 break ——
+     * 这条门禁第一版就是这么假绿的（1 帧、content）。所以先记下点击前的卡数，按索引取。
+     */
+    const cellsNow = () => [...document.querySelectorAll('.canvas .cell')]
+    const before = cellsNow().length
+    const stateOf = () => {
+      const cell = cellsNow()[before]
+      if (!cell) return 'pending' // 新卡还没进 DOM
+      const body = cell.querySelector('.body')
+      if (!body) return 'pending'
+      if (body.querySelector('.card-fallback')) return 'fallback'
+      return body.children.length || (body.textContent || '').trim() ? 'content' : 'empty'
+    }
+    const btn = document.querySelector<HTMLElement>('.add-menu [role="menuitem"]')
+    const name = btn?.textContent?.trim() ?? '?'
+    const seq: string[] = []
+    let blank = 0 // **逐帧计数**，不是数状态切换了几次 —— 后者恒为 1，门禁会假绿
+    let pending = 0
+    btn?.click()
+    for (let i = 0; i < 75; i++) {
+      // ≈1.2s
+      const s = stateOf()
+      if (seq.at(-1) !== s) seq.push(s)
+      if (s === 'empty') blank++
+      if (s === 'pending') pending++
+      if (s === 'content') break
+      await frame()
+    }
+    return { name, seq, blank, pending, before }
+  })
+
+  // 卡片真的加上了吗 —— 没加上时"没有空白帧"是句空话
+  expect(
+    await page.evaluate(() => document.querySelectorAll('.canvas .cell').length),
+    '加卡必须真的发生（否则本条的读数无意义）',
+  ).toBe(picked.before + 1)
+
+  const blanks = picked.blank + picked.pending
+  expect(picked.seq.at(-1), `「${picked.name}」最终必须出现内容，实测序列 ${picked.seq.join('→')}`).toBe('content')
+  expect(
+    blanks,
+    `卡体空白帧 ${blanks} 帧（pending ${picked.pending} + empty ${picked.blank}）超上限 4 —— 序列 ${picked.seq.join('→')}。\n` +
+      `      加卡后先给一张空壳，读起来就是"点了没反应"。占位要**立刻**上屏（` +
+      `cardComponents.ts 的 delay 不能大），或者靠预取让 chunk 提前到位。`,
+  ).toBeLessThanOrEqual(4)
+
+  await page.setRequestInterception(false)
+  await page.close()
+})
+
+/**
  * 全部卡同屏（出厂 5 张 + 可添加的那些）× 三档视口：
  * 不溢出、不裁字、最小字号 ≥11px。
  *
