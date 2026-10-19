@@ -81,3 +81,51 @@ describe('认领数字的判据要卡住整位数', () => {
     expect(claim(['--digits', '55', '--unit', '种卡', '--line', line])).toBe(1)
   }, 20_000)
 })
+
+/**
+ * 「文件行数」抽取器（`fileLineClaims`）的口子测试。
+ *
+ * 为什么也走子进程：与上面同一条理由（`.mjs` 进不了 ts 类型检查）。
+ * 新口 `--line-claims` 打印 JSON `[{rel, n}]`，判据断言直接比对这个数组。
+ *
+ * 三条边界各有来历（详见 `docs-check-claims.mjs` 的注释）：
+ *   · `A → B 行` 取最后一个数 —— 箭头前是来路不是声明；
+ *   · 右侧必须紧跟 `行` —— `309.28 kB`、`（10 条）`、`:334` 都不是行数；
+ *   · 窗口 ≤8 字符 —— 路径与数字离得太远就不是这个维度的声明。
+ */
+describe('文件行数声明的抽取', () => {
+  const claimsOf = (line: string): Array<{ rel: string; n: number }> => {
+    const r = spawnSync(process.execPath, [SCRIPT, '--line-claims', '--line', line], { cwd: ROOT, encoding: 'utf8' })
+    expect(r.status, `子进程没跑起来：${r.error?.message ?? r.stderr}`).toBe(0)
+    return JSON.parse(r.stdout)
+  }
+
+  it('箭头链取最后一个数，成对强调与反引号都容忍', () => {
+    expect(claimsOf('`src/vue/components/CanvasEditor.vue` **834 → 677 行**，其余不变')).toEqual([
+      { rel: 'src/vue/components/CanvasEditor.vue', n: 677 },
+    ])
+    expect(claimsOf('`src/vue/components/BatchActionBar.vue` 45 行')).toEqual([
+      { rel: 'src/vue/components/BatchActionBar.vue', n: 45 },
+    ])
+  }, 20_000)
+
+  it('一行多个声明逐个抽出', () => {
+    expect(
+      claimsOf('`src/vue/components/CanvasEditor.vue` **834 → 677 行**，`src/vue/components/ModuleLibrary.vue` 204 行、`src/vue/components/BatchActionBar.vue` 45 行。'),
+    ).toEqual([
+      { rel: 'src/vue/components/CanvasEditor.vue', n: 677 },
+      { rel: 'src/vue/components/ModuleLibrary.vue', n: 204 },
+      { rel: 'src/vue/components/BatchActionBar.vue', n: 45 },
+    ])
+  }, 20_000)
+
+  it('不是行数声明的数字不抽（kB / 条 / 行号引用）', () => {
+    expect(claimsOf('主包随新增的 `src/vue/rowUnit.ts` 到 309.28 kB')).toEqual([])
+    expect(claimsOf('逐文件条数见 `tests/vue/rowUnit.test.ts`（10 条）')).toEqual([])
+    expect(claimsOf('`CanvasEditor.vue:334` 直接 `store.cycleVariant`')).toEqual([])
+  }, 20_000)
+
+  it('离得太远的数字不算声明（窗口 8 字符）', () => {
+    expect(claimsOf('`src/vue/App.vue` 与当初相比已经改了很多，现在是 640 行')).toEqual([])
+  }, 20_000)
+})
