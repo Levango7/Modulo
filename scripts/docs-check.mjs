@@ -30,7 +30,7 @@ import { execSync } from 'node:child_process';
 import { readFileSync, readdirSync, statSync, existsSync } from 'node:fs';
 import { join, resolve, relative } from 'node:path';
 import { checkArtifactLine, latestArtifact } from './release-artifact-facts.mjs';
-import { claimRe } from './docs-check-claims.mjs';
+import { claimRe, fileLineClaims } from './docs-check-claims.mjs';
 
 const root = resolve(process.cwd());
 const MARK = '<!-- facts -->';
@@ -351,6 +351,37 @@ const RULES = [
     },
   },
   { key: '单测文件数', kw: /\d+\s*(?:个)?文件/, want: () => String(facts.files), re: (v) => claimRe(v, '(?:个)?文件') },
+  {
+    // 文件行数：「`CanvasEditor.vue` 834 → 677 行」这类**点名了文件**的行数声明，真值 = 实读文件。
+    //
+    // 为什么要有这一维：2026-10-19 拆 CanvasEditor 时把"300 行纪律"查了一遍 ——
+    // 仓里**没有任何机器门禁数行数**（scripts/ 无一处、ARCHITECTURE 无一处认领），
+    // 前端最大文件一路涨到 834 行也没红过。拆完把拆后行数认领进 facts 账本，
+    // 这一维就是那枚"棘轮"的牙齿：下次谁把它改回 700 行，这行认领的 677 立刻红。
+    //
+    // 判据与来历见 `fileLineClaims`（docs-check-claims.mjs）：`A → B 行` 取最后一个数；
+    // 窗口 ≤8 字符防历史数；右侧必须紧跟 `行`，`309.28 kB`、`（10 条）` 都不算。
+    // 真值口径 = 文件里 `\n` 的个数，与 `wc -l` 一致。
+    key: '文件行数',
+    kw: /[\w./-]+\.(?:vue|ts)[^\n]{0,10}\d[^\n]{0,8}行/,
+    custom: (line) => {
+      const claims = fileLineClaims(line);
+      if (!claims.length) return { ok: true }; // 提到文件但没写「N 行」 —— 没有可核的声明
+      for (const { rel, n } of claims) {
+        // 拿不到就不猜：报"查不到"比拿一个错的数字去比更诚实（与逐文件单测条数同一条原则）
+        if (rel.startsWith('..')) return { ok: false, why: `行里点名的 \`${rel}\` 路径越界` };
+        const p = resolve(root, rel);
+        if (!existsSync(p)) {
+          return { ok: false, why: `行里点名的 \`${rel}\` 读不到（改名 / 删除 / 路径写错？）` };
+        }
+        const real = (readFileSync(p, 'utf8').match(/\n/g) ?? []).length;
+        if (real !== n) {
+          return { ok: false, why: `\`${rel}\` 实测 ${real} 行，这行写的是 ${n} 行` };
+        }
+      }
+      return { ok: true };
+    },
+  },
   { key: 'E2E 条数', kw: /E2E[^\n]{0,12}条/, want: () => String(facts.e2e), re: (v) => claimRe(v, '条') },
   {
     // 覆盖率是全表唯一一条**下限承诺**，不做等值核对：这个数会随环境与运行抖动

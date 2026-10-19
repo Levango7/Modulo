@@ -25,6 +25,29 @@ export function claimRe(digits, unit, prefix = '') {
 }
 
 /**
+ * 「`CanvasEditor.vue` 834 → 677 行」「`ModuleLibrary.vue` 204 行」这类**点名了文件**的行数声明。
+ *
+ * 返回 `[{ rel, n }]`：rel = 行里写的相对路径，n = 认领的行数。`A → B 行` 取**最后一个数**（B）——
+ * 箭头前是来路，不是声明，与「同行同维度的最后一个数字」同一口径。
+ *
+ * 窗口（路径 → 数字之间 ≤8 个非数字字符，容忍 `` ` `` 与 `**`）与「逐文件单测条数」同一条理由：
+ * 窗口再宽就会把邻近的别的数当成声明。代价也同款：**历史数紧跟路径**的写法
+ * （`CanvasEditor.vue 原来 834 行`）守不住、还会误报 —— 标记行里要写历史数，
+ * 请把它写进箭头链（`834 → 677 行`）或离路径远一点。
+ *
+ * 数字右侧必须紧跟 `行`（≤4 个非数字字符，容忍空格与 `**`），否则不算这个维度的声明：
+ * `rowUnit.ts` 到 309.28 kB` 里的 309 不是行数，`rowUnit.test.ts（10 条）` 也不是。
+ */
+export function fileLineClaims(line) {
+  const out = [];
+  const re = /([\w./-]+\.(?:vue|ts))`?[^\d\n]{0,8}(\d+)(?:\s*→\s*(\d+))?[^\d\n]{0,4}行/g;
+  for (const m of line.matchAll(re)) {
+    out.push({ rel: m[1], n: Number(m[3] ?? m[2]) });
+  }
+  return out;
+}
+
+/**
  * 命令行口（给测试用，也给人自查一句写法）。
  *
  * 为什么要有这张口而不是让测试 `import`：`tsconfig.json` 没开 `allowJs`，
@@ -38,9 +61,18 @@ function main(argv) {
     const i = argv.indexOf(flag);
     return i < 0 ? null : argv[i + 1];
   };
+  const line = get('--line');
+  // 行数声明抽取口：打印 JSON（[{rel, n}]），给测试断言用 —— 与上面的 claimRe 口同款理由。
+  if (argv.includes('--line-claims')) {
+    if (line === null) {
+      console.error('用法：--line-claims --line <整行文本>');
+      return 2;
+    }
+    console.log(JSON.stringify(fileLineClaims(line)));
+    return 0;
+  }
   const digits = get('--digits');
   const unit = get('--unit');
-  const line = get('--line');
   if (!digits || !unit || line === null) {
     console.error('用法：--digits <实跑值> --unit <单位正则片段> --line <整行文本> [--prefix <正则片段>]');
     return 2;
