@@ -64,6 +64,13 @@ jobs:
         env:
           COORD_BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
         run: node scripts/coord-gate.mjs
+      # Chrome 存在性断言（2026-10-20 全仓盘点折入）。
+      # 为什么需要：E2E 与拖拽预算都是 skipIf(!EXE) 形状 —— Chrome 缺失时整段静默跳过、
+      # job 全绿。本机实测过一次：2026-10-19 04:0x 的 run 39004860377 十分多钟全绿，
+      # 而两条 E2E + 拖拽预算一步都没跑。"没测"不许冒充"测过"。
+      # dist/ 要等构建才有，所以断言放在构建前：CHROME_PATH 指不到文件就让本 job 当场红。
+      - name: Chrome 存在性断言（E2E / 拖拽预算不许静默跳过）
+        run: test -f "$CHROME_PATH"
       - name: 类型检查
         run: npm run typecheck
       - name: 单测 + 投影属性测试（受测层分支覆盖 ≥90% 门禁）
@@ -195,8 +202,9 @@ jobs:
     runs-on: windows-latest
     timeout-minutes: 60
     # 需要写权限才能用 gh 创建 Release；Secrets 里得先配 TAURI_SIGNING_PRIVATE_KEY。
-    # `id-token: write` 是给 npm 的 provenance 用的：它换一张 OIDC 令牌，让 npm 侧
-    # 自己签一份"这个包确实从这个仓库的这次 CI 构建出来"的证明，附在包上。
+    # `id-token: write` 是给 npm 的 OIDC 用的：2026-10-20 起它一身二责 ——
+    # ① trusted publishing 的**发布认证**（换一张短命令牌，npm 侧核对 workflow 身份）；
+    # ② provenance：让 npm 自己签一份"这个包确实从这个仓库的这次 CI 构建出来"的证明，附在包上。
     # 少于这个权限时 `npm publish --provenance` 会直接失败。
     permissions:
       contents: write
@@ -207,11 +215,12 @@ jobs:
         with:
           node-version: 22
           cache: npm
-          # 只在**这个 job** 里声明 registry-url：setup-node 会据此在 runner 的
-          # 用户级 .npmrc 里写一行 `//registry.npmjs.org/:_authToken=${NODE_AUTH_TOKEN}`，
-          # 于是下面那条 `npm publish` 认得 NODE_AUTH_TOKEN。
+          # 只在**这个 job** 里声明 registry-url：`npm publish` 要知道往哪发。
+          # 2026-10-20 起认证走 OIDC（trusted publishing），不再有 NODE_AUTH_TOKEN ——
+          # setup-node 写在 .npmrc 里的那行 `_authToken` 会是空的，发布时 npm 自动
+          # 改用 OIDC 换票（要 npm ≥ 11.5.1，见下面「升级 npm」那步）。
           # 为什么不把这一行写进仓库那份 .npmrc：那是**每台机器都会读**的文件，
-          # 而 token 只在 CI 里存在。发 npm 的凭据不该让本地 `npm install` 也去解析。
+          # 不该让本地 `npm install` 也去解析一个只属于 CI 的 registry 配置。
           registry-url: https://registry.npmjs.org
 
       # ── 发版门禁：CI 没绿，不许发（2026-10-12 接上）──────────────────────────────
@@ -310,37 +319,31 @@ jobs:
           gh release create "$env:TAG" "$exe" "$nsis\Modulo_${v}_x64-setup.exe.sig" "$nsis\latest.json" --title "Modulo $env:TAG" --draft --generate-notes
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
-      # ── 引擎包发 npm（2026-10-09 起）────────────────────────────────────────────
+      # ── 引擎包发 npm（trusted publishing / OIDC，2026-10-20 起）──────────────────
       #
       # 位置放在挂 Release **之后**：npm publish **不可撤回**（同名同版本发过就永远发不了第二次），
       # 所以它得是整条链的最后一件事，不能跑在"桌面产物还没出稳"的前面。
       #
-      # **没有 NPM_TOKEN 就跳过。** 这条不是贴心，是必要条件：没配 token 的仓库照样能打 tag
-      # 发版，而如果这里无条件跑，一推 tag 就红 —— 红的还不是产品问题。
+      # **2026-10-20：从 NPM_TOKEN（长期凭据）切成 trusted publishing（OIDC）** —— §12.8 的 B 路。
+      # 改动三处：① 删掉「查有没有 NPM_TOKEN」与 NODE_AUTH_TOKEN —— 长期 token 不再参与认证
+      # （留着它 npm 会一直走 token，OIDC 永远不发生）；② 显式把 npm 升到 ≥11.5.1 ——
+      # OIDC 换票在这个版本才有，而本 job 是 `node-version: 22`（自带 npm 10.x），不升的话
+      # 发布步会以 ENEEDAUTH / 404 红掉，且报错完全不指向版本（多个迁移实录都踩过这个形状）；
+      # ③ `id-token: write` 本 job 早有（provenance 用的就是它），认证复用它，不新增权限。
       #
-      # 为什么不能直接写 `if: secrets.NPM_TOKEN != ''`：GitHub 在 `steps[*].if` 里
-      # **不提供 `secrets` 上下文**（`if` 能用的只有 github / needs / vars / inputs / job /
-      # runner / env / steps / strategy / matrix）。写上去不会报错，但求值结果不是我们要的。
-      # 所以先在一个 step 里把"有没有"算成 output，再拿 output 当条件。
-      - name: 查有没有 NPM_TOKEN
-        id: npm-token
-        shell: bash
-        env:
-          # 用 env 传，不把令牌插进脚本正文 —— 插进去等于让令牌成为 shell 代码的一部分
-          # （GitHub 会打码，但那管的是日志，不是注入）。
-          HAS_TOKEN: ${{ secrets.NPM_TOKEN != '' }}
-        run: |
-          echo "have=$HAS_TOKEN" >> "$GITHUB_OUTPUT"
-          if [ "$HAS_TOKEN" != "true" ]; then
-            echo "::warning::没配 NPM_TOKEN，跳过 @levango7/engine 的发布（桌面产物不受影响）"
-          fi
+      # **仓库外的硬前提（不做完这条就打 tag 会红）**：npmjs.com → `@levango7/engine` →
+      # Settings → Trusted Publisher 里配好 GitHub Actions（owner `Levango7` + repository `Modulo`
+      # + workflow 文件名 `ci.yml`，字段大小写敏感）。配好之前第一个 `v*` tag 会在发布步失败 ——
+      # 这是设计：认证不了就不假装发布成功（与本仓其它门「读不到就拒绝通过」同一条原则）。
+      # 第一次 tokenless 发布成功后，`NPM_TOKEN` secret 即可删除；另：2027-01 起
+      # bypass-2FA 的 granular token 不能再发包，留着它也只是个过期炸弹。
+      - name: 升级 npm（trusted publishing 要 ≥ 11.5.1；Node 22 自带 npm 10.x）
+        run: npm install -g npm@^11.5.1
 
-      - name: 发 @levango7/engine 到 npm
-        if: steps.npm-token.outputs.have == 'true'
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
-        # `--provenance` 只在 CI 里有意义（要 OIDC），所以它不写进 package.json 的脚本里
-        # —— 本地跑那个脚本不该因为拿不到 OIDC 而失败。
+      - name: 发 @levango7/engine 到 npm（OIDC 认证，无长期 token）
+        # `--provenance` 在 trusted publishing 下是冗余的（出处证明随 OIDC 自动生成），
+        # 留着是显式声明意图；它要的 OIDC 与认证同一个令牌，不多要任何东西。
+        # 不写进 package.json 的脚本里 —— 本地跑那个脚本不该因为拿不到 OIDC 而失败。
         run: npm run engine:publish -- --provenance
 
       - name: 保留产物（发布失败时也能从 artifact 拿到）
