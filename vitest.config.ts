@@ -52,6 +52,8 @@ const GATED_VUE_MODULES = [
   'src/vue/appearance.ts',
   'src/vue/backup.ts',
   'src/vue/cardData.ts',
+  'src/vue/cardDataLimits.ts',
+  'src/vue/cardDataSanitize.ts',
   'src/vue/chord.ts',
   'src/vue/commandBus.ts',
   'src/vue/commands.ts',
@@ -96,6 +98,16 @@ export default defineConfig({
         'src/vue/appearance.ts': { branches: 95 },
         'src/vue/backup.ts': { branches: 95 },
         'src/vue/cardData.ts': { branches: 97 },
+        // cardData 拆分（2026-10-20，#124）：清洗层与共享上限各自成模块，随拆分进受测层。
+        // 地板按拆分后**全量套件**实测回填（棘轮只升不降）：
+        //   cardData.ts      97.84 —— 原 97 地板复核通过，不动。剩的三个未覆盖分支全是
+        //                     「按契约不可达」的防御（231 早退 / 310、319 的 `?? 兜底`），
+        //                     不值得为覆盖率演戏；要覆盖得先改引擎契约。
+        //   cardDataSanitize 99.58 —— 取整数下取整 99。缺口是同形状的 rejected>0 告警旁路
+        //                     （launch 那条已被导入测试覆盖，其余是复制形状）。
+        //   cardDataLimits   100   —— 纯数值函数，表驱动全覆盖，同 chord/keyboard 锁满。
+        'src/vue/cardDataSanitize.ts': { branches: 99 },
+        'src/vue/cardDataLimits.ts': { branches: 100 },
         'src/vue/chord.ts': { branches: 100 },
         'src/vue/keyboard.ts': { branches: 100 },
         // store.ts 是这张表存在的头号理由：82.22% 而 CI 绿了很久。

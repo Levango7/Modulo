@@ -380,6 +380,22 @@ describe('网页取数端点：加一条过同一条边界，删一条按 id，�
     expect(d.state.endpoints[0].path).toBe('')
     expect(d.state.endpoints[0].refreshSec).toBe(30)
   })
+
+  it('改一个不碰另一个：tuneEndpoint 按 id 定点映射', () => {
+    const d = memStorage().api()
+    d.addEndpoint('甲', 'https://a.example/x')
+    d.addEndpoint('乙', 'https://b.example/y')
+    const [first, second] = d.state.endpoints
+    d.tuneEndpoint(first.id, { path: 'data[0].price', refreshSec: 60, scale100: true, label: '股价' })
+    expect(d.state.endpoints[0].path).toBe('data[0].price')
+    expect(d.state.endpoints[1], '另一个的显示参数原样').toMatchObject({
+      id: second.id,
+      label: '乙',
+      path: '',
+      refreshSec: 300,
+      scale100: false,
+    })
+  })
 })
 
 describe('速达：加一条只认绝对路径/http(s)，删一条按 id', () => {
@@ -449,6 +465,27 @@ describe('自定卡（HTML 扩展）：加/改/删与校验原因', () => {
     expect(d.state.htmlCards[0].html, '拒绝时不该动原值').toBe('<i>2</i>')
     d.removeHtmlCard(id)
     expect(d.state.htmlCards).toHaveLength(0)
+  })
+
+  it('改一张不碰另一张：updateHtmlCard 按 id 定点映射', () => {
+    const d = memStorage().api()
+    d.addHtmlCard('甲', '<b>1</b>')
+    d.addHtmlCard('乙', '<b>2</b>')
+    const id = d.state.htmlCards[0].id
+    expect(d.updateHtmlCard(id, { title: '丙', html: '<i>3</i>' })).toBeNull()
+    expect(d.state.htmlCards[0]).toMatchObject({ title: '丙', html: '<i>3</i>' })
+    expect(d.state.htmlCards[1], '另一张原样').toMatchObject({ title: '乙', html: '<b>2</b>' })
+  })
+
+  it('只改片段不动标题；标题洗空保留原值', () => {
+    const d = memStorage().api()
+    d.addHtmlCard('甲', '<b>1</b>')
+    d.addHtmlCard('乙', '<b>2</b>')
+    const [first, second] = d.state.htmlCards
+    expect(d.updateHtmlCard(first.id, { html: '<i>新</i>' }), 'patch 不带 title：原标题不动').toBeNull()
+    expect(d.state.htmlCards[0]).toMatchObject({ title: '甲', html: '<i>新</i>' })
+    expect(d.updateHtmlCard(second.id, { title: '   ' }), '标题洗空：不该把卡片改成无标题').toBeNull()
+    expect(d.state.htmlCards[1].title, '洗空回落到原值').toBe('乙')
   })
 
   it('导入路径：不是数组回退；坏条目丢弃并告警', () => {
