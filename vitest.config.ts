@@ -68,6 +68,7 @@ const GATED_VUE_MODULES = [
   'src/vue/migrate.ts',
   'src/vue/useReminders.ts',
   'src/vue/store.ts',
+  'src/vue/useUpdateCheck.ts',
   'src/vue/useWeather.ts',
   'src/vue/winPreview.ts',
 ]
@@ -132,6 +133,11 @@ export default defineConfig({
         'src/vue/keyboard.ts': { branches: 100 },
         // store.ts 是这张表存在的头号理由：82.22% 而 CI 绿了很久。
         'src/vue/store.ts': { branches: 82 },
+        // 更新检查（2026-10-21）：161 行此前**零测试且不在受测层** —— 与 useWeather 同一种理由
+        // （引擎那半 `tests/engine/update.test.ts` 有测试，"发请求 + 存缓存 + 摆状态 + 归还后端句柄"
+        //  这半没有，而它恰好是会出错的那一半）。随补测进受测层：**实测 100%（22 条），同 chord /
+        //  keyboard 锁满** —— 这个文件里没有一条分支是"按契约不可达"的，留余量没理由。
+        'src/vue/useUpdateCheck.ts': { branches: 100 },
         'src/vue/useWeather.ts': { branches: 92 },
         // 命令层（2026-10-13 批 2）：新加进受测层的文件必须同步登记地板（见上面第 2 条纪律）。
         // 三条都被表驱动测试全覆盖，90 是"留一点呼吸"而不是现状回填。
