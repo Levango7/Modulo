@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { BACKUP_KIND, BACKUP_VERSION, emptyCardData, buildBackup, backupToJson, parseBackup } from '../../src/vue/backup'
+import { BACKUP_KIND, BACKUP_VERSION, applyCardData, emptyCardData, buildBackup, backupToJson, parseBackup } from '../../src/vue/backup'
 import type { CardData } from '../../src/vue/cardData'
 import type { LayoutDoc, SchemeBook } from '@levango7/engine'
 import { REGISTRY } from '../../src/vue/cardRegistry'
@@ -57,9 +57,9 @@ const cardData: CardData = {
   probes: [{ id: 'p1', label: '健康检查', url: 'https://example.com/health' }],
   stocks: [{ id: 's1', label: '上证指数', code: 'sh000001' }],
   feeds: [{ id: 'f1', label: '周刊', url: 'https://www.ruanyifeng.com/blog/atom.xml' }],
-  watch: [],
-  endpoints: [],
-  launch: [],
+  watch: [{ id: 'w1', label: '健康检查', url: 'https://example.com/health' }],
+  endpoints: [{ id: 'hp1', label: '接口价', url: 'https://api.example.com/price', refreshSec: 30, path: 'data[0].price', scale100: true }],
+  launch: [{ id: 'la1', label: '仓库', target: 'https://github.com', kind: 'url' }],
   htmlCards: [],
   fixed: { base: '1,280.00', rate: '6%', symbol: '¥' },
   duty: { roster: ['张三', '李四'], anchor: '2026-01-01' },
@@ -79,6 +79,11 @@ describe('buildBackup：三样东西必须都在里面', () => {
     expect(back.cardData?.todos.map((t) => t.text)).toEqual(['写周报', '买咖啡豆'])
     expect(back.cardData?.notes.map((n) => n.title)).toEqual(['想法'])
     expect(back.cardData?.countdown).toEqual({ label: '元旦', date: '2027-01-01' })
+    // 这三个数组字段曾是空夹具 —— buildBackup 里的对应逐条拷贝从没被执行过，
+    // "包是全的"这句话就没被验过。P0-③ 补上真数据。
+    expect(back.cardData?.watch.map((w) => w.id)).toEqual(['w1'])
+    expect(back.cardData?.endpoints.map((e) => e.id)).toEqual(['hp1'])
+    expect(back.cardData?.launch.map((l) => l.id)).toEqual(['la1'])
   })
 
   it('summary 报的是事实，导入前的确认框靠它说话', () => {
@@ -163,6 +168,22 @@ describe('buildBackup：三样东西必须都在里面', () => {
     expect(p.version).toBe(BACKUP_VERSION)
     expect(p.app).toBe('0.2.0')
   })
+
+  it('导出时间读不懂：留一句原话，不当成坏包', () => {
+    const back = parseBackup(JSON.stringify({ ...makePayload(), createdAt: '昨天' }), REGISTRY)
+    expect(back.kind).toBe('backup')
+    expect(back.meta?.createdAt).toBe('昨天')
+    expect(back.warnings.join()).toContain('导出时间读不懂（昨天）')
+  })
+
+  it('包里没有版面段：版面按空处理，内容照旧认（残缺包不该整份报废）', () => {
+    const obj = JSON.parse(backupToJson(makePayload())) as Record<string, unknown>
+    delete obj.layout
+    const back = parseBackup(JSON.stringify(obj), REGISTRY)
+    expect(back.kind).toBe('backup')
+    expect(back.layout?.items ?? []).toHaveLength(0)
+    expect(back.cardData?.todos).toHaveLength(2)
+  })
 })
 
 describe('parseBackup：旧文件不该因为格式升级就导不进来', () => {
@@ -242,5 +263,50 @@ describe('parseBackup：坏数据走清洗，不抛也不静默', () => {
     const back = parseBackup(raw, REGISTRY)
     expect((back.cardData as unknown as Record<string, unknown>).polluted).toBeUndefined()
     expect(({} as Record<string, unknown>).polluted).toBeUndefined()
+  })
+})
+
+describe('v2：设置段与整份回填（2026-10-20，P0-③）', () => {
+  it('导出带 appearance / template，解析后原样回来', () => {
+    const raw = backupToJson(makePayload({ settings: { appearance: { skin: 'ink', mode: 'dark' }, template: 'general' } }))
+    const back = parseBackup(raw, REGISTRY)
+    expect(back.meta?.version).toBe(2)
+    expect(back.settings).toEqual({ appearance: { skin: 'ink', mode: 'dark' }, template: 'general' })
+  })
+  it('v1 老包没有设置段：settings 为 null，也不提示（那时本来就没有）', () => {
+    const raw = JSON.stringify({ kind: BACKUP_KIND, version: 1, layout, cardData })
+    const back = parseBackup(raw, REGISTRY)
+    expect(back.settings).toBeNull()
+    expect(back.warnings.join()).not.toContain('设置段')
+  })
+  it('v2 包缺设置段 / 形状不对：settings 为 null 并说明', () => {
+    const missing = parseBackup(JSON.stringify({ ...makePayload(), settings: undefined }), REGISTRY)
+    expect(missing.settings).toBeNull()
+    expect(missing.warnings.join()).toContain('没有设置段')
+    const bad = parseBackup(JSON.stringify({ ...makePayload(), settings: { appearance: 'x', template: 42 } }), REGISTRY)
+    expect(bad.settings).toEqual({})
+  })
+  it('settings 整段不是对象：按"没有设置段"处理并说明形状不对', () => {
+    for (const bad of [null, 'x', []]) {
+      const back = parseBackup(JSON.stringify({ ...makePayload(), settings: bad }), REGISTRY)
+      expect(back.settings, JSON.stringify(bad)).toBeNull()
+      expect(back.warnings.join(), JSON.stringify(bad)).toContain('设置段形状不对')
+    }
+  })
+  it('template 显式为 null 要保留 —— "没挑过模板"与"包里没这个键"是两件事', () => {
+    const back = parseBackup(backupToJson(makePayload({ settings: { appearance: { skin: 'ink' }, template: null } })), REGISTRY)
+    expect(back.settings).toEqual({ appearance: { skin: 'ink' }, template: null })
+    expect(back.warnings.join()).not.toContain('设置段')
+  })
+  it('applyCardData：每个字段都灌进去，且是深拷贝', () => {
+    const source = emptyCardData()
+    source.ledger = { symbol: '¥', entries: [{ id: 'e1', date: '2026-10-01', cents: 100, category: '餐饮', note: 'x' }] }
+    source.matrix = [{ id: 'm1', text: '事', q: 'do', done: false }]
+    const target = emptyCardData()
+    applyCardData(target, source)
+    expect(target.ledger.entries.map((e) => e.id)).toEqual(['e1'])
+    expect(target.matrix.map((m) => m.id)).toEqual(['m1'])
+    target.ledger.entries.push({ id: 'e2', date: '2026-10-02', cents: 1, category: '其他', note: '' })
+    expect(source.ledger.entries, '深拷贝：改目标不污染来源').toHaveLength(1)
   })
 })

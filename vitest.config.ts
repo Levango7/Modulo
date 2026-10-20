@@ -96,7 +96,10 @@ export default defineConfig({
         // ── 逐文件棘轮：7 个受单测门禁的 src/vue 模块（全锁，含 100% 的两个）──────
         // chord / keyboard 锁 100 才是那句话的本意：加一条没测到的分支，当场红。
         'src/vue/appearance.ts': { branches: 95 },
-        'src/vue/backup.ts': { branches: 95 },
+        // backup.ts 原地板 95。P0-③（2026-10-20）把恢复改成整份回填、格式升 v2 并加了设置段清洗，
+        // 补齐四条从未被执行过的分支（残缺包无版面段 / 导出时间读不懂 / settings 整段不是对象 /
+        // template 显式为 null）—— 两个用例文件隔离跑实测**分支 100%**，棘轮只升不降，锁满。
+        'src/vue/backup.ts': { branches: 100 },
         'src/vue/cardData.ts': { branches: 97 },
         // cardData 拆分（2026-10-20，#124）：清洗层与共享上限各自成模块，随拆分进受测层。
         // 地板按拆分后**全量套件**实测回填（棘轮只升不降）：

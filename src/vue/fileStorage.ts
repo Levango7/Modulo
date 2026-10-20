@@ -2,6 +2,7 @@ import { ref, type Ref } from 'vue'
 import { invoke } from '@tauri-apps/api/core'
 import { browserStorage, type StorageAdapter } from './store'
 import { isDesktop } from './useShell'
+import { AUTO_INDEX_KEY, AUTO_SLOT_COUNT, autoSlotKey } from './useBackup'
 
 /**
  * 桌面壳的数据落盘。
@@ -18,6 +19,12 @@ export const DATA_KEYS: readonly string[] = [
   'modulo.appearance.v1',
   'modulo.shell.v1',
   'modulo.template.v1',
+  // 自动备份（P0-③，`useBackup.ts`）：索引 + 环形 7 槽。
+  // 这张表是桌面 `get` 的**唯一**数据来源（启动 hydrate 成内存镜像，之后读镜像），
+  // 少登记一个键的症状不是报错，而是"写下去了、重启就看不见"—— 环形 7 份会变成每次启动重建基线。
+  // 只在桌面用（网页版配额不适合放 7 份整包），但键名两边同源，所以两边都进表。
+  AUTO_INDEX_KEY,
+  ...Array.from({ length: AUTO_SLOT_COUNT }, (_, n) => autoSlotKey(n)),
 ]
 
 
