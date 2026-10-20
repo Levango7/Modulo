@@ -10,13 +10,19 @@ import BackupSection from './BackupSection.vue'
 import SchemesSection from './SchemesSection.vue'
 import VersionSection from './VersionSection.vue'
 import type { AppearanceApi } from '../useAppearance'
+import type { RemindersApi } from '../useReminders'
 
 defineEmits<{ (e: 'close'): void }>()
 const appearance = inject<AppearanceApi>('appearance')!
 const a = appearance.state
 const shell = inject<ShellApi>('shell')!
+const reminders = inject<RemindersApi>('reminders')!
 const panelEl = ref<HTMLElement | null>(null)
 useFocusTrap(panelEl)
+
+const setRemindersOn = (e: Event) => reminders.setSettings({ enabled: (e.target as HTMLInputElement).checked })
+const setReminderTime = (key: 'quietStart' | 'quietEnd' | 'habitAfter') => (e: Event) =>
+  reminders.setSettings({ [key]: (e.target as HTMLInputElement).value })
 
 const dataDir = ref<string | null>(null)
 onMounted(async () => {
@@ -116,6 +122,33 @@ onBeforeUnmount(stopRecord)
           </button>
         </div>
         <p class="hint">「跟随皮肤」= 每套方向用它自己的强调色；选具体颜色则会覆盖皮肤默认值。</p>
+      </section>
+
+      <section>
+        <h3>提醒</h3>
+        <label class="switch">
+          <input type="checkbox" :checked="reminders.state.settings.enabled" @change="setRemindersOn" />
+          <span>昨天之前记下的事到"今天"了，就提醒我（倒数日 / 生日 / 习惯）</span>
+        </label>
+        <div class="times">
+          <label>
+            <span>静默从</span>
+            <input type="time" :value="reminders.state.settings.quietStart" @change="setReminderTime('quietStart')" />
+          </label>
+          <label>
+            <span>到</span>
+            <input type="time" :value="reminders.state.settings.quietEnd" @change="setReminderTime('quietEnd')" />
+          </label>
+          <label>
+            <span>习惯提醒从</span>
+            <input type="time" :value="reminders.state.settings.habitAfter" @change="setReminderTime('habitAfter')" />
+          </label>
+        </div>
+        <p class="hint">
+          静默默认关闭（起止相同即视为关）。开着时：时段内不弹，结束后同一天内补弹 ——
+          但如果静默跨过了午夜，那一天的事就不补了。这些设置只存本机，不进备份。
+          待办没有截止日期字段，所以不做"到期提醒"（不编不存在的东西）。
+        </p>
       </section>
 
       <section v-if="isDesktop">
@@ -311,6 +344,29 @@ section h3 {
   align-items: center;
   gap: var(--space-2);
   font-size: 13px;
+}
+.times {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2) var(--space-3);
+  margin-top: var(--space-2);
+  font-size: 12px;
+}
+.times label {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  color: var(--text-2);
+}
+.times input {
+  height: 26px;
+  padding: 0 var(--space-1);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--bg-card);
+  color: var(--text-1);
+  font: inherit;
+  font-variant-numeric: tabular-nums;
 }
 .keys {
   list-style: none;

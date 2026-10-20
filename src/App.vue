@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, inject, nextTick, onBeforeUnmount, onMounted, provide, ref } from 'vue'
-import { LayoutGrid, LayoutTemplate, Redo2, Settings, SlidersHorizontal, TriangleAlert, Undo2, Wand2, Check, ChevronDown, X } from 'lucide-vue-next'
+import { BellRing, LayoutGrid, LayoutTemplate, Redo2, Settings, SlidersHorizontal, TriangleAlert, Undo2, Wand2, Check, ChevronDown, X } from 'lucide-vue-next'
 import { useElementSize } from './vue/useElementSize'
 import { useProjection } from './vue/useProjection'
 import { measureWantedRows } from './vue/useDensity'
@@ -12,6 +12,8 @@ import type { ContentHistoryApi } from './vue/contentHistory'
 import { CARD_COMPONENTS } from './vue/cardComponents'
 import { useAppearance } from './vue/useAppearance'
 import { useBackup } from './vue/useBackup'
+import { useReminders } from './vue/useReminders'
+import type { Reminder } from './vue/reminders'
 import { useSchemes } from './vue/useSchemes'
 import { isDesktop, useShell } from './vue/useShell'
 import { useDetached } from './vue/useDetached'
@@ -53,6 +55,20 @@ const backup = useBackup(store, schemes, () => cardDataApi.state, {
 })
 provide('backup', backup)
 provide('shell', useShell(storage))
+
+/**
+ * 提醒（P0-④ 阶段 1）：判定与去重在 `reminders.ts` / `useReminders.ts`，投递就在下面这个回调里 ——
+ * 阶段 2 换成系统通知时只换这一处，判定一行不用动。
+ * 应用内横幅只是"落地形态"：没有它，阶段 1 的规则表就是一段没人调用的代码。
+ */
+const reminderNotes = ref<Reminder[]>([])
+const reminders = useReminders(() => cardDataApi.state, {
+  storage,
+  deliver: (items) => {
+    reminderNotes.value = [...reminderNotes.value, ...items]
+  },
+})
+provide('reminders', reminders)
 
 const view = ref<'workbench' | 'edit'>('workbench')
 
@@ -224,10 +240,13 @@ onMounted(() => {
   if (store.firstRun) templatesOpen.value = true
   /** 自动备份：没有基线就建一份；版本变过或距上一份超过 24h 也各留一份（只桌面） */
   backup.initAutoBackup()
+  /** 提醒：启动先对一次表，之后每分钟一次（静默时段只压投递，不压事实） */
+  reminders.start()
 })
 onBeforeUnmount(() => {
   window.removeEventListener('keydown', onGlobalKey)
   document.removeEventListener('mousedown', onDocMousedown)
+  reminders.stop()
 })
 
 function fitContent() {
@@ -462,6 +481,18 @@ function onGlobalKey(e: KeyboardEvent) {
         <button v-if="storage.error.value.includes('只在内存里')" class="rescue" @click="backup.exportBackup()">
           立刻下载备份
         </button>
+      </p>
+      <!-- 提醒横幅（P0-④ 阶段 1）：今天的事实到了，就在这里说一声。阶段 2 接系统通知后，
+           这条仍保留 —— 窗口开着时应用内提示比系统通知更不打扰。 -->
+      <p v-if="reminderNotes.length" class="reminder-strip" role="status">
+        <BellRing :size="14" />
+        <span class="txt">
+          <template v-for="(r, i) in reminderNotes" :key="r.key">
+            <span v-if="i" class="dot" aria-hidden="true">·</span>
+            <b>{{ r.title }}</b> {{ r.body }}
+          </template>
+        </span>
+        <button class="dismiss" @click="reminderNotes = []">知道了</button>
       </p>
       <template v-if="view === 'workbench'">
         <p v-if="projection.collapsed.length" class="collapsed muted">
@@ -872,6 +903,43 @@ function onGlobalKey(e: KeyboardEvent) {
 }
 .storage-error .rescue:hover {
   background: color-mix(in oklab, var(--c-red) 12%, var(--bg-card));
+}
+.reminder-strip {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin: 0 0 var(--space-3);
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid color-mix(in oklab, var(--brand-500) 40%, transparent);
+  border-radius: var(--radius-md);
+  background: color-mix(in oklab, var(--brand-500) 8%, var(--bg-card));
+  color: var(--text-1);
+  font-size: 12px;
+}
+/* 文案可能有好几条，让它占满中间、按钮靠右不被挤走（与上面那条红条同一形状） */
+.reminder-strip .txt {
+  flex: 1;
+  min-width: 0;
+}
+.reminder-strip .dot {
+  margin: 0 4px;
+  color: var(--text-3);
+}
+.reminder-strip .dismiss {
+  flex: none;
+  height: 24px;
+  padding: 0 var(--space-3);
+  border: 1px solid color-mix(in oklab, var(--brand-500) 45%, transparent);
+  border-radius: var(--radius-pill);
+  background: var(--bg-card);
+  color: var(--text-1);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.reminder-strip .dismiss:hover {
+  background: color-mix(in oklab, var(--brand-500) 10%, var(--bg-card));
 }
 .empty {
   position: absolute;
