@@ -64,6 +64,7 @@ const GATED_VUE_MODULES = [
   // 提醒（P0-④ 阶段 1，2026-10-21）：判定层是纯函数（注入 now），胶水层可用 memoryStorage 驱动，
   // 都满足"不开浏览器也能断言"这条纳入判据。
   'src/vue/reminders.ts',
+  'src/vue/notify.ts',
   'src/vue/useReminders.ts',
   'src/vue/store.ts',
   'src/vue/useWeather.ts',
@@ -118,6 +119,10 @@ export default defineConfig({
         // 提醒（P0-④ 阶段 1，2026-10-21）：规则表 + 胶水层两个文件都由注入时钟与内存存储驱动，
         // 隔离跑实测**分支 100%**（去重/静默/跨天/坏数据/写失败全有用例）。棘轮只升不降，锁满。
         'src/vue/reminders.ts': { branches: 100 },
+        // 系统通知投递（P0-④ 阶段 2）：加载器失败（注入）、权限被拒、插件抛错、默认加载器在
+        // 无 Tauri IPC 的 node 里返回 false 都有用例；隔离跑实测分支 100%（import 自身 reject
+        // 那条 catch 没被执行，属真实环境才走得到的防御，不为覆盖率演戏）。
+        'src/vue/notify.ts': { branches: 100 },
         'src/vue/useReminders.ts': { branches: 100 },
         'src/vue/chord.ts': { branches: 100 },
         'src/vue/keyboard.ts': { branches: 100 },

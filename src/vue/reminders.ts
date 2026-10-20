@@ -24,6 +24,8 @@ export interface ReminderSettings {
   quietEnd: string
   /** 习惯提醒从几点开始（本地时间）。太早提醒"今天还没打卡"是打扰，不是提醒 */
   habitAfter: string
+  /** 桌面壳上是否同时发系统通知（应用内横幅始终发；网页版没有这一路） */
+  systemNotifications: boolean
 }
 
 export const DEFAULT_REMINDER_SETTINGS: ReminderSettings = {
@@ -33,6 +35,7 @@ export const DEFAULT_REMINDER_SETTINGS: ReminderSettings = {
   quietStart: '00:00',
   quietEnd: '00:00',
   habitAfter: '20:00',
+  systemNotifications: true,
 }
 
 export interface Reminder {

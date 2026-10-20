@@ -60,6 +60,8 @@ function readStored(storage?: StorageAdapter): StoredState {
       quietStart: time(s.quietStart, DEFAULT_REMINDER_SETTINGS.quietStart),
       quietEnd: time(s.quietEnd, DEFAULT_REMINDER_SETTINGS.quietEnd),
       habitAfter: time(s.habitAfter, DEFAULT_REMINDER_SETTINGS.habitAfter),
+      systemNotifications:
+        typeof s.systemNotifications === 'boolean' ? s.systemNotifications : DEFAULT_REMINDER_SETTINGS.systemNotifications,
     }
     if (typeof obj.day === 'string' && DAY_RE.test(obj.day)) base.day = obj.day
     if (Array.isArray(obj.fired)) base.fired = obj.fired.filter((x): x is string => typeof x === 'string')
@@ -142,6 +144,7 @@ export function useReminders(cardData: () => CardData, opts: RemindersOptions = 
       if (typeof patch[k] === 'string' && !HM_RE.test(patch[k]!.trim())) next[k] = state.settings[k]
     }
     if (typeof patch.enabled !== 'boolean') next.enabled = state.settings.enabled
+    if (typeof patch.systemNotifications !== 'boolean') next.systemNotifications = state.settings.systemNotifications
     state.settings = next
   }
 

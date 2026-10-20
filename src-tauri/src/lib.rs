@@ -434,6 +434,10 @@ pub fn run() {
             // 证书仍然没有。密钥与发布步骤见 docs/ARCHITECTURE.md §11.6。
             .plugin(tauri_plugin_updater::Builder::new().build())
             .plugin(tauri_plugin_process::init())
+            // 系统通知（P0-④ 阶段 2）：判定与去重在前端（`useReminders.ts`），这里只提供投递能力。
+            // Windows 上由 `tauri-winrt-notification` 走系统 Toast —— 注意**开发态**跑的是
+            // `powershell.exe` 的身份与图标，装成安装包后才显示 Modulo 自己（插件文档原话）。
+            .plugin(tauri_plugin_notification::init())
             .plugin(
                 tauri_plugin_global_shortcut::Builder::new()
                     .with_handler(desktop::on_shortcut)
