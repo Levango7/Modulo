@@ -71,6 +71,8 @@ E2E（Playwright）：`npm run test:e2e`。发布与签名口径见
 
 | 文档 | 内容 |
 | --- | --- |
+| [docs/PRODUCT.md](docs/PRODUCT.md) | 产品定义：定位、人物画像、非目标与成功指标（v0.1 提案） |
+| [docs/design/](docs/design/README.md) | 设计四件套：信息架构、设计系统、功能规格（含验收判据） |
 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | 架构与选型：投影模型、五条不变量、历史栈、渲染层取舍 |
 | [docs/CARD-CATALOG.md](docs/CARD-CATALOG.md) | 卡片目录：54 种卡的形态矩阵与交付状态 <!-- facts --> |
 | [CONTRIBUTING.md](CONTRIBUTING.md) | 参与开发：环境、测试、提交口径 |
