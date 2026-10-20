@@ -96,6 +96,19 @@ describe('设置：落盘、读回、坏数据不炸', () => {
     expect(reminders.state.settings.habitAfter).toBe(before.habitAfter)
   })
 
+  it('系统通知开关：默认开、可关、非布尔值不覆盖原值', () => {
+    const storage = memoryStorage()
+    const first = setup({ clock: { now: at(2026, 10, 21) }, storage })
+    expect(first.reminders.state.settings.systemNotifications).toBe(true)
+    first.reminders.setSettings({ systemNotifications: false })
+    expect(JSON.parse(storage.get(REMINDERS_KEY)!).settings.systemNotifications).toBe(false)
+
+    const second = setup({ clock: { now: at(2026, 10, 21) }, storage })
+    expect(second.reminders.state.settings.systemNotifications).toBe(false)
+    second.reminders.setSettings({ systemNotifications: 'yes' as unknown as boolean })
+    expect(second.reminders.state.settings.systemNotifications).toBe(false)
+  })
+
   it('盘上是坏 JSON / 坏字段：回默认值，不抛', () => {
     const storage = memoryStorage()
     storage.set(REMINDERS_KEY, '{坏')

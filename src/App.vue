@@ -14,6 +14,7 @@ import { useAppearance } from './vue/useAppearance'
 import { useBackup } from './vue/useBackup'
 import { useReminders } from './vue/useReminders'
 import type { Reminder } from './vue/reminders'
+import { sendSystemNotifications } from './vue/notify'
 import { useSchemes } from './vue/useSchemes'
 import { isDesktop, useShell } from './vue/useShell'
 import { useDetached } from './vue/useDetached'
@@ -66,6 +67,12 @@ const reminders = useReminders(() => cardDataApi.state, {
   storage,
   deliver: (items) => {
     reminderNotes.value = [...reminderNotes.value, ...items]
+    // 系统通知只在桌面壳发（网页版没有这一路）；失败静默降级 —— 横幅已经在了，
+    // 通知坏了不该让提醒本身也消失。**Windows 上点击拿不到"点了哪一条"**：
+    // 交互式 action 只有移动端有，所以这里没有深链，详见 vue/notify.ts 的文件头。
+    if (isDesktop && reminders.state.settings.systemNotifications) {
+      void sendSystemNotifications(items)
+    }
   },
 })
 provide('reminders', reminders)

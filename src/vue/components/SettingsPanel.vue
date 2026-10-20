@@ -21,6 +21,7 @@ const panelEl = ref<HTMLElement | null>(null)
 useFocusTrap(panelEl)
 
 const setRemindersOn = (e: Event) => reminders.setSettings({ enabled: (e.target as HTMLInputElement).checked })
+const setSystemNotifications = (e: Event) => reminders.setSettings({ systemNotifications: (e.target as HTMLInputElement).checked })
 const setReminderTime = (key: 'quietStart' | 'quietEnd' | 'habitAfter') => (e: Event) =>
   reminders.setSettings({ [key]: (e.target as HTMLInputElement).value })
 
@@ -129,6 +130,14 @@ onBeforeUnmount(stopRecord)
         <label class="switch">
           <input type="checkbox" :checked="reminders.state.settings.enabled" @change="setRemindersOn" />
           <span>昨天之前记下的事到"今天"了，就提醒我（倒数日 / 生日 / 习惯）</span>
+        </label>
+        <label v-if="isDesktop" class="switch">
+          <input
+            type="checkbox"
+            :checked="reminders.state.settings.systemNotifications"
+            @change="setSystemNotifications"
+          />
+          <span>同时发系统通知（窗口不在前台也能看到；开发态图标显示为 PowerShell，装成安装包后才是 Modulo）</span>
         </label>
         <div class="times">
           <label>
