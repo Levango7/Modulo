@@ -8,6 +8,7 @@ import * as E from '@levango7/engine'
 import type { LayoutStore } from './vue/store'
 import type { PersistentStorage } from './vue/fileStorage'
 import type { CardDataApi } from './vue/cardData'
+import type { ContentHistoryApi } from './vue/contentHistory'
 import { CARD_COMPONENTS } from './vue/cardComponents'
 import { useAppearance } from './vue/useAppearance'
 import { useBackup } from './vue/useBackup'
@@ -29,6 +30,7 @@ import BrandMark from './vue/components/BrandMark.vue'
 const storage = inject<PersistentStorage>('storage')!
 const store = inject<LayoutStore>('store')!
 const cardDataApi = inject<CardDataApi>('cardData')!
+const contentHistory = inject<ContentHistoryApi>('contentHistory')!
 const appearance = useAppearance(storage)
 provide('appearance', appearance)
 const schemes = useSchemes(store, storage)
@@ -39,6 +41,59 @@ provide('backup', backup)
 provide('shell', useShell(storage))
 
 const view = ref<'workbench' | 'edit'>('workbench')
+
+/**
+ * 撤销/重做的路由（2026-10-20）。版面与内容各有一份历史：
+ *  - 编辑态：只在改版面 ⇒ 永远撤版面（与之前行为一致）；
+ *  - 工作台态：谁更近撤谁（内容改动通常更近），平手时内容优先；选中的那边没得撤就退到另一边。
+ * 两个栈不合并时间线 —— 只比"最近一次改动"，比共享一条历史容易解释得多。
+ */
+const lastUndoKind = ref<'layout' | 'content'>('layout')
+const canUndoAny = computed(() => store.canUndo.value || contentHistory.canUndo.value)
+const canRedoAny = computed(() => store.canRedo.value || contentHistory.canRedo.value)
+function undoLatest(): void {
+  if (view.value === 'edit') {
+    store.undo()
+    lastUndoKind.value = 'layout'
+    return
+  }
+  const preferContent = contentHistory.lastAt.value >= store.lastAt.value
+  const order: ('content' | 'layout')[] = preferContent ? ['content', 'layout'] : ['layout', 'content']
+  for (const kind of order) {
+    if (kind === 'content') {
+      if (contentHistory.undo()) {
+        lastUndoKind.value = 'content'
+        return
+      }
+    } else if (store.canUndo.value) {
+      store.undo()
+      lastUndoKind.value = 'layout'
+      return
+    }
+  }
+}
+function redoLatest(): void {
+  if (view.value === 'edit') {
+    store.redo()
+    lastUndoKind.value = 'layout'
+    return
+  }
+  const preferContent = lastUndoKind.value === 'content'
+  const order: ('content' | 'layout')[] = preferContent ? ['content', 'layout'] : ['layout', 'content']
+  for (const kind of order) {
+    if (kind === 'content') {
+      if (contentHistory.canRedo.value) {
+        contentHistory.redo()
+        lastUndoKind.value = 'content'
+        return
+      }
+    } else if (store.canRedo.value) {
+      store.redo()
+      lastUndoKind.value = 'layout'
+      return
+    }
+  }
+}
 const settingsOpen = ref(false)
 /**
  * 编辑器事务（2026-10-12 用户口径：「工作台=用+微调，布局编辑=增删改」）。
@@ -270,10 +325,11 @@ function onGlobalKey(e: KeyboardEvent) {
   // 撤销/重做也并入总线（可用性谓词与面板同源：面板里灰着的时候，键也按不动）
   if ((e.ctrlKey || e.metaKey) && k === 'z') {
     e.preventDefault()
-    commandBus.dispatch(e.shiftKey ? 'layout.redo' : 'layout.undo')
+    if (e.shiftKey) redoLatest()
+    else undoLatest()
   } else if ((e.ctrlKey || e.metaKey) && k === 'y') {
     e.preventDefault()
-    commandBus.dispatch('layout.redo')
+    redoLatest()
   }
 }
 </script>
@@ -307,10 +363,10 @@ function onGlobalKey(e: KeyboardEvent) {
           <span class="sep" aria-hidden="true"></span>
         </span>
         <span class="grp" role="group" aria-label="历史">
-          <button class="icon" :disabled="!store.canUndo.value" title="撤销 (Ctrl+Z)" @click="store.undo()">
+          <button class="icon" :disabled="!canUndoAny" title="撤销上一步 (Ctrl+Z)" @click="undoLatest()">
             <Undo2 :size="14" />
           </button>
-          <button class="icon" :disabled="!store.canRedo.value" title="重做 (Ctrl+Shift+Z)" @click="store.redo()">
+          <button class="icon" :disabled="!canRedoAny" title="重做 (Ctrl+Shift+Z)" @click="redoLatest()">
             <Redo2 :size="14" />
           </button>
         </span>
