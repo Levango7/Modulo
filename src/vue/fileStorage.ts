@@ -3,6 +3,7 @@ import { invoke } from '@tauri-apps/api/core'
 import { browserStorage, type StorageAdapter } from './store'
 import { isDesktop } from './useShell'
 import { AUTO_INDEX_KEY, AUTO_SLOT_COUNT, autoSlotKey } from './useBackup'
+import { REMINDERS_KEY } from './useReminders'
 
 /**
  * 桌面壳的数据落盘。
@@ -25,6 +26,10 @@ export const DATA_KEYS: readonly string[] = [
   // 只在桌面用（网页版配额不适合放 7 份整包），但键名两边同源，所以两边都进表。
   AUTO_INDEX_KEY,
   ...Array.from({ length: AUTO_SLOT_COUNT }, (_, n) => autoSlotKey(n)),
+  // 提醒（P0-④ 阶段 1，`useReminders.ts`）：设置 + "今天提醒过哪些"。
+  // 同一条纪律：这张表是桌面 `get` 的唯一来源，漏登记 = 写得下去、重启读不到
+  // （症状是每分钟重复提醒同一件事，因为"今天已提醒过"全丢了）。
+  REMINDERS_KEY,
 ]
 
 

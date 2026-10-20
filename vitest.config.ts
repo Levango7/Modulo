@@ -61,6 +61,10 @@ const GATED_VUE_MODULES = [
   'src/vue/meetings.ts',
   'src/vue/minutesLive.ts',
   'src/vue/paletteIndex.ts',
+  // 提醒（P0-④ 阶段 1，2026-10-21）：判定层是纯函数（注入 now），胶水层可用 memoryStorage 驱动，
+  // 都满足"不开浏览器也能断言"这条纳入判据。
+  'src/vue/reminders.ts',
+  'src/vue/useReminders.ts',
   'src/vue/store.ts',
   'src/vue/useWeather.ts',
   'src/vue/winPreview.ts',
@@ -111,6 +115,10 @@ export default defineConfig({
         //   cardDataLimits   100   —— 纯数值函数，表驱动全覆盖，同 chord/keyboard 锁满。
         'src/vue/cardDataSanitize.ts': { branches: 99 },
         'src/vue/cardDataLimits.ts': { branches: 100 },
+        // 提醒（P0-④ 阶段 1，2026-10-21）：规则表 + 胶水层两个文件都由注入时钟与内存存储驱动，
+        // 隔离跑实测**分支 100%**（去重/静默/跨天/坏数据/写失败全有用例）。棘轮只升不降，锁满。
+        'src/vue/reminders.ts': { branches: 100 },
+        'src/vue/useReminders.ts': { branches: 100 },
         'src/vue/chord.ts': { branches: 100 },
         'src/vue/keyboard.ts': { branches: 100 },
         // store.ts 是这张表存在的头号理由：82.22% 而 CI 绿了很久。
