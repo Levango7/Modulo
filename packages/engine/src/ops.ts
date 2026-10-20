@@ -1,7 +1,7 @@
 import { anyCollides, clamp } from './geometry.js'
 import { findFreeSpot } from './spot.js'
 import { pruneRows } from './rows.js'
-import { findModule, resolveVariant, TITLE_MAX } from './types.js'
+import { findModule, moduleIdOf, resolveVariant, TITLE_MAX } from './types.js'
 import type { LayoutDoc, ModuleRegistry, Placement } from './types.js'
 
 function withItems(doc: LayoutDoc, items: Placement[]): LayoutDoc {
@@ -31,16 +31,22 @@ export function addItem(
   x: number,
   y: number,
   variantId?: string,
+  /**
+   * 实例 id（多开）。不传 = 用模块 id 当实例 id（旧行为：同一模块只能有一张）。
+   * 传了就必须与已有条目不同；第二个实例要带 `module: moduleId` 才能被正确解析。
+   */
+  instanceId?: string,
 ): LayoutDoc | null {
   const mod = findModule(reg, moduleId)
   if (!mod) return null
-  if (indexOf(doc, moduleId)) return null
+  const id = instanceId ?? moduleId
+  if (indexOf(doc, id)) return null
   const v = resolveVariant(mod, variantId)
   if (!v) return null
   const spot = findFreeSpot(doc.items, v.idealW, v.idealH, x, y, doc.cols)
   return withItems(doc, [
     ...doc.items,
-    { id: moduleId, variant: v.id, x: spot.x, y: spot.y, w: spot.w, h: spot.h },
+    { id, ...(id === moduleId ? {} : { module: moduleId }), variant: v.id, x: spot.x, y: spot.y, w: spot.w, h: spot.h },
   ])
 }
 
@@ -123,7 +129,7 @@ export function resizeItem(
 ): LayoutDoc | null {
   const p = indexOf(doc, id)
   if (!p || p.locked) return null
-  const mod = findModule(reg, p.id)
+  const mod = findModule(reg, moduleIdOf(p))
   const v = resolveVariant(mod, p.variant)
   const minW = v?.minW ?? 1
   const minH = v?.minH ?? 1
@@ -143,7 +149,7 @@ export function setVariant(
   variantId: string,
 ): LayoutDoc | null {
   const p = indexOf(doc, id)
-  const mod = p ? findModule(reg, p.id) : undefined
+  const mod = p ? findModule(reg, moduleIdOf(p)) : undefined
   const v = mod?.variants.find((x) => x.id === variantId)
   if (!p || !v) return null
   const nw = Math.min(Math.max(p.w, v.minW), doc.cols)

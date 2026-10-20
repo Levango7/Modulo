@@ -93,7 +93,7 @@ export function useCanvasDrag(opts: {
     return m
   })
 
-  const variantOf = (p: E.Placement) => E.resolveVariant(E.findModule(reg, p.id), p.variant)
+  const variantOf = (p: E.Placement) => E.resolveVariant(E.findModule(reg, E.moduleIdOf(p)), p.variant)
 
   /**
    * 指针 → 格子。**行高直接用 `rowPx`，不再从 DOM 反算**（2026-10-09 改）。
@@ -256,7 +256,7 @@ export function useCanvasDrag(opts: {
     // 移动 → 目标被占时同列带向下找最近空位，**绝不弹回**（缩放才是"非法就回退"）
     const blockers = d.mode === 'move' && p ? items.value.filter((q) => q.id !== d.id) : items.value
     d.preview = E.findFreeSpot(blockers, d.w, d.h, cell.col, cell.row, COLS)
-    const v = E.resolveVariant(E.findModule(reg, d.id), d.variant)
+    const v = E.resolveVariant(E.findModule(reg, E.moduleIdOf(d)), d.variant)
     const f = v ? E.fitState({ w: d.w, h: d.h }, v) : { level: 'ideal' as const, label: '' }
     d.label = `${d.w}×${d.h} · ${f.label}`
     d.bad = f.level === 'below'

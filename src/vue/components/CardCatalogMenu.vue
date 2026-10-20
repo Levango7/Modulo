@@ -19,17 +19,20 @@ const store = inject<LayoutStore>('store')!
 /** id 供调用方做外点判断（菜单可能被 Teleport 到 body） */
 const menuId = props.menuId
 
+/**
+ * 多开之后这里**不再过滤已放置的模块**：同一张卡可以放第二张。
+ * `placed` 只用于在菜单里标一句「已在版面」，点选仍然可用。
+ */
 const missingByGroup = computed(() => {
-  const groups: { name: string; cards: { id: string; title: string; blurb?: string }[] }[] = []
+  const groups: { name: string; cards: { id: string; title: string; blurb?: string; placed: boolean }[] }[] = []
   for (const m of store.reg) {
-    if (store.placedIds.value.has(m.id)) continue
     const name = m.group ?? '其他'
     let g = groups.find((x) => x.name === name)
     if (!g) {
       g = { name, cards: [] }
       groups.push(g)
     }
-    g.cards.push(m)
+    g.cards.push({ ...m, placed: store.placedIds.value.has(m.id) })
   }
   return groups
 })
@@ -47,7 +50,7 @@ const missingByGroup = computed(() => {
         @focus="preloadCard(m.id)"
         @click="emit('pick', m.id)"
       >
-        <span class="t">{{ m.title }}</span>
+        <span class="t">{{ m.title }}<span v-if="m.placed" class="on">已在版面</span></span>
         <span class="v">{{ m.blurb }}</span>
       </button>
     </template>

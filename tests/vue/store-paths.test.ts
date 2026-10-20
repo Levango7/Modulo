@@ -47,7 +47,8 @@ describe('browserStorage：两种环境都要有确定行为', () => {
     expect(store.doc.value.items.length).toBeGreaterThan(0)
     // 没有存档时 parseLayout('') 按"坏 JSON"回退空布局并留一句警告，随后 store 摆出厂版面 ——
     // 这条警告在 store 里是给导入路径用的，首启并不展示，所以这里只钉"版面照样建起来"
-    expect(store.available.value.length).toBe(REGISTRY.length - store.doc.value.items.length)
+    // 2026-10-20 多开：模块库不再按"已放置"过滤，清单恒等于完整注册表
+    expect(store.available.value.length).toBe(REGISTRY.length)
   })
 })
 

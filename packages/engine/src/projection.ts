@@ -2,11 +2,13 @@ import { physicalCols, scaleFactor } from './breakpoints.js'
 import { pickVariantForSize } from './downgrade.js'
 import { anyCollides, clamp } from './geometry.js'
 import { findFreeSpot, findLeftFit } from './spot.js'
-import { LOGICAL_COLS } from './types.js'
+import { LOGICAL_COLS, moduleIdOf } from './types.js'
 import type { LayoutDoc, ModuleRegistry, Rect } from './types.js'
 
 export interface PhysicalRect extends Rect {
   id: string
+  /** 多开实例的归属模块（单实例不写，保持旧输出形状逐字不变） */
+  module?: string
   /** 投影后实际生效的形态，可能因宽度不足被降档 */
   variant: string
   downgraded: boolean
@@ -42,7 +44,7 @@ export function project(doc: LayoutDoc, reg: ModuleRegistry, cols: number): Proj
   const ordered = [...doc.items].sort((a, b) => a.y - b.y || a.x - b.x)
   for (const p of ordered) {
     const logical = { x: p.x, y: p.y, w: p.w, h: p.h }
-    const mod = reg.find((m) => m.id === p.id)
+    const mod = reg.find((m) => m.id === moduleIdOf(p))
     if (!mod) {
       collapsed.push({ id: p.id, variant: p.variant, reason: 'unknown-module', logical })
       continue
@@ -73,7 +75,13 @@ export function project(doc: LayoutDoc, reg: ModuleRegistry, cols: number): Proj
         : anyCollides(rects, rect)
           ? findFreeSpot(rects, pw, p.h, px, p.y, n)
           : rect
-    rects.push({ id: p.id, variant: v.id, ...placed, downgraded: v.id !== p.variant })
+    rects.push({
+      id: p.id,
+      ...(p.module === undefined ? {} : { module: p.module }),
+      variant: v.id,
+      ...placed,
+      downgraded: v.id !== p.variant,
+    })
   }
   return { cols: n, rects, collapsed }
 }

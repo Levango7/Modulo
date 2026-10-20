@@ -87,24 +87,40 @@ export function createLayoutStore(opts: {
     return ids
   })
 
+  /**
+   * 多开实例的下一个 id：第一张用模块 id（与旧档/模板完全一致），第二张起用 `模块:2`、`模块:3`。
+   * 冒号是浮窗 label 允许的字符集（`floatwin.rs` 的 label 只允许 `[a-zA-Z0-9-/:_]`，
+   * 所以别换成 `#`/`~`/空格）。已删掉的实例 id 可以被复用 —— 数据是按模块共享的，不存在归属问题。
+   */
+  const nextInstanceId = (moduleId: string): string => {
+    const used = placedIds.value
+    if (!used.has(moduleId)) return moduleId
+    for (let n = 2; ; n++) {
+      const id = `${moduleId}:${n}`
+      if (!used.has(id)) return id
+    }
+  }
+
   return {
     reg,
     doc,
     warnings,
     canUndo: computed(() => E.canUndo(hist.value)),
     canRedo: computed(() => E.canRedo(hist.value)),
-    /** 库里只展示未放置的模块 */
+    /** 版面上已出现的实例 id（含折叠现场 —— 模块库据此标「已在版面」） */
     placedIds,
-    /** 库里只展示未放置的模块（含折叠现场 —— 见 placedIds） */
-    available: computed(() => reg.filter((m) => !placedIds.value.has(m.id))),
+    /** 模块库的完整清单：**多开之后不再过滤已放置的模块**（同一个模块可以放第二张） */
+    available: computed(() => reg),
 
-    add: (id: string, x: number, y: number, variant?: string) => apply(E.addItem(doc.value, reg, id, x, y, variant)),
+    /** 加卡：模块 id 进来，实例 id 由 nextInstanceId 生成（第一张仍是模块 id） */
+    add: (id: string, x: number, y: number, variant?: string) =>
+      apply(E.addItem(doc.value, reg, id, x, y, variant, nextInstanceId(id))),
     move: (id: string, x: number, y: number, mergeKey?: string) => apply(E.moveItem(doc.value, id, x, y), mergeKey),
     resize: (id: string, w: number, h: number, mergeKey?: string) => apply(E.resizeItem(doc.value, reg, id, w, h), mergeKey),
     setVariant: (id: string, variant: string) => apply(E.setVariant(doc.value, reg, id, variant)),
     cycleVariant: (id: string) => {
       const p = doc.value.items.find((q) => q.id === id)
-      const mod = p && E.findModule(reg, p.id)
+      const mod = p && E.findModule(reg, E.moduleIdOf(p))
       if (!p || !mod || mod.variants.length < 2) return
       const i = mod.variants.findIndex((v) => v.id === p.variant)
       apply(E.setVariant(doc.value, reg, id, mod.variants[(i + 1) % mod.variants.length].id))

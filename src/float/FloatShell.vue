@@ -20,20 +20,26 @@ const props = defineProps<{
   cardData: CardDataApi
 }>()
 
-const comp = computed(() => CARD_COMPONENTS[props.cardId])
-/** 浮窗里的形态取存档里的当前形态；卡片不在版面上时按 each 组件默认走 */
-const variant = computed(() => {
+/**
+ * 浮窗拿到的 `cardId` 是**实例 id**（多开后可能是 `todo:2`）。组件与形态都要按它所属的模块解析：
+ * 版面条目里有 `module` 就用它，旧档/单实例没有这个字段时模块 id 与实例 id 相同。
+ */
+const layoutItem = computed(() => {
   try {
     const raw = props.storage.get('modulo.layout.v1')
     const doc = raw ? JSON.parse(raw) : null
     const p = doc?.items?.find?.((i: { id: string }) => i.id === props.cardId)
-    return typeof p?.variant === 'string' ? p.variant : undefined
+    return p && typeof p === 'object' ? (p as { variant?: unknown; module?: unknown }) : null
   } catch {
-    return undefined
+    return null
   }
 })
+const moduleId = computed(() => (typeof layoutItem.value?.module === 'string' ? layoutItem.value.module : props.cardId))
+const comp = computed(() => CARD_COMPONENTS[moduleId.value])
+/** 浮窗里的形态取存档里的当前形态；卡片不在版面上时按各组件默认走 */
+const variant = computed(() => (typeof layoutItem.value?.variant === 'string' ? layoutItem.value.variant : undefined))
 /** 便签/待办这类卡有 chromeless 变体：浮窗里去掉卡头（把手条已经承担了标题职责） */
-const chromeless = computed(() => props.cardId === 'sticky' || props.cardId === 'notes')
+const chromeless = computed(() => moduleId.value === 'sticky' || moduleId.value === 'notes')
 
 async function togglePin(): Promise<void> {
   try {

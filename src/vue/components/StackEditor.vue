@@ -9,9 +9,9 @@ const reg = store.reg
 /** 窄屏（物理列数 <4）不画挤成一团的画布，改成列表式编排。x-hub 在 390px 下画布只剩 88px，就是缺这一档。 */
 const items = computed(() => [...store.doc.value.items].sort((a, b) => a.y - b.y || a.x - b.x))
 
-const titleOf = (p: E.Placement) => p.title ?? E.findModule(reg, p.id)?.title ?? p.id
-const variantsOf = (p: E.Placement) => E.findModule(reg, p.id)?.variants ?? []
-const variantName = (p: E.Placement) => E.resolveVariant(E.findModule(reg, p.id), p.variant)?.name ?? ''
+const titleOf = (p: E.Placement) => p.title ?? E.findModule(reg, E.moduleIdOf(p))?.title ?? p.id
+const variantsOf = (p: E.Placement) => E.findModule(reg, E.moduleIdOf(p))?.variants ?? []
+const variantName = (p: E.Placement) => E.resolveVariant(E.findModule(reg, E.moduleIdOf(p)), p.variant)?.name ?? ''
 
 function move(index: number, dir: -1 | 1) {
   const list = items.value
