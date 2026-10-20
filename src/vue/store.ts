@@ -107,6 +107,8 @@ export function createLayoutStore(opts: {
     warnings,
     canUndo: computed(() => E.canUndo(hist.value)),
     canRedo: computed(() => E.canRedo(hist.value)),
+    /** 最近一次版面改动的时刻 —— App 用它和内容历史比"谁更近" */
+    lastAt: computed(() => hist.value.present.at),
     /** 版面上已出现的实例 id（含折叠现场 —— 模块库据此标「已在版面」） */
     placedIds,
     /** 模块库的完整清单：**多开之后不再过滤已放置的模块**（同一个模块可以放第二张） */

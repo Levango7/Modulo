@@ -72,8 +72,9 @@ describe('输入长度上限：超长直接拒，不尝试转换', () => {
     const r = toBase(atLimit, 36, 2)
     const dt = Date.now() - t0
     expect(r, '上限之内的输入不该被拒').not.toBeNull()
-    // 4096 位实测约 80 ms。余量给到 1000 ms —— 只挡「数量级不对」的回归，不锁死机器性能。
-    expect(dt, `4096 位耗时 ${dt} ms`).toBeLessThan(1000)
+    // 4096 位实测约 80 ms。2026-10-20 在负载机上实测 1255 ms（同机还有别的 agent 在跑），
+    // 1000 ms 会误报 —— 这条的本意是「挡数量级不对」，不是锁机器性能，余量改 3000 ms。
+    expect(dt, `4096 位耗时 ${dt} ms`).toBeLessThan(3000)
   })
 
   it('负号不计入长度（与 isValidInBase 剥负号的口径一致）', () => {

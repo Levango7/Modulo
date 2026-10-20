@@ -4,6 +4,7 @@ import './tokens/tokens.css'
 import { createLayoutStore } from './vue/store'
 import { REGISTRY } from './vue/cardRegistry'
 import { createCardData } from './vue/cardData'
+import { createContentHistory } from './vue/contentHistory'
 import { createStorage } from './vue/fileStorage'
 
 void bootstrap()
@@ -15,6 +16,9 @@ async function bootstrap() {
   const app = createApp(App)
   app.provide('storage', storage)
   app.provide('store', createLayoutStore({ registry: REGISTRY, storage }))
-  app.provide('cardData', createCardData(storage))
+  const cardData = createCardData(storage)
+  app.provide('cardData', cardData)
+  // 内容级撤销（P0-②）：与版面历史各自独立，由 App 的 undoLatest() 按时间戳择近
+  app.provide('contentHistory', createContentHistory(cardData.state))
   app.mount('#app')
 }
