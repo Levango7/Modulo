@@ -65,6 +65,7 @@ const GATED_VUE_MODULES = [
   // 都满足"不开浏览器也能断言"这条纳入判据。
   'src/vue/reminders.ts',
   'src/vue/notify.ts',
+  'src/vue/migrate.ts',
   'src/vue/useReminders.ts',
   'src/vue/store.ts',
   'src/vue/useWeather.ts',
@@ -123,6 +124,9 @@ export default defineConfig({
         // 无 Tauri IPC 的 node 里返回 false 都有用例；隔离跑实测分支 100%（import 自身 reject
         // 那条 catch 没被执行，属真实环境才走得到的防御，不为覆盖率演戏）。
         'src/vue/notify.ts': { branches: 100 },
+        // 数据迁移（P0-⑤）：隔离跑实测分支 80.76%（未覆盖的是三个默认参数兜底：默认计划 /
+        // 默认时钟 / 缺步骤时的早退）；快照与写回的失败路径全部有用例。地板按实测回填，取 80。
+        'src/vue/migrate.ts': { branches: 80 },
         'src/vue/useReminders.ts': { branches: 100 },
         'src/vue/chord.ts': { branches: 100 },
         'src/vue/keyboard.ts': { branches: 100 },

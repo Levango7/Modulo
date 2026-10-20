@@ -4,6 +4,7 @@ import { browserStorage, type StorageAdapter } from './store'
 import { isDesktop } from './useShell'
 import { AUTO_INDEX_KEY, AUTO_SLOT_COUNT, autoSlotKey } from './useBackup'
 import { REMINDERS_KEY } from './useReminders'
+import { MIGRATE_BACKUP_KEY } from './migrate'
 
 /**
  * 桌面壳的数据落盘。
@@ -30,6 +31,9 @@ export const DATA_KEYS: readonly string[] = [
   // 同一条纪律：这张表是桌面 `get` 的唯一来源，漏登记 = 写得下去、重启读不到
   // （症状是每分钟重复提醒同一件事，因为"今天已提醒过"全丢了）。
   REMINDERS_KEY,
+  // 迁移现场（P0-⑤，`migrate.ts`）：写入前快照，最多留最近 3 次；
+  // 同样必须登记，否则写了快照、重启读不到，退路就是假的。
+  MIGRATE_BACKUP_KEY,
 ]
 
 

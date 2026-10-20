@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { CURRENT_SCHEMA_VERSION, MIGRATIONS, docToJson, migrate, parseLayout, type Migration } from '@levango7/engine/serialize'
+import { CURRENT_SCHEMA_VERSION, MIGRATIONS, docToJson, migrate, migrateWith, parseLayout, type Migration } from '@levango7/engine/serialize'
 import { LOGICAL_COLS } from '@levango7/engine/types'
 import { REGISTRY } from '../../src/vue/cardRegistry'
 
@@ -201,3 +201,45 @@ describe('多开实例：module 字段要被保留（2026-10-20）', () => {
     expect(r.warnings.join(' ')).toContain('未知模块 ghost')
   })
 })
+
+describe('migrateWith：表参数化（P0-⑤ 给方案册/卡片内容复用同一套步进语义）', () => {
+  const table: Record<number, Migration> = {
+    1: (raw) => ({ ...raw, addedInV2: true }),
+    2: (raw) => ({ ...raw, addedInV3: true }),
+  }
+
+  it('v1 → v3 连跑两步，每步都推进版本号', () => {
+    const r = migrateWith({ schemaVersion: 1, keep: 'x' }, table, 3)
+    expect(r.applied).toEqual([1, 2])
+    expect(r.raw).toMatchObject({ schemaVersion: 3, keep: 'x', addedInV2: true, addedInV3: true })
+    expect(r.note).toContain('2 步')
+  })
+
+  it('迁移函数自己抛错：停在已经升到的版本，**不抛**（注释承诺过的事）', () => {
+    const boom: Record<number, Migration> = {
+      1: (raw) => ({ ...raw, v2: true }),
+      2: () => {
+        throw new Error('bad migration')
+      },
+    }
+    expect(() => migrateWith({ schemaVersion: 1, keep: 'x' }, boom, 3)).not.toThrow()
+    const r = migrateWith({ schemaVersion: 1, keep: 'x' }, boom, 3)
+    expect(r.applied).toEqual([1])
+    expect(r.raw).toMatchObject({ schemaVersion: 2, v2: true })
+  })
+
+  it('缺步骤就停：表里只有第 1 步时，v1 → v3 也只到 v2', () => {
+    const r = migrateWith({ schemaVersion: 1 }, { 1: scalar }, 3)
+    expect(r.applied).toEqual([1])
+    expect(r.raw).toMatchObject({ schemaVersion: 2 })
+  })
+
+  it('非对象输入直接原样回空，不跑任何步骤', () => {
+    expect(migrateWith(null, table, 3)).toEqual({ raw: {}, applied: [], note: null })
+    expect(migrateWith([1, 2], table, 3).applied).toEqual([])
+  })
+})
+
+function scalar(raw: Record<string, unknown>): Record<string, unknown> {
+  return { ...raw, s: 1 }
+}

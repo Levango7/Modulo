@@ -45,29 +45,44 @@ export interface MigrateResult {
 const MAX_STEPS = 32
 
 /**
- * 把裸数据从它自称的版本升到 `to`（默认当前支持版本）。**不抛**：任何一步出错都停在它已经升到的版本。
- * 半个版本也好过没有版本 —— v1 的数据按 v1 读永远读得出来。
+ * 把裸数据从它自称的版本升到 `to`（默认当前支持版本），迁移表由调用方给。
  *
- * `to` 是参数而不是写死，这样单测能装一条假想迁移跑通整条链；
- * 生产路径不传它，走的就是 `CURRENT_SCHEMA_VERSION`。
+ * **不抛**：任何一步**抛错**或吐出坏数据，都停在它已经升到的版本。
+ * 半个版本也好过没有版本 —— v1 的数据按 v1 读永远读得出来。
+ * （2026-10-21 修：此前只有"吐坏数据"被挡住，`step(cur)` 自己抛错会一路击穿
+ * `parseLayout`，在启动路径上就是白屏 —— 注释写着"不抛"，实现没兑现。）
+ *
+ * 表参数化是为了让非版面的 key（方案册 / 卡片内容）复用同一套步进语义，
+ * 也让单测能装一条假想迁移跑通整条链。
  */
-export function migrate(raw: unknown, to: number = CURRENT_SCHEMA_VERSION): MigrateResult {
+export function migrateWith(raw: unknown, table: Record<number, Migration>, to: number): MigrateResult {
   if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) return { raw: {}, applied: [], note: null }
   const from = versionOf(raw)
   let cur = raw as Record<string, unknown>
   const applied: number[] = []
   for (let step = 0; step < MAX_STEPS && versionOf(cur) < to; step++) {
     const v = versionOf(cur)
-    const step1 = MIGRATIONS[v]
+    const step1 = table[v]
     if (!step1) break
-    const next = step1(cur)
-    // 坏步骤不许把整份数据变成空：停在它已经升到的地方，剩下的交给按 v1 读
+    let next: Record<string, unknown>
+    try {
+      next = step1(cur)
+    } catch {
+      // 迁移函数自己炸：停在已经升到的版本，原始数据在盘上原样不动（写回由调用方决定）
+      break
+    }
+    // 坏步骤不许把整份数据变成空：停在它已经升到的地方
     if (typeof next !== 'object' || next === null || Array.isArray(next)) break
     cur = { ...next, schemaVersion: v + 1 }
     applied.push(v)
   }
   const note = applied.length ? `已从 schemaVersion ${from} 迁移到 ${versionOf(cur)}（${applied.length} 步）` : null
   return { raw: cur, applied, note }
+}
+
+/** 版面的迁移（表在 `MIGRATIONS`）；其它 key 用 `migrateWith` 传自己的表 */
+export function migrate(raw: unknown, to: number = CURRENT_SCHEMA_VERSION): MigrateResult {
+  return migrateWith(raw, MIGRATIONS, to)
 }
 
 export function docToJson(doc: LayoutDoc): string {

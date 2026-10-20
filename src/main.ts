@@ -6,6 +6,7 @@ import { REGISTRY } from './vue/cardRegistry'
 import { createCardData } from './vue/cardData'
 import { createContentHistory } from './vue/contentHistory'
 import { createStorage } from './vue/fileStorage'
+import { migrateStorage } from './vue/migrate'
 
 void bootstrap()
 
@@ -13,8 +14,12 @@ async function bootstrap() {
   // 桌面壳必须先 hydrate 磁盘数据再建 store：存储适配器是同步接口，
   // 晚一步就只能拿到空版面，然后第一帧就把空版面写回磁盘，把用户的作品覆盖掉。
   const storage = await createStorage()
+  // 数据迁移（P0-⑤）：**在任何 store 读盘之前**把老版本数据升上来并写回；
+  // 它自己绝不抛，写失败只会留下 notes —— 启动不能被一份坏数据拦住。
+  const migration = migrateStorage(storage)
   const app = createApp(App)
   app.provide('storage', storage)
+  app.provide('migrationNotes', migration.notes)
   app.provide('store', createLayoutStore({ registry: REGISTRY, storage }))
   const cardData = createCardData(storage)
   app.provide('cardData', cardData)

@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, inject, nextTick, onBeforeUnmount, onMounted, provide, ref } from 'vue'
-import { BellRing, LayoutGrid, LayoutTemplate, Redo2, Settings, SlidersHorizontal, TriangleAlert, Undo2, Wand2, Check, ChevronDown, X } from 'lucide-vue-next'
+import { BellRing, History, LayoutGrid, LayoutTemplate, Redo2, Settings, SlidersHorizontal, TriangleAlert, Undo2, Wand2, Check, ChevronDown, X } from 'lucide-vue-next'
 import { useElementSize } from './vue/useElementSize'
 import { useProjection } from './vue/useProjection'
 import { measureWantedRows } from './vue/useDensity'
@@ -63,6 +63,8 @@ provide('shell', useShell(storage))
  * 应用内横幅只是"落地形态"：没有它，阶段 1 的规则表就是一段没人调用的代码。
  */
 const reminderNotes = ref<Reminder[]>([])
+/** 启动时数据迁移的结果（P0-⑤）：由 main.ts 在 store 读盘之前算出，这里只负责说一次 */
+const migrationNotes = ref<string[]>([...inject<string[]>('migrationNotes', [])])
 const reminders = useReminders(() => cardDataApi.state, {
   storage,
   deliver: (items) => {
@@ -488,6 +490,16 @@ function onGlobalKey(e: KeyboardEvent) {
         <button v-if="storage.error.value.includes('只在内存里')" class="rescue" @click="backup.exportBackup()">
           立刻下载备份
         </button>
+      </p>
+      <!-- 数据迁移提示（P0-⑤）：迁移过就写回并留了现场，这里如实说一句 -->
+      <p v-if="migrationNotes.length" class="reminder-strip" role="status">
+        <History :size="14" />
+        <span class="txt">
+          <template v-for="(n, i) in migrationNotes" :key="i">
+            <span v-if="i" class="dot" aria-hidden="true">·</span>{{ n }}
+          </template>
+        </span>
+        <button class="dismiss" @click="migrationNotes = []">知道了</button>
       </p>
       <!-- 提醒横幅（P0-④ 阶段 1）：今天的事实到了，就在这里说一声。阶段 2 接系统通知后，
            这条仍保留 —— 窗口开着时应用内提示比系统通知更不打扰。 -->
