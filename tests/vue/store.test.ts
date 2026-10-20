@@ -91,11 +91,22 @@ describe('layout store', () => {
     expect(s.doc.value.items.map((p) => p.id)).not.toContain('clock')
   })
 
-  it('库只列未放置的模块', () => {
+  it('模块库列全部模块 —— 多开：同一张卡可以放第二张', () => {
     const s = fresh()
-    expect(s.available.value.map((m) => m.id)).not.toContain('clock')
-    s.remove('clock')
     expect(s.available.value.map((m) => m.id)).toContain('clock')
+    // 第二张拿 `模块:2` 的实例 id，并记住自己属于哪个模块
+    s.add('clock', 0, 0)
+    const ids = s.doc.value.items.map((p) => p.id)
+    expect(ids).toContain('clock')
+    expect(ids).toContain('clock:2')
+    const second = s.doc.value.items.find((p) => p.id === 'clock:2')!
+    expect(second.module).toBe('clock')
+    // 第三张继续递增；删掉中间一张后复用最小空位
+    s.add('clock', 0, 0)
+    expect(s.doc.value.items.map((p) => p.id)).toContain('clock:3')
+    s.remove('clock:2')
+    s.add('clock', 0, 0)
+    expect(s.doc.value.items.map((p) => p.id)).toContain('clock:2')
   })
 
   it('锁定项拒绝移动', () => {
@@ -115,17 +126,15 @@ describe('layout store', () => {
 })
 
 describe('行容器与 store 的交互（阶段 B）', () => {
-  it('折叠的成员不回流模块库（placedIds 含折叠现场；曾能从库里再拖一份进来）', () => {
+  it('折叠的成员仍记在 placedIds 里（折叠≠卸载；多开后模块库不再据此隐藏', () => {
     const s = fresh()
     s.add('clock', 0, 0)
     s.add('sticky', 0, 4)
     s.groupIntoRow(['clock'])
-    expect(s.available.value.some((m) => m.id === 'clock'), '成组后仍在版面上（不该回流）').toBe(false)
     const rowId = s.doc.value.rows![0].id
     s.toggleRow(rowId)
     expect(s.doc.value.items.some((p) => p.id === 'clock'), '折叠后不在 items 里').toBe(false)
-    expect(s.available.value.some((m) => m.id === 'clock'), '折叠≠卸载：也不该回流模块库').toBe(false)
-    expect(s.placedIds.value.has('clock')).toBe(true)
+    expect(s.placedIds.value.has('clock'), '折叠现场也算"在版面上"').toBe(true)
     // 展开后原样回来
     s.toggleRow(rowId)
     expect(s.doc.value.items.some((p) => p.id === 'clock')).toBe(true)

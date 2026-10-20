@@ -32,15 +32,15 @@ const rows = computed(() => props.rects.reduce((m, r) => Math.max(m, r.y + r.h),
       v-for="r in rects"
       :key="r.id"
       class="cell"
-      :data-module="r.id"
+      :data-module="r.module ?? r.id"
       :style="{ gridColumn: `${r.x + 1} / span ${r.w}`, gridRow: `${r.y + 1} / span ${r.h}` }"
     >
-      <component :is="CARD_COMPONENTS[r.id]" :variant="r.variant" :module-id="r.id" />
+      <component :is="CARD_COMPONENTS[r.module ?? r.id]" :variant="r.variant" :module-id="r.module ?? r.id" />
       <button
         v-if="canDetach"
         class="detach"
         title="脱离成桌面浮窗（主窗收起来它还在）"
-        :aria-label="`把「${r.id}」脱离成浮窗`"
+        :aria-label="`把「${r.module ?? r.id}」脱离成浮窗`"
         @click.stop="emit('detach', r.id)"
       >
         <ExternalLink :size="11" />

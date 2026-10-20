@@ -173,3 +173,31 @@ describe('parseLayout：接上迁移之后行为不变', () => {
     })
   })
 })
+
+describe('多开实例：module 字段要被保留（2026-10-20）', () => {
+  it('同一模块两个实例都能读回，module 归属不丢；第一实例保持旧形状', () => {
+    const raw = JSON.stringify({
+      schemaVersion: 1,
+      cols: 12,
+      items: [
+        { id: 'todo', variant: 'list', x: 0, y: 0, w: 4, h: 5 },
+        { id: 'todo:2', module: 'todo', variant: 'list', x: 4, y: 0, w: 4, h: 5 },
+      ],
+    })
+    const r = parseLayout(raw, REGISTRY)
+    expect(r.doc.items.map((p) => p.id)).toEqual(['todo', 'todo:2'])
+    expect(r.doc.items[1].module).toBe('todo')
+    expect(r.doc.items[0]).not.toHaveProperty('module')
+    expect(r.warnings).toEqual([])
+  })
+  it('实例的 module 不存在时按未知模块跳过（而不是静默当未知实例）', () => {
+    const raw = JSON.stringify({
+      schemaVersion: 1,
+      cols: 12,
+      items: [{ id: 'ghost:2', module: 'ghost', variant: 'x', x: 0, y: 0, w: 2, h: 2 }],
+    })
+    const r = parseLayout(raw, REGISTRY)
+    expect(r.doc.items).toEqual([])
+    expect(r.warnings.join(' ')).toContain('未知模块 ghost')
+  })
+})

@@ -19,9 +19,19 @@ describe('addItem', () => {
     const next = addItem(emptyDoc(), REGISTRY, 'clock', 0, 0)
     expect(next?.items).toEqual([{ id: 'clock', variant: 'big', x: 0, y: 0, w: 4, h: 3 }])
   })
-  it('同一模块只能放一份', () => {
+  it('同一实例 id 不能放两份（不传 instanceId 时实例 id 就是模块 id）', () => {
     const once = addItem(emptyDoc(), REGISTRY, 'clock', 0, 0)!
     expect(addItem(once, REGISTRY, 'clock', 6, 0)).toBeNull()
+  })
+  it('传 instanceId 可以多开：第二个实例带 module 归属', () => {
+    const once = addItem(emptyDoc(), REGISTRY, 'clock', 0, 0)!
+    const twice = addItem(once, REGISTRY, 'clock', 6, 0, undefined, 'clock:2')!
+    expect(twice.items.map((p) => p.id)).toEqual(['clock', 'clock:2'])
+    expect(twice.items[1]).toMatchObject({ id: 'clock:2', module: 'clock', variant: 'big' })
+    // 第一个实例仍不带 module（旧形状不变）
+    expect(twice.items[0]).not.toHaveProperty('module')
+    // 实例 id 撞车仍拒绝
+    expect(addItem(twice, REGISTRY, 'clock', 0, 6, undefined, 'clock:2')).toBeNull()
   })
   it('未知模块返回 null', () => {
     expect(addItem(emptyDoc(), REGISTRY, 'nope', 0, 0)).toBeNull()

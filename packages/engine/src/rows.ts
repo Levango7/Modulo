@@ -109,6 +109,7 @@ function collapse(doc: LayoutDoc, row: Row): LayoutDoc {
 
   const rel = (p: Placement): StashedPlacement => ({
     id: p.id,
+    ...(p.module === undefined ? {} : { module: p.module }),
     variant: p.variant,
     x: p.x,
     dy: p.y - top,
@@ -149,6 +150,7 @@ function expand(doc: LayoutDoc, row: Row): LayoutDoc {
   for (const s of stash) {
     const p: Placement = {
       id: s.id,
+      ...(s.module === undefined ? {} : { module: s.module }),
       variant: s.variant,
       x: s.x,
       y: top + s.dy,

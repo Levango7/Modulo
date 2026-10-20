@@ -1,6 +1,6 @@
 import { anyCollides, clamp, isInt } from './geometry.js'
 import { findFreeSpot } from './spot.js'
-import { LOGICAL_COLS, TITLE_MAX } from './types.js'
+import { LOGICAL_COLS, moduleIdOf, TITLE_MAX } from './types.js'
 import type { LayoutDoc, ModuleRegistry, Placement, Row, StashedPlacement } from './types.js'
 
 export interface SanitizeResult {
@@ -27,13 +27,15 @@ export function sanitizeItems(raw: unknown, reg: ModuleRegistry, cols: number = 
       warnings.push('跳过缺少 id 的条目')
       continue
     }
-    const mod = reg.find((m) => m.id === e.id)
+    // 实例 id 与模块 id 分离：多开实例的 id 是 `模块:2` 这类，模块仍要能查到
+    const moduleId = moduleIdOf(e as { id: string; module?: string })
+    const mod = reg.find((m) => m.id === moduleId)
     if (!mod) {
-      warnings.push(`未知模块 ${e.id}，已跳过`)
+      warnings.push(`未知模块 ${moduleId}，已跳过`)
       continue
     }
     if (seen.has(e.id)) {
-      warnings.push(`模块 ${e.id} 重复出现，保留第一条`)
+      warnings.push(`卡片 ${e.id} 重复出现，保留第一条`)
       continue
     }
     const rawX = e.x
@@ -65,6 +67,7 @@ export function sanitizeItems(raw: unknown, reg: ModuleRegistry, cols: number = 
     seen.add(e.id)
     settled.push({
       id: e.id,
+      ...(moduleId === e.id ? {} : { module: moduleId }),
       variant: v.id,
       ...placed,
       ...(title ? { title } : {}),
@@ -106,7 +109,15 @@ export function sanitizeRows(raw: unknown, items: readonly Placement[]): { rows:
       const stash: StashedPlacement[] = []
       for (const s of stashRaw as Partial<StashedPlacement>[]) {
         if (!s || typeof s.id !== 'string' || !isInt(s.x) || !isInt(s.dy) || !isInt(s.w) || !isInt(s.h)) continue
-        stash.push({ id: s.id, variant: typeof s.variant === 'string' ? s.variant : '', x: s.x as number, dy: s.dy as number, w: s.w as number, h: s.h as number })
+        stash.push({
+          id: s.id,
+          ...(typeof s.module === 'string' && s.module && s.module !== s.id ? { module: s.module } : {}),
+          variant: typeof s.variant === 'string' ? s.variant : '',
+          x: s.x as number,
+          dy: s.dy as number,
+          w: s.w as number,
+          h: s.h as number,
+        })
       }
       const autoRaw = e.auto as { per?: unknown; rowH?: unknown } | undefined
       const auto =

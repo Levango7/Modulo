@@ -936,7 +936,7 @@ it.skipIf(skip)('方案册：新建空白可撤销，键盘与拖拽都能排序
  * 天气卡还顺带证明一件事 —— **取不到数据是合法状态**：E2E 环境里它可能
  * 联网也可能不联网，两种情况下卡片都得立住、都不许把页面弄崩。
  */
-it.skipIf(skip)('编辑器的「全部卡片」目录：只列不在版面上的模块，点一下加进来，保存后工作台可见', async () => {
+it.skipIf(skip)('编辑器的「全部卡片」目录：列出全部模块（多开后可重复添加），点一下加进来，保存后工作台可见', async () => {
   const page = await freshPage(1440, 900)
   const count = () => page.evaluate(() => document.querySelectorAll('.grid .cell').length)
   expect(await count(), '出厂 5 张').toBe(5)
@@ -944,13 +944,9 @@ it.skipIf(skip)('编辑器的「全部卡片」目录：只列不在版面上的
   await enterEditor(page)
   await openCatalog(page)
   const items = await page.evaluate(() => [...document.querySelectorAll('.add-menu [role="menuitem"]')].map((b) => (b.textContent || '').trim()))
-  // 菜单条数**从注册表算**，不写死数字：这条断言要守的是"只列不在版面上的那些"，
-  // 写死 19 就等于每加一张卡都要来改一次断言，而改的人往往顺手把数字改成"当前值"——
-  // 那样它再也拦不住"某张卡没进菜单"或"已在版面上的卡又出现一次"。
-  // 出厂版面 5 张，因此期望值 = 注册表条数 − 5。
-  expect(items.length, `可添加的卡应是 ${REGISTRY.length} − 出厂 5 = ${REGISTRY.length - 5} 张：${items.join(' | ')}`).toBe(
-    REGISTRY.length - 5,
-  )
+  // 2026-10-20 多开之后，目录**列出全部模块**（同一张卡可以放第二张）：
+  // 期望值就是注册表条数，不再减出厂版面。条数仍从注册表算，不写死数字。
+  expect(items.length, `目录应列出全部 ${REGISTRY.length} 个模块：${items.join(' | ')}`).toBe(REGISTRY.length)
   for (const title of ['天气', '月历', '时间进度', '世界时钟', '倒数日', '计算器', '单位换算', '习惯打卡', '汇率', '月相', '生日提醒', '每日聚焦', '月度统计', '随机抽签', '会议规划', '记账', '秒表', '倒计时', '间歇计时', '呼吸计时',
   '月度热力图', '快捷链接', '整数位计算', '值班表', '年历', '每日一图', '网页监控']) {
     expect(items.some((t) => t.includes(title)), `菜单里应有「${title}」`).toBe(true)
@@ -965,14 +961,21 @@ it.skipIf(skip)('编辑器的「全部卡片」目录：只列不在版面上的
   await settle(400)
   expect(await page.evaluate(() => document.querySelectorAll('.canvas .cell').length), '编辑器里加进来一张').toBe(6)
 
-  // 加了一张之后目录少一项，但按钮还能用（剩下的还得能继续加）。
-  // 用**相对断言**：菜单条数每加一批卡都会变，写死数字等于给下一批埋一颗红
+  // 加了一张之后目录**条数不变**（多开允许重复），但那一项要标「已在版面」。
   await openCatalog(page)
   await settle(200)
   expect(
     await page.evaluate(() => document.querySelectorAll('.add-menu [role="menuitem"]').length),
-    '加过的那张不再列出来',
-  ).toBe(items.length - 1)
+    '目录条数不变（同一张卡可以放第二张）',
+  ).toBe(items.length)
+  expect(
+    await page.evaluate(() =>
+      Array.from(document.querySelectorAll('.add-menu [role="menuitem"]')).some(
+        (b) => (b.textContent || '').includes('天气') && (b.textContent || '').includes('已在版面'),
+      ),
+    ),
+    '加过的那张要标「已在版面」',
+  ).toBe(true)
   await page.keyboard.press('Escape')
   await settle(150)
   expect(await page.evaluate(() => !!document.querySelector('.add-menu')), 'Esc 关掉目录').toBe(false)
@@ -1234,9 +1237,10 @@ it.skipIf(skip)('全部卡上版：三档视口不溢出、不裁字、最小字
         const b = document.querySelector<HTMLButtonElement>('.add-cat')
         return b ? { disabled: b.disabled, title: b.title } : null
       })
-      expect(addBtn, '全在版面上时按钮存在且禁用').not.toBeNull()
-      expect(addBtn!.disabled).toBe(true)
-      expect(addBtn!.title).toContain('都已在版面上')
+      // 2026-10-20 多开：按钮**不再因为"全都放了"而禁用**（可以放第二张）
+      expect(addBtn, '按钮存在且可用').not.toBeNull()
+      expect(addBtn!.disabled).toBe(false)
+      expect(addBtn!.title).toContain('同一张卡可以放多张')
       await clickTool(page, '工作台')
       await settle(300)
     }

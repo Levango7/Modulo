@@ -414,7 +414,7 @@ function onGlobalKey(e: KeyboardEvent) {
         @focus-change="(id: string | null) => (focusedCard = id)"
       >
         <template #default="{ item }">
-          <component :is="CARD_COMPONENTS[item.id]" :variant="item.variant" :module-id="item.id" :chromeless="true" />
+          <component :is="CARD_COMPONENTS[E.moduleIdOf(item)]" :variant="item.variant" :module-id="E.moduleIdOf(item)" :chromeless="true" />
         </template>
       </CanvasEditor>
       <StackEditor v-else />

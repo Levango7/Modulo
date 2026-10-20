@@ -96,7 +96,7 @@ function startRowDrag(band: E.RowView, e: PointerEvent): void {
   startMove(members[0], e)
 }
 
-const titleOf = (p: E.Placement) => p.title ?? E.findModule(reg, p.id)?.title ?? p.id
+const titleOf = (p: E.Placement) => p.title ?? E.findModule(reg, E.moduleIdOf(p))?.title ?? p.id
 const variantName = (p: E.Placement) => variantOf(p)?.name ?? ''
 const hasVariants = (id: string) => (E.findModule(reg, id)?.variants.length ?? 0) > 1
 const isSelected = (id: string) => sel.value.has(id)

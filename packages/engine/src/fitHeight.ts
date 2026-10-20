@@ -1,4 +1,4 @@
-import { findModule, resolveVariant } from './types.js'
+import { findModule, moduleIdOf, resolveVariant } from './types.js'
 import type { LayoutDoc, ModuleRegistry } from './types.js'
 
 /**
@@ -16,7 +16,7 @@ export function fitHeights(
     const want = wantedRows[p.id]
     // 非正数/NaN 视为「没有测量数据」，不参与收紧；大于当前高度则是「不用变」，两者都跳过
     if (typeof want !== 'number' || !Number.isFinite(want) || want < 1 || want >= p.h) return p
-    const minH = resolveVariant(findModule(reg, p.id), p.variant)?.minH ?? 1
+    const minH = resolveVariant(findModule(reg, moduleIdOf(p)), p.variant)?.minH ?? 1
     const h = Math.max(Math.round(want), minH, 1)
     if (h === p.h) return p
     changed = true

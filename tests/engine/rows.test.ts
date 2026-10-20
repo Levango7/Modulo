@@ -331,3 +331,21 @@ function sanitizeItemsFixture(): Placement[] {
 }
 
 import { sanitizeItems as sanitizeItemsRaw } from '../../packages/engine/src/validate'
+
+describe('多开实例在折叠现场里的 module 归属（2026-10-20）', () => {
+  it('折叠→展开往返后 module 不丢', () => {
+    const d = {
+      schemaVersion: 1,
+      cols: 12,
+      items: [
+        { id: 'clock:2', module: 'clock', variant: 'big', x: 0, y: 0, w: 4, h: 3 },
+        { id: 'sticky', variant: 'note', x: 0, y: 3, w: 2, h: 2 },
+      ],
+    }
+    const grouped = groupIntoRow(d, ['clock:2'])!
+    const collapsed = toggleRowCollapsed(grouped, grouped.rows![0].id)!
+    expect(collapsed.rows![0].stash!.find((s) => s.id === 'clock:2')!.module).toBe('clock')
+    const expanded = toggleRowCollapsed(collapsed, collapsed.rows![0].id)!
+    expect(expanded.items.find((p) => p.id === 'clock:2')!.module).toBe('clock')
+  })
+})

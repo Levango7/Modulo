@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, inject, nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
+import { inject, nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
 import { LayoutGrid, Plus } from 'lucide-vue-next'
 import type { LayoutStore } from '../store'
 import CardCatalogMenu from './CardCatalogMenu.vue'
@@ -19,7 +19,6 @@ import { preloadCard } from '../cardComponents'
  * 共享一个作业面：改一次预取要认领整份 834 行的读写面。
  */
 const store = inject<LayoutStore>('store')!
-const reg = store.reg
 
 defineProps<{
   /** 从库里拖出一张：走画布同一套拖拽状态机（`useCanvasDrag` 挂在画布的 gridEl 上，所以由母组件注入） */
@@ -29,7 +28,6 @@ defineProps<{
 const addOpen = ref(false)
 const addBtnEl = ref<HTMLElement | null>(null)
 const menuStyle = ref<Record<string, string>>({})
-const missingCount = computed(() => reg.filter((m) => !store.placedIds.value.has(m.id)).length)
 async function toggleAddMenu(): Promise<void> {
   if (addOpen.value) {
     addOpen.value = false
@@ -91,8 +89,7 @@ defineExpose({ closeMenu })
       <button
         ref="addBtnEl"
         class="add-cat"
-        :disabled="!missingCount"
-        :title="missingCount ? '还没放置的卡片都在这里（与库里拖入同一条落位路径）' : '所有卡片都已在版面上'"
+        title="全部卡片都在这里（与库里拖入同一条落位路径；同一张卡可以放多张）"
         aria-haspopup="menu"
         :aria-expanded="addOpen"
         @click="toggleAddMenu"
@@ -100,7 +97,7 @@ defineExpose({ closeMenu })
         <Plus :size="12" /> 全部卡片
       </button>
     </h3>
-    <p v-if="!store.available.value.length" class="muted small">全部模块都已放置</p>
+    <p v-if="!store.available.value.length" class="muted small">模块表为空 —— 打包或注册表出了问题</p>
     <div v-for="m in store.available.value" :key="m.id" class="lib-item" @pointerenter="preloadCard(m.id)">
       <div class="lib-title" @pointerdown="startNew(m.id, m.defaultVariant, $event)">{{ m.title }}</div>
       <div class="lib-variants">

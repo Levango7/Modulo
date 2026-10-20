@@ -27,7 +27,13 @@ export interface ModuleDef {
 export type ModuleRegistry = readonly ModuleDef[]
 
 export interface Placement {
+  /** 实例 id（版面内唯一）。旧档里它同时就是模块 id；多开后同一个模块的第二个实例换成 `模块:2` 这类 id */
   id: string
+  /**
+   * 归属模块 id。**加法字段**：只有多开实例才写它，旧档/模板/单实例都没有它 ——
+   * 一切按模块取定义的地方都必须走 `moduleIdOf(p)`，不要直接拿 `p.id` 去查注册表。
+   */
+  module?: string
   variant: string
   x: number
   y: number
@@ -53,6 +59,8 @@ export interface Placement {
  */
 export interface StashedPlacement {
   id: string
+  /** 同 `Placement.module`：折叠现场也要记住实例属于哪个模块 */
+  module?: string
   variant: string
   x: number
   /** 相对成员区顶部（`row.y + 1`）的行偏移 */
@@ -103,6 +111,18 @@ export function emptyDoc(): LayoutDoc {
 
 export function findModule(reg: ModuleRegistry, id: string): ModuleDef | undefined {
   return reg.find((m) => m.id === id)
+}
+
+/**
+ * 一条版面条目属于哪个模块。
+ *
+ * 多开实例之后 **`id` 是实例 id、不再是模块 id**（`todo:2` 这种）；
+ * 旧档、模板、单实例都没有 `module` 字段，此时二者相同。
+ * 任何"拿条目去查注册表/形态"的地方都必须过这里 —— 直接 `findModule(reg, p.id)`
+ * 会在第二个实例上返回 undefined（症状：卡片渲染不出来、缩放下限失效）。
+ */
+export function moduleIdOf(p: { id: string; module?: string }): string {
+  return p.module ?? p.id
 }
 
 /** 取形态；缺省 / 失效时回退 defaultVariant，再回退第一个形态 */

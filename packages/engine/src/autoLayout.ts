@@ -22,7 +22,7 @@
 
 import { anyCollides } from './geometry.js'
 import { findFreeSpot } from './spot.js'
-import { LOGICAL_COLS, resolveVariant, type LayoutDoc, type ModuleRegistry, type Placement } from './types.js'
+import { LOGICAL_COLS, moduleIdOf, resolveVariant, type LayoutDoc, type ModuleRegistry, type Placement } from './types.js'
 
 export interface AutoParams {
   /** 每行几张（1–6，出界夹回） */
@@ -73,7 +73,7 @@ export function autoLayout(doc: LayoutDoc, reg: ModuleRegistry, target: AutoTarg
   const widths = widthsOf(order.length, per)
   const minOf = order.map((p) => {
     const v = resolveVariant(
-      reg.find((m) => m.id === p.id),
+      reg.find((m) => m.id === moduleIdOf(p)),
       p.variant,
     )
     return { minW: v?.minW ?? 1, minH: v?.minH ?? 1 }
