@@ -36,7 +36,21 @@ provide('appearance', appearance)
 const schemes = useSchemes(store, storage)
 provide('schemes', schemes)
 /** 完整备份（含卡片内容）：拼包在 backup.ts，这里只挂上胶水 */
-const backup = useBackup(store, schemes, () => cardDataApi.state)
+const backup = useBackup(store, schemes, () => cardDataApi.state, {
+  storage,
+  // 备份里的设置段只收"恢复后应该长得一样"的非敏感项：外观 + 上次选的模板。
+  // 全局快捷键不在里面（要在 Rust 侧重新注册，写进去不等于生效）。
+  settings: {
+    get: () => ({
+      appearance: JSON.parse(JSON.stringify(appearance.state.value)) as Record<string, unknown>,
+      template: store.templateId.value,
+    }),
+    apply: (s) => {
+      if (s.appearance) appearance.set(s.appearance as unknown as Parameters<typeof appearance.set>[0])
+      if (typeof s.template === 'string') store.setTemplateChoice(s.template)
+    },
+  },
+})
 provide('backup', backup)
 provide('shell', useShell(storage))
 
@@ -208,6 +222,8 @@ onMounted(() => {
   document.addEventListener('mousedown', onDocMousedown)
   /** 首启（没有存档、也没挑过模板）自动开一次选择器 —— 这正是"选项"该出现的地方 */
   if (store.firstRun) templatesOpen.value = true
+  /** 自动备份：没有基线就建一份；版本变过或距上一份超过 24h 也各留一份（只桌面） */
+  backup.initAutoBackup()
 })
 onBeforeUnmount(() => {
   window.removeEventListener('keydown', onGlobalKey)

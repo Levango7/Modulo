@@ -6,10 +6,12 @@
  * 这类东西一旦混在一个 600 行组件里，很容易在改别处时被顺手改掉而没人发现 ——
  * 单独成组件之后，"它有确认块、它有事实摘要"这两件事都在一个短文件里看得完。
  */
-import { inject } from 'vue'
+import { inject, onMounted } from 'vue'
 import type { BackupApi } from '../useBackup'
 
 const backup = inject<BackupApi>('backup')!
+// 列表来自盘上的索引：进设置页时刷新一次，别让用户看到上次打开时的旧列表
+onMounted(() => backup.refreshAuto())
 </script>
 
 <template>
@@ -42,9 +44,26 @@ const backup = inject<BackupApi>('backup')!
         <button @click="backup.cancelRestore()">取消</button>
       </div>
     </div>
+    <div v-if="backup.autoSupported.value" class="auto">
+      <h4>自动备份（保留最近 7 份）</h4>
+      <p class="muted small">每日首次启动、恢复前、版本变化后的首次启动各留一份；只存在本机。</p>
+      <div class="row wrap">
+        <button @click="backup.runAutoBackup('manual')">立即备份</button>
+        <button @click="backup.refreshAuto()">刷新列表</button>
+      </div>
+      <ul v-if="backup.autoBackups.value.length" class="auto-list">
+        <li v-for="m in backup.autoBackups.value" :key="m.slot">
+          <span class="at">{{ new Date(m.at).toLocaleString() }}</span>
+          <span class="muted meta">{{ backup.reasonLabel(m.reason) }} · {{ Math.round(m.bytes / 1024) }} KB · Modulo {{ m.app }}</span>
+          <button @click="backup.restoreAuto(m)">恢复这份</button>
+        </li>
+      </ul>
+      <p v-else class="muted small">还没有自动备份 —— 首次启动或距上一份满 24 小时时会自动生成。</p>
+    </div>
+    <p v-else class="muted small">网页版不启用自动备份（localStorage 有配额限制）；请定期手动导出。</p>
     <p class="hint">
-      备份文件装着<b>版面、方案册和卡片内容</b>（便签 / 待办 / 速记的正文、倒数日）—— 换机器或重装时靠它。
-      恢复前会把包里有什么先摆出来，确认之后才覆盖。
+      备份文件装着<b>版面、方案册、卡片内容与外观设置</b>（含记账 / 四象限 / 习惯 / 订阅等全部卡片数据）—— 换机器或重装时靠它。
+      恢复前会把包里有什么先摆出来，确认之后才整份覆盖；<b>恢复前会自动留一份现场</b>（桌面版）。
     </p>
     <ul v-if="backup.notices.value.length" class="notices">
       <li v-for="(n, i) in backup.notices.value" :key="i">{{ n }}</li>
@@ -74,6 +93,38 @@ const backup = inject<BackupApi>('backup')!
 .confirm strong {
   font-weight: 500;
   color: var(--text-1);
+}
+.auto {
+  margin-top: var(--space-3);
+  display: grid;
+  gap: var(--space-2);
+}
+.auto h4 {
+  margin: 0;
+  font-size: 12px;
+  font-weight: 500;
+}
+.auto-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: 4px;
+  max-height: 180px;
+  overflow: auto;
+}
+.auto-list li {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: 12px;
+}
+.auto-list .at {
+  font-variant-numeric: tabular-nums;
+}
+.auto-list .meta {
+  flex: 1;
+  font-size: 11px;
 }
 button.primary {
   border-color: var(--brand-500);

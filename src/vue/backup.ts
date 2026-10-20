@@ -13,7 +13,22 @@ import { parseBook, parseLayout, type LayoutDoc, type ModuleRegistry, type Schem
 import { sanitizeCardData, type CardData } from './cardData'
 
 export const BACKUP_KIND = 'modulo.backup'
-export const BACKUP_VERSION = 1
+export const BACKUP_VERSION = 2
+
+/**
+ * 备份里的**非敏感设置**（v2 起）。
+ *
+ * 刻意只收"恢复后应该长得一样"的那部分：
+ *  - `appearance`：皮肤 / 明暗 / 密度（纯前端状态，恢复无副作用）；
+ *  - `template`：上次选的模板 id（只是高亮用的标记）。
+ *
+ * **不收**的：`shell.v1`（全局快捷键要在 Rust 侧重新注册，写进去不等于生效，反而制造
+ * "看起来恢复了"的假象）、`ai-settings.v1`（密钥）、截图 / 会议 / AI 历史（体积与隐私）。
+ */
+export interface BackupSettings {
+  appearance?: Record<string, unknown>
+  template?: string | null
+}
 
 export interface BackupPayload {
   kind: typeof BACKUP_KIND
@@ -29,6 +44,8 @@ export interface BackupPayload {
   layout: LayoutDoc
   schemes: SchemeBook
   cardData: CardData
+  /** v2 起；v1 老包没有这个字段 */
+  settings?: BackupSettings
 }
 
 export interface BackupInput {
@@ -36,6 +53,7 @@ export interface BackupInput {
   schemes: SchemeBook
   cardData: CardData
   app: string
+  settings?: BackupSettings
   /** 注入而非直接 `new Date()`：让"包里带导出时刻"这件事可测，也免得测试依赖真实时钟 */
   now?: () => Date
 }
@@ -85,6 +103,7 @@ export function buildBackup(input: BackupInput): BackupPayload {
     createdAt: (input.now ?? (() => new Date()))().toISOString(),
     layout: input.layout,
     schemes: input.schemes,
+    ...(input.settings ? { settings: JSON.parse(JSON.stringify(input.settings)) as BackupSettings } : {}),
     // 深拷贝：这里返回的对象会被 JSON.stringify 之后再喂回导入路径，
     // 不拷贝的话导出期间用户新敲的一个字会跟着进包，备份就不是"按下按钮那一刻"的快照。
     // `doneAt` 用展开而不是直接赋值：undefined 是"没有这个键"，直接带上去会在包里留一个 null。
@@ -153,6 +172,8 @@ export interface ParsedBackup {
   layout: LayoutDoc | null
   schemes: SchemeBook | null
   cardData: CardData | null
+  /** v2 起才有；v1 老包 / 旧格式导出为 null */
+  settings: BackupSettings | null
   warnings: string[]
   /** 给确认框看的事实：用户要在覆盖之前知道这份包里到底有什么 */
   summary: BackupSummary
@@ -185,10 +206,10 @@ export function parseBackup(raw: string, reg: ModuleRegistry): ParsedBackup {
   try {
     parsed = JSON.parse(raw)
   } catch {
-    return { kind: 'unknown', layout: null, schemes: null, cardData: null, warnings: ['JSON 解析失败，没有导入任何东西'], summary: EMPTY_SUMMARY, meta: null }
+    return { kind: 'unknown', layout: null, schemes: null, cardData: null, settings: null, warnings: ['JSON 解析失败，没有导入任何东西'], summary: EMPTY_SUMMARY, meta: null }
   }
   if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
-    return { kind: 'unknown', layout: null, schemes: null, cardData: null, warnings: ['顶层不是对象，没有导入任何东西'], summary: EMPTY_SUMMARY, meta: null }
+    return { kind: 'unknown', layout: null, schemes: null, cardData: null, settings: null, warnings: ['顶层不是对象，没有导入任何东西'], summary: EMPTY_SUMMARY, meta: null }
   }
   const obj = parsed as Record<string, unknown>
 
@@ -221,20 +242,54 @@ export function parseBackup(raw: string, reg: ModuleRegistry): ParsedBackup {
       warnings.push('卡片内容形状不对，已按空内容处理（便签清空、待办 / 速记 / 倒数日为空）')
     }
 
-    return { kind: 'backup', layout: layoutResult.doc, schemes, cardData, warnings, summary: summarize(layoutResult.doc, schemes, cardData), meta }
+    const settings = readSettings(obj.settings)
+    if (version >= 2 && obj.settings === undefined) warnings.push('这份备份没有设置段（外观 / 模板）—— 只恢复版面、方案与内容')
+    else if (version >= 2 && obj.settings !== undefined && settings === null) warnings.push('备份里的设置段形状不对，已忽略')
+
+    return { kind: 'backup', layout: layoutResult.doc, schemes, cardData, settings, warnings, summary: summarize(layoutResult.doc, schemes, cardData), meta }
   }
 
   // 旧版布局导出：`{schemaVersion, cols, items}`。**逐条清洗照旧**，不能因为是老格式就放行。
   if (Array.isArray(obj.items)) {
     const r = parseLayout(raw, reg)
-    return { kind: 'layout', layout: r.doc, schemes: null, cardData: null, warnings: r.warnings, summary: summarize(r.doc, null, null), meta: null }
+    return { kind: 'layout', layout: r.doc, schemes: null, cardData: null, settings: null, warnings: r.warnings, summary: summarize(r.doc, null, null), meta: null }
   }
 
   // 旧版方案册导出：`{schemaVersion, activeId, schemes: [...]}`
   if (Array.isArray(obj.schemes)) {
     const r = parseBook(raw, reg)
-    return { kind: 'schemes', layout: null, schemes: r.book, cardData: null, warnings: r.warnings, summary: summarize(null, r.book, null), meta: null }
+    return { kind: 'schemes', layout: null, schemes: r.book, cardData: null, settings: null, warnings: r.warnings, summary: summarize(null, r.book, null), meta: null }
   }
 
-  return { kind: 'unknown', layout: null, schemes: null, cardData: null, warnings: ['认不出这是什么文件，没有导入任何东西'], summary: EMPTY_SUMMARY, meta: null }
+  return { kind: 'unknown', layout: null, schemes: null, cardData: null, settings: null, warnings: ['认不出这是什么文件，没有导入任何东西'], summary: EMPTY_SUMMARY, meta: null }
+}
+
+/** 设置段只认对象；appearance 只认普通对象，template 只认字符串 / null。不认识的键直接丢。 */
+function readSettings(raw: unknown): BackupSettings | null {
+  if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) return null
+  const obj = raw as Record<string, unknown>
+  const out: BackupSettings = {}
+  if (typeof obj.appearance === 'object' && obj.appearance !== null && !Array.isArray(obj.appearance)) {
+    out.appearance = obj.appearance as Record<string, unknown>
+  }
+  if (typeof obj.template === 'string') out.template = obj.template
+  else if (obj.template === null) out.template = null
+  return out
+}
+
+/**
+ * 把一份（已清洗的）`CardData` **整份**灌进目标 reactive 对象。
+ *
+ * 2026-10-20 修的真实缺陷：恢复只回填了便签 / 待办 / 速记 / 倒数日四个字段，
+ * 而备份包里其实装着记账、四象限、习惯、生日、链接、订阅、自选、自定卡…… 
+ * 其余字段静默丢失 —— 导出是全的、恢复是残的，用户以为备份过了。
+ *
+ * 逐键赋新值（深拷贝）：reactive 的 watcher 才会看见变化并写盘；
+ * 直接 `Object.assign(target, source)` 会让嵌套数组/对象共享引用，改一处污染一份。
+ */
+export function applyCardData(target: CardData, source: CardData): void {
+  const clean = sanitizeCardData(source, emptyCardData())
+  for (const key of Object.keys(clean) as (keyof CardData)[]) {
+    ;(target as unknown as Record<string, unknown>)[key as string] = JSON.parse(JSON.stringify(clean[key]))
+  }
 }
