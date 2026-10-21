@@ -84,6 +84,14 @@ describe.skipIf(skip)('速达卡：输入边界与网页版降级', () => {
 
     // 换合法路径 → 进名单（落进 cardData，跟着备份走）
     await submitWith('C:\\Windows\\System32\\notepad.exe')
+    // 写入有 ≤300ms 防抖（cardData 的 schedule）：**等条件**，不按固定 sleep 猜。
+    await page.waitForFunction(
+      () =>
+        (JSON.parse(localStorage.getItem('modulo.carddata.v1') || '{}') as { launch?: { target: string }[] }).launch?.some(
+          (x) => x.target === 'C:\\Windows\\System32\\notepad.exe',
+        ) ?? false,
+      { timeout: 5000 },
+    )
     const after = await page.evaluate(() => {
       const stored = (JSON.parse(localStorage.getItem('modulo.carddata.v1') || '{}') as {
         launch?: { target: string; label: string }[]

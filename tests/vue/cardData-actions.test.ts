@@ -641,7 +641,10 @@ describe('启动时怎么读盘', () => {
     expect(d.state.birthdays.length).toBe(0)
     d.addTodo('新加的一条')
     await nextTick()
-    expect(s.writes.length).toBeGreaterThan(0)
+    // 2026-10-21 起写入有 300ms 合并窗口：此刻还没落盘，flush() 之后才写
+    expect(s.writes.length, '防抖窗口内不落盘').toBe(0)
+    d.flush()
+    expect(s.writes.length).toBe(1)
     expect(JSON.parse(s.writes.at(-1) as string).todos.length).toBe(3)
   })
 

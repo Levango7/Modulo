@@ -89,6 +89,13 @@ describe.skipIf(skip)('网页取数卡：配置边界与如实降级', () => {
 
     // 换合法地址 → 不再报错，进入"正在取数…/结果"态，端点进配置表
     await submitWith('https://open.er-api.com/v6/latest/CNY')
+    // 写入有 ≤300ms 防抖（cardData 的 schedule）：**等条件**，不按固定 sleep 猜。
+    await page.waitForFunction(
+      (u) =>
+        (JSON.parse(localStorage.getItem('modulo.carddata.v1') || '{}') as { endpoints?: { url: string }[] }).endpoints?.some((e) => e.url === u) ?? false,
+      { timeout: 5000 },
+      'https://open.er-api.com/v6/latest/CNY',
+    )
     const after = await page.evaluate(() => ({
       err: document.querySelector('.wcard .werr')?.textContent?.trim() ?? null,
       // 提交成功后配置面板会关掉（"改完即看"）：查存储而不是查面板里的行
@@ -101,7 +108,7 @@ describe.skipIf(skip)('网页取数卡：配置边界与如实降级', () => {
     expect(after.configuring, '提交后回到卡面（不留在配置态）').toBe(false)
     expect(after.body.length, '卡面有状态文案（取数中/结果/如实失败），不是空白').toBeGreaterThan(0)
 
-    // 端点表落进 cardData（跟着备份走）—— 这是"用户写的进备份"那条口径
+    // 端点表落进 cardData（跟着备份走）—— 这是"用户写的进备份"那条口径（上面已等过防抖窗口）。
     const stored = await page.evaluate(() => {
       const raw = localStorage.getItem('modulo.carddata.v1')
       const d = raw ? (JSON.parse(raw) as { endpoints?: { url: string }[] }) : null

@@ -65,6 +65,40 @@ export function createCardData(storage = browserStorage()) {
   }
 
   const state = reactive<CardData>(initial)
+  /**
+   * 写入防抖（2026-10-21，P0-② 起挂着的遗留）：每敲一个字都把整份 cardData 序列化写盘，
+   * 一次长输入就是几十次整份 JSON 写。300 ms 内合并成一次 —— 判据是「≤300ms」（§4 性能表）。
+   *
+   * **必须能被"立刻"冲刷**：`pagehide` / `beforeunload` 时把最后一笔写掉，否则
+   * "输入后立刻刷新"会丢字（E2E 与真用户都会踩）。桌面壳关窗收进托盘不触发 unload，
+   * 但那时 300ms 的定时器早已落盘。`flush()` 也暴露给调用方（测试与"导出前"用）。
+   */
+  const WRITE_DEBOUNCE_MS = 300
+  let pending: string | null = null
+  let timer: ReturnType<typeof setTimeout> | null = null
+
+  function flush(): void {
+    if (timer !== null) {
+      clearTimeout(timer)
+      timer = null
+    }
+    if (pending === null) return
+    const json = pending
+    pending = null
+    storage.set(KEY, json)
+  }
+
+  function schedule(json: string): void {
+    pending = json
+    if (timer !== null) clearTimeout(timer)
+    timer = setTimeout(flush, WRITE_DEBOUNCE_MS)
+  }
+
+  if (typeof window !== 'undefined') {
+    window.addEventListener('pagehide', flush)
+    window.addEventListener('beforeunload', flush)
+  }
+
   watch(
     () => ({
       ...state,
@@ -91,12 +125,14 @@ export function createCardData(storage = browserStorage()) {
         breath: { ...state.timers.breath },
       },
     }),
-    (v) => storage.set(KEY, JSON.stringify(v)),
+    (v) => schedule(JSON.stringify(v)),
     { deep: true },
   )
 
   return {
     state,
+    /** 立刻落盘（合并窗口内还没写的那一笔） */
+    flush,
     addTodo(text: string) {
       const t = text.trim()
       if (!t) return
