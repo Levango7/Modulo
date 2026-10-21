@@ -71,6 +71,22 @@ jobs:
       # dist/ 要等构建才有，所以断言放在构建前：CHROME_PATH 指不到文件就让本 job 当场红。
       - name: Chrome 存在性断言（E2E / 拖拽预算不许静默跳过）
         run: test -f "$CHROME_PATH"
+      # 网络策略单源门禁（2026-10-22 接上，F-07）。
+      #
+      # 断言 `net-policy.json`（唯一真源）与三侧消费一致：引擎的生成产物
+      # `packages/engine/src/netPolicy.generated.ts`、Rust 的 `src-tauri/src/net_policy.rs`
+      # 及其四个消费点、以及 `src-tauri/tauri.conf.json` 里两条 CSP 的 `connect-src`。
+      #
+      # 为什么需要它：这些数字此前散在六处、靠注释维系同源，已经出过两次事 ——
+      # ① `http.ts` 注释写「沿用 net.rs（1 MiB / 5s）」而 `net.rs` 实际是 10s；
+      # ② CSP 的 `connect-src` 漏了 `https://push2.eastmoney.com`（`stock.ts` 的 `QUOTES_URL`），
+      # 桌面壳里股票卡取数被 CSP 实拦，而网页版没有 CSP，所以一直没暴露。
+      # 注释维系同源 = 没有任何机器保证，这道门把"有没有漂移"变成可断言的事。
+      #
+      # 位置在类型检查**之后**：它读的是源文件与配置，不需要构建产物；排在构建前面
+      # 能在几分钟的构建之前就把漂移红了。
+      - name: 网络策略单源一致性（net-policy.json → TS / Rust / CSP）
+        run: node scripts/net-policy-check.mjs
       - name: 类型检查
         run: npm run typecheck
       - name: 单测 + 投影属性测试（受测层分支覆盖 ≥90% 门禁）

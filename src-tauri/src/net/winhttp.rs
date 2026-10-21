@@ -1,4 +1,4 @@
-use super::MAX_BODY;
+use super::max_body;
 
 /// WinHTTP 官方文档里的句柄类型名就是 `HINTERNET`。
 /// 改名成 `InternetHandle` 能过 clippy，但查 MS 文档时对不上名字更费事，
@@ -131,7 +131,8 @@ fn get_bytes(host: &str, target: &str, url: &str) -> Result<(Option<u16>, Vec<u8
             OPTION_SEND_TIMEOUT,
             OPTION_RECEIVE_TIMEOUT,
         ] {
-            let ms: u32 = 10_000;
+            // 不写死：来自 net-policy.json 的 timeouts.desktopFetchMs
+            let ms: u32 = crate::net_policy::desktop_fetch_ms();
             WinHttpSetOption(
                 session.get(),
                 option,
@@ -215,8 +216,8 @@ fn get_bytes(host: &str, target: &str, url: &str) -> Result<(Option<u16>, Vec<u8
                 break;
             }
             body.extend_from_slice(&chunk[..read as usize]);
-            if body.len() > MAX_BODY {
-                body.truncate(MAX_BODY);
+            if body.len() > max_body() {
+                body.truncate(max_body());
                 break;
             }
         }

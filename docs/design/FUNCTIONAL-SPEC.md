@@ -150,11 +150,44 @@
 - **未做**：真实跨版本迁移（现在没有需要迁的数据，表是空的）；快照的"一键回滚" UI
   （现场在桌面数据目录里，手工拷回可恢复；等真有迁移再定形状）。
 
-### F-07 网络策略单一来源（P0，安全）
-- **现状**：允许/拒绝清单在 `packages/engine/src/watch.ts`、`src-tauri/src/net.rs`、
-  `tauri.conf.json` 的 CSP、AI 白名单四处；已漂移（超时 5s vs 10s；CSP 缺东财）。
-- **目标**：一份 `net-policy.json` 生成三处（引擎清单 / Rust 清单 / CSP），CI 断言一致。
-- **验收**：改一处，三个消费方同步；任一不一致 CI 红；股票卡在桌面能实际取数。
+### F-07 网络策略单一来源（P0，安全）✅ 已落地（2026-10-22）
+
+- **单源**：仓根 `net-policy.json`（`version: 1`）。超时五档、响应体上限两个、URL 上限一个、
+  允许外连的域名清单一份 —— 每个数字只在它里面出现一次。
+- **统一了这六处**（此前各写各的、靠注释维系同源）：
+  1. `packages/engine/src/http.ts` 的注释写「响应上限与超时沿用 `net.rs`（1 MiB / **5s**）」，
+     而 `src-tauri/src/net.rs` 实际是 **10s** —— 注释里的 5s 是谎言，现改为「见 `net-policy.json`，
+     本文件不再抄数字」。
+  2. `src-tauri/tauri.conf.json` 的 `csp` 与 `devCsp` 两条 `connect-src` 都缺
+     `https://push2.eastmoney.com` —— **真 bug**：`packages/engine/src/stock.ts` 的 `QUOTES_URL`
+     正是该域，桌面壳里股票卡取数被 CSP 实拦；网页版没有 CSP，所以它一直没暴露。两条都补上。
+  3. `src/vue/useRemote.ts` / `src/vue/useWeather.ts` / `src/vue/useUpdateCheck.ts` 三处各手抄
+     `8000` → 同读 `FETCH_TIMEOUT_MS`。
+  4. `packages/engine/src/http.ts` 的 `MAX_HTTP_URL = 300` 与 `packages/engine/src/watch.ts`
+     的 `MAX_URL = 300` → 同读 `MAX_URL_LENGTH`（此前靠一行注释「与 watch 同一 URL 上限」维系）。
+  5. `src-tauri/src/ai/openai_compat.rs` 的 120s（摘要）/ 3s（探活）/ 5s（连接）三档 →
+     同读单源。前端此前没有对应常量，现在两侧同一口径。
+  6. `src-tauri/src/net.rs` 的 1 MiB 与 `src-tauri/src/feeds.rs` 的 256 KiB → 同读单源。
+- **⑥ 号的分类结论（先分类再动手）**：256 KiB（feed）与 1 MiB（网页）判为**有意差异**，两个名字
+  分别保留，理由写进 `net-policy.json` 的 `notes.feedBodyBytes` 与
+  `src-tauri/src/net_policy.rs` 的 `Limits::feed_body_bytes` —— feed 是用户订阅的第三方全文，
+  走独立解析路径且一次解析多份（名单可能几十条），单个源体量小、数量多；网页取数是单条、一次
+  一目的地。统一成同一个数会让「一次刷新 40 个订阅」的峰值内存涨四倍。**没有为了统一而统一**，
+  并有一条单测钉住「feed < 网页且恰好 4 倍」。
+- **三侧各自的消费方式**：
+  - **引擎 / 前端**读 `packages/engine/src/netPolicy.generated.ts` —— 由
+    `scripts/gen-net-policy.mjs` 生成且**入库**（引擎包要能独立构建，不能依赖消费侧跑过生成）。
+  - **桌面壳 Rust** 读 `src-tauri/src/net_policy.rs` —— `include_str!("../../net-policy.json")`
+    编译期内嵌 + `LazyLock` 解析；解析失败直接 panic，**不回落旧数字**（回落正是这次要消灭的形状）。
+  - **CSP** 由同一份域名清单生成，写回 `src-tauri/tauri.conf.json` 的 `csp` / `devCsp`
+    （只替换 `connect-src` 段，幂等），并挂在 `beforeDevCommand` / `beforeBuildCommand` 上。
+- **验收**：`node scripts/net-policy-check.mjs` **45/45** 项断言通过（单源 ↔ 生成产物 ↔ Rust 四个
+  消费点 ↔ 两条 CSP，逐字比对；任一漂移即红，已挂进 `.github/workflows/ci.yml` 的 `verify` job）；
+  `tests/engine/netPolicy.test.ts` **6 条**；`tests/release/csp.test.ts` 的域名清单已把东财纳入
+  （②号 bug 的回归钉）；`vue-tsc` 与 `tsc --noEmit` 都干净。
+- **未做**：「股票卡在桌面壳里实际取到数」这条验收**没有真机冒烟** —— Rust 腿本机编不了
+  （GNU 缺 `dlltool.exe`；MSVC 的 `link.exe` 被 Git Bash 的 coreutils `link` 抢到），
+  以 CI 的桌面壳 job 为准。CSP 字符串本身已由那 45 项断言逐字钉住。
 
 ### F-08 浮窗清单与标识（P1）
 - **验收**：工作台显示"已浮出 N 张"；管理面板可收回/置顶/定位；浮窗关闭后标识消失。
@@ -179,7 +212,7 @@
 | 内存 | 常驻 ≤ 300MB（20 张卡） | 未建预算 |
 | 可靠性 | 读盘异常不得被当成"空数据"回落到 localStorage | 现状：读失败即置 `null`，若有 legacy 值会回写（`fileStorage.ts:113-126`）；磁盘已有数据时这是覆盖风险 |
 | 隐私 | 无遥测上传；密钥只进钥匙串/本地文件，永不进备份 | 现状密钥未入备份，但 AI 命令面未接线 |
-| 安全 | 网络策略单源、无 UNC、命令最小权限 | 见 F-07/F-11 |
+| 安全 | 网络策略单源、无 UNC、命令最小权限 | 网络策略单源**已落地**（F-07：仓根 `net-policy.json` → 引擎 TS / Rust / CSP 三侧同读，`scripts/net-policy-check.mjs` 45 项断言挂进 CI）；无 UNC 与命令最小权限见 F-11（未做） |
 
 ## 5. 与门禁的映射（新功能必须自带射程）
 
@@ -190,4 +223,4 @@
 | F-03/F-04 备份 | 序列化 + 密钥扫描 + 整份回填 + 自动备份全链（含桌面 hydrate 那条链；24h / 换版判定用注入时间，做在这一列而不是 CI 脚本） | `tests/e2e/backup.spec.ts` 5 条：启动基线进列表（挂载刷新）/ 立即备份经 IPC 落盘 / 恢复全链（确认块 → 读盘回退）/ 取消字节级不变 / 索引在槽不在 | — |
 | F-05 通知 | 规则表 + 胶水层（注入 now / 内存存储 / 假定时器；含桌面 hydrate 链）+ 投递层（插件缺失/权限被拒/抛错） | 横幅出现 → 收起 → 刷新不再弹 | —（系统通知只能桌面验收：开发态显示 PowerShell 身份，点击无载荷） |
 | F-06 迁移 | 夹具 v1→v2 | — | `docs-check` 式自测 |
-| F-07 网络单源 | 三处一致性断言 | 桌面取数冒烟 | CSP 生成校验 |
+| F-07 网络单源 | `tests/engine/netPolicy.test.ts` 6 条（单源 ↔ 生成产物逐字；URL 上限同源；两个响应体上限是有意差异；东财域在清单里）+ `tests/release/csp.test.ts`（东财域纳入 `API_DOMAINS`，②号 bug 的回归钉） | —（**桌面取数冒烟未做**：Rust 腿本机编不了，以 CI 桌面壳 job 为准） | `scripts/net-policy-check.mjs` 45 项断言（单源 → TS 生成产物 / Rust 四个消费点 / 两条 CSP），已挂进 `.github/workflows/ci.yml` 的 `verify` job；`scripts/gen-net-policy.mjs` 挂在 tauri 的 `beforeDevCommand` / `beforeBuildCommand` |

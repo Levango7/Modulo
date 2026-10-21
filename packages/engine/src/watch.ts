@@ -40,9 +40,15 @@ export interface Watch {
   url: string
 }
 
+import { MAX_URL_LENGTH } from './netPolicy.generated.js'
+
 export const MAX_WATCH = 12
 export const MAX_WATCH_LABEL = 24
-export const MAX_URL = 300
+/**
+ * URL 长度上限，读自 `net-policy.json` 的 `limits.urlLength`（与 `http.ts` 的
+ * `MAX_HTTP_URL` 同一个真源 —— 此前两处各写 300，靠注释维系同源）。
+ */
+export const MAX_URL = MAX_URL_LENGTH
 
 /**
  * IPv6 字面量 → 16 字节。展开 `::` 简写、认尾部内嵌的 IPv4。

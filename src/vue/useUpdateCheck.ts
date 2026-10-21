@@ -12,6 +12,7 @@
  */
 
 import { getCurrentScope, onScopeDispose, ref } from 'vue'
+import { FETCH_TIMEOUT_MS } from '@levango7/engine'
 import { RELEASES_API, applyChunk, compareVersions, pickUpdate, plainText, type DownloadProgress, type UpdateState } from '@levango7/engine/update'
 import type { Update } from '@tauri-apps/plugin-updater'
 import { APP_VERSION } from './useBackup'
@@ -19,7 +20,7 @@ import { isDesktop } from './useShell'
 import type { StorageAdapter } from './store'
 
 const KEY = 'modulo.update.v1'
-const TIMEOUT_MS = 8000
+const TIMEOUT_MS = FETCH_TIMEOUT_MS
 /** 一小时内查过就不再问，除非用户显式点「重新检查」 */
 const TTL_MS = 60 * 60 * 1000
 

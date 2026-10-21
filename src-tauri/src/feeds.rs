@@ -9,7 +9,13 @@ use crate::net;
 
 /// RSS 正文比网页小得多：256 KiB 放得下任何正常 feed，
 /// 又能挡住「把订阅指到一个无限流」的意外。
-const MAX_FEED_BYTES: usize = 256 * 1024;
+///
+/// 数字不再写在这里：来自仓库根 net-policy.json 的 limits.feedBodyBytes（见 net_policy.rs）。
+/// 它**刻意比通用网页上限（1 MiB）小**，理由见 net_policy::Limits::feed_body_bytes ——
+/// 那是有意差异，不要为了统一而统一。
+fn max_feed_bytes() -> usize {
+    crate::net_policy::feed_body_bytes()
+}
 
 /// 一次文本取数。序列化给前端。
 #[derive(serde::Serialize, PartialEq, Debug)]
@@ -35,7 +41,7 @@ pub fn fetch_text(url: &str) -> TextFetch {
             url: url.to_string(),
             status: got.status,
             // 上限在这里截而不是截好再传出来：String 的字节上限要精确
-            text: truncate_chars(&got.body, MAX_FEED_BYTES),
+            text: truncate_chars(&got.body, max_feed_bytes()),
             elapsed_ms: got.elapsed_ms,
             error: String::new(),
         },

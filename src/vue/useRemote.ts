@@ -10,6 +10,7 @@
  */
 
 import { ref } from 'vue'
+import { FETCH_TIMEOUT_MS } from '@levango7/engine'
 import type { StorageAdapter } from './store'
 
 export interface RemoteOptions<T> {
@@ -78,7 +79,7 @@ export function useRemote<T extends { fetchedAt: number }>(
     status.value = 'loading'
     message.value = ''
     const ctrl = new AbortController()
-    const timer = setTimeout(() => ctrl.abort(), opts.timeoutMs ?? 8000)
+    const timer = setTimeout(() => ctrl.abort(), opts.timeoutMs ?? FETCH_TIMEOUT_MS)
     try {
       const payload = opts.fetchList ? await opts.fetchList() : await fetchJson(url, ctrl.signal)
       const parsed = opts.parse(payload, Date.now())

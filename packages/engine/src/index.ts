@@ -1,3 +1,5 @@
+// 网络策略常量（`net-policy.json` 单源的生成产物）。放在最前：它是别的文件要读的基底。
+export * from './netPolicy.generated.js'
 export * from './types.js'
 export * from './geometry.js'
 export * from './fit.js'

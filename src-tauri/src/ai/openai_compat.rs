@@ -24,10 +24,19 @@ use super::protocol::{
 };
 use super::settings::{load_provider, load_settings, ProviderCfg, ProviderView};
 
-/// 一次性摘要的整体超时；流式对话不设整体超时（长对话合法），只有连接超时
-const SUMMARIZE_TIMEOUT: Duration = Duration::from_secs(120);
-/// 就绪探测（GET /models）超时
-const PROBE_TIMEOUT: Duration = Duration::from_secs(3);
+/// 一次性摘要的整体超时；流式对话不设整体超时（长对话合法），只有连接超时。
+///
+/// 数字不再写在这里：来自仓库根 `net-policy.json` 的 `timeouts.aiSummarizeMs`
+/// （见 `net_policy.rs`）。前端此前没有这一档的对应常量 —— 三档超时只在 Rust 侧，
+/// 现在两侧同一份单源。
+fn summarize_timeout() -> Duration {
+    crate::net_policy::ai_summarize_timeout()
+}
+
+/// 就绪探测（GET /models）超时。要快失败：填错地址时不该让人等。
+fn probe_timeout() -> Duration {
+    crate::net_policy::ai_probe_timeout()
+}
 
 fn new_conversation_id() -> String {
     let nanos = std::time::SystemTime::now()
@@ -80,7 +89,7 @@ async fn probe_ready(c: &ProviderCfg, has_key: bool) -> bool {
         return false;
     }
     ensure_crypto_provider();
-    let Ok(client) = reqwest::Client::builder().timeout(PROBE_TIMEOUT).build() else {
+    let Ok(client) = reqwest::Client::builder().timeout(probe_timeout()).build() else {
         return false;
     };
     let mut req = client.get(format!("{}/models", c.base_url.trim_end_matches('/')));
@@ -195,7 +204,8 @@ async fn run_chat(
     ensure_crypto_provider();
     validate_base_url(base)?;
     let client = reqwest::Client::builder()
-        .connect_timeout(Duration::from_secs(5))
+        // 连接超时同读单源（net-policy.json 的 timeouts.aiConnectMs）
+        .connect_timeout(crate::net_policy::ai_connect())
         .build()
         .map_err(|e| format!("创建 HTTP 客户端失败：{e}"))?;
     let mut req = client
@@ -298,7 +308,7 @@ pub async fn ai_summarize(
         },
     ];
     let client = reqwest::Client::builder()
-        .timeout(SUMMARIZE_TIMEOUT)
+        .timeout(summarize_timeout())
         .build()
         .map_err(|e| format!("创建 HTTP 客户端失败：{e}"))?;
     let mut req = client

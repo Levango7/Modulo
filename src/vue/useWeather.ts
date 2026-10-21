@@ -14,12 +14,13 @@
  */
 
 import { ref } from 'vue'
+import { FETCH_TIMEOUT_MS } from '@levango7/engine'
 import { DEFAULT_CITY_ID, WEATHER_CITIES, cityById, parseWeather, weatherUrl, type WeatherSnapshot } from '@levango7/engine/weather'
 import type { StorageAdapter } from './store'
 
 const KEY = 'modulo.weather.v1'
 const TTL_MS = 30 * 60 * 1000
-const TIMEOUT_MS = 8000
+const TIMEOUT_MS = FETCH_TIMEOUT_MS
 
 interface Cached {
   cityId: string

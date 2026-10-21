@@ -90,8 +90,15 @@ pub struct HttpResult {
 
 /// 响应体上限。监控只需要状态与可达性，1 MiB 足够任何正常页面塞下一个小片段，
 /// 又能挡住「指向一个无限流的大文件」把内存吃光。
+///
+/// 数字不再写在这里：它来自 `net-policy.json` 的 `limits.httpBodyBytes`，见
+/// `net_policy.rs`。之所以退化成**函数**而不是 `const` —— 单源是运行时惰性解析的
+/// （`LazyLock`），不是编译期常量；而这层又必须待在 `not(test)` 壳内（原因见文件头
+/// 那段 FFI 说明），所以只能让 `winhttp` 调一次。
 #[cfg(all(target_os = "windows", not(test)))]
-const MAX_BODY: usize = 1024 * 1024;
+pub(crate) fn max_body() -> usize {
+    crate::net_policy::http_body_bytes()
+}
 
 /// 取出 host 与请求目标，并套用上面第 1、2、3 条边界。
 ///
