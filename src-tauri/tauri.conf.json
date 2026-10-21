@@ -4,9 +4,9 @@
   "version": "0.8.4",
   "identifier": "app.modulo",
   "build": {
-    "beforeDevCommand": "npm run dev",
+    "beforeDevCommand": "node scripts/gen-net-policy.mjs && npm run dev",
     "devUrl": "http://localhost:1430",
-    "beforeBuildCommand": "npm run build",
+    "beforeBuildCommand": "node scripts/gen-net-policy.mjs && npm run build",
     "frontendDist": "../dist"
   },
   "app": {
@@ -23,8 +23,8 @@
       }
     ],
     "security": {
-      "csp": "default-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: asset: http://asset.localhost https://www.bing.com; frame-src 'self' blob: data:; connect-src 'self' ipc: http://ipc.localhost https://api.github.com https://api.open-meteo.com https://air-quality-api.open-meteo.com https://open.er-api.com https://hacker-news.firebaseio.com",
-      "devCsp": "default-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: asset: http://asset.localhost https://www.bing.com; frame-src 'self' blob: data:; connect-src 'self' ipc: http://ipc.localhost ws://localhost:1430 http://localhost:1430 https://api.github.com https://api.open-meteo.com https://air-quality-api.open-meteo.com https://open.er-api.com https://hacker-news.firebaseio.com",
+      "csp": "default-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: asset: http://asset.localhost https://www.bing.com; frame-src 'self' blob: data:; connect-src 'self' ipc: http://ipc.localhost https://api.github.com https://api.open-meteo.com https://air-quality-api.open-meteo.com https://open.er-api.com https://hacker-news.firebaseio.com https://push2.eastmoney.com",
+      "devCsp": "default-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: asset: http://asset.localhost https://www.bing.com; frame-src 'self' blob: data:; connect-src 'self' ipc: http://ipc.localhost ws://localhost:1430 http://localhost:1430 https://api.github.com https://api.open-meteo.com https://air-quality-api.open-meteo.com https://open.er-api.com https://hacker-news.firebaseio.com https://push2.eastmoney.com",
       "assetProtocol": {
         "enable": true,
         "scope": ["$APPDATA/**"]

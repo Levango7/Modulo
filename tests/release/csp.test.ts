@@ -39,6 +39,11 @@ const API_DOMAINS = [
   'https://air-quality-api.open-meteo.com',
   'https://open.er-api.com',
   'https://hacker-news.firebaseio.com',
+  // 股票行情：`packages/engine/src/stock.ts` 的 `QUOTES_URL`（2026-10-22 补）。
+  // 它此前**漏在两条 CSP 之外** —— 桌面壳里股票卡取数被 CSP 实拦，而网页版没有 CSP，
+  // 所以一直没有暴露（F-07 的②号 bug）。现在这个清单由 `net-policy.json` 的
+  // `connectOrigins` 生成，`scripts/net-policy-check.mjs` 断言它与单源逐字一致。
+  'https://push2.eastmoney.com',
 ]
 
 // 每日一图用 <img> 加载 Bing 壁纸，必须列在 img-src 里。

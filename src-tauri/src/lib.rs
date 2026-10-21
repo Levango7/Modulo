@@ -17,6 +17,9 @@ mod launcher;
 pub mod meeting;
 pub mod monitor;
 pub mod net;
+/// 网络策略的唯一真源（`net-policy.json` 的编译期内嵌 + 惰性解析）。
+/// 放这里是因为 `net` / `feeds` / `ai` 三处都要读它 —— 以前它们各抄各的数字。
+mod net_policy;
 mod sysmon;
 pub mod web;
 

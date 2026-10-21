@@ -24,8 +24,11 @@
  * - 无自定义请求头、无请求体、无 Cookie —— 与监控卡同一套"只有 URL"的克制
  * - **`path` 只认"点 + [数字]"**，不执行任何表达式（不做 JSONPath 子集解释器：
  *   输入即代码的那类接口，攻击面比它带来的便利大得多）
- * - 响应上限与超时沿用 `net.rs`（1 MiB / 5s）；解析失败如实显示，不猜
+ * - 响应上限与超时见 `net-policy.json`（`limits.httpBodyBytes` = 1 MiB /
+ *   `timeouts.desktopFetchMs` = 10s）—— **本文件不再抄数字**。上一版这里写的是「1 MiB / 5s」，
+ *   而 `net.rs` 实际是 10s：注释维系同源的结果就是这种谎言，现在三侧同读单源
  */
+import { MAX_URL_LENGTH } from './netPolicy.generated.js'
 import { normalizeUrl } from './watch.js'
 
 /** 一个取数端点（用户写的，进备份） */
@@ -45,8 +48,11 @@ export interface HttpEndpoint {
 
 export const MAX_ENDPOINTS = 24
 export const MAX_HTTP_LABEL = 24
-/** 与 watch 同一 URL 上限（300）：两侧判据同源，便于对照 */
-export const MAX_HTTP_URL = 300
+/**
+ * 与 `watch.ts` 的 `MAX_URL` 同一上限：两者都读 `net-policy.json` 的 `limits.urlLength`，
+ * 不再是"两处各写 300、靠注释维系同源"。
+ */
+export const MAX_HTTP_URL = MAX_URL_LENGTH
 export const MIN_REFRESH_SEC = 30
 export const MAX_REFRESH_SEC = 24 * 3600
 export const DEFAULT_REFRESH_SEC = 300

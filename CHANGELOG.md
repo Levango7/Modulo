@@ -11,6 +11,33 @@
 
 ## 未发布
 
+### 桌面壳里的股票卡现在能取到数了（CSP 漏了一个域名）
+
+`packages/engine/src/stock.ts` 的行情接口是 `https://push2.eastmoney.com/api/qt/ulist.np/get`，
+而 `src-tauri/tauri.conf.json` 里两条 CSP（`csp` 与 `devCsp`）的 `connect-src` **都没有这个域** ——
+桌面壳里股票卡的取数被 CSP 实拦。网页版没有 CSP，所以这个 bug 一直没暴露，也没有任何人报过。
+两条 `connect-src` 都补上了。
+
+顺带把网络/超时的策略数字收敛到一个真源：仓根新增 `net-policy.json`，三侧同读它 ——
+引擎与前端读生成产物 `packages/engine/src/netPolicy.generated.ts`，桌面壳 Rust 读
+`src-tauri/src/net_policy.rs`（`include_str!` 同一份 JSON），CSP 的 `connect-src` 由同一份域名
+清单生成（挂在 tauri 的 `beforeDevCommand` / `beforeBuildCommand` 上，幂等）。此前它们散在六处，
+靠注释维系同源，已经出过两次事：
+
+- `packages/engine/src/http.ts` 的注释写「响应上限与超时沿用 `net.rs`（1 MiB / **5s**）」，
+  而 `src-tauri/src/net.rs` 实际是 **10s** —— 注释里的 5s 是谎言，现在它不再抄数字。
+- `http.ts` 的 `MAX_HTTP_URL` 与 `watch.ts` 的 `MAX_URL` 各写 300、靠一行注释维系同源；
+  `src/vue/useRemote.ts` / `useWeather.ts` / `useUpdateCheck.ts` 三处各手抄 `8000`；
+  `ai/openai_compat.rs` 的 120s / 3s / 5s 三档只在 Rust 侧、前端没有对应口径。
+- `net.rs` 的 1 MiB 与 `feeds.rs` 的 256 KiB **是有意差异，保留了两个名字**：feed 是用户订阅的
+  第三方全文，一次刷新可能解析几十份，统一成同一个数会把峰值内存抬四倍。理由写进了
+  `net-policy.json` 的 `notes` 与 `net_policy.rs`，并有一条单测钉住「feed < 网页且恰好 4 倍」。
+
+新增 `scripts/net-policy-check.mjs`：45 项断言逐字比对「单源 ↔ 生成产物 ↔ Rust 四个消费点 ↔
+两条 CSP」，任一漂移即红，已挂进 CI 的 `verify` job。**Rust 腿本机编不了**（GNU 缺 `dlltool.exe`、
+MSVC 的 `link.exe` 被 Git Bash 的 coreutils `link` 抢到），那半以 CI 的桌面壳 job 为准；
+「股票卡在桌面壳里真的取到数」这条没有真机冒烟，钉住它的是 CSP 字符串上的逐字断言。
+
 ### 内容改动不再"每敲一个字写一次盘"（写入防抖）
 
 此前 `cardData` 上的每一笔改动（每一个字符）都会把**整份**内容序列化写盘 —— 一段长输入就是几十次

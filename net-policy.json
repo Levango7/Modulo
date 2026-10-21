@@ -1,0 +1,42 @@
+{
+  "$comment": "网络与超时策略的唯一真源。三侧同读这一份：引擎 TS 走 packages/engine/src/netPolicy.generated.ts（由 scripts/gen-net-policy.mjs 生成并入库），桌面壳 Rust 走 src-tauri/src/net_policy.rs（include_str! 本文件），CSP 的 connect-src 走 src-tauri/tauri.conf.json 的 app.security.csp / devCsp。改本文件后必须跑 node scripts/gen-net-policy.mjs 重新生成，再跑 node scripts/net-policy-check.mjs（CI 里也是同一条顺序）。",
+  "version": 1,
+  "timeouts": {
+    "fetchMs": 8000,
+    "desktopFetchMs": 10000,
+    "aiSummarizeMs": 120000,
+    "aiProbeMs": 3000,
+    "aiConnectMs": 5000
+  },
+  "limits": {
+    "urlLength": 300,
+    "httpBodyBytes": 1048576,
+    "feedBodyBytes": 262144
+  },
+  "connectOrigins": {
+    "base": [
+      "'self'",
+      "ipc:",
+      "http://ipc.localhost",
+      "https://api.github.com",
+      "https://api.open-meteo.com",
+      "https://air-quality-api.open-meteo.com",
+      "https://open.er-api.com",
+      "https://hacker-news.firebaseio.com",
+      "https://push2.eastmoney.com"
+    ],
+    "dev": ["ws://localhost:1430", "http://localhost:1430"],
+    "devInsertAfter": "http://ipc.localhost"
+  },
+  "notes": {
+    "fetchMs": "网页端 fetch 的超时：src/vue/useRemote.ts、src/vue/useWeather.ts、src/vue/useUpdateCheck.ts 共用这一档。此前三处各手抄 8000。",
+    "desktopFetchMs": "桌面壳 WinHTTP 取数超时（src-tauri/src/net.rs）。packages/engine/src/http.ts 的旧注释写的是 5s，那是错的 —— 真源以此为准。",
+    "aiSummarizeMs": "AI 一次性摘要的整体超时（src-tauri/src/ai/openai_compat.rs 的 SUMMARIZE_TIMEOUT）。模型生成慢，给 120s；流式对话不设整体超时（长对话合法），只受 aiConnectMs 约束。",
+    "aiProbeMs": "AI 就绪探测（GET /models）超时（PROBE_TIMEOUT）。要快失败：填错地址时不该让人等。",
+    "aiConnectMs": "AI 客户端的连接超时（reqwest 的 connect_timeout）。",
+    "urlLength": "URL 长度上限：packages/engine/src/watch.ts 的 MAX_URL 与 packages/engine/src/http.ts 的 MAX_HTTP_URL 同源，此前两处各写各的、靠注释维系。",
+    "httpBodyBytes": "1 MiB：通用网页/JSON 取数的响应体上限（src-tauri/src/net.rs 的 MAX_BODY）。够任何正常接口塞下片段，又能挡住「指向一个无限流的大文件」把内存吃光。",
+    "feedBodyBytes": "256 KiB：RSS/Atom 正文上限（src-tauri/src/feeds.rs 的 MAX_FEED_BYTES）。**刻意低于 httpBodyBytes，这是有意差异、不要统一**：feed 是用户订阅的第三方全文，走独立解析路径且一次解析多份（名单可能几十条），单个源体量小、数量多；而网页取数是单条、一次一目的地。统一成同一个数会让「一次刷新 40 个订阅」的峰值内存涨四倍。",
+    "connectOrigins": "允许外连的源清单，供 CSP 的 connect-src 生成。push2.eastmoney.com 是 packages/engine/src/stock.ts 的 QUOTES_URL —— 它此前**漏在两条 CSP 之外**，桌面壳里股票卡取数被实拦而网页版没有 CSP 所以一直没暴露。dev 那两条是 vite dev server 的 HMR 与自身端口，只进 devCsp。"
+  }
+}
