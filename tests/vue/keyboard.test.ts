@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { cellIntent, globalIntent, isEditableTarget, shouldPrevent, type KeyLike } from '../../src/vue/keyboard'
+import { appKeyIntent, cellIntent, globalIntent, isEditableTarget, isPaletteHotkey, isUndoHotkey, shouldPrevent, type KeyLike } from '../../src/vue/keyboard'
 import type { Placement } from '@levango7/engine'
 
 /** 造一个按键：只填我们关心的字段，其余与 KeyboardEvent 一致地缺省为 false */
@@ -137,5 +137,101 @@ describe('shouldPrevent：哪些意图要拦默认行为', () => {
     expect(shouldPrevent(cellIntent(key('Enter'), clock, []))).toBe(false)
     expect(shouldPrevent(cellIntent(key('l'), clock, []))).toBe(false)
     expect(shouldPrevent(null)).toBe(false)
+  })
+})
+
+/**
+ * 应用层的 Esc 级联与全局快捷键（2026-10-23 从 App.vue 的 `onGlobalKey` 抽出）。
+ *
+ * 这段级联此前七层 if-else 一条断言都没有，而它恰好最容易在加弹层时被改错：
+ * 加一层忘插进级联 = 新弹层按 Esc 不关，用户只能点鼠标。所以顺序**逐字**钉住。
+ *
+ * 两个必须保住的语义：
+ *  ① **编辑器先吃** —— 它手里有比"取消整场编辑"更局部的"退一步"（清选中）。
+ *     否则选了卡按 Esc 会直接弹放弃确认。用 thunk 问它，所以"问了但它没吃"
+ *     与"没问它"是两种不同结果，下面分别钉。
+ *  ② Ctrl+K **不因为焦点在输入框而失效**（"任何地方唤出"的语义）。
+ */
+describe('appKeyIntent（Esc 级联）', () => {
+  const base = {
+    paletteOpen: false,
+    cancelAskOpen: false,
+    editorEscape: () => false,
+    view: 'workbench' as const,
+    arrangeOpen: false,
+    templatesOpen: false,
+    settingsOpen: false,
+  }
+  const esc: KeyLike = { key: 'Escape', shiftKey: false, altKey: false, ctrlKey: false, metaKey: false }
+
+  it('不是 Esc 就一概不管', () => {
+    for (const k of ['a', 'Enter', 'ArrowLeft', 'z'] as const) {
+      expect(appKeyIntent({ ...base, ...{ key: k } as KeyLike }, base), k).toBeNull()
+    }
+  })
+
+  it('七层顺序逐字钉住：上一层开着时绝不落到下一层', () => {
+    // 注意这里断言的是**整个返回值**：`null?.kind` 本身就是 undefined，
+    // 用 `?.kind` 判 null 会永远失败（第一版就栽在这）。
+    expect(appKeyIntent(esc, base)).toBeNull()
+    expect(appKeyIntent(esc, { ...base, settingsOpen: true })?.kind).toBe('closeSettings')
+    expect(appKeyIntent(esc, { ...base, settingsOpen: true, templatesOpen: true })?.kind).toBe('closeTemplates')
+    expect(appKeyIntent(esc, { ...base, templatesOpen: true, arrangeOpen: true })?.kind).toBe('closeArrange')
+    // 编辑态压过 arrange：取消整场编辑比关下拉更该先发生
+    expect(appKeyIntent(esc, { ...base, arrangeOpen: true, view: 'edit' })?.kind).toBe('cancelEdit')
+    // 编辑器自退压过"取消整场编辑"
+    expect(appKeyIntent(esc, { ...base, view: 'edit', editorEscape: () => true })?.kind).toBe('editorEscape')
+    expect(appKeyIntent(esc, { ...base, cancelAskOpen: true, view: 'edit', editorEscape: () => true })?.kind).toBe('closeCancelAsk')
+    expect(appKeyIntent(esc, { ...base, paletteOpen: true, cancelAskOpen: true, editorEscape: () => true })?.kind).toBe('closePalette')
+  })
+
+  it('editorEscape 是 thunk：问到它的时候它才被调用', () => {
+    let asked = 0
+    const layers = { ...base, editorEscape: () => { asked++; return false } }
+    appKeyIntent(esc, layers)
+    expect(asked).toBe(1) // 走到这一层才问
+    // 上面有层开着时压根不问 —— 否则会把编辑器本来能吃掉的 Esc 提前判死
+    asked = 0
+    appKeyIntent(esc, { ...layers, paletteOpen: true })
+    expect(asked).toBe(0)
+    appKeyIntent(esc, { ...layers, cancelAskOpen: true })
+    expect(asked).toBe(0)
+  })
+
+  it('编辑器说"没得退"时才继续往下走', () => {
+    expect(appKeyIntent(esc, { ...base, view: 'edit', editorEscape: () => false })?.kind).toBe('cancelEdit')
+    expect(appKeyIntent(esc, { ...base, settingsOpen: true, editorEscape: () => false })?.kind).toBe('closeSettings')
+  })
+})
+
+describe('全局快捷键判定', () => {
+  const k = (o: Partial<KeyLike>): KeyLike => ({ key: 'k', shiftKey: false, altKey: false, ctrlKey: false, metaKey: false, ...o })
+
+  it('Ctrl+K / Cmd+K 都算唤出面板', () => {
+    expect(isPaletteHotkey(k({ key: 'k', ctrlKey: true }))).toBe(true)
+    expect(isPaletteHotkey(k({ key: 'K', metaKey: true }))).toBe(true)
+    // 大小写不敏感；Shift 不影响
+    expect(isPaletteHotkey(k({ key: 'K', ctrlKey: true, shiftKey: true }))).toBe(true)
+  })
+
+  it('光有 K 不算（没有修饰键就不是全局键）', () => {
+    expect(isPaletteHotkey(k({ key: 'k' }))).toBe(false)
+    expect(isPaletteHotkey(k({ key: 'k', altKey: true }))).toBe(false)
+    // 别的键 + Ctrl 也不算
+    expect(isPaletteHotkey(k({ key: 'j', ctrlKey: true }))).toBe(false)
+  })
+
+  it('撤销/重做的四种形状', () => {
+    expect(isUndoHotkey(k({ key: 'z', ctrlKey: true }))).toBe('undo')
+    expect(isUndoHotkey(k({ key: 'Z', ctrlKey: true, shiftKey: true }))).toBe('redo')
+    expect(isUndoHotkey(k({ key: 'y', ctrlKey: true }))).toBe('redo')
+    expect(isUndoHotkey(k({ key: 'z', metaKey: true }))).toBe('undo')
+  })
+
+  it('没有修饰键、或键不对，都返回 null', () => {
+    expect(isUndoHotkey(k({ key: 'z' }))).toBeNull()
+    expect(isUndoHotkey(k({ key: 'y', shiftKey: true }))).toBeNull()
+    expect(isUndoHotkey(k({ key: 'x', ctrlKey: true }))).toBeNull()
+    expect(isUndoHotkey(k({ key: 'z', altKey: true }))).toBeNull()
   })
 })
