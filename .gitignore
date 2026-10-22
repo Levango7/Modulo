@@ -1,6 +1,9 @@
 node_modules/
 dist/
 evidence/
+
+# 构建时从 SHERPA_ONNX_LIB_DIR 复制进来的运行时 DLL（bundle.resources 的源目录，不入库）
+src-tauri/sherpa-dlls/
 coverage/
 *.log
 .DS_Store

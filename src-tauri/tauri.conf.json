@@ -35,6 +35,12 @@
     "active": true,
     "targets": ["nsis"],
     "createUpdaterArtifacts": true,
+    "resources": {
+      "sherpa-dlls/sherpa-onnx-c-api.dll": "sherpa-onnx-c-api.dll",
+      "sherpa-dlls/sherpa-onnx-cxx-api.dll": "sherpa-onnx-cxx-api.dll",
+      "sherpa-dlls/onnxruntime.dll": "onnxruntime.dll",
+      "sherpa-dlls/onnxruntime_providers_shared.dll": "onnxruntime_providers_shared.dll"
+    },
     "icon": ["icons/32x32.png", "icons/128x128.png", "icons/icon.ico"],
     "copyright": "Copyright © 2026 Modulo Contributors",
     "licenseFile": "../LICENSE"

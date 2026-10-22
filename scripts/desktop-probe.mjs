@@ -918,9 +918,24 @@ try {
   await clickIn(app.page, 'button[title="外观设置"]')
   await sleep(400)
   await app.page.screenshot({ path: `${OUT}/05-settings-desktop.png` })
-  check('设置页里有「收进托盘」开关', await clickIn(app.page, '.panel input[type="checkbox"]'))
+  // 按**标签文字**定位：设置面板里不止一个 checkbox（2026-10-21 起「提醒」段还有一个），
+  // 取第一个会点到提醒开关 —— 托盘开关没拨开，后面「关窗进托盘」三条会连锁假红（0.8.4 实测）。
+  const traySwitch = () =>
+    app.page.evaluateHandle(() =>
+      [...document.querySelectorAll('.panel label.switch')]
+        .find((l) => (l.textContent || '').includes('收进托盘'))
+        ?.querySelector('input[type="checkbox"]'),
+    )
+  const trayHandle = await traySwitch()
+  const trayEl = trayHandle.asElement()
+  if (trayEl) await trayEl.click()
+  check('设置页里有「收进托盘」开关', !!trayEl)
   await sleep(400)
-  const shellOn = await app.page.evaluate(() => document.querySelector('.panel input[type="checkbox"]')?.checked === true)
+  const shellOn = await app.page.evaluate(() =>
+    [...document.querySelectorAll('.panel label.switch')]
+      .find((l) => (l.textContent || '').includes('收进托盘'))
+      ?.querySelector('input[type="checkbox"]')?.checked === true,
+  )
   check('开关能拨动', shellOn)
 
   // ---- 设置页的「改键」录制：合成 keydown 走的是真 DOM 路径（document 捕获阶段），
@@ -1050,17 +1065,31 @@ try {
    * 「关不掉」。实测这里红过一次，而真因是上一步没拨成功，不是退出逻辑坏了。
    */
   const toggleShell = async () => {
+    const click = () =>
+      app.page.evaluate(() => {
+        const el = [...document.querySelectorAll('.panel label.switch')]
+          .find((l) => (l.textContent || '').includes('收进托盘'))
+          ?.querySelector('input[type="checkbox"]')
+        if (!el) return false
+        el.click()
+        return true
+      })
     // 面板可能被藏窗口那次顺带关掉；点不到就先重新打开设置页
-    if (!(await clickIn(app.page, '.panel input[type="checkbox"]'))) {
+    if (!(await click())) {
       await clickIn(app.page, 'button[title="外观设置"]')
       await sleep(400)
-      return clickIn(app.page, '.panel input[type="checkbox"]')
+      return click()
     }
     return true
   }
   const shellToggled = await toggleShell()
   await sleep(400)
-  const shellOff = await app.page.evaluate(() => document.querySelector('.panel input[type="checkbox"]')?.checked === false)
+  const shellOff = await app.page.evaluate(
+    () =>
+      [...document.querySelectorAll('.panel label.switch')]
+        .find((l) => (l.textContent || '').includes('收进托盘'))
+        ?.querySelector('input[type="checkbox"]')?.checked === false,
+  )
   check('「收进托盘」开关确实被拨回（不是点空或点错开关）', shellToggled && shellOff)
 
   await clickIn(app.page, '.tb-btn[aria-label="关闭"]')
