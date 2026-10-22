@@ -141,8 +141,8 @@ action（能回传"点了哪一条"）只有移动端有；这里没有深链，
 `useUpdateCheck.ts` 是更新链的**胶水半层**：桌面端走 `tauri-plugin-updater` 读 `latest.json`、
 按内嵌的 minisign 公钥验签、拉起 NSIS 静默升级；网页版问 GitHub Releases，只显示「有新版」。
 发请求、按一小时 TTL 存缓存、把 `idle / checking / found / downloading / downloaded /
-installing / failed / current` 摆给界面、用完把后端句柄还回去 —— 这 161 行此前**一条断言都没有**，
-也不在受测层里。引擎那半（比版本 / 解析 Release / 进度累加）早有 `tests/engine/update.test.ts`
+installing / failed / current` 摆给界面、用完把后端句柄还回去 —— 这 161 → 162 行（F-07 切到单源超时常量后多一行 import）此前
+**一条断言都没有**，也不在受测层里。引擎那半（比版本 / 解析 Release / 进度累加）早有 `tests/engine/update.test.ts`
 135 行兜底，而会出错的那一半恰恰是没测的这半：离线、403、端点或公钥配错、验签失败，
 全是常态不是例外。
 
