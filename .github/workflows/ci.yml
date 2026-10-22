@@ -183,6 +183,19 @@ jobs:
           # build.rs 里优先级最高的那条分支：指到哪用哪，**完全不经过 target/**（理由见文件头）
           "SHERPA_ONNX_LIB_DIR=$lib" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
       - run: npm ci
+      # 安装包必须带 sherpa 的 4 个运行时 DLL：exe 静态依赖它们，缺了装完起不来
+      # （2026-10-22 本机探针实测 0xC0000135）。bundle.resources 只认构建时存在的相对路径，
+      # 所以先把它们从 SHERPA_ONNX_LIB_DIR 复制进 src-tauri（该目录已 gitignore）。
+      - name: 复制 sherpa 运行时 DLL 进 src-tauri（bundle.resources 的源目录）
+        shell: pwsh
+        run: |
+          $dst = Join-Path $PWD 'src-tauri/sherpa-dlls'
+          New-Item -ItemType Directory -Force -Path $dst | Out-Null
+          $need = @('sherpa-onnx-c-api.dll', 'sherpa-onnx-cxx-api.dll', 'onnxruntime.dll', 'onnxruntime_providers_shared.dll')
+          foreach ($n in $need) {
+            Copy-Item (Join-Path $env:SHERPA_ONNX_LIB_DIR $n) (Join-Path $dst $n) -Force
+          }
+          Get-ChildItem $dst | Select-Object Name, Length
       - name: 格式检查
         working-directory: src-tauri
         run: cargo fmt --check
@@ -289,6 +302,19 @@ jobs:
           # build.rs 里优先级最高的那条分支：指到哪用哪，**完全不经过 target/**（理由见文件头）
           "SHERPA_ONNX_LIB_DIR=$lib" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
       - run: npm ci
+      # 安装包必须带 sherpa 的 4 个运行时 DLL：exe 静态依赖它们，缺了装完起不来
+      # （2026-10-22 本机探针实测 0xC0000135）。bundle.resources 只认构建时存在的相对路径，
+      # 所以先把它们从 SHERPA_ONNX_LIB_DIR 复制进 src-tauri（该目录已 gitignore）。
+      - name: 复制 sherpa 运行时 DLL 进 src-tauri（bundle.resources 的源目录）
+        shell: pwsh
+        run: |
+          $dst = Join-Path $PWD 'src-tauri/sherpa-dlls'
+          New-Item -ItemType Directory -Force -Path $dst | Out-Null
+          $need = @('sherpa-onnx-c-api.dll', 'sherpa-onnx-cxx-api.dll', 'onnxruntime.dll', 'onnxruntime_providers_shared.dll')
+          foreach ($n in $need) {
+            Copy-Item (Join-Path $env:SHERPA_ONNX_LIB_DIR $n) (Join-Path $dst $n) -Force
+          }
+          Get-ChildItem $dst | Select-Object Name, Length
 
       # 版本号对齐先挡一次：tag 必须等于 package.json 里的版本，否则 `make-latest-json`
       # 的 signedVersion 校验也会在出清单前挡。这里少挡一层就是发布一个张冠李戴的版本。
@@ -313,6 +339,22 @@ jobs:
         env:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
         run: npm run tauri:build
+
+      # 安装包内容门禁：**装完能不能起来**不再只靠人跑探针。exe 静态依赖这 4 个 DLL，
+      # 缺任何一个，用户装完就是一个 0xC0000135（2026-10-22 v0.8.4 的真实事故）。
+      - name: 安装包内容门禁（4 个 sherpa DLL 必须在包里）
+        shell: pwsh
+        run: |
+          $seven = Join-Path $env:ProgramFiles '7-Zip\7z.exe'
+          if (-not (Test-Path $seven)) { Write-Error '没有 7z，无法核对安装包内容（拒绝空跑）'; exit 1 }
+          $v = (node -p "require('./package.json').version")
+          $exe = "src-tauri\target\release\bundle\nsis\Modulo_${v}_x64-setup.exe"
+          if (-not (Test-Path $exe)) { Write-Error "安装包不在这里：$exe"; exit 1 }
+          $list = (& $seven l $exe) -join "`n"
+          $need = @('sherpa-onnx-c-api.dll', 'sherpa-onnx-cxx-api.dll', 'onnxruntime.dll', 'onnxruntime_providers_shared.dll')
+          $missing = $need | Where-Object { $list -notmatch [regex]::Escape($_) }
+          if ($missing) { Write-Error "安装包里缺：$($missing -join '、') —— 装完会起不来（0xC0000135）"; exit 1 }
+          '安装包含 4 个 sherpa DLL ✓'
 
       - name: 生成更新清单 latest.json（含 signedVersion 自检）
         run: node scripts/make-latest-json.mjs
