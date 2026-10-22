@@ -71,6 +71,11 @@ const GATED_VUE_MODULES = [
   'src/vue/useUpdateCheck.ts',
   'src/vue/useWeather.ts',
   'src/vue/winPreview.ts',
+  // App.vue 拆分（2026-10-23，970 → ~270）抽出的三个纯模块：撤销路由 / 编辑事务差异 /
+  // 舞台几何。抽它们的理由与 chord/keyboard 相同 —— 原来长在 App.vue 里，零断言。
+  'src/vue/undoRouting.ts',
+  'src/vue/editTransaction.ts',
+  'src/vue/stageGeometry.ts',
 ]
 
 /** 仓库内按源码解析引擎包（与 vite.config.ts 同一条约定） */
@@ -100,7 +105,7 @@ export default defineConfig({
         // 聚合值上完全看不出来。75 不是拍的，是 2026-10-13 实测的最低值。
         'packages/engine/src/**/*.ts': { perFile: { branches: 75 } },
 
-        // ── 逐文件棘轮：7 个受单测门禁的 src/vue 模块（全锁，含 100% 的两个）──────
+        // ── 逐文件棘轮：23 个受单测门禁的 src/vue 模块（其中 14 个锁 100）──────────
         // chord / keyboard 锁 100 才是那句话的本意：加一条没测到的分支，当场红。
         'src/vue/appearance.ts': { branches: 95 },
         // backup.ts 原地板 95。P0-③（2026-10-20）把恢复改成整份回填、格式升 v2 并加了设置段清洗，
@@ -131,6 +136,18 @@ export default defineConfig({
         'src/vue/useReminders.ts': { branches: 100 },
         'src/vue/chord.ts': { branches: 100 },
         'src/vue/keyboard.ts': { branches: 100 },
+        // App.vue 拆分（2026-10-23，970 → ~270）抽出的三个纯模块：撤销路由 / 编辑事务差异 /
+        // 舞台几何。抽它们的理由与 chord/keyboard 相同 —— 原来长在 App.vue 里，零断言。
+        // 三条都按**全量套件实测**回填并锁满（棘轮只升不降）：
+        //   undoRouting    12/12 分支 —— 顺序决策全部由固定输入穷举（编辑态恒版面 / 谁近谁先 /
+        //                   平手算内容近 / redo 跟 lastUndoKind 不跟时间戳）。
+        //   editTransaction 18/18 —— 注意 `a.rows ?? []` 的兜底是**真实分支**不是防御：
+        //                   LayoutDoc.rows 是可选加法字段（types.ts：旧档缺键按空表处理），
+        //                   已补"旧档缺 rows 键"三条断言钉住。
+        //   stageGeometry   4/4  —— 三处下限（列宽 40 / 宽 240 / 高 160）表驱动全覆盖。
+        'src/vue/undoRouting.ts': { branches: 100 },
+        'src/vue/editTransaction.ts': { branches: 100 },
+        'src/vue/stageGeometry.ts': { branches: 100 },
         // store.ts 是这张表存在的头号理由：82.22% 而 CI 绿了很久。
         'src/vue/store.ts': { branches: 82 },
         // 更新检查（2026-10-21）：161 行此前**零测试且不在受测层** —— 与 useWeather 同一种理由

@@ -92,3 +92,73 @@ export function shouldPrevent(intent: KeyIntent | null): boolean {
   if (!intent) return false
   return intent.kind !== 'cycleVariant' && intent.kind !== 'toggleLock'
 }
+
+/* ────────────────────────────────────────────────────────────────────────────
+ * 应用层的键盘编排（Esc 级联 + 全局快捷键）
+ *
+ * 与上面两层（全局 / 格子）的关系：那两层管**编辑器里**的键，这一层管**整个应用**的键。
+ * 拆开的理由是同一个 —— 这段级联此前长在 App.vue 的 `onGlobalKey` 里，
+ * 七层 if-else 没有任何断言，而它恰好是最容易在加弹层时被改错的东西
+ * （加一层忘插进级联 = 新弹层按 Esc 不关，用户只能点鼠标）。
+ *
+ * **编辑器先吃**：它手里有比"取消整场编辑"更局部的"退一步"（清选中），
+ * 否则选了卡按 Esc 会直接弹放弃确认。所以 `editorEscape` 是一个 **thunk**
+ * （`() => boolean`）而不是一个布尔值 —— 问编辑器"这层还有没有可退的"必须发生在
+ * 走到这一层的时候，早问会把"编辑器本来能吃掉的 Esc"提前判死。
+ * ──────────────────────────────────────────────────────────────────────────── */
+
+/** 走 Esc 级联时各层的当前状态（全是值，没有 ref） */
+export interface AppKeyLayers {
+  paletteOpen: boolean
+  cancelAskOpen: boolean
+  /** 编辑器自退（清选中 / 关目录下拉）；消费掉了返回 true */
+  editorEscape: () => boolean
+  view: 'workbench' | 'edit'
+  arrangeOpen: boolean
+  templatesOpen: boolean
+  settingsOpen: boolean
+}
+
+/** Esc 该落在哪一层。`null` = 这个键不是 Esc，或者级联走到底也没人接 */
+export type AppKeyAction =
+  | { kind: 'closePalette' }
+  | { kind: 'closeCancelAsk' }
+  | { kind: 'editorEscape' }
+  | { kind: 'cancelEdit' }
+  | { kind: 'closeArrange' }
+  | { kind: 'closeTemplates' }
+  | { kind: 'closeSettings' }
+
+/**
+ * Esc 从最上面一层往下走：先关命令面板与确认框，再交编辑器自退，
+ * 然后才是"取消这次编辑"，最后是各弹层。
+ */
+export function appKeyIntent(e: KeyLike, layers: AppKeyLayers): AppKeyAction | null {
+  if (e.key !== 'Escape') return null
+  if (layers.paletteOpen) return { kind: 'closePalette' }
+  if (layers.cancelAskOpen) return { kind: 'closeCancelAsk' }
+  if (layers.editorEscape()) return { kind: 'editorEscape' }
+  if (layers.view === 'edit') return { kind: 'cancelEdit' }
+  if (layers.arrangeOpen) return { kind: 'closeArrange' }
+  if (layers.templatesOpen) return { kind: 'closeTemplates' }
+  if (layers.settingsOpen) return { kind: 'closeSettings' }
+  return null
+}
+
+/**
+ * 全局快捷键里"Ctrl+K 唤出命令面板"的判定。它是**全局键**：即使在输入框里也生效
+ * （这是"任何地方唤出"的语义），所以它不能走 `isEditableTarget` 那道放行。
+ */
+export function isPaletteHotkey(e: KeyLike): boolean {
+  return (e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k'
+}
+
+/** 全局快捷键里"撤销/重做"的判定。大小写不敏感（Ctrl+Shift+Z 与 ctrl+z 同效） */
+export function isUndoHotkey(e: KeyLike): 'undo' | 'redo' | null {
+  if (!(e.ctrlKey || e.metaKey)) return null
+  const k = e.key.toLowerCase()
+  if (k === 'z') return e.shiftKey ? 'redo' : 'undo'
+  if (k === 'y') return 'redo'
+  return null
+}
+
