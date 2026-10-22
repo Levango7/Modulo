@@ -4,6 +4,11 @@ import { BellRing, History, LayoutGrid, LayoutTemplate, Redo2, Settings, Sliders
 import { useElementSize } from './vue/useElementSize'
 import { useProjection } from './vue/useProjection'
 import { measureWantedRows } from './vue/useDensity'
+import { anyRedo, anyUndo, redoOrder, undoOrder, type UndoRoutingCaps } from './vue/undoRouting'
+import { detachGeometry } from './vue/stageGeometry'
+import { useEditTransaction } from './vue/useEditTransaction'
+import { useAppCommands } from './vue/useAppCommands'
+import { useGlobalKeys } from './vue/useGlobalKeys'
 import * as E from '@levango7/engine'
 import type { LayoutStore } from './vue/store'
 import type { PersistentStorage } from './vue/fileStorage'
@@ -19,7 +24,7 @@ import { useSchemes } from './vue/useSchemes'
 import { isDesktop, useShell } from './vue/useShell'
 import { useDetached } from './vue/useDetached'
 import CommandPalette from './vue/components/CommandPalette.vue'
-import { createCommandBus, type CommandBus } from './vue/commandBus'
+import { type CommandBus } from './vue/commandBus'
 import type { CommandContext } from './vue/commands'
 import { floatCard, floatingSupported, unfloatCard } from './float/api'
 import GridLayout from './vue/components/GridLayout.vue'
@@ -88,23 +93,30 @@ const view = ref<'workbench' | 'edit'>('workbench')
  * 两个栈不合并时间线 —— 只比"最近一次改动"，比共享一条历史容易解释得多。
  */
 const lastUndoKind = ref<'layout' | 'content'>('layout')
-const canUndoAny = computed(() => store.canUndo.value || contentHistory.canUndo.value)
-const canRedoAny = computed(() => store.canRedo.value || contentHistory.canRedo.value)
+/** 路由所需的输入（全是值）；撤销/重做按钮的可用态与顺序都从它算 */
+const routingCaps = computed<UndoRoutingCaps>(() => ({
+  layoutCanUndo: store.canUndo.value,
+  contentCanUndo: contentHistory.canUndo.value,
+  layoutCanRedo: store.canRedo.value,
+  contentCanRedo: contentHistory.canRedo.value,
+  layoutLastAt: store.lastAt.value,
+  contentLastAt: contentHistory.lastAt.value,
+}))
+const canUndoAny = computed(() => anyUndo(routingCaps.value))
+const canRedoAny = computed(() => anyRedo(routingCaps.value))
+/** 顺序由 `undoRouting.ts` 定（编辑态永远撤版面；工作台态谁更近撤谁）；这里只负责执行 */
 function undoLatest(): void {
-  if (view.value === 'edit') {
-    store.undo()
-    lastUndoKind.value = 'layout'
-    return
-  }
-  const preferContent = contentHistory.lastAt.value >= store.lastAt.value
-  const order: ('content' | 'layout')[] = preferContent ? ['content', 'layout'] : ['layout', 'content']
-  for (const kind of order) {
+  for (const kind of undoOrder({ view: view.value, lastUndoKind: lastUndoKind.value }, routingCaps.value)) {
     if (kind === 'content') {
       if (contentHistory.undo()) {
         lastUndoKind.value = 'content'
         return
       }
-    } else if (store.canUndo.value) {
+    } else if (view.value === 'edit' || store.canUndo.value) {
+      // 编辑态恒撤版面，且**不查 canUndo** —— 与拆分前逐字一致：原代码编辑态分支是
+      // 无条件 store.undo()。引擎对空栈是 no-op（history.ts: `if (!prev) return h`），
+      // 所以差别只剩 lastUndoKind 的赋值照旧发生，而它决定之后重做的偏好，不能丢。
+      // 工作台态才查 canUndo：选中的那边没得撤就退到另一边。
       store.undo()
       lastUndoKind.value = 'layout'
       return
@@ -112,21 +124,15 @@ function undoLatest(): void {
   }
 }
 function redoLatest(): void {
-  if (view.value === 'edit') {
-    store.redo()
-    lastUndoKind.value = 'layout'
-    return
-  }
-  const preferContent = lastUndoKind.value === 'content'
-  const order: ('content' | 'layout')[] = preferContent ? ['content', 'layout'] : ['layout', 'content']
-  for (const kind of order) {
+  for (const kind of redoOrder({ view: view.value, lastUndoKind: lastUndoKind.value }, routingCaps.value)) {
     if (kind === 'content') {
       if (contentHistory.canRedo.value) {
         contentHistory.redo()
         lastUndoKind.value = 'content'
         return
       }
-    } else if (store.canRedo.value) {
+    } else if (view.value === 'edit' || store.canRedo.value) {
+      // 同 undoLatest：编辑态无条件重做版面（含空转），保住 lastUndoKind 赋值
       store.redo()
       lastUndoKind.value = 'layout'
       return
@@ -135,65 +141,20 @@ function redoLatest(): void {
 }
 const settingsOpen = ref(false)
 /**
- * 编辑器事务（2026-10-12 用户口径：「工作台=用+微调，布局编辑=增删改」）。
- *
- * 进编辑器拍一张快照；「保存」= 确认改动并退出；「取消」= 有改动先问一句、确认才还原。
- * 编辑期间 Ctrl+Z 照常可用（历史是全局的），取消只是往历史里再压一步 —— `store.restore`
- * 复用 `apply`，所以"取消"本身也能被撤销（不会把历史撕开一个洞）。
- * 点「工作台」tab 与 Esc 都走同一条取消路径 —— 否则事务会被 tab 切换绕开。
+ * 编辑器事务（2026-10-12 用户口径：「工作台=用+微调，布局编辑=增删改」）——
+ * 实现在 `useEditTransaction.ts`（拆分 ② 抽出）。`view` 是共享状态，在这里创建、
+ * 传进去；事务只负责改它，不拥有它。
  */
-const editSnapshot = ref<E.LayoutDoc | null>(null)
-const cancelAskOpen = ref(false)
-const editDirty = computed(
-  () => editSnapshot.value !== null && JSON.stringify(store.doc.value) !== JSON.stringify(editSnapshot.value),
-)
-/**
- * 「N 处改动」：按**版面差异**数（卡片增删改 + 行的增删改），不是按历史步数 ——
- * 拖一步再拖回来在历史上是两步、在版面差异上却是 0 处，而用户看的是版面。
- */
-const editChangeCount = computed(() => {
-  const a = editSnapshot.value
-  if (!a) return 0
-  const b = store.doc.value
-  let n = 0
-  const am = new Map(a.items.map((p) => [p.id, p]))
-  const bm = new Map(b.items.map((p) => [p.id, p]))
-  for (const [id, p] of bm) if (!am.has(id) || JSON.stringify(am.get(id)) !== JSON.stringify(p)) n++
-  for (const id of am.keys()) if (!bm.has(id)) n++
-  const ar = new Map((a.rows ?? []).map((r) => [r.id, r]))
-  const br = new Map((b.rows ?? []).map((r) => [r.id, r]))
-  for (const [id, r] of br) if (!ar.has(id) || JSON.stringify(ar.get(id)) !== JSON.stringify(r)) n++
-  for (const id of ar.keys()) if (!br.has(id)) n++
-  return n
-})
-
-function enterEdit(): void {
-  if (view.value === 'edit') return
-  editSnapshot.value = store.doc.value
-  view.value = 'edit'
-}
-/** 保存 = 确认改动并退出（刷新一次基线，万一还留在编辑态也不重复确认） */
-function saveEdit(): void {
-  editSnapshot.value = store.doc.value
-  view.value = 'workbench'
-}
-function cancelEdit(): void {
-  if (!editDirty.value) {
-    editSnapshot.value = null
-    view.value = 'workbench'
-    return
-  }
-  cancelAskOpen.value = true
-}
-function confirmCancelEdit(): void {
-  if (editSnapshot.value) store.restore(editSnapshot.value)
-  cancelAskOpen.value = false
-  editSnapshot.value = null
-  view.value = 'workbench'
-}
-function dismissCancelAsk(): void {
-  cancelAskOpen.value = false
-}
+const {
+  cancelAskOpen,
+  editDirty,
+  editChangeCount,
+  enterEdit,
+  saveEdit,
+  cancelEdit,
+  confirmCancelEdit,
+  dismissCancelAsk,
+} = useEditTransaction({ store, view })
 /**
  * 版面模板选择器。它会整体替换版面，但**不再单独加一层确认框** ——
  * 选择器本身就是"看着图挑一个"的界面，卡片上画的就是会换成什么样，
@@ -235,11 +196,15 @@ function detachCard(id: string): void {
   const p = store.doc.value.items.find((q) => q.id === id)
   const mod = store.reg.find((m) => m.id === id)
   const v = mod?.variants.find((x) => x.id === (p?.variant ?? mod?.defaultVariant)) ?? mod?.variants[0]
-  // 列宽与浏览态同口径：12 列等分舞台宽、列间 gap 从总宽里先扣掉
-  const colW = Math.max(40, (stageW.value - gap * (cols.value - 1)) / cols.value)
-  const w = (v?.idealW ?? 4) * (colW + gap) - gap
-  const h = (v?.idealH ?? 3) * (rowPx.value + gap)
-  void floatCard(id, Math.round(Math.max(240, w)), Math.round(Math.max(160, h)) + 24)
+  // 列宽与浏览态同口径（见 stageGeometry.ts）；几何在那边的纯函数里算。
+  // 注意 cols / rowPx 是 ref 而 gap 不是（useProjection 的解构就是这样的），照原样取值。
+  const { w, h } = detachGeometry(v, {
+    stageW: stageW.value,
+    cols: cols.value,
+    gap,
+    rowPx: rowPx.value,
+  })
+  void floatCard(id, w, h)
 }
 
 onMounted(() => {
@@ -315,17 +280,18 @@ const cmdCtx: CommandContext = {
     else if (name === 'edit') enterEdit()
   },
 }
-const commandBus: CommandBus = createCommandBus(cmdCtx)
-provide('commandBus', commandBus)
-
-/** 宿主拦截项：这些命令的实现在本组件（要编辑基线/要真实渲染高度），文案与可用性仍在命令表里 */
-commandBus.registerIntercept('edit.save', () => saveEdit())
-commandBus.registerIntercept('layout.fit', () => runArrange(fitContent))
-commandBus.registerIntercept('layout.compact', () => runArrange(compact))
-commandBus.registerIntercept('view.edit', () => enterEdit())
-commandBus.registerIntercept('view.workbench', () => {
-  if (view.value === 'edit') cancelEdit()
+// 宿主拦截项的装配在 `useAppCommands.ts`（拆分 ② 抽出）：只创建总线、不 provide ——
+// provide 是组件级动作，留在这儿，调用点才看得见"谁 provide 的"。
+const commandBus: CommandBus = useAppCommands(cmdCtx, {
+  saveEdit,
+  fitLayout: () => runArrange(fitContent),
+  compactLayout: () => runArrange(compact),
+  enterEdit,
+  leaveEdit: () => {
+    if (view.value === 'edit') cancelEdit()
+  },
 })
+provide('commandBus', commandBus)
 
 /** 面板里"跳到某张卡"：切到布局编辑并交给编辑器选中+滚动到视野 */
 function goCard(id: string): void {
@@ -337,45 +303,22 @@ function goCard(id: string): void {
 /** 收紧/紧凑要读真实渲染出来的卡片高度，编辑器里没有那张 .grid，所以只能在工作台用 */
 const onlyWorkbench = '回「工作台」可用：这一步要按真实渲染的卡片高度测量'
 
-const isEditable = (el: EventTarget | null): boolean => {
-  const n = el as HTMLElement | null
-  if (!n?.tagName) return false
-  return n.tagName === 'INPUT' || n.tagName === 'TEXTAREA' || n.isContentEditable
-}
-
-/** 撤销/重做是全局能力：整理、换模板这类动作也可能在工作台上做，不能只在编辑器里可撤销 */
-function onGlobalKey(e: KeyboardEvent) {
-  if (e.key === 'Escape') {
-    /** Esc 从最上面一层往下走：先关命令面板与确认框，再交编辑器自退（选中/批量条/目录下拉），
-     *  然后才是"取消这次编辑"，最后是各弹层。编辑器先吃 —— 它手里有比"取消整场编辑"
-     *  更局部的"退一步"（清选中），否则选了卡按 Esc 会直接弹放弃确认。 */
-    if (paletteOpen.value) paletteOpen.value = false
-    else if (cancelAskOpen.value) cancelAskOpen.value = false
-    else if (editorRef.value?.escapePressed()) {
-      /* 编辑器消费掉了（清选中/关目录下拉） */
-    } else if (view.value === 'edit') cancelEdit()
-    else if (arrangeOpen.value) arrangeOpen.value = false
-    else if (templatesOpen.value) closeTemplates()
-    else if (settingsOpen.value) settingsOpen.value = false
-  }
-  // Ctrl+K 是全局键：即使在输入框里也生效（这是"任何地方唤出"的语义）
-  if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') {
-    e.preventDefault()
-    paletteOpen.value = true
-    return
-  }
-  if (isEditable(e.target)) return
-  const k = e.key.toLowerCase()
-  // 撤销/重做也并入总线（可用性谓词与面板同源：面板里灰着的时候，键也按不动）
-  if ((e.ctrlKey || e.metaKey) && k === 'z') {
-    e.preventDefault()
-    if (e.shiftKey) redoLatest()
-    else undoLatest()
-  } else if ((e.ctrlKey || e.metaKey) && k === 'y') {
-    e.preventDefault()
-    redoLatest()
-  }
-}
+/** 全局键盘：Esc 七层级联 / Ctrl+K / Ctrl+Z（装配见 `useGlobalKeys.ts`，拆分 ② 抽出）。
+ *  本地原来那份 `isEditable` 与 `keyboard.ts` 的 `isEditableTarget` 是同一份逻辑写两遍，
+ *  随之删除（分步 ④ 提前完成）。 */
+const onGlobalKey = useGlobalKeys({
+  paletteOpen,
+  cancelAskOpen,
+  editorEscape: () => editorRef.value?.escapePressed() ?? false,
+  view,
+  arrangeOpen,
+  templatesOpen,
+  settingsOpen,
+  cancelEdit,
+  closeTemplates,
+  undo: undoLatest,
+  redo: redoLatest,
+})
 </script>
 
 <template>
