@@ -56,6 +56,13 @@ const api = async (path) => {
 /** 远端真实状态：tag → commit、release 是否不可变、每个资产的 sha256 */
 const collect = async () => {
   const releases = await api(`/repos/${REPO}/releases?per_page=100`)
+  // 2026-10-22：先分清"读不到"与"确实没有"。此前空数组会被逐条报成
+  // 「台账里有，但远端没有这个 release」（一次诬告 15 条），把真问题藏了。
+  if (!Array.isArray(releases) || releases.length === 0) {
+    throw new Error(
+      `GET /repos/${REPO}/releases 返回 ${Array.isArray(releases) ? '空数组' : typeof releases} —— 远端读不到，不当成"没有 release"`,
+    )
+  }
   const out = {}
   for (const r of releases) {
     if (!TAG_RE.test(r.tag_name)) continue
@@ -114,6 +121,8 @@ const rulesets = async () => {
 
 if (process.argv.includes('--update')) {
   const live = await collect()
+  // 一行常数级诊断：红了的时候能立刻分清"读到 0 个"与"读到了但逐条不符"。
+  console.error(`（远端读到 ${Object.keys(live).length} 个 v* release）`)
   // **必须保留 legacyUnsignedTags**：这个字段是人写的（签名机制启用前发布的那些 tag），
   // --update 只该刷新可以从远端读出来的部分。第一版忘了保留，结果更新一次台账就把白名单
   // 整个抹掉，下一次校验立刻把 8 个历史 tag 全报成「未签名」—— 自己给自己造了一条假红。
