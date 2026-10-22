@@ -49,6 +49,18 @@ immutable，不能替换），npm 包与网页版不受影响。
 
 单测 1560 → 1593 条（100 → 103 个文件）。
 
+### App.vue 拆分②：编辑事务 / 命令总线 / 全局键三个 composable
+
+970 行的 App.vue 再瘦一圈：三组「持有 ref + 副作用」的胶水各自成 composable，随拆分进受测层（分支地板按全量套件实测回填、锁满）：
+
+- `vue/useEditTransaction.ts`（分支 8/8）：快照 / 保存 / 取消 / 还原的状态机。钉住的口径包括「取消本身可撤销」（`store.restore` 压历史，undo 能把放弃的改动找回来，不会把历史撕开洞）与「保存刷新基线」。
+- `vue/useAppCommands.ts`（0/0，纯直线）：**只创建总线、不 provide**（provide 是组件级动作，留在 App.vue 调用点）。5 条宿主拦截（`edit.save` / `layout.fit` / `layout.compact` / `view.edit` / `view.workbench`）的接线逐条钉住，顺带钉了总线语义：`when` 先查、拦截优先于命令表 effect。
+- `vue/useGlobalKeys.ts`（18/18）：Esc 七层 + Ctrl+K / Ctrl+Z / Ctrl+Y 的装配。`editorEscape` 是 thunk——问到编辑器那层才问；输入控件里的撤销/重做放行。
+
+两件顺手清掉的：App.vue 里与 `keyboard.ts` 的 `isEditableTarget` 重复的本地 `isEditable` 删除（分步 ④ 提前完成）；`onGlobalKey` 的参数类型对齐 `KeyLike` 结构类型（单测不起 DOM，与 keyboard.test.ts 同思路）。
+
+单测 1593 → 1620 条（103 → 106 个文件）；JS 483.31 → 484.21 kB。
+
 ## 0.8.4（2026-10-22）—— 从工作台到值守面板：多实例、内容撤销、完整备份、提醒、迁移与网络单源
 
 ### 桌面壳里的股票卡现在能取到数了（CSP 漏了一个域名）

@@ -4,10 +4,11 @@ import { BellRing, History, LayoutGrid, LayoutTemplate, Redo2, Settings, Sliders
 import { useElementSize } from './vue/useElementSize'
 import { useProjection } from './vue/useProjection'
 import { measureWantedRows } from './vue/useDensity'
-import { appKeyIntent, isPaletteHotkey, isUndoHotkey, type AppKeyLayers } from './vue/keyboard'
 import { anyRedo, anyUndo, redoOrder, undoOrder, type UndoRoutingCaps } from './vue/undoRouting'
-import { countLayoutChanges, isEditDirty } from './vue/editTransaction'
 import { detachGeometry } from './vue/stageGeometry'
+import { useEditTransaction } from './vue/useEditTransaction'
+import { useAppCommands } from './vue/useAppCommands'
+import { useGlobalKeys } from './vue/useGlobalKeys'
 import * as E from '@levango7/engine'
 import type { LayoutStore } from './vue/store'
 import type { PersistentStorage } from './vue/fileStorage'
@@ -23,7 +24,7 @@ import { useSchemes } from './vue/useSchemes'
 import { isDesktop, useShell } from './vue/useShell'
 import { useDetached } from './vue/useDetached'
 import CommandPalette from './vue/components/CommandPalette.vue'
-import { createCommandBus, type CommandBus } from './vue/commandBus'
+import { type CommandBus } from './vue/commandBus'
 import type { CommandContext } from './vue/commands'
 import { floatCard, floatingSupported, unfloatCard } from './float/api'
 import GridLayout from './vue/components/GridLayout.vue'
@@ -140,53 +141,20 @@ function redoLatest(): void {
 }
 const settingsOpen = ref(false)
 /**
- * 编辑器事务（2026-10-12 用户口径：「工作台=用+微调，布局编辑=增删改」）。
- *
- * 进编辑器拍一张快照；「保存」= 确认改动并退出；「取消」= 有改动先问一句、确认才还原。
- * 编辑期间 Ctrl+Z 照常可用（历史是全局的），取消只是往历史里再压一步 —— `store.restore`
- * 复用 `apply`，所以"取消"本身也能被撤销（不会把历史撕开一个洞）。
- * 点「工作台」tab 与 Esc 都走同一条取消路径 —— 否则事务会被 tab 切换绕开。
+ * 编辑器事务（2026-10-12 用户口径：「工作台=用+微调，布局编辑=增删改」）——
+ * 实现在 `useEditTransaction.ts`（拆分 ② 抽出）。`view` 是共享状态，在这里创建、
+ * 传进去；事务只负责改它，不拥有它。
  */
-const editSnapshot = ref<E.LayoutDoc | null>(null)
-const cancelAskOpen = ref(false)
-const editDirty = computed(() => isEditDirty(editSnapshot.value, store.doc.value))
-/**
- * 「N 处改动」：按**版面差异**数（卡片增删改 + 行的增删改），不是按历史步数 ——
- * 拖一步再拖回来在历史上是两步、在版面差异上却是 0 处，而用户看的是版面。
- */
-const editChangeCount = computed(() => {
-  const a = editSnapshot.value
-  if (!a) return 0
-  return countLayoutChanges(a, store.doc.value)
-})
-
-function enterEdit(): void {
-  if (view.value === 'edit') return
-  editSnapshot.value = store.doc.value
-  view.value = 'edit'
-}
-/** 保存 = 确认改动并退出（刷新一次基线，万一还留在编辑态也不重复确认） */
-function saveEdit(): void {
-  editSnapshot.value = store.doc.value
-  view.value = 'workbench'
-}
-function cancelEdit(): void {
-  if (!editDirty.value) {
-    editSnapshot.value = null
-    view.value = 'workbench'
-    return
-  }
-  cancelAskOpen.value = true
-}
-function confirmCancelEdit(): void {
-  if (editSnapshot.value) store.restore(editSnapshot.value)
-  cancelAskOpen.value = false
-  editSnapshot.value = null
-  view.value = 'workbench'
-}
-function dismissCancelAsk(): void {
-  cancelAskOpen.value = false
-}
+const {
+  cancelAskOpen,
+  editDirty,
+  editChangeCount,
+  enterEdit,
+  saveEdit,
+  cancelEdit,
+  confirmCancelEdit,
+  dismissCancelAsk,
+} = useEditTransaction({ store, view })
 /**
  * 版面模板选择器。它会整体替换版面，但**不再单独加一层确认框** ——
  * 选择器本身就是"看着图挑一个"的界面，卡片上画的就是会换成什么样，
@@ -312,17 +280,18 @@ const cmdCtx: CommandContext = {
     else if (name === 'edit') enterEdit()
   },
 }
-const commandBus: CommandBus = createCommandBus(cmdCtx)
-provide('commandBus', commandBus)
-
-/** 宿主拦截项：这些命令的实现在本组件（要编辑基线/要真实渲染高度），文案与可用性仍在命令表里 */
-commandBus.registerIntercept('edit.save', () => saveEdit())
-commandBus.registerIntercept('layout.fit', () => runArrange(fitContent))
-commandBus.registerIntercept('layout.compact', () => runArrange(compact))
-commandBus.registerIntercept('view.edit', () => enterEdit())
-commandBus.registerIntercept('view.workbench', () => {
-  if (view.value === 'edit') cancelEdit()
+// 宿主拦截项的装配在 `useAppCommands.ts`（拆分 ② 抽出）：只创建总线、不 provide ——
+// provide 是组件级动作，留在这儿，调用点才看得见"谁 provide 的"。
+const commandBus: CommandBus = useAppCommands(cmdCtx, {
+  saveEdit,
+  fitLayout: () => runArrange(fitContent),
+  compactLayout: () => runArrange(compact),
+  enterEdit,
+  leaveEdit: () => {
+    if (view.value === 'edit') cancelEdit()
+  },
 })
+provide('commandBus', commandBus)
 
 /** 面板里"跳到某张卡"：切到布局编辑并交给编辑器选中+滚动到视野 */
 function goCard(id: string): void {
@@ -334,52 +303,22 @@ function goCard(id: string): void {
 /** 收紧/紧凑要读真实渲染出来的卡片高度，编辑器里没有那张 .grid，所以只能在工作台用 */
 const onlyWorkbench = '回「工作台」可用：这一步要按真实渲染的卡片高度测量'
 
-const isEditable = (el: EventTarget | null): boolean => {
-  const n = el as HTMLElement | null
-  if (!n?.tagName) return false
-  return n.tagName === 'INPUT' || n.tagName === 'TEXTAREA' || n.isContentEditable
-}
-
-/** 撤销/重做是全局能力：整理、换模板这类动作也可能在工作台上做，不能只在编辑器里可撤销 */
-function onGlobalKey(e: KeyboardEvent) {
-  if (e.key === 'Escape') {
-    /** Esc 从最上面一层往下走：顺序定在 `keyboard.ts` 的 `appKeyIntent`（七层 + 编辑器先吃）。
-     *  `editorEscape` 是 thunk 而不是布尔值 —— 问编辑器"这层还有没有可退的"必须发生在
-     *  走到这一层的时候，早问会把编辑器本来能吃掉的 Esc 提前判死。 */
-    const layers: AppKeyLayers = {
-      paletteOpen: paletteOpen.value,
-      cancelAskOpen: cancelAskOpen.value,
-      editorEscape: () => editorRef.value?.escapePressed() ?? false,
-      view: view.value,
-      arrangeOpen: arrangeOpen.value,
-      templatesOpen: templatesOpen.value,
-      settingsOpen: settingsOpen.value,
-    }
-    switch (appKeyIntent(e, layers)?.kind) {
-      case 'closePalette': paletteOpen.value = false; break
-      case 'closeCancelAsk': cancelAskOpen.value = false; break
-      case 'editorEscape': break // 编辑器消费掉了（清选中/关目录下拉）
-      case 'cancelEdit': cancelEdit(); break
-      case 'closeArrange': arrangeOpen.value = false; break
-      case 'closeTemplates': closeTemplates(); break
-      case 'closeSettings': settingsOpen.value = false; break
-      default: break // 级联走到底也没人接
-    }
-  }
-  // Ctrl+K 是全局键：即使在输入框里也生效（这是"任何地方唤出"的语义）
-  if (isPaletteHotkey(e)) {
-    e.preventDefault()
-    paletteOpen.value = true
-    return
-  }
-  if (isEditable(e.target)) return
-  const undo = isUndoHotkey(e)
-  if (undo) {
-    e.preventDefault()
-    if (undo === 'redo') redoLatest()
-    else undoLatest()
-  }
-}
+/** 全局键盘：Esc 七层级联 / Ctrl+K / Ctrl+Z（装配见 `useGlobalKeys.ts`，拆分 ② 抽出）。
+ *  本地原来那份 `isEditable` 与 `keyboard.ts` 的 `isEditableTarget` 是同一份逻辑写两遍，
+ *  随之删除（分步 ④ 提前完成）。 */
+const onGlobalKey = useGlobalKeys({
+  paletteOpen,
+  cancelAskOpen,
+  editorEscape: () => editorRef.value?.escapePressed() ?? false,
+  view,
+  arrangeOpen,
+  templatesOpen,
+  settingsOpen,
+  cancelEdit,
+  closeTemplates,
+  undo: undoLatest,
+  redo: redoLatest,
+})
 </script>
 
 <template>
