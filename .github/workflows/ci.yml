@@ -45,7 +45,6 @@ jobs:
     # releases 列表偶发读到空数组，门禁把"读不到"误报成"15 个 release 全没了"。
     permissions:
       contents: read
-      administration: read
     env:
       CHROME_PATH: /usr/bin/google-chrome
     steps:
