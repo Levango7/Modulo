@@ -76,6 +76,11 @@ const GATED_VUE_MODULES = [
   'src/vue/undoRouting.ts',
   'src/vue/editTransaction.ts',
   'src/vue/stageGeometry.ts',
+  // App.vue 拆分②（2026-10-23）：三个 composable。纳入判据同 chord/keyboard ——
+  // 判定逻辑能用 ref + spy + 假 ctx 驱动，不开浏览器也能断言。
+  'src/vue/useEditTransaction.ts',
+  'src/vue/useAppCommands.ts',
+  'src/vue/useGlobalKeys.ts',
 ]
 
 /** 仓库内按源码解析引擎包（与 vite.config.ts 同一条约定） */
@@ -105,7 +110,7 @@ export default defineConfig({
         // 聚合值上完全看不出来。75 不是拍的，是 2026-10-13 实测的最低值。
         'packages/engine/src/**/*.ts': { perFile: { branches: 75 } },
 
-        // ── 逐文件棘轮：23 个受单测门禁的 src/vue 模块（其中 14 个锁 100）──────────
+        // ── 逐文件棘轮：26 个受单测门禁的 src/vue 模块（其中 17 个锁 100）──────────
         // chord / keyboard 锁 100 才是那句话的本意：加一条没测到的分支，当场红。
         'src/vue/appearance.ts': { branches: 95 },
         // backup.ts 原地板 95。P0-③（2026-10-20）把恢复改成整份回填、格式升 v2 并加了设置段清洗，
@@ -148,6 +153,15 @@ export default defineConfig({
         'src/vue/undoRouting.ts': { branches: 100 },
         'src/vue/editTransaction.ts': { branches: 100 },
         'src/vue/stageGeometry.ts': { branches: 100 },
+        // App.vue 拆分②（2026-10-23）：三个 composable，26 条断言，全量套件实测回填：
+        //   useEditTransaction 8/8 —— 快照/保存/取消/还原状态机全钉住，含"快照已清"
+        //                   时确认取消的防御路径（界面到不了、composable 层可达，不演戏）；
+        //   useAppCommands    0/0 —— 纯直线（建总线 + 注册 5 条拦截），没有分支可测。
+        //                   锁 100 的语义是"保持无未测分支"：以后加 if 而没测当场红；
+        //   useGlobalKeys     18/18 —— Esc 七层透传 / 快捷键四种形状 / 输入控件放行。
+        'src/vue/useEditTransaction.ts': { branches: 100 },
+        'src/vue/useAppCommands.ts': { branches: 100 },
+        'src/vue/useGlobalKeys.ts': { branches: 100 },
         // store.ts 是这张表存在的头号理由：82.22% 而 CI 绿了很久。
         'src/vue/store.ts': { branches: 82 },
         // 更新检查（2026-10-21）：161 行此前**零测试且不在受测层** —— 与 useWeather 同一种理由
