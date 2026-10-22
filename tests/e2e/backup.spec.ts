@@ -33,6 +33,10 @@ beforeAll(() => {
   url = process.env.MODULO_URL ?? url
 })
 const STUB_SOURCE = readFileSync(resolve(__dirname, 'tauri-stub.js'), 'utf8')
+/** 版本号**不写死**：从 package.json 读。写死时每次切版这条都会红（0.8.5 实测）。 */
+const APP_VERSION = (JSON.parse(readFileSync(resolve(__dirname, '../../package.json'), 'utf8')) as { version: string }).version
+/** 拼进正则时要把点转义 */
+const V_ESC = APP_VERSION.split('.').join('\\.')
 
 /** 只上一张卡：模块数在确认块里要被断言，种死版面才能对得上 */
 const DOC = {
@@ -175,7 +179,7 @@ describe.skipIf(skip)('F-04 自动备份：设置面板链（Tauri 桩，桌面�
     const idx0 = await readIndex(page)
     expect(idx0, '没有备份时启动只建一份').toHaveLength(1)
     expect(idx0[0].reason, '启动建的是手动基线').toBe('manual')
-    expect(idx0[0].app, '基线记下当时的应用版本').toBe('0.8.4')
+    expect(idx0[0].app, '基线记下当时的应用版本').toBe(APP_VERSION)
 
     await openSettings(page)
     // 全程没有点过「刷新列表」。P0-③ 修的就是"面板不在挂载时刷新"：旧行为下这里
@@ -183,7 +187,7 @@ describe.skipIf(skip)('F-04 自动备份：设置面板链（Tauri 桩，桌面�
     await page.waitForSelector('.auto-list li', { timeout: 10000 })
     const items = await listItems(page)
     expect(items, '挂载即刷新：面板一开就有').toHaveLength(1)
-    expect(items[0], '列出时间 / 触发原因 / 大小 / 应用版本').toMatch(/手动\s*·\s*\d+ KB\s*·\s*Modulo 0\.8\.4/)
+    expect(items[0], '列出时间 / 触发原因 / 大小 / 应用版本').toMatch(new RegExp(`手动\\s*·\\s*\\d+ KB\\s*·\\s*Modulo ${V_ESC}`))
     expect(
       await page.evaluate(() => !!document.querySelector('.auto-list')),
       '渲染的是列表而不是「还没有自动备份」空态',
@@ -204,7 +208,7 @@ describe.skipIf(skip)('F-04 自动备份：设置面板链（Tauri 桩，桌面�
 
     const items = await listItems(page)
     expect(items, '立即备份后列表多一条').toHaveLength(2)
-    for (const t of items) expect(t, '每条都带原因 / 大小 / 版本').toMatch(/手动\s*·\s*\d+ KB\s*·\s*Modulo 0\.8\.4/)
+    for (const t of items) expect(t, '每条都带原因 / 大小 / 版本').toMatch(new RegExp(`手动\\s*·\\s*\\d+ KB\\s*·\\s*Modulo ${V_ESC}`))
 
     const idx = await readIndex(page)
     expect(idx.map((m) => m.reason), '两份都是手动触发').toEqual(['manual', 'manual'])
@@ -214,7 +218,7 @@ describe.skipIf(skip)('F-04 自动备份：设置面板链（Tauri 桩，桌面�
       expect(raw, `槽 ${slot} 有内容`).not.toBeNull()
       expect(JSON.parse(raw ?? '{}') as { kind?: string; app?: string }).toMatchObject({
         kind: 'modulo.backup',
-        app: '0.8.4',
+        app: APP_VERSION,
       })
     }
     // 写经过了 Tauri IPC（write_doc），不只是改了内存镜像 —— 重启读不读得到取决于这一步
@@ -257,7 +261,7 @@ describe.skipIf(skip)('F-04 自动备份：设置面板链（Tauri 桩，桌面�
     expect(facts).toContain('有便签正文')
     expect(facts).toContain('设过倒数日')
     expect(facts).toContain('0 套版面方案')
-    expect(facts, '来历：哪一版导出的').toContain('Modulo 0.8.4')
+    expect(facts, '来历：哪一版导出的').toContain(`Modulo ${APP_VERSION}`)
     expect(facts, '来历：备份格式版本').toContain('备份格式 v2')
 
     await clickText(page, '.confirm', '确认恢复')
@@ -350,14 +354,14 @@ describe.skipIf(skip)('F-04 自动备份：设置面板链（Tauri 桩，桌面�
     // 种一条"索引在、槽不在"的记录（槽被清理过）：slot 5 从不写内容。
     // at 取当前时刻、版本与当前一致：启动判定应当是"不动作"，列表里只有这一条。
     const seeded = JSON.stringify([
-      { slot: 5, at: new Date().toISOString(), reason: 'daily', app: '0.8.4', version: 2, bytes: 2048 },
+      { slot: 5, at: new Date().toISOString(), reason: 'daily', app: APP_VERSION, version: 2, bytes: 2048 },
     ])
     const page = await freshPage({ cardData: JSON.stringify(CARD_DATA), autoIndex: seeded }, errs)
 
     await openSettings(page)
     const items = await listItems(page)
     expect(items, '已有 24h 内的同版本备份 → 启动不新建').toHaveLength(1)
-    expect(items[0], '索引里的记录如实列出').toMatch(/每日\s*·\s*2 KB\s*·\s*Modulo 0\.8\.4/)
+    expect(items[0], '索引里的记录如实列出').toMatch(new RegExp(`每日\\s*·\\s*2 KB\\s*·\\s*Modulo ${V_ESC}`))
 
     const cardBefore = await disk(page, 'modulo.carddata.v1')
     const idxBefore = await readIndex(page)
