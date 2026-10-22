@@ -40,6 +40,12 @@ jobs:
   verify:
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    # 2026-10-22：显式声明 —— 发布点门禁要读 releases / rulesets；
+    # 此前 job 没声明，靠仓库默认（read）兜着，叠加到 push 上下文时
+    # releases 列表偶发读到空数组，门禁把"读不到"误报成"15 个 release 全没了"。
+    permissions:
+      contents: read
+      administration: read
     env:
       CHROME_PATH: /usr/bin/google-chrome
     steps:
