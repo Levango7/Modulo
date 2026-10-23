@@ -61,3 +61,12 @@ export async function sendSystemNotifications(items: readonly NotifyItem[], opts
     return false
   }
 }
+
+/**
+ * 系统通知的总门（2026-10-24 从 `App.vue` 的 `deliver` 回调抽出）：**桌面壳**且
+ * **设置里开着**才发。应用内横幅不受它管 —— 通知坏了不该让提醒本身也消失，
+ * 这个函数就是那道"坏了也不反噬"的第一道闸。
+ */
+export function shouldSendSystemNotification(isDesktop: boolean, systemNotifications: boolean): boolean {
+  return isDesktop && systemNotifications
+}
