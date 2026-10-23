@@ -362,7 +362,6 @@ const onGlobalKey = useGlobalKeys({
       :arrange-open="arrangeOpen"
       :has-rows="!!store.doc.value.rows?.length"
       :only-workbench="onlyWorkbench"
-      :store-can-undo="store.canUndo.value"
       @select-view="onSelectView"
       @enter-edit="enterEdit"
       @cancel-edit="cancelEdit"
