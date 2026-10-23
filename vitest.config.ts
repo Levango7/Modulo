@@ -81,6 +81,10 @@ const GATED_VUE_MODULES = [
   'src/vue/useEditTransaction.ts',
   'src/vue/useAppCommands.ts',
   'src/vue/useGlobalKeys.ts',
+  // App.vue 拆分③（2026-10-23）：顶栏搬进 AppToolbar.vue 后，「排布」这一项变成
+  // 「顶栏发名字 → App 按名字取执行体」的跨文件映射，写成纯查表才能断言
+  // （收紧与行重排在 E2E 里没人点，这五条是它们唯一的钉子）。
+  'src/vue/arrangeActions.ts',
 ]
 
 /** 仓库内按源码解析引擎包（与 vite.config.ts 同一条约定） */
@@ -110,7 +114,7 @@ export default defineConfig({
         // 聚合值上完全看不出来。75 不是拍的，是 2026-10-13 实测的最低值。
         'packages/engine/src/**/*.ts': { perFile: { branches: 75 } },
 
-        // ── 逐文件棘轮：26 个受单测门禁的 src/vue 模块（其中 17 个锁 100）──────────
+        // ── 逐文件棘轮：27 个受单测门禁的 src/vue 模块（其中 18 个锁 100）──────────
         // chord / keyboard 锁 100 才是那句话的本意：加一条没测到的分支，当场红。
         'src/vue/appearance.ts': { branches: 95 },
         // backup.ts 原地板 95。P0-③（2026-10-20）把恢复改成整份回填、格式升 v2 并加了设置段清洗，
@@ -162,6 +166,10 @@ export default defineConfig({
         'src/vue/useEditTransaction.ts': { branches: 100 },
         'src/vue/useAppCommands.ts': { branches: 100 },
         'src/vue/useGlobalKeys.ts': { branches: 100 },
+        // App.vue 拆分③（2026-10-23）：排布动作名 → 执行体的查表。纯属性访问，
+        // 0/0 分支（同 useAppCommands），锁 100 的语义是"保持无未测分支" ——
+        // 以后这里长出 if/兜底而没测，当场红。五个名字各有一条例证（7 条断言）。
+        'src/vue/arrangeActions.ts': { branches: 100 },
         // store.ts 是这张表存在的头号理由：82.22% 而 CI 绿了很久。
         'src/vue/store.ts': { branches: 82 },
         // 更新检查（2026-10-21）：161 行此前**零测试且不在受测层** —— 与 useWeather 同一种理由
