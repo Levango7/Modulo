@@ -1,8 +1,8 @@
 <script setup lang="ts">
 /**
- * 顶栏（App.vue 拆分 ③ 抽出）。
+ * 顶栏（App.vue 拆分 ③ 抽出，⑤ 收尾）。
  *
- * **纯展示 + 转发**：这一块 97 行模板里没有任何自己的状态，读的都是 App 的 ref、
+ * **纯展示 + 转发**：这一块 100 行模板里没有任何自己的状态，读的都是 App 的 ref、
  * 写的都通过 emit 回 App。抽它的理由是 App.vue 的第三个关注点（顶栏装配）——
  * 连同它的 scoped 样式一起搬，App 才能从 913 行继续往下瘦。
  *
@@ -14,6 +14,13 @@
  * 排布下拉的外部点击关闭（原来在 App.vue 的 onDocMousedown 里拿 arrangeWrap ref 做
  * contains 判断）改为在 App 侧用 `closest('.add-wrap')` —— ref 搬不过来，而
  * closest 从 target 自身开始匹配，与 contains 语义一致，渲染输出不变。
+ *
+ * **⑤（2026-10-23）已清掉「整理」那枚 menuitem 上的死表达式**
+ * `:disabled="!store.canUndo.value && false"`：它恒为 false，「整理」从来就是恒可用的。
+ * 只删绑定（连同只为它而存在的 `storeCanUndo` prop），**没有改成 `!canUndo`** ——
+ * 那会把「整理」从恒可用变成"没历史就点不动"，是行为变更而不是清理。
+ * 渲染上没有任何变化：Vue 对 `:disabled="false"` 本来就不输出属性，
+ * 删掉绑定与保留恒假的绑定，产出的是同一份 HTML。
  */
 import { LayoutGrid, LayoutTemplate, Redo2, Settings, SlidersHorizontal, Undo2, Wand2, Check, ChevronDown, X } from 'lucide-vue-next'
 import BrandMark from './BrandMark.vue'
@@ -33,9 +40,6 @@ const props = defineProps<{
   hasRows: boolean
   /** 「回工作台可用」提示文案（App 的常量，顶栏只是展示） */
   onlyWorkbench: string
-  /** 仅供 L434 那个死表达式读取（`:disabled="!store.canUndo.value && false"`，
-   *  分步 ⑤ 单独 commit 清掉它 —— 那一步只删绑定，绝不改成 !canUndo） */
-  storeCanUndo: boolean
 }>()
 
 const emit = defineEmits<{
@@ -102,7 +106,6 @@ const emit = defineEmits<{
           <div v-if="arrangeOpen" class="add-menu arrange-menu" role="menu" aria-label="重排版面">
             <button
               role="menuitem"
-              :disabled="!storeCanUndo && false"
               title="聚拢空洞（可撤销）"
               @click="emit('arrange', 'tidy')"
             >
