@@ -1,10 +1,10 @@
 <script setup lang="ts">
-import { computed, inject, nextTick, onBeforeUnmount, onMounted, provide, ref } from 'vue'
+import { inject, nextTick, onBeforeUnmount, onMounted, provide, ref } from 'vue'
 import { BellRing, History, TriangleAlert } from 'lucide-vue-next'
 import { useElementSize } from './vue/useElementSize'
 import { useProjection } from './vue/useProjection'
 import { measureWantedRows } from './vue/useDensity'
-import { anyRedo, anyUndo, redoOrder, undoOrder, type UndoRoutingCaps } from './vue/undoRouting'
+import { useUndoRedo } from './vue/useUndoRedo'
 import { detachGeometry, resolveDetachVariant } from './vue/stageGeometry'
 import { useEditTransaction } from './vue/useEditTransaction'
 import { useAppCommands } from './vue/useAppCommands'
@@ -91,58 +91,16 @@ provide('reminders', reminders)
 const view = ref<'workbench' | 'edit'>('workbench')
 
 /**
- * 撤销/重做的路由（2026-10-20）。版面与内容各有一份历史：
+ * 撤销/重做（2026-10-20 起，2026-10-24 Cut B 抽成 `useUndoRedo.ts`）：版面与内容各有一份历史，
  *  - 编辑态：只在改版面 ⇒ 永远撤版面（与之前行为一致）；
  *  - 工作台态：谁更近撤谁（内容改动通常更近），平手时内容优先；选中的那边没得撤就退到另一边。
  * 两个栈不合并时间线 —— 只比"最近一次改动"，比共享一条历史容易解释得多。
  */
-const lastUndoKind = ref<'layout' | 'content'>('layout')
-/** 路由所需的输入（全是值）；撤销/重做按钮的可用态与顺序都从它算 */
-const routingCaps = computed<UndoRoutingCaps>(() => ({
-  layoutCanUndo: store.canUndo.value,
-  contentCanUndo: contentHistory.canUndo.value,
-  layoutCanRedo: store.canRedo.value,
-  contentCanRedo: contentHistory.canRedo.value,
-  layoutLastAt: store.lastAt.value,
-  contentLastAt: contentHistory.lastAt.value,
-}))
-const canUndoAny = computed(() => anyUndo(routingCaps.value))
-const canRedoAny = computed(() => anyRedo(routingCaps.value))
-/** 顺序由 `undoRouting.ts` 定（编辑态永远撤版面；工作台态谁更近撤谁）；这里只负责执行 */
-function undoLatest(): void {
-  for (const kind of undoOrder({ view: view.value, lastUndoKind: lastUndoKind.value }, routingCaps.value)) {
-    if (kind === 'content') {
-      if (contentHistory.undo()) {
-        lastUndoKind.value = 'content'
-        return
-      }
-    } else if (view.value === 'edit' || store.canUndo.value) {
-      // 编辑态恒撤版面，且**不查 canUndo** —— 与拆分前逐字一致：原代码编辑态分支是
-      // 无条件 store.undo()。引擎对空栈是 no-op（history.ts: `if (!prev) return h`），
-      // 所以差别只剩 lastUndoKind 的赋值照旧发生，而它决定之后重做的偏好，不能丢。
-      // 工作台态才查 canUndo：选中的那边没得撤就退到另一边。
-      store.undo()
-      lastUndoKind.value = 'layout'
-      return
-    }
-  }
-}
-function redoLatest(): void {
-  for (const kind of redoOrder({ view: view.value, lastUndoKind: lastUndoKind.value }, routingCaps.value)) {
-    if (kind === 'content') {
-      if (contentHistory.canRedo.value) {
-        contentHistory.redo()
-        lastUndoKind.value = 'content'
-        return
-      }
-    } else if (view.value === 'edit' || store.canRedo.value) {
-      // 同 undoLatest：编辑态无条件重做版面（含空转），保住 lastUndoKind 赋值
-      store.redo()
-      lastUndoKind.value = 'layout'
-      return
-    }
-  }
-}
+const { canUndoAny, canRedoAny, undoLatest, redoLatest } = useUndoRedo({
+  layout: store,
+  content: contentHistory,
+  view,
+})
 const settingsOpen = ref(false)
 /** 顶栏视图切换：edit 态点「工作台」走取消事务（与 Esc / tab 同一条路），否则直接切 */
 function onSelectView(v: 'workbench' | 'edit'): void {
