@@ -9,6 +9,26 @@
 > 留着它会让读者以为有没发出去的改动。**版本摘要一律以 `## x.y.z` 段为准**，
 > 「批次」段保留是因为每批的实现取舍写得比版本摘要细。
 
+## 未发布
+
+### 卸载器不再删除用户数据（交互升级的误删路径收口）
+
+Tauri 的 NSIS 卸载确认页有一颗「删除应用程序数据」勾选框，勾上会在卸载时删掉
+`%APPDATA%\app.modulo`（版面、卡片内容、提醒设置）以及 `HKCU\Software\Modulo\Modulo`。
+**双击安装包升级**会先走「卸载旧版本」分支（默认单选就是它），用户顺手勾上就丢数据 ——
+2026-10-23 在本机两次实测撞到这条路径，靠事先的整目录备份才逐字节还原。
+
+- 新增 `src-tauri/nsis/hooks.nsh`，用 `NSIS_HOOK_PREUNINSTALL` 在卸载段**所有删除动作之前**
+  把 `$DeleteAppDataCheckboxState` 清零（模板把该宏插在 `Section Uninstall` 第一行）。
+  卸载器从此只删程序、不动用户数据；要清数据请手动删 `%APPDATA%\app.modulo`。
+- `bundle.windows.nsis.installerHooks` 接到这份钩子（不改模板，tauri-cli 升级不会让它静默失效）。
+- desktop job 新增**编译级自检**：用 runner 自带的 makensis 把 `hook-selftest.nsi` 编成小安装器，
+  复刻模板判据跑两遍 —— 反例（不调钩子）必须 `DELETE`、正例（过钩子）必须 `KEEP`，缺 makensis 直接红。
+  只断言文本存在是死断言；这条验的是宏语义，且自带反例证明判据有射程。
+- 单测 `tests/release/nsis-hooks.test.ts` 锁配置、宏形状与自检接线。
+- 静默 `/S` 与应用内更新的 `/P` 两条路径本来就跳过确认页（实测升级前后数据逐字节一致），
+  这次堵的是唯一会删数据的交互路径。
+
 ## 0.8.5（2026-10-23）—— 安装包修复：4 个 sherpa DLL 打进包，装完能起来
 
 ### 安装包不再缺 DLL —— v0.8.4 的致命缺陷（本机探针抓到）

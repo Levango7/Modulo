@@ -201,6 +201,46 @@ jobs:
             Copy-Item (Join-Path $env:SHERPA_ONNX_LIB_DIR $n) (Join-Path $dst $n) -Force
           }
           Get-ChildItem $dst | Select-Object Name, Length
+      # 卸载器不删用户数据：用 runner 自带的 NSIS 真编一个小安装器，复刻模板判据跑两遍
+      # （反例必须 DELETE、过钩子必须 KEEP）。只查文本存在是死断言，这条验的是宏语义。
+      - name: NSIS 卸载钩子自检（宏真的会清「删数据」状态）
+        shell: pwsh
+        run: |
+          # runner 镜像文档写着装了 NSIS 3.10，但落点不一定是 Program Files（可能只有 choco shim）。
+          # 先查 PATH，再查两个常见目录，最后用 choco 装一次兜底 —— 都拿不到就红，不许空跑。
+          $findMk = {
+            $cmd = Get-Command makensis -ErrorAction SilentlyContinue
+            if ($cmd) { return $cmd.Source }
+            $cand = @(
+              (Join-Path ${env:ProgramFiles(x86)} 'NSIS\makensis.exe'),
+              (Join-Path $env:ProgramFiles 'NSIS\makensis.exe')
+            )
+            foreach ($p in $cand) { if (Test-Path $p) { return $p } }
+            return $null
+          }
+          $mk = & $findMk
+          if (-not $mk) {
+            Write-Output 'PATH 与常见目录都没有 makensis，尝试 choco install nsis …'
+            choco install nsis -y --no-progress | Out-Null
+            $mk = & $findMk
+          }
+          if (-not $mk) { Write-Error 'runner 上没有 makensis（拿不到编译器就拒绝空跑）'; exit 1 }
+          Write-Output "makensis = $mk"
+          & $mk /VERSION
+          Push-Location src-tauri/nsis
+          & $mk /V1 hook-selftest.nsi
+          if ($LASTEXITCODE -ne 0) { Write-Error "makensis 编译自检失败（退出码 $LASTEXITCODE）"; exit 1 }
+          $verdict = Join-Path $env:TEMP 'modulo-hook-selftest.txt'
+          Remove-Item $verdict -Force -ErrorAction SilentlyContinue
+          & (Join-Path $PWD 'hook-selftest.exe')
+          if ($LASTEXITCODE -ne 0) { Write-Error "自检 exe 退出码 $LASTEXITCODE"; exit 1 }
+          for ($i = 0; $i -lt 20 -and -not (Test-Path $verdict); $i++) { Start-Sleep -Milliseconds 200 }
+          if (-not (Test-Path $verdict)) { Write-Error '自检没有写出结论文件'; exit 1 }
+          $text = Get-Content $verdict -Raw
+          Pop-Location
+          if ($text -notmatch 'withoutHook=DELETE') { Write-Error "反例没有生效（$text）—— 判据没有射程"; exit 1 }
+          if ($text -notmatch 'withHook=KEEP') { Write-Error "钩子没有生效（$text）—— 卸载器仍会删用户数据"; exit 1 }
+          "钩子自检通过：$text"
       - name: 格式检查
         working-directory: src-tauri
         run: cargo fmt --check

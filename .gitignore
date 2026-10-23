@@ -38,3 +38,6 @@ tmp-*
 
 # 视觉回归探针输出（tests/e2e/visual-kit/probe.mjs 与 spec 的 dumpReport）
 _probe/
+
+# NSIS 卸载钩子的 CI 自检产物（makensis 编译输出，不入库）
+src-tauri/nsis/hook-selftest.exe
