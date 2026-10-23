@@ -35,6 +35,11 @@
     "active": true,
     "targets": ["nsis"],
     "createUpdaterArtifacts": true,
+    "windows": {
+      "nsis": {
+        "installerHooks": "nsis/hooks.nsh"
+      }
+    },
     "resources": {
       "sherpa-dlls/sherpa-onnx-c-api.dll": "sherpa-onnx-c-api.dll",
       "sherpa-dlls/sherpa-onnx-cxx-api.dll": "sherpa-onnx-cxx-api.dll",
