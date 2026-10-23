@@ -9,6 +9,8 @@
  * 拆出来时逐字保留原表达式，别"顺手整理"成 round(h + 24)，那会改变进位）。
  */
 
+import type { ModuleDef, Placement, VariantDef } from '@levango7/engine'
+
 export interface DetachGeometryInput {
   /** 该卡当前形态的理想格数（缺失时按 4×3 兜底，与拆分前一致） */
   idealW?: number
@@ -28,4 +30,26 @@ export function detachGeometry(v: DetachGeometryInput | undefined, g: StageGeome
   const w = (v?.idealW ?? 4) * (colW + g.gap) - g.gap
   const h = (v?.idealH ?? 3) * (g.rowPx + g.gap)
   return { w: Math.round(Math.max(240, w)), h: Math.round(Math.max(160, h)) + 24 }
+}
+
+/**
+ * 脱离浮窗前，按实例 id 找出该卡**当前形态**的定义（App.vue `detachCard` 里那两行
+ * 查找的纯函数化）：版面里按 id 找条目 → 注册表里按 id 找模块 → 在模块的形态里
+ * 找条目上记的那个（条目没记形态时用模块的默认形态），找不到退回第一个形态。
+ *
+ * **已知缺陷（逐字保留，未修）**：注册表查找用的是 `m.id === id`（条目/实例 id），
+ * 而多实例下第二个实例的 id 是 `模块:2`（见 `Placement.id` 的注释；`Placement.module`
+ * 那条写着"必须走 `moduleIdOf(p)`、不要直接拿 `p.id` 查注册表"）——
+ * 查不到模块 ⇒ 形态兜底 4×3，窗口尺寸按默认算而不是按这张卡的真实理想尺寸。
+ * 正确写法是 `E.moduleIdOf(p)`。本笔是纯搬运，不改行为；缺陷已登记在协调板上，
+ * 单独一笔修（连测试一起改）。
+ */
+export function resolveDetachVariant(
+  items: readonly Placement[],
+  reg: readonly ModuleDef[],
+  id: string,
+): VariantDef | undefined {
+  const p = items.find((q) => q.id === id)
+  const mod = reg.find((m) => m.id === id)
+  return mod?.variants.find((x) => x.id === (p?.variant ?? mod?.defaultVariant)) ?? mod?.variants[0]
 }

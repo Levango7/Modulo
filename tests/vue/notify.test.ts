@@ -5,7 +5,7 @@
  * 一律返回 false，让应用内横幅仍然是那条提醒的兜底。真机 Toast 由桌面验收，不在单测射程内。
  */
 import { describe, expect, it, vi } from 'vitest'
-import { sendSystemNotifications, type NotifyPlugin } from '../../src/vue/notify'
+import { sendSystemNotifications, shouldSendSystemNotification, type NotifyPlugin } from '../../src/vue/notify'
 
 const item = { key: 'countdown:2026-10-21', title: '今天是「发布」', body: '倒数到站了。' }
 
@@ -81,5 +81,16 @@ describe('sendSystemNotifications', () => {
 
     const broken = { ...fakePlugin().plugin, isPermissionGranted: async () => Promise.reject(new Error('ipc')) }
     expect(await sendSystemNotifications([item], { load: async () => broken })).toBe(false)
+  })
+})
+
+describe('shouldSendSystemNotification', () => {
+  it.each([
+    [true, true, true],
+    [true, false, false],
+    [false, true, false],
+    [false, false, false],
+  ])('isDesktop=%s 且开关=%s → %s', (isDesktop, on, expected) => {
+    expect(shouldSendSystemNotification(isDesktop, on)).toBe(expected)
   })
 })

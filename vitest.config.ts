@@ -60,6 +60,10 @@ const GATED_VUE_MODULES = [
   'src/vue/keyboard.ts',
   'src/vue/meetings.ts',
   'src/vue/minutesLive.ts',
+  // App.vue 拆分 Cut A（2026-10-24）：外点关闭判定 / 「打开界面」查表。两处判定原来长在
+  // App.vue 里、只有 E2E 兜底；都满足「不开浏览器也能断言」的纳入判据（见各文件头注释）。
+  'src/vue/openUI.ts',
+  'src/vue/outsideClick.ts',
   'src/vue/paletteIndex.ts',
   // 提醒（P0-④ 阶段 1，2026-10-21）：判定层是纯函数（注入 now），胶水层可用 memoryStorage 驱动，
   // 都满足"不开浏览器也能断言"这条纳入判据。
@@ -153,10 +157,23 @@ export default defineConfig({
         //   editTransaction 18/18 —— 注意 `a.rows ?? []` 的兜底是**真实分支**不是防御：
         //                   LayoutDoc.rows 是可选加法字段（types.ts：旧档缺键按空表处理），
         //                   已补"旧档缺 rows 键"三条断言钉住。
-        //   stageGeometry   4/4  —— 三处下限（列宽 40 / 宽 240 / 高 160）表驱动全覆盖。
+        //   stageGeometry   8/8  —— 三处下限（列宽 40 / 宽 240 / 高 160）表驱动全覆盖；
+        //                   Cut A（2026-10-24）追加 resolveDetachVariant 兜底链 6 条后仍 8/8。
         'src/vue/undoRouting.ts': { branches: 100 },
         'src/vue/editTransaction.ts': { branches: 100 },
         'src/vue/stageGeometry.ts': { branches: 100 },
+        // App.vue 拆分 Cut A（2026-10-24）：四处「不开浏览器就能断言」的判定抽出受测层 ——
+        // 两处新建文件（openUI / outsideClick）+ 两处追加进**已在**受测层的文件
+        // （stageGeometry / notify，故棘轮表只为两个新文件加行）。
+        //   openUI      0/0 —— 纯查表没有分支（同 useAppCommands / arrangeActions），锁 100 的
+        //               语义是「保持无未测分支」：以后这里长出 if/兜底而没测，当场红。
+        //               五个名字逐一命中 + 未知名静默无操作，7 条断言。
+        //   outsideClick 2/2 —— instanceof 守卫的两侧（元素 target / 非元素与 null）全有用例，
+        //               全量套件实测 100%。
+        // 逐文件分支数可从留存产物 `coverage/coverage-summary.json` 的逐文件条目复核
+        // （coverage-final.json 会被跑后清理删掉，summary 不会）。
+        'src/vue/openUI.ts': { branches: 100 },
+        'src/vue/outsideClick.ts': { branches: 100 },
         // App.vue 拆分②（2026-10-23）：三个 composable，26 条断言，全量套件实测回填：
         //   useEditTransaction 8/8 —— 快照/保存/取消/还原状态机全钉住，含"快照已清"
         //                   时确认取消的防御路径（界面到不了、composable 层可达，不演戏）；

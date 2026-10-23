@@ -7,7 +7,8 @@
  *  ② 列宽下限 40、宽下限 240、高下限 160 三个硬编码数字原样保留。
  */
 import { describe, expect, it } from 'vitest'
-import { detachGeometry } from '../../src/vue/stageGeometry'
+import type { Placement } from '@levango7/engine'
+import { detachGeometry, resolveDetachVariant } from '../../src/vue/stageGeometry'
 
 const stage = { stageW: 1200, cols: 12, gap: 8, rowPx: 30 }
 
@@ -51,5 +52,65 @@ describe('detachGeometry', () => {
     const big = detachGeometry({ idealW: 12, idealH: 20 }, stage)
     expect(big.w).toBe(1200)
     expect(big.h).toBe(784)
+  })
+})
+
+describe('resolveDetachVariant', () => {
+  // 两个模块：clock（默认 big，三个形态）/ note（默认 note，两个形态）
+  const reg = [
+    {
+      id: 'clock',
+      title: '时钟',
+      defaultVariant: 'big',
+      variants: [
+        { id: 'big', name: '大时钟', minW: 3, minH: 3, idealW: 4, idealH: 3 },
+        { id: 'minimal', name: '极简', minW: 2, minH: 1, idealW: 2, idealH: 1 },
+        { id: 'lunar', name: '日期', minW: 2, minH: 2, idealW: 3, idealH: 2 },
+      ],
+    },
+    {
+      id: 'note',
+      title: '便签',
+      defaultVariant: 'note',
+      variants: [
+        { id: 'note', name: '便签', minW: 2, minH: 2, idealW: 3, idealH: 3 },
+        { id: 'wide', name: '宽便签', minW: 4, minH: 2, idealW: 6, idealH: 2 },
+      ],
+    },
+  ]
+  const items = [
+    { id: 'clock', variant: 'minimal', x: 0, y: 0, w: 2, h: 1 },
+    { id: 'clock:2', variant: 'big', x: 2, y: 0, w: 4, h: 3 },
+    { id: 'note', variant: 'wide', x: 0, y: 2, w: 6, h: 2 },
+  ]
+
+  it('条目记了形态 → 返回该形态', () => {
+    expect(resolveDetachVariant(items, reg, 'clock')?.id).toBe('minimal')
+    expect(resolveDetachVariant(items, reg, 'note')?.id).toBe('wide')
+  })
+
+  it('条目没记 variant（旧档）→ 用模块的 defaultVariant', () => {
+    // 旧档条目没记 variant（`Placement.variant` 是后来才必填的）：那时条目 id 就是模块 id，
+    // 所以拿一个模块 id 单造一条旧档条目来钉这条路径。规格初版把 id 写成 'legacy'，
+    // 但注册表里没有这个模块 —— 模块查找落空只能返回 undefined，题意反而钉不到。
+    const legacyItems = [{ id: 'clock', x: 0, y: 4, w: 3, h: 3 } as unknown as Placement]
+    expect(resolveDetachVariant(legacyItems, reg, 'clock')?.id).toBe('big')
+  })
+
+  it('条目记了不存在的形态 id → 兜底第一个形态', () => {
+    const bad = [{ id: 'clock', variant: 'nope', x: 0, y: 0, w: 2, h: 1 }]
+    expect(resolveDetachVariant(bad, reg, 'clock')?.id).toBe('big')
+  })
+
+  it('条目不在版面里（id 找不到）→ 仍按模块默认形态', () => {
+    expect(resolveDetachVariant([], reg, 'clock')?.id).toBe('big')
+  })
+
+  it('多实例 id（clock:2）查不到模块 → undefined（已知缺陷的现状形状，钉住）', () => {
+    expect(resolveDetachVariant(items, reg, 'clock:2')).toBeUndefined()
+  })
+
+  it('注册表为空 → undefined', () => {
+    expect(resolveDetachVariant(items, [], 'clock')).toBeUndefined()
   })
 })

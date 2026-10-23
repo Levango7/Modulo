@@ -5,11 +5,13 @@ import { useElementSize } from './vue/useElementSize'
 import { useProjection } from './vue/useProjection'
 import { measureWantedRows } from './vue/useDensity'
 import { anyRedo, anyUndo, redoOrder, undoOrder, type UndoRoutingCaps } from './vue/undoRouting'
-import { detachGeometry } from './vue/stageGeometry'
+import { detachGeometry, resolveDetachVariant } from './vue/stageGeometry'
 import { useEditTransaction } from './vue/useEditTransaction'
 import { useAppCommands } from './vue/useAppCommands'
 import { useGlobalKeys } from './vue/useGlobalKeys'
 import { arrangeRunner, type ArrangeAction } from './vue/arrangeActions'
+import { insideAddWrap } from './vue/outsideClick'
+import { makeOpenUI } from './vue/openUI'
 import * as E from '@levango7/engine'
 import type { LayoutStore } from './vue/store'
 import type { PersistentStorage } from './vue/fileStorage'
@@ -20,7 +22,7 @@ import { useAppearance } from './vue/useAppearance'
 import { useBackup } from './vue/useBackup'
 import { useReminders } from './vue/useReminders'
 import type { Reminder } from './vue/reminders'
-import { sendSystemNotifications } from './vue/notify'
+import { sendSystemNotifications, shouldSendSystemNotification } from './vue/notify'
 import { useSchemes } from './vue/useSchemes'
 import { isDesktop, useShell } from './vue/useShell'
 import { useDetached } from './vue/useDetached'
@@ -75,10 +77,11 @@ const reminders = useReminders(() => cardDataApi.state, {
   storage,
   deliver: (items) => {
     reminderNotes.value = [...reminderNotes.value, ...items]
-    // 系统通知只在桌面壳发（网页版没有这一路）；失败静默降级 —— 横幅已经在了，
-    // 通知坏了不该让提醒本身也消失。**Windows 上点击拿不到"点了哪一条"**：
-    // 交互式 action 只有移动端有，所以这里没有深链，详见 vue/notify.ts 的文件头。
-    if (isDesktop && reminders.state.settings.systemNotifications) {
+    // 系统通知的总门抽成了 `shouldSendSystemNotification`（notify.ts）：桌面壳且开着才发。
+    // 失败静默降级 —— 横幅已经在了，通知坏了不该让提醒本身也消失。
+    // **Windows 上点击拿不到"点了哪一条"**：交互式 action 只有移动端有，所以这里没有深链，
+    // 详见 vue/notify.ts 的文件头。
+    if (shouldSendSystemNotification(isDesktop, reminders.state.settings.systemNotifications)) {
       void sendSystemNotifications(items)
     }
   },
@@ -195,13 +198,9 @@ function runArrange(fn: () => void): void {
 
 function onDocMousedown(e: MouseEvent): void {
   if (!arrangeOpen.value) return
-  // 排布下拉搬到 AppToolbar 后父组件拿不到它的 DOM ref；closest 从 target 自身开始
-  // 匹配，与原来 arrangeWrap.contains(e.target) 语义一致（contains 也含自身），渲染不变。
-  // `instanceof Element` 那道判断不是保险：closest 只长在 Element 上，直接调会在
-  // 非元素 target 上抛 TypeError，而 contains 收的是 Node（文本节点也算"在里面"）。
-  const t = e.target
-  const inside = t instanceof Element && t.closest('.add-wrap') !== null
-  if (!inside) arrangeOpen.value = false
+  // 落点判定（closest 从 target 自身开始，与 contains 语义一致）抽成了
+  // `insideAddWrap`，理由与那道 instanceof 判断的必要性写在 outsideClick.ts 文件头。
+  if (!insideAddWrap(e.target)) arrangeOpen.value = false
 }
 const stageEl = ref<HTMLElement | null>(null)
 /** 编辑器实例：Esc 编排要问它"这层还有没有可退的"（选中/批量条/目录下拉） */
@@ -218,11 +217,9 @@ const { cols, rowPx, gap, projection, mode } = useProjection(store, stageW, stag
  * 之后由用户拖出来/缩出来的几何记忆在 Rust 侧。网页版隐藏入口。
  */
 function detachCard(id: string): void {
-  const p = store.doc.value.items.find((q) => q.id === id)
-  const mod = store.reg.find((m) => m.id === id)
-  const v = mod?.variants.find((x) => x.id === (p?.variant ?? mod?.defaultVariant)) ?? mod?.variants[0]
-  // 列宽与浏览态同口径（见 stageGeometry.ts）；几何在那边的纯函数里算。
+  // 「当前形态」的查找与几何都抽到了 stageGeometry.ts（resolveDetachVariant / detachGeometry）。
   // 注意 cols / rowPx 是 ref 而 gap 不是（useProjection 的解构就是这样的），照原样取值。
+  const v = resolveDetachVariant(store.doc.value.items, store.reg, id)
   const { w, h } = detachGeometry(v, {
     stageW: stageW.value,
     cols: cols.value,
@@ -297,13 +294,23 @@ const cmdCtx: CommandContext = {
   rowPx,
   detach: (id) => detachCard(id),
   unfloat: (id) => void unfloatCard(id),
-  openUI: (name) => {
-    if (name === 'palette') paletteOpen.value = true
-    else if (name === 'settings') settingsOpen.value = true
-    else if (name === 'templates') templatesOpen.value = true
-    else if (name === 'workbench' && view.value === 'edit') cancelEdit()
-    else if (name === 'edit') enterEdit()
-  },
+  // 名字 → 处理函数的映射抽成了 makeOpenUI（openUI.ts）；「workbench 要在编辑态才取消」
+  // 这类带宿主状态的守卫留在闭包里，不冒充纯函数。
+  openUI: makeOpenUI({
+    palette: () => {
+      paletteOpen.value = true
+    },
+    settings: () => {
+      settingsOpen.value = true
+    },
+    templates: () => {
+      templatesOpen.value = true
+    },
+    workbench: () => {
+      if (view.value === 'edit') cancelEdit()
+    },
+    edit: () => enterEdit(),
+  }),
 }
 // 宿主拦截项的装配在 `useAppCommands.ts`（拆分 ② 抽出）：只创建总线、不 provide ——
 // provide 是组件级动作，留在这儿，调用点才看得见"谁 provide 的"。
