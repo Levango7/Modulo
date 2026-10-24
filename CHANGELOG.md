@@ -72,6 +72,26 @@ App.vue。这一刀把执行也搬进受测层 —— App.vue L93-145 → 新文
 - Cut A 随本笔收口：PR #154 squash `237b30e`，锚点
   `anchor/refactor-split-app-vue-a` → `2794765`，master 首跑 run `40035602790` success。
 
+### App.vue 拆分 Cut C1：三条提示横幅住进 NoticeStrip.vue（渲染零变化）
+
+主区顶部三条横幅（存储错误红条 + 数据迁移提示 + 提醒横幅）连同**它们自己的 scoped
+样式**（70 行）搬进新组件 `src/vue/components/NoticeStrip.vue`（140 行），
+`src/App.vue` **573 → 480 行**（−93）。
+
+- 组件**零状态**（同 `AppToolbar.vue`）：三个 props 读 App、三个 emits 写回 App。
+- 是"三条一起住进一个文件"，不是"合成一条可变体" —— 三条的 role / 颜色 / 按钮语义
+  各不相同（红条是 `alert` 且带"立刻下载备份"救命入口），压成 props 反而更绕，
+  且任何一处 props 化都会改写 DOM。
+- **DOM 逐字不变**：与 `git show master:src/App.vue` 的 L343-372 逐行比对，30 行
+  实质内容零差异（仅 `storage.error.value` → `storageError`、三个 `@click` 改 emit）；
+  E2E 选择器（`storage-error` / `reminder-strip`、`role=alert` / `role=status`）未动，
+  本机实跑 48/48。
+- **CSS 143,205 B 与上一笔逐字节相同**（样式既没漏也没重）；JS 485.97 → 486.67 kB
+  （+0.70 新组件）；单测仍 1668 条 / 111 文件、覆盖率 95.20% 不变（本笔不新增测试 ——
+  这一刀的可断言性全在 DOM 逐字不变上，钉它的是逐行比对与 E2E）。
+- Cut B 随本笔收口：PR #155 squash `8785878`，锚点
+  `anchor/refactor-split-app-vue-b` → `1b77bce`，master 首跑 run `40111369184` success。
+
 ## 0.8.5（2026-10-23）—— 安装包修复：4 个 sherpa DLL 打进包，装完能起来
 
 ### 安装包不再缺 DLL —— v0.8.4 的致命缺陷（本机探针抓到）
