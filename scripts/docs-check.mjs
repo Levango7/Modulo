@@ -30,7 +30,7 @@ import { execSync } from 'node:child_process';
 import { readFileSync, readdirSync, statSync, existsSync } from 'node:fs';
 import { join, resolve, relative } from 'node:path';
 import { checkArtifactLine, latestArtifact } from './release-artifact-facts.mjs';
-import { claimRe, fileLineClaims } from './docs-check-claims.mjs';
+import { claimRe, e2eItCount, fileLineClaims } from './docs-check-claims.mjs';
 
 const root = resolve(process.cwd());
 const MARK = '<!-- facts -->';
@@ -133,18 +133,21 @@ function perFileFacts(raw) {
 }
 
 /**
- * E2E 条数：数 `tests/e2e/*.spec.ts` 里的 `it(` 家族。
+ * E2E 条数：数 `tests/e2e/*.ts` 里的 `it(` 家族。
  * 之所以不用 vitest 跑一遍 —— 那要真起浏览器（40 秒+），而这里的职责是"数字对不对"，
  * 不是"测试过不过"；后者归 `npm run verify`。
- * 写法是 `\bit(\.<chain>)*\(`：`it.skipIf(skip)(` 这种带参数链的也要算进去。
+ *
+ * **计数口径移到了 `docs-check-claims.mjs` 的 `e2eItCount()`**（2026-10-25）：
+ * 原来这个函数直接 match 源码，把 `chrome.ts` 注释里那句 `it.skipIf(!EXE)` 也数了进去，
+ * 于是文档长期写「E2E 49 条」而实跑永远是 48。现在与「E2E 真跑了」门禁（`scripts/e2e-ran.mjs`）
+ * 共用同一个函数 —— 同一件事不许两种口径。
  */
 function e2eFacts() {
   const dir = resolve(root, 'tests/e2e');
   if (!existsSync(dir)) return 0;
   let n = 0;
   for (const f of readdirSync(dir).filter((x) => x.endsWith('.ts'))) {
-    const src = readFileSync(join(dir, f), 'utf8');
-    n += (src.match(/\bit(?:\.[A-Za-z]+)*\s*\(/g) ?? []).length;
+    n += e2eItCount(readFileSync(join(dir, f), 'utf8'));
   }
   return n;
 }
