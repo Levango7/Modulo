@@ -53,6 +53,25 @@ Tauri 的 NSIS 卸载确认页有一颗「删除应用程序数据」勾选框�
   变短（五个闭包比 if/else if 链长），如实记。
 - QA 独立复验：7 处替换语义逐字等价、3 个变异抽查全红、六道门禁独立实跑全绿。
 
+### App.vue 拆分 Cut B：撤销/重做 composable 化（行为零变化）
+
+拆分①把撤销/重做的**判定**抽进了 `undoRouting.ts`（纯函数），**执行**还留在
+App.vue。这一刀把执行也搬进受测层 —— App.vue L93-145 → 新文件
+`src/vue/useUndoRedo.ts`，App.vue 615 → 573 行。
+
+- 接口 `Pick` 真实依赖（`LayoutStore` / `ContentHistoryApi` 各 5 个字段）—— 假对象
+  必须长得跟真 store 一样；`view` 收 `Ref | ComputedRef`。
+- 三处保真行为逐字保留（含原注释）：编辑态无条件撤/重做版面**不查可用态**（引擎对
+  空栈 no-op，可观察差异只剩 `lastUndoKind` 赋值照旧发生）；工作台态才查、没得撤退
+  另一边；undo 内容分支看**返回值**、redo 内容分支看 **canRedo** 的不对称形状。
+- 先写测试再搬：15 条新测试（`tests/vue/useUndoRedo.test.ts`）。两处规格自身偏差被
+  抓出并修正（首版断言与"内容分支不查 canUndo"的真实行为不符；fake 的 `ComputedRef`
+  类型）；另补 redo「两边都没得重做」落空路径（真实行为缺口，补后 16/16 分支）。
+- 进受测层锁 100；单测 1653 → 1668 条、文件 110 → 111、分支覆盖 95.17 → 95.20%、
+  JS 485.66 → 485.97 kB、CSS 不变；E2E 48/48。
+- Cut A 随本笔收口：PR #154 squash `237b30e`，锚点
+  `anchor/refactor-split-app-vue-a` → `2794765`，master 首跑 run `40035602790` success。
+
 ## 0.8.5（2026-10-23）—— 安装包修复：4 个 sherpa DLL 打进包，装完能起来
 
 ### 安装包不再缺 DLL —— v0.8.4 的致命缺陷（本机探针抓到）

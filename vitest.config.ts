@@ -85,6 +85,10 @@ const GATED_VUE_MODULES = [
   'src/vue/useEditTransaction.ts',
   'src/vue/useAppCommands.ts',
   'src/vue/useGlobalKeys.ts',
+  // App.vue 拆分 Cut B（2026-10-24）：撤销/重做 composable。判定层在 undoRouting.ts，
+  // 这里是执行层（两份历史的调用顺序 + lastUndoKind 记账）—— 用假 store / 假 contentHistory
+  // / view ref 就能驱动，不开浏览器也能断言。
+  'src/vue/useUndoRedo.ts',
   // App.vue 拆分③（2026-10-23）：顶栏搬进 AppToolbar.vue 后，「排布」这一项变成
   // 「顶栏发名字 → App 按名字取执行体」的跨文件映射，写成纯查表才能断言
   // （收紧与行重排在 E2E 里没人点，这五条是它们唯一的钉子）。
@@ -183,6 +187,15 @@ export default defineConfig({
         'src/vue/useEditTransaction.ts': { branches: 100 },
         'src/vue/useAppCommands.ts': { branches: 100 },
         'src/vue/useGlobalKeys.ts': { branches: 100 },
+        // App.vue 拆分 Cut B（2026-10-24）：useUndoRedo，15 条断言，隔离跑实测回填：
+        //   16/16 分支全满 —— undo 侧：编辑态恒撤版面（不查 canUndo，含空栈赋值照旧）/
+        //                   工作台态谁近谁先 / 平手算内容近 / 内容 undo 返回 false 退到版面 /
+        //                   工作台态查 canUndo 跳过 / 两边都没得撤（内容调一次落空、版面不调）；
+        //                   redo 侧：内容分支查 canRedo（false 退版面）/ 编辑态无条件重做版面
+        //                   （含空转）/ 两边都没得重做（两个 redo 都不调）。
+        //                   注意 undo 内容分支看**返回值**、redo 内容分支看 **canRedo**，
+        //                   这个不对称是拆分前就有的形状，逐字保留（测试文件头 ③）。
+        'src/vue/useUndoRedo.ts': { branches: 100 },
         // App.vue 拆分③（2026-10-23）：排布动作名 → 执行体的查表。纯属性访问，
         // 0/0 分支（同 useAppCommands），锁 100 的语义是"保持无未测分支" ——
         // 以后这里长出 if/兜底而没测，当场红。五个名字各有一条例证（7 条断言）。
