@@ -80,7 +80,10 @@ describe('resolveDetachVariant', () => {
   ]
   const items = [
     { id: 'clock', variant: 'minimal', x: 0, y: 0, w: 2, h: 1 },
-    { id: 'clock:2', variant: 'big', x: 2, y: 0, w: 4, h: 3 },
+    // 第二实例：id 是 `模块:2`，并带 module 字段记住自己属于哪个模块 —— 引擎建实例时
+    // 就这么写（ops.ts:49），sanitize 层也会回写（validate.ts:70）。2026-10-25 修缺陷前
+    // 这个夹具没带 module，连"正确代码"都过不了，是不真实的最小夹具。
+    { id: 'clock:2', module: 'clock', variant: 'big', x: 2, y: 0, w: 4, h: 3 },
     { id: 'note', variant: 'wide', x: 0, y: 2, w: 6, h: 2 },
   ]
 
@@ -102,12 +105,26 @@ describe('resolveDetachVariant', () => {
     expect(resolveDetachVariant(bad, reg, 'clock')?.id).toBe('big')
   })
 
-  it('条目不在版面里（id 找不到）→ 仍按模块默认形态', () => {
-    expect(resolveDetachVariant([], reg, 'clock')?.id).toBe('big')
+  it('条目不在版面里（id 找不到）→ undefined（版面外 id 无从得知模块）', () => {
+    // 2026-10-25 修 clock:2 前的形状是「仍按裸 id 命中模块、返回默认形态」——
+    // 那正是缺陷的一半（拿实例 id 查模块表）。现在统一：找不到条目就找不到模块，
+    // 由调用方按 4×3 兜底。该路径实际不可达（detachCard 的 id 只来自渲染中的卡）。
+    expect(resolveDetachVariant([], reg, 'clock')).toBeUndefined()
   })
 
-  it('多实例 id（clock:2）查不到模块 → undefined（已知缺陷的现状形状，钉住）', () => {
-    expect(resolveDetachVariant(items, reg, 'clock:2')).toBeUndefined()
+  it('多实例第二例按 module 字段解析到模块 → 返回条目记的形态（2026-10-25 修缺陷）', () => {
+    // 修缺陷前：`clock:2` 查不到模块 → undefined → 浮窗按 4×3 默认尺寸算。
+    // 现在：module 字段解析到 clock 模块，按条目记的 variant 取形态。
+    expect(resolveDetachVariant(items, reg, 'clock:2')?.id).toBe('big')
+  })
+
+  it('第二实例的浮窗按真实形态算宽度，不再是 4×3 兜底（修缺陷的可观察收益）', () => {
+    // 取一个 3×2 形态（lunar）的第二例：真实窗口宽 = 3 列 = round(3*(92.667+8)-8) = 294；
+    // 缺陷期形态落空 → 4×3 兜底 = 395。宽下限 240 拦不住 294，这条断言有射程。
+    const lunar2 = [{ id: 'clock:2', module: 'clock', variant: 'lunar', x: 0, y: 0, w: 3, h: 2 }]
+    expect(detachGeometry(resolveDetachVariant(lunar2, reg, 'clock:2'), stage).w).toBe(294)
+    // 对照：同一张卡在缺陷期会落到 4×3（395）
+    expect(detachGeometry(undefined, stage).w).toBe(395)
   })
 
   it('注册表为空 → undefined', () => {

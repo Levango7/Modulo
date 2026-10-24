@@ -312,6 +312,20 @@ describe('命令层：补上棘轮咬出来的缺口', () => {
     expect(at('card.unfloat').enabled, '已浮动的卡显示"收回"').toBe(true)
   })
 
+  it('card.cycleVariant 的 when：第二实例也能换形态（2026-10-25 修 clock:2 同型缺陷）', () => {
+    const c = ctx()
+    const at = (id: string) => commandStates(c).find((s) => s.def.id === id)!
+    // store.add 自动分配 `clock:2` 实例 id 并带上 module 字段（引擎建实例的形状）
+    c.store.add('clock', 0, 0)
+    expect(c.store.doc.value.items.some((p) => p.id === 'clock:2' && p.module === 'clock')).toBe(true)
+    c.focusedCard.value = 'clock:2'
+    // 修缺陷前：守卫拿实例 id 查模块表 → 查不到 → 命令不可用（store 侧其实是支持的）
+    expect(at('card.cycleVariant').enabled, '第二实例的换形态命令也该可用').toBe(true)
+    // 版面外 id：找不到条目 → 找不到模块 → 不可用（守卫的 p 落空分支）
+    c.focusedCard.value = 'ghost'
+    expect(at('card.cycleVariant').enabled, '版面外的 id 不该可用').toBe(false)
+  })
+
   it('layout.reflowAllRows 的 when 随"有没有行"翻转', () => {
     const c = ctx()
     const at = () => commandStates(c).find((s) => s.def.id === 'layout.reflowAllRows')!
@@ -404,6 +418,9 @@ describe('命令层：内联实现全量执行（完整场景）', () => {
         if (!c.store.doc.value.items.some((p2) => p2.id === 'sticky')) c.store.add('sticky', 0, 6)
         c.store.groupIntoRow(['sticky'])
       }
+      // 上一遍的 card.remove 会把 clock 删掉 —— 每遍补回来（2026-10-25：守卫改成查版面后
+      // 这是必须的：删掉的卡不再"可用"，旧守卫查注册表所以删了也显示可用、然后静默 no-op）
+      if (!c.store.doc.value.items.some((p2) => p2.id === 'clock')) c.store.add('clock', 0, 0)
       for (const def of COMMANDS) {
         if (!def.run && !def.effect) continue // wait 类由宿主实现，不在本组
         if (def.id === 'view.workbench') c.view.value = 'edit'

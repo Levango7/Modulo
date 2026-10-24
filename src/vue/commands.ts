@@ -25,7 +25,7 @@
  *    命令面板的可用性建立在"每条命令都说清自己做什么"上。
  */
 import type { Ref } from 'vue'
-import type * as E from '@levango7/engine'
+import * as E from '@levango7/engine'
 import type { LayoutStore } from './store'
 
 /** 上下文域：决定"此刻这条命令是否存在"。面板按 scope 分组、按 when 过滤 */
@@ -303,7 +303,11 @@ export const COMMANDS: readonly CommandDef[] = [
     binding: 'Enter',
     when: (c, a) => {
       const id = targetCard(c, a)
-      const mod = id ? c.store.reg.find((m) => m.id === id) : null
+      // 按实例 id 找条目，再走 moduleIdOf 查注册表（2026-10-25 修 clock:2 同型缺陷，
+      // 见 §12.20）：原来直接拿实例 id 查表，多实例第二例 `模块:2` 查不到模块，
+      // 「换形态」对第二实例不可用 —— 而 store.cycleVariant 用的正是这个正确形状。
+      const p = id ? c.store.doc.value.items.find((q) => q.id === id) : undefined
+      const mod = p ? c.store.reg.find((m) => m.id === E.moduleIdOf(p)) : null
       return !!mod && mod.variants.length > 1
     },
     why: '先选中一张卡（或这张卡只有一种形态）',

@@ -161,8 +161,10 @@ export default defineConfig({
         //   editTransaction 18/18 —— 注意 `a.rows ?? []` 的兜底是**真实分支**不是防御：
         //                   LayoutDoc.rows 是可选加法字段（types.ts：旧档缺键按空表处理），
         //                   已补"旧档缺 rows 键"三条断言钉住。
-        //   stageGeometry   8/8  —— 三处下限（列宽 40 / 宽 240 / 高 160）表驱动全覆盖；
-        //                   Cut A（2026-10-24）追加 resolveDetachVariant 兜底链 6 条后仍 8/8。
+        //   stageGeometry   10/10 —— 三处下限（列宽 40 / 宽 240 / 高 160）表驱动全覆盖；
+        //                   Cut A（2026-10-24）追加 resolveDetachVariant 兜底链 6 条后 8/8；
+        //                   2026-10-25 修 clock:2 时该函数多一条 `p ? … : undefined`（版面外
+        //                   id 找不到条目 ⇒ 无从得知模块），两侧都钉住后 10/10，锁 100 不变。
         'src/vue/undoRouting.ts': { branches: 100 },
         'src/vue/editTransaction.ts': { branches: 100 },
         'src/vue/stageGeometry.ts': { branches: 100 },
