@@ -16,7 +16,7 @@
  *
  * ## 判据
  *   1. 报告读得到、解得开（否则 exit 1，绝不把"读不到"当"没问题"）
- *   2. `numTotalTests` == 静态条数（`tests/e2e` 下所有 .ts 里 `\bit(\.<chain>)*\(` 的个数，
+ *   2. `numTotalTests` == 静态条数（`tests/e2e` 下所有 .ts 里 `it` 家族的个数，
  *      与 `scripts/docs-check.mjs` 的 `e2eFacts()` 同一个正则 —— 两条门数同一件事不许两种口径）
  *   3. `numPendingTests` == 0（把跳过的用例名逐个打出来，好定位是哪条守卫）
  *   4. `numFailedTests` == 0
@@ -29,6 +29,7 @@
 import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { e2eItCount } from './docs-check-claims.mjs';
 
 function argOf(argv, flag, dflt) {
   // 取**最后一次**出现：同名的后一个参数覆盖前一个（命令行的一般直觉），
@@ -37,13 +38,12 @@ function argOf(argv, flag, dflt) {
   return i < 0 ? dflt : argv[i + 1];
 }
 
-/** 静态条数：与 docs-check 的 e2eFacts 同一条正则（`it.skipIf(skip)(` 这类带参数链的也要算） */
+/** 静态条数：与 `docs-check` 共用 `e2eItCount()`（剥注释后数 `it` 家族）—— 同一件事不许两种口径 */
 function staticCount(dir) {
   if (!existsSync(dir)) return null;
   let n = 0;
   for (const f of readdirSync(dir).filter((x) => x.endsWith('.ts'))) {
-    const src = readFileSync(join(dir, f), 'utf8');
-    n += (src.match(/\bit(?:\.[A-Za-z]+)*\s*\(/g) ?? []).length;
+    n += e2eItCount(readFileSync(join(dir, f), 'utf8'));
   }
   return n;
 }

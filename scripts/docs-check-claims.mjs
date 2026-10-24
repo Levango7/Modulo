@@ -1,3 +1,4 @@
+import { existsSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -48,6 +49,31 @@ export function fileLineClaims(line) {
 }
 
 /**
+ * E2E 条数：数 `it` 家族（`it(` / `it.skipIf(skip)(` / `it.each(...)` 都算）。
+ *
+ * **为什么要先剥注释**（2026-10-25 撞到的真事）：`tests/e2e/chrome.ts` 的文件头注释里写着
+ * 「新加的 E2E 一律从这里取路径并 `it.skipIf(!EXE)`」—— 旧写法把这句**注释**数成了一条测试，
+ * 于是文档里长期写着「E2E 49 条」，而实际能跑的永远是 **48** 条（本机与 CI 都一致）。
+ * 这是本文件开头批过的同一族病：**判据与它声明的语义不一致**（声明"E2E 条数"，
+ * 实际数的是"出现 `it(` 的次数"），而它又不报错，看上去一直在守。
+ *
+ * 发现它的不是文档复核，是 2026-10-25 新加的「E2E 真跑了」门禁（`scripts/e2e-ran.mjs`）——
+ * 它拿静态数跟实跑数对账，第一条红就是「实跑 48 条，源码里静态数是 49 条」。
+ * 现在两边共用这一个函数：同一件事不许两种口径。
+ *
+ * 剥法：块注释 + **行首** 行注释。行注释要求 `//` 出现在行首空白之后 ——
+ * 这样 `https://…` 这种出现在字符串中间的斜杠不会被误当注释起点。
+ *
+ * @param src 单个 spec 文件的源码
+ */
+export function e2eItCount(src) {
+  const stripped = src
+    .replace(/\/\*[\s\S]*?\*\//g, '')
+    .replace(/(^|\n)[ \t]*\/\/[^\n]*/g, '$1');
+  return (stripped.match(/\bit(?:\.[A-Za-z]+)*\s*\(/g) ?? []).length;
+}
+
+/**
  * 命令行口（给测试用，也给人自查一句写法）。
  *
  * 为什么要有这张口而不是让测试 `import`：`tsconfig.json` 没开 `allowJs`，
@@ -69,6 +95,21 @@ function main(argv) {
       return 2;
     }
     console.log(JSON.stringify(fileLineClaims(line)));
+    return 0;
+  }
+  // E2E 条数口：打印单个 spec 文件的 `it` 家族条数（剥注释后），给测试断言用。
+  // 为什么也做成 CLI 而不是让测试 import：同上（`tsconfig` 没开 `allowJs`）。
+  if (argv.includes('--e2e-count')) {
+    const file = get('--e2e-count');
+    if (!file) {
+      console.error('用法：--e2e-count <spec 文件路径>');
+      return 2;
+    }
+    if (!existsSync(file)) {
+      console.error(`读不到 ${file}`);
+      return 2;
+    }
+    console.log(e2eItCount(readFileSync(file, 'utf8')));
     return 0;
   }
   const digits = get('--digits');

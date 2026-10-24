@@ -23,7 +23,9 @@
  */
 import { describe, expect, it } from 'vitest'
 import { spawnSync } from 'node:child_process'
-import { resolve } from 'node:path'
+import { mkdtempSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join, resolve } from 'node:path'
 
 const ROOT = resolve(__dirname, '../..')
 const SCRIPT = resolve(ROOT, 'scripts/docs-check-claims.mjs')
@@ -127,5 +129,58 @@ describe('文件行数声明的抽取', () => {
 
   it('离得太远的数字不算声明（窗口 8 字符）', () => {
     expect(claimsOf('`src/vue/App.vue` 与当初相比已经改了很多，现在是 640 行')).toEqual([])
+  }, 20_000)
+})
+
+/**
+ * E2E 条数的计数口径（`e2eItCount()`）。
+ *
+ * 来历：2026-10-25 新加的「E2E 真跑了」门禁第一条红就是
+ * 「实跑 48 条，源码里静态数是 49 条」—— 多的那一条是 `tests/e2e/chrome.ts` 文件头注释里
+ * 那句「新加的 E2E 一律从这里取路径并 `it.skipIf(!EXE)`」。也就是说文档里长期写着的
+ * 「E2E 49 条」把一句**注释**算成了测试，而实际能跑的永远是 48 条。
+ *
+ * 这条测试钉的就是那个坑：注释里的 `it(` 不算、真注册的算、`describe(` 不算。
+ */
+describe('E2E 条数：剥掉注释再数 it 家族', () => {
+  const countOf = (src: string): number => {
+    const dir = mkdtempSync(join(tmpdir(), 'e2e-count-'))
+    const f = join(dir, 'case.spec.ts')
+    writeFileSync(f, src)
+    const r = spawnSync(process.execPath, [SCRIPT, '--e2e-count', f], { cwd: ROOT, encoding: 'utf8' })
+    expect(r.status, `子进程没跑起来：${r.error?.message ?? r.stderr}`).toBe(0)
+    return Number(r.stdout.trim())
+  }
+
+  it('块注释与行注释里的 it 不算（chrome.ts 那个坑的钉子）', () => {
+    expect(
+      countOf(`
+/**
+ * 抽出来共用：新加的 E2E 一律从这里取路径并 \`it.skipIf(!EXE)\`。
+ */
+// it('这行被注释掉了', () => {})
+export const x = 1
+`),
+    ).toBe(0)
+  }, 20_000)
+
+  it('真注册的都算：it / it.skipIf(skip)( / it.each(...)(', () => {
+    expect(
+      countOf(`
+describe('组', () => {
+  it('裸 it', () => {})
+  it.skipIf(!EXE)('带参数链', () => {})
+  it.each([1, 2])('%s 表驱动', () => {})
+})
+`),
+    ).toBe(3)
+  }, 20_000)
+
+  it('describe 不算 it（否则「文件里有两个 describe」会被数成两条测试）', () => {
+    expect(countOf(`describe('只有组没有用例', () => {})`)).toBe(0)
+  }, 20_000)
+
+  it('行中的 // 不被当成注释起点（URL 里的斜杠不吃掉后面的代码）', () => {
+    expect(countOf(`it('取 https://example.com 的页面', () => {})`)).toBe(1)
   }, 20_000)
 })
