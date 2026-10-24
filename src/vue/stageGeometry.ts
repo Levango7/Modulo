@@ -9,7 +9,7 @@
  * 拆出来时逐字保留原表达式，别"顺手整理"成 round(h + 24)，那会改变进位）。
  */
 
-import type { ModuleDef, Placement, VariantDef } from '@levango7/engine'
+import { moduleIdOf, type ModuleDef, type Placement, type VariantDef } from '@levango7/engine'
 
 export interface DetachGeometryInput {
   /** 该卡当前形态的理想格数（缺失时按 4×3 兜底，与拆分前一致） */
@@ -37,12 +37,13 @@ export function detachGeometry(v: DetachGeometryInput | undefined, g: StageGeome
  * 查找的纯函数化）：版面里按 id 找条目 → 注册表里按 id 找模块 → 在模块的形态里
  * 找条目上记的那个（条目没记形态时用模块的默认形态），找不到退回第一个形态。
  *
- * **已知缺陷（逐字保留，未修）**：注册表查找用的是 `m.id === id`（条目/实例 id），
- * 而多实例下第二个实例的 id 是 `模块:2`（见 `Placement.id` 的注释；`Placement.module`
- * 那条写着"必须走 `moduleIdOf(p)`、不要直接拿 `p.id` 查注册表"）——
- * 查不到模块 ⇒ 形态兜底 4×3，窗口尺寸按默认算而不是按这张卡的真实理想尺寸。
- * 正确写法是 `E.moduleIdOf(p)`。本笔是纯搬运，不改行为；缺陷已登记在协调板上，
- * 单独一笔修（连测试一起改）。
+ * 注册表查找必须走 `moduleIdOf(p)`（2026-10-25 修，此前是已知缺陷，见 §12.20）：
+ * 多实例下第二个实例的 id 是 `模块:2`（见 `Placement.id` 的注释），拿实例 id 直接
+ * 查注册表必然落空 ⇒ 形态兜底 4×3，浮窗按默认尺寸算而不是按这张卡的真实理想尺寸。
+ * 引擎侧（ops.ts / validate.ts / fitHeight.ts）一律 `moduleIdOf(p)`，本处原来漏了。
+ * 版面里找不到条目（版面外 id）时无从得知模块 ⇒ undefined，由调用方按 4×3 兜底；
+ * 畸形 `X:2`（缺 `module` 字段）到不了这里 —— sanitize 层会跳过它并回写 module
+ * （validate.ts），且 `moduleIdOf` 只认 `p.module ?? p.id`，不解析 id 后缀。
  */
 export function resolveDetachVariant(
   items: readonly Placement[],
@@ -50,6 +51,6 @@ export function resolveDetachVariant(
   id: string,
 ): VariantDef | undefined {
   const p = items.find((q) => q.id === id)
-  const mod = reg.find((m) => m.id === id)
+  const mod = p ? reg.find((m) => m.id === moduleIdOf(p)) : undefined
   return mod?.variants.find((x) => x.id === (p?.variant ?? mod?.defaultVariant)) ?? mod?.variants[0]
 }
