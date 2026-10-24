@@ -92,6 +92,24 @@ App.vue。这一刀把执行也搬进受测层 —— App.vue L93-145 → 新文
 - Cut B 随本笔收口：PR #155 squash `8785878`，锚点
   `anchor/refactor-split-app-vue-b` → `1b77bce`，master 首跑 run `40111369184` success。
 
+### App.vue 拆分 Cut C2：取消确认框住进 CancelEditDialog.vue（渲染零变化，收口）
+
+编辑事务的「放弃这次编辑？」确认框连同**它自己的 scoped 样式**（43 行）搬进新组件
+`src/vue/components/CancelEditDialog.vue`（86 行），`src/App.vue` **480 → 432 行**（−48）。
+**970 行起拆到这儿收口**。
+
+- 组件零状态：`open` / `changeCount` 两个 props 读 App，`dismiss` / `confirm` 两个 emits
+  写回 App —— 状态本来就在 `useEditTransaction.ts` 里，组件不新增真相。
+- **DOM 逐字不变**：与 `git show master:src/App.vue` 的 L381-392 逐行比对，10 行模板
+  实质差异 0（四处预期改名 + 两行 HTML 注释移进组件文件头，Vue 默认不渲染模板注释）；
+  E2E 的 `tx-scrim` / `role=dialog` / `aria-label="放弃这次编辑"` 与两个按钮文本未动，
+  本机实跑 48/48。
+- **CSS 143,205 B 与上一笔逐字节相同**（样式既没漏也没重）；JS 486.67 → 486.94 kB
+  （+0.27 新组件）；单测仍 1668 条 / 111 文件、覆盖率 95.20% 不变（本笔不新增测试，同 C1 理由）。
+- Cut C1 随本笔收口：PR #156 squash `6c34bcc`，锚点
+  `anchor/refactor-split-app-vue-c1` → `a0caaf8`，master 首跑 run `40119350836` success。
+- 剩下的是主区与命令总线的**状态装配**本身 —— 再拆就是把 App 拆成 App，收益为负。
+
 ## 0.8.5（2026-10-23）—— 安装包修复：4 个 sherpa DLL 打进包，装完能起来
 
 ### 安装包不再缺 DLL —— v0.8.4 的致命缺陷（本机探针抓到）
