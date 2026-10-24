@@ -14,6 +14,7 @@
     "test": "vitest run",
     "cover:engine": "vitest run --coverage",
     "test:e2e": "vitest run --config vitest.e2e.config.ts",
+    "e2e:ran": "node scripts/e2e-ran.mjs",
     "tauri": "tauri",
     "tauri:dev": "tauri dev",
     "tauri:build": "tauri build",

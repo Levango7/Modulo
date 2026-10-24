@@ -103,8 +103,21 @@ jobs:
       - name: 引擎包独立构建（@levango7/engine）
         run: npm run engine:build
       # 与 x-hub 的反面教材相对：它写了 164 个 Rust 测试，但 CI 只跑 vue-tsc + cargo check，一个测试都不执行
+      #
+      # 落 json 报告是给下面那道「E2E 真跑了」门禁用的。注意 `--outputFile.json=` 这种点号写法：
+      # 同时指定多个 reporter 时必须逐个给输出口，写 `--outputFile=` 只会让 json 变成唯一出口、
+      # 控制台反而看不到失败现场。`--reporter=default` 留在前面就是为了留住那份现场。
       - name: 浏览器交互 E2E（拖拽 / 框选 / 键盘 / 撤销 / 三档视口）
-        run: npm run test:e2e
+        run: npm run test:e2e -- --reporter=default --reporter=json --outputFile.json=node_modules/.tmp/e2e-vitest.json
+      # E2E 是不是**真跑了**（2026-10-25 接上，2026-10-23 盘点的未做项）。
+      #
+      # 为什么上面那条 Chrome 存在性断言还不够：它只证明**那个文件在**，证不了 spec 真的跑了 ——
+      # `tests/e2e/*.spec.ts` 全是 `skipIf(!EXE)` 形状，Chrome 缺失时整段静默跳过而 job 全绿
+      # （2026-10-19 的 run 39004860377 就是这么绿了十分多钟）。代理判据只能证明"我以为的条件成立"，
+      # 这条门直接读执行结果：实跑条数 == 源码静态数、skipped = 0、failed = 0。
+      # 不设 continue-on-error：跳过就是红。
+      - name: E2E 真跑了（skipIf 不许静默跳过 —— 条数对得上静态数才算）
+        run: npm run e2e:ran
 
       # 拖拽的**计数型**预算门禁（2026-10-12 接上）。
       #
