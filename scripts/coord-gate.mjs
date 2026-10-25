@@ -75,6 +75,22 @@ const warns = [];
 const notes = [];
 
 /**
+ * 把一行 Markdown 表格切成单元格 —— **只认未转义的竖线**。
+ *
+ * 为什么不能直接 `line.split('|')`：单元格里可以写转义竖线 `\|`（渲染出来是 `|`，
+ * 不是列分隔），天真切分会把它当成一列，于是**门读到的表和人看到的表不是同一张**。
+ * 2026-10-26 实证：`docs/AGENT-COORD.md` 有 7 条老行的单元格里含未转义/已转义混用的
+ * 竖线（如 L312 的 `run\|effect\|wait`），天真切分把「会改的文件」那一列读成 `effect`、
+ * 把「状态」读成「请勿动」那一列 —— 判据 1 的陈旧告警与判据 2 的文件范围都是从这
+ * 几个列号取的，列号一歪，这两条判据就在看错的地方做判断。
+ *
+ * 返回形状与 `split('|')` **一致**（首个 `|` 前是空串、末尾 `|` 后也是空串），
+ * 所以调用处「列号 = 显示列号 + 1」的旧约定不变。单元格内容不还原 `\|` —— 门只拿它
+ * 做子串比对，还原了反而会让「这一格写着什么」和板上原文对不上。
+ */
+const splitRow = (line) => line.split(/(?<!\\)\|/).map((c) => c.trim());
+
+/**
  * 认领时间（`MM-DD HH:mm`）挂了几小时；形状不对返回 null —— **不猜**。
  *
  * 跨年与时区那一段是从判据 1 原样搬出来的。老写法见到 `then > now` 就扣一年，于是
@@ -202,7 +218,7 @@ if (!ONLY_RES && existsSync(BOARD)) {
   const now = NOW;
   for (const line of board.split('\n')) {
     if (!line.startsWith('|')) continue;
-    const cols = line.split('|').map((c) => c.trim());
+    const cols = splitRow(line);
     // | 时间 | Agent | 在做什么 | 会改的文件 | 请勿动 | 状态 |
     if (cols.length < 7) continue;
     // 注意 cols[0] 是首个 `|` 之前的空串，所以列号整体 +1。
@@ -438,7 +454,7 @@ const ownerOfPorts = (ports) => {
       const claims = [];
       for (const line of section.split('\n')) {
         if (!line.startsWith('|')) continue;
-        const cols = line.split('|').map((c) => c.trim());
+        const cols = splitRow(line);
         if (cols.length < RESOURCE_COLS) continue;
         const resRaw = cols[1];
         if (!resRaw || resRaw === '资源' || /^:?-{2,}:?$/.test(resRaw)) continue; // 表头与分隔行
