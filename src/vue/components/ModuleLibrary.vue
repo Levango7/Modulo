@@ -1,9 +1,10 @@
 <script setup lang="ts">
-import { inject, nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
+import { computed, inject, nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
 import { LayoutGrid, Plus } from 'lucide-vue-next'
 import type { LayoutStore } from '../store'
 import CardCatalogMenu from './CardCatalogMenu.vue'
 import { preloadCard } from '../cardComponents'
+import { filterModules } from '../moduleFilter'
 
 /**
  * 「全部卡片」下拉（2026-10-12 从顶栏搬进来）：模块库只列**还没放置**的卡，
@@ -72,13 +73,27 @@ onMounted(() => {
  * 这一下，返回 true 表示"这层还有可退的"，App 才不会把 Esc 当成"取消这次编辑"
  * （有改动还会弹确认）。**为什么不把 addOpen 留在母组件**：开合状态与菜单定位是
  * 一件事，拆开就是两份真相。
+ *
+ * 2026-10-26 加一层：**搜索框里有字也算"这一层还有可退的"** —— 先退目录，再退搜索词。
+ * 顺序刻意如此：目录是压在上面的浮层，先收它才符合"一层一层退"。搜索框默认空，
+ * 所以没输入过时行为与之前逐字相同。
  */
 function closeMenu(): boolean {
-  if (!addOpen.value) return false
-  addOpen.value = false
-  return true
+  if (addOpen.value) {
+    addOpen.value = false
+    return true
+  }
+  if (query.value) {
+    query.value = ''
+    return true
+  }
+  return false
 }
 defineExpose({ closeMenu })
+
+/** 搜索词（F-09）。判定层在 `moduleFilter.ts`，这里只接输入、只渲染结果 */
+const query = ref('')
+const shown = computed(() => filterModules(store.available.value, query.value))
 </script>
 
 <template>
@@ -97,8 +112,16 @@ defineExpose({ closeMenu })
         <Plus :size="12" /> 全部卡片
       </button>
     </h3>
+    <input
+      v-model="query"
+      class="lib-search"
+      type="search"
+      placeholder="搜索：名称 / 说明 / 分组 / 尺寸名"
+      aria-label="搜索模块"
+    />
     <p v-if="!store.available.value.length" class="muted small">模块表为空 —— 打包或注册表出了问题</p>
-    <div v-for="m in store.available.value" :key="m.id" class="lib-item" @pointerenter="preloadCard(m.id)">
+    <p v-else-if="!shown.length" class="muted small">没有匹配「{{ query.trim() }}」的模块</p>
+    <div v-for="m in shown" :key="m.id" class="lib-item" @pointerenter="preloadCard(m.id)">
       <div class="lib-title" @pointerdown="startNew(m.id, m.defaultVariant, $event)">{{ m.title }}</div>
       <div class="lib-variants">
         <button
@@ -154,6 +177,27 @@ defineExpose({ closeMenu })
 .add-cat:disabled {
   opacity: 0.5;
   cursor: default;
+}
+/* 搜索框（F-09，2026-10-26）：跟着 h3 下面一行，宽度撑满 aside。
+   字号 12px 与库内正文同档（11px 是 E2E 守着的下限，不往下压）。 */
+.lib-search {
+  width: 100%;
+  box-sizing: border-box;
+  height: 26px;
+  padding: 0 var(--space-2);
+  margin-bottom: var(--space-3);
+  font-size: 12px;
+  color: var(--text-1);
+  background: var(--bg-card);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-pill);
+}
+.lib-search::placeholder {
+  color: var(--text-3);
+}
+.lib-search:focus-visible {
+  outline: none;
+  border-color: var(--brand-500);
 }
 .lib-item {
   border: 1px solid var(--border-strong);

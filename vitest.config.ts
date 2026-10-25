@@ -60,6 +60,9 @@ const GATED_VUE_MODULES = [
   'src/vue/keyboard.ts',
   'src/vue/meetings.ts',
   'src/vue/minutesLive.ts',
+  // 模块库搜索（F-09，2026-10-26）：判定层单独成文件就是为了能被断言 —— 本仓**没有组件测试
+  // 设施**（无 @vue/test-utils / jsdom），判定留在组件里就只剩 E2E 一层兜底。
+  'src/vue/moduleFilter.ts',
   // App.vue 拆分 Cut A（2026-10-24）：外点关闭判定 / 「打开界面」查表。两处判定原来长在
   // App.vue 里、只有 E2E 兜底；都满足「不开浏览器也能断言」的纳入判据（见各文件头注释）。
   'src/vue/openUI.ts',
@@ -180,6 +183,10 @@ export default defineConfig({
         // （coverage-final.json 会被跑后清理删掉，summary 不会）。
         'src/vue/openUI.ts': { branches: 100 },
         'src/vue/outsideClick.ts': { branches: 100 },
+        // 模块库搜索（F-09，2026-10-26）：6/6 分支全满 —— 两个 `??`（缺 blurb / 缺 group 的模块，
+        // 用例里刻意留了一个两样都没有的「便签」）+ 空查询早退的两侧。锁 100 的语义同 openUI：
+        // 以后这里长出 if / 兜底而没测，当场红。
+        'src/vue/moduleFilter.ts': { branches: 100 },
         // App.vue 拆分②（2026-10-23）：三个 composable，26 条断言，全量套件实测回填：
         //   useEditTransaction 8/8 —— 快照/保存/取消/还原状态机全钉住，含"快照已清"
         //                   时确认取消的防御路径（界面到不了、composable 层可达，不演戏）；
