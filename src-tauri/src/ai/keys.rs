@@ -34,7 +34,9 @@ fn validate_provider_id(provider_id: &str) -> Result<(), String> {
 
 /// keyring 错误 → 人话。`NoEntry` 单独判：get 的「没存过」与 delete 的幂等
 /// 都靠它分流，文案在调用方组织，这里只给中性描述。
-fn humanize(e: &KeyringError) -> String {
+///
+/// `pub(crate)`：同步的凭据（`webdav.rs`）用的是同一个凭据库，错误文案不该有两套。
+pub(crate) fn humanize(e: &KeyringError) -> String {
     match e {
         KeyringError::NoEntry => "还没有保存过这个服务的密钥".into(),
         KeyringError::NoStorageAccess(_) => "系统凭据库被锁或拒绝访问，解锁 Windows 后再试".into(),

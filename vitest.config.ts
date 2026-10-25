@@ -96,6 +96,10 @@ const GATED_VUE_MODULES = [
   // 「顶栏发名字 → App 按名字取执行体」的跨文件映射，写成纯查表才能断言
   // （收紧与行重排在 E2E 里没人点，这五条是它们唯一的钉子）。
   'src/vue/arrangeActions.ts',
+  // 多端同步（2026-10-25）：设置+各段戳的存储层，与「取远端→裁决→确认→落地/上传」的胶水层。
+  // 两条都不开浏览器也能断言（假传输 + 内存存储驱动），符合纳入判据。
+  'src/vue/syncStore.ts',
+  'src/vue/useSync.ts',
 ]
 
 /** 仓库内按源码解析引擎包（与 vite.config.ts 同一条约定） */
@@ -171,6 +175,14 @@ export default defineConfig({
         'src/vue/undoRouting.ts': { branches: 100 },
         'src/vue/editTransaction.ts': { branches: 100 },
         'src/vue/stageGeometry.ts': { branches: 100 },
+        // 多端同步（2026-10-25）：
+        //   syncStore 100 —— 坏档容错 / 戳的取舍 / 代理透传全部有用例，锁满。
+        //   useSync    84.7 —— 未覆盖的两处都是**按契约不可达**的防御：① 坏时间戳的兜底
+        //              （parseBundle 已经把坏戳的段挡掉，planMerge 那道 invalid 是直接调用
+        //              方的纵深防御）；② 设置里 deviceId 被手改成空（正常路径开箱就有）。
+        //              地板按实测回填取 80，不为覆盖率演戏。
+        'src/vue/syncStore.ts': { branches: 100 },
+        'src/vue/useSync.ts': { branches: 80 },
         // App.vue 拆分 Cut A（2026-10-24）：四处「不开浏览器就能断言」的判定抽出受测层 ——
         // 两处新建文件（openUI / outsideClick）+ 两处追加进**已在**受测层的文件
         // （stageGeometry / notify，故棘轮表只为两个新文件加行）。

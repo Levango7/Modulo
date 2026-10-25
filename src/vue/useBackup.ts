@@ -94,6 +94,45 @@ function readAutoIndex(storage: StorageAdapter): AutoBackupMeta[] {
   }
 }
 
+export interface ApplyTargets {
+  store: LayoutStore
+  schemes: SchemesApi
+  cardData: CardData
+  settings?: { apply(s: BackupSettings): void }
+}
+
+/**
+ * 把一份**已解析**的备份落到内存与存储里：版面 / 方案册 / 卡片内容 / 设置，四处各过自己的清洗。
+ *
+ * 抽出来是给同步用的（多端同步拉下来的那几段走**同一条恢复管道** —— 远端文件同样是
+ * 不可信输入，不该有第二条"更宽松"的落地路径），备份自己的 `confirmRestore` 也改调它，
+ * 于是"恢复怎么做"只有一份实现。返回给人看的逐项说明。
+ */
+export function applyParsedSections(parsed: ParsedBackup, t: ApplyTargets): string[] {
+  const done: string[] = []
+  if (parsed.layout) {
+    t.store.importJson(E.docToJson(parsed.layout))
+    done.push(`版面 ${parsed.layout.items.length} 个模块`)
+  }
+  if (parsed.schemes) {
+    const before = t.schemes.book.value.schemes.length
+    t.schemes.mergeBook(parsed.schemes)
+    done.push(`方案册 +${t.schemes.book.value.schemes.length - before} 条`)
+  }
+  if (parsed.cardData) {
+    // 2026-10-20：整份回填（此前只回填四个字段，其余静默丢失）
+    applyCardData(t.cardData, parsed.cardData)
+    done.push(
+      `内容 ${parsed.cardData.todos.length} 条待办 / ${parsed.cardData.notes.length} 条速记 / ${parsed.cardData.ledger.entries.length} 笔账`,
+    )
+  }
+  if (parsed.settings && t.settings) {
+    t.settings.apply(parsed.settings)
+    done.push('外观设置')
+  }
+  return done
+}
+
 export interface BackupOptions {
   /** 自动备份要一个能按 key 读写的适配器；不传 = 只支持手动导出/导入 */
   storage?: StorageAdapter
@@ -218,27 +257,7 @@ export function useBackup(store: LayoutStore, schemes: SchemesApi, cardData: () 
     if (!p) return
     // 覆盖前先留一份现场（桌面）。失败不阻塞恢复 —— 用户此刻的意图是恢复，不是"备份成功才允许"。
     if (desktop) runAutoBackup('pre-restore')
-    const done: string[] = []
-    if (p.parsed.layout) {
-      store.importJson(E.docToJson(p.parsed.layout))
-      done.push(`版面 ${p.parsed.layout.items.length} 个模块`)
-    }
-    if (p.parsed.schemes) {
-      const before = schemes.book.value.schemes.length
-      schemes.mergeBook(p.parsed.schemes)
-      done.push(`方案册 +${schemes.book.value.schemes.length - before} 条`)
-    }
-    if (p.parsed.cardData) {
-      // 2026-10-20：整份回填（此前只回填四个字段，其余静默丢失）
-      applyCardData(cardData(), p.parsed.cardData)
-      done.push(
-        `内容 ${p.parsed.cardData.todos.length} 条待办 / ${p.parsed.cardData.notes.length} 条速记 / ${p.parsed.cardData.ledger.entries.length} 笔账`,
-      )
-    }
-    if (p.parsed.settings && opts.settings) {
-      opts.settings.apply(p.parsed.settings)
-      done.push('外观设置')
-    }
+    const done = applyParsedSections(p.parsed, { store, schemes, cardData: cardData(), settings: opts.settings })
     pending.value = null
     notices.value = [...p.parsed.warnings, `已恢复：${done.join('、')}`]
   }

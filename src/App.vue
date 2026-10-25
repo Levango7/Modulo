@@ -18,7 +18,10 @@ import type { CardDataApi } from './vue/cardData'
 import type { ContentHistoryApi } from './vue/contentHistory'
 import { CARD_COMPONENTS } from './vue/cardComponents'
 import { useAppearance } from './vue/useAppearance'
-import { useBackup } from './vue/useBackup'
+import { useBackup, applyParsedSections, APP_VERSION } from './vue/useBackup'
+import { parseBackup, BACKUP_VERSION } from './vue/backup'
+import { useSync, desktopTransport } from './vue/useSync'
+import type { SyncStore } from './vue/syncStore'
 import { useReminders } from './vue/useReminders'
 import type { Reminder } from './vue/reminders'
 import { sendSystemNotifications, shouldSendSystemNotification } from './vue/notify'
@@ -48,22 +51,55 @@ provide('appearance', appearance)
 const schemes = useSchemes(store, storage)
 provide('schemes', schemes)
 /** 完整备份（含卡片内容）：拼包在 backup.ts，这里只挂上胶水 */
+/** 备份与同步共用的「设置段」读写：两份功能都只认外观 + 上次选的模板这一口径 */
+const backupSettings = {
+  get: () => ({
+    appearance: JSON.parse(JSON.stringify(appearance.state.value)) as Record<string, unknown>,
+    template: store.templateId.value,
+  }),
+  apply: (s: { appearance?: Record<string, unknown>; template?: string | null }) => {
+    if (s.appearance) appearance.set(s.appearance as unknown as Parameters<typeof appearance.set>[0])
+    if (typeof s.template === 'string') store.setTemplateChoice(s.template)
+  },
+}
 const backup = useBackup(store, schemes, () => cardDataApi.state, {
   storage,
   // 备份里的设置段只收"恢复后应该长得一样"的非敏感项：外观 + 上次选的模板。
   // 全局快捷键不在里面（要在 Rust 侧重新注册，写进去不等于生效）。
-  settings: {
-    get: () => ({
-      appearance: JSON.parse(JSON.stringify(appearance.state.value)) as Record<string, unknown>,
-      template: store.templateId.value,
-    }),
-    apply: (s) => {
-      if (s.appearance) appearance.set(s.appearance as unknown as Parameters<typeof appearance.set>[0])
-      if (typeof s.template === 'string') store.setTemplateChoice(s.template)
-    },
-  },
+  settings: backupSettings,
 })
 provide('backup', backup)
+
+/**
+ * 多端同步（WebDAV）：裁决在引擎 `sync.ts`，传输在 Rust `webdav.rs`，这里只装线。
+ * 拉下来的那几段**走备份的恢复管道**（`parseBackup` + `applyParsedSections`）——
+ * 网盘上的文件同样是不可信输入，不该有第二条更宽松的落地路径。
+ */
+const syncStore = inject<SyncStore>('syncStore')!
+const sync = useSync({
+  store: syncStore,
+  transport: isDesktop ? desktopTransport() : null,
+  desktop: isDesktop,
+  sections: () => ({
+    layout: JSON.parse(JSON.stringify(store.doc.value)) as unknown,
+    schemes: JSON.parse(JSON.stringify(schemes.book.value)) as unknown,
+    cardData: JSON.parse(JSON.stringify(cardDataApi.state)) as unknown,
+    settings: backupSettings.get(),
+  }),
+  applyRemote: (remote) => {
+    const payload = { kind: 'modulo.backup', version: BACKUP_VERSION, app: APP_VERSION, ...remote }
+    const parsed = parseBackup(JSON.stringify(payload), store.reg)
+    if (parsed.kind !== 'backup') return { done: [], warnings: parsed.warnings }
+    const done = applyParsedSections(parsed, {
+      store,
+      schemes,
+      cardData: cardDataApi.state,
+      settings: backupSettings,
+    })
+    return { done, warnings: parsed.warnings }
+  },
+})
+provide('sync', sync)
 provide('shell', useShell(storage))
 
 /**

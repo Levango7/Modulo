@@ -7,6 +7,7 @@ import { useFocusTrap } from '../useFocusTrap'
 import { dataDir as fetchDataDir } from '../fileStorage'
 import { isDesktop, type ShortcutKind, type ShellApi } from '../useShell'
 import BackupSection from './BackupSection.vue'
+import SyncSection from './SyncSection.vue'
 import SchemesSection from './SchemesSection.vue'
 import VersionSection from './VersionSection.vue'
 import type { AppearanceApi } from '../useAppearance'
@@ -197,6 +198,8 @@ onBeforeUnmount(stopRecord)
       <SchemesSection />
 
       <BackupSection />
+
+      <SyncSection />
 
       <VersionSection />
     </div>

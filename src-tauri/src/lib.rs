@@ -22,6 +22,8 @@ pub mod net;
 mod net_policy;
 mod sysmon;
 pub mod web;
+/// WebDAV 同步通道（用户自带网盘）。只在桌面壳里存在；边界与凭据纪律见文件头。
+mod webdav;
 
 use tauri::{AppHandle, Manager, WindowEvent};
 
@@ -410,7 +412,15 @@ pub fn run() {
             launcher::launch_target,
             floatwin::list_floats,
             floatwin::float_card,
-            floatwin::unfloat_card
+            floatwin::unfloat_card,
+            webdav::webdav_probe,
+            webdav::webdav_get,
+            webdav::webdav_put,
+            webdav::webdav_list,
+            webdav::webdav_delete,
+            webdav::sync_cred_set,
+            webdav::sync_cred_status,
+            webdav::sync_cred_clear
         ])
         .on_window_event(|window, event| {
             // 浮窗（float-*）的几何与生命周期由 floatwin 接管：关掉浮窗 = 卡片回工作台
