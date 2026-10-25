@@ -19,7 +19,7 @@ that will apply once signing is active, and are marked where that is the case.
 
 ## What is signed
 
-- **Nothing is Authenticode-signed today** (baseline: v0.8.3, 2026-10-18; see Current status).
+- **Nothing is Authenticode-signed today** (baseline: v0.8.6, 2026-10-25; see Current status).
 - Once the SignPath program is active, the artifact to be signed will be the Windows installer
   published on GitHub Releases: `Modulo_<version>_x64-setup.exe` (an NSIS installer containing
   the application binary `modulo.exe`).
@@ -89,18 +89,20 @@ on the GitHub account and on the SignPath account used for review and approval.
 
 ## Current status
 
-As of **2026-10-22** (baseline release: **v0.8.4**), releases are **not yet Authenticode-signed**.
-Evidence (2026-10-22 / 2026-10-18, maintainer machine):
+As of **2026-10-25** (baseline release: **v0.8.6**), releases are **not yet Authenticode-signed**.
+Evidence (2026-10-25 / 2026-10-22 / 2026-10-18, maintainer machine):
 
-- The v0.8.4 installer was re-downloaded in full from its GitHub Release: **4,255,593 bytes**,
-  sha256 **`cd9cb8a7…14cfa`** — matching the GitHub release asset digest and
-  `release-manifest.json` (three independent sources). `Get-AuthenticodeSignature` on it reports
-  **NotSigned**; control: the same command on `C://Windows//System32//cmd.exe` reports **Valid** on
-  the same machine. Checked 2026-10-23, i.e. **after** the release — this is hard step 5 of the
-  release process, and it is recorded here so the baseline never lags the shipped version.
-- The v0.8.3 baseline (2026-10-18) was measured the same way: **NotSigned**, 4,042,044 bytes,
-  sha256 **`7eb1145c…d3646`**. An initial truncated download (2,732,222 bytes) failed the hash
-  check and was discarded before any signature check — the reason the download is hashed first.
+- The v0.8.6 installer was downloaded from its GitHub Release (draft stage) in full: **10,046,654 bytes**,
+  sha256 **`104f1f1a01edd65224e6db8f8cb9754398ed45f2b1288836542771aef04901a9`** — matching the GitHub
+  release asset digest and `release-manifest.json` (three independent sources).
+  `Get-AuthenticodeSignature` on it reports **NotSigned**; control: the same command on
+  `C:\Windows\System32\cmd.exe` reports **Valid** on the same machine. Checked 2026-10-25 during the
+  pre-release drill (hard step 5 of the release process).
+- The v0.8.4 baseline (2026-10-22) was measured the same way: **NotSigned**, 4,255,593 bytes,
+  sha256 **`cd9cb8a7…14cfa`** — checked after the release. The v0.8.3 baseline (2026-10-18):
+  **NotSigned**, 4,042,044 bytes, sha256 **`7eb1145c…d3646`**. An initial truncated download
+  (2,732,222 bytes) failed the hash check and was discarded before any signature check — the reason
+  the download is hashed first.
 - `Get-AuthenticodeSignature` on the downloaded installer reports **NotSigned**. Control: the
   same command on `C:\Windows\System32\cmd.exe` reports **Valid** on the same machine.
 - CI contains no signing step for the installer: `.github/workflows/ci.yml` only carries
