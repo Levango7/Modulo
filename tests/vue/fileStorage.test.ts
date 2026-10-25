@@ -1,4 +1,6 @@
 import { describe, expect, it } from 'vitest'
+import { readdirSync, readFileSync } from 'node:fs'
+import { join, resolve } from 'node:path'
 import { DATA_KEYS, createFileStorage, hydrateData, webStorage } from '../../src/vue/fileStorage'
 
 const settle = (ms = 60) => new Promise((r) => setTimeout(r, ms))
@@ -95,6 +97,74 @@ describe('桌面壳的数据落盘适配器', () => {
     })
     expect(Object.keys(out).sort()).toEqual([...DATA_KEYS].sort())
     expect(Object.values(out).every((v) => v === null)).toBe(true)
+  })
+})
+
+describe('存储键登记：写下去的键必须重启还读得回来（2026-10-24 修）', () => {
+  const CACHE_KEYS = [
+    'modulo.weather.v1',
+    'modulo.air.v1',
+    'modulo.fx.v1',
+    'modulo.hn.v1',
+    'modulo.repo.v1',
+    'modulo.repo-snapshot.v1',
+    'modulo.update.v1',
+    'modulo.worldclock.v1',
+  ]
+
+  /**
+   * 走**裸 `localStorage`**、明确不进文件存储的键（各自卡片自己读浏览器存储，桌面重启后仍在，
+   * 但不在文件镜像里、也不在备份清单里）。白名单是「已知分叉」的登记处，不是省事：
+   * 下面一条用例要求每个白名单键**确实还在源码里出现**，卡片改走适配器后这一条会逼着来删。
+   */
+  const RAW_LOCAL_STORAGE_KEYS = ['modulo.rss.v1', 'modulo.probe.v1']
+
+  it('8 个缓存/偏好键都在 DATA_KEYS 里（漏登记 = 写得下去、重启读不到）', () => {
+    for (const k of CACHE_KEYS) expect(DATA_KEYS, `${k} 没登记`).toContain(k)
+  })
+
+  it('重启链：按 DATA_KEYS hydrate 后，缓存原样读得回来', async () => {
+    const disk: Record<string, string> = Object.fromEntries(CACHE_KEYS.map((k, i) => [k, `{"cachedAt":${i}}`]))
+    const out = await hydrateData(async (k) => disk[k] ?? null, async () => {})
+    for (const k of CACHE_KEYS) expect(out[k]).toBe(disk[k])
+  })
+
+  /**
+   * 源码扫描门禁：`src/` 里任何 `'modulo.<名字>.v<N>'` 字面量，要么进了 `DATA_KEYS`，
+   * 要么在裸 localStorage 白名单里 —— 两者都不沾就红。
+   *
+   * 为什么正则不写死卡片名：本笔之前的写法只认 `weather|air|fx|hn|repo|repo-snapshot|update`
+   * 七个名字，而 `modulo.worldclock.v1`（世界时钟选的城市）**正好在射程外、照样漏着** ——
+   * 换成通用形状后它当场被抓出来。写死名单的门禁只能守住"已经想到的那几个键"。
+   *
+   * 反假绿：扫描本身坏掉（目录改名、正则失配）时会得到空集合，而"没有未登记的键"看起来像通过，
+   * 所以先断言扫出的键数下限；白名单也逐条断言仍在源码里，防止它变成永远绿的黑洞。
+   */
+  it('src 里出现的存储键全数已登记（扫描不能空跑）', () => {
+    const files: string[] = []
+    const walk = (dir: string) => {
+      for (const entry of readdirSync(dir, { withFileTypes: true })) {
+        const p = join(dir, entry.name)
+        if (entry.isDirectory()) walk(p)
+        else if (/\.(ts|vue)$/.test(entry.name)) files.push(p)
+      }
+    }
+    walk(resolve(__dirname, '../../src'))
+    const sources = files.map((f) => readFileSync(f, 'utf8'))
+
+    const re = /'(modulo\.[a-z][a-z0-9-]*\.v\d+)'/g
+    const found = new Set<string>()
+    for (const text of sources) for (const m of text.matchAll(re)) found.add(m[1])
+
+    // 2026-10-24 实测 19 个；下限留余量，但不低到能放过一整类新键
+    expect(found.size, '扫出的存储键过少 —— 扫描本身坏了，不能当成"没有漏登记"').toBeGreaterThanOrEqual(16)
+
+    const known = new Set([...DATA_KEYS, ...RAW_LOCAL_STORAGE_KEYS])
+    for (const key of found) expect(known, `${key} 出现在源码里但既没登记 DATA_KEYS、也不在裸 localStorage 白名单`).toContain(key)
+
+    for (const key of RAW_LOCAL_STORAGE_KEYS) {
+      expect(found, `白名单里的 ${key} 已不在源码里 —— 请把这一条从白名单删掉`).toContain(key)
+    }
   })
 })
 

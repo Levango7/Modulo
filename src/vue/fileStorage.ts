@@ -34,6 +34,19 @@ export const DATA_KEYS: readonly string[] = [
   // 迁移现场（P0-⑤，`migrate.ts`）：写入前快照，最多留最近 3 次；
   // 同样必须登记，否则写了快照、重启读不到，退路就是假的。
   MIGRATE_BACKUP_KEY,
+  // 2026-10-24 补登记：这 8 个键此前能写进磁盘，但**没进这张表** ⇒ 重启后 `get` 恒为 null。
+  // 症状分两种，都不报错：① 缓存类 —— 天气/空气/汇率/HN/仓库快照/更新检查一重启就重新联网，
+  // 「上次取回的数据」连同 30 分钟 TTL 全部形同没写过；② 偏好类 —— 世界时钟挑的城市、GitHub 卡
+  // 填的仓库名，重启直接回到默认值（用户视角就是「我明明选了」）。
+  // 缓存类不进完整备份、不进自动备份（`backup.ts` 是显式字段清单，与这张表无关）。
+  'modulo.weather.v1',
+  'modulo.air.v1',
+  'modulo.fx.v1',
+  'modulo.hn.v1',
+  'modulo.repo.v1',
+  'modulo.repo-snapshot.v1',
+  'modulo.update.v1',
+  'modulo.worldclock.v1',
 ]
 
 
