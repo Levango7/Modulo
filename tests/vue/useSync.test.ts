@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import {
   buildBundle,
   hashOf,
@@ -10,7 +10,7 @@ import {
   type SyncSection,
 } from '@levango7/engine/sync'
 import { createSyncStore, parseSyncState, sectionOfKey, serializeSyncState, stampForWrite, watchSectionWrites } from '../../src/vue/syncStore'
-import { describePending, desktopTransport, useSync, type SyncTransport } from '../../src/vue/useSync'
+import { AUTO_INTERVAL_MS, describePending, desktopTransport, shouldAutoSync, useSync, type SyncTransport } from '../../src/vue/useSync'
 
 /**
  * 同步胶水层：钉的是"会不会洗掉数据"，不是"请求发得对不对"。
@@ -346,17 +346,17 @@ describe('客户端设置与拒绝路径', () => {
 
 describe('syncStore：戳与设置的容错', () => {
   it('坏 JSON / 坏字段一律回默认，不整份报废', () => {
-    expect(parseSyncState('{').settings).toEqual({ endpoint: '', user: '', deviceId: '', remember: false, lastSyncAt: null })
+    expect(parseSyncState('{').settings).toEqual({ endpoint: '', user: '', deviceId: '', remember: false, auto: false, lastSyncAt: null })
     const s = parseSyncState(
       JSON.stringify({ endpoint: 1, user: 'u', deviceId: 'd', remember: 'yes', lastSyncAt: -5, stamps: { layout: { at: 0, dev: 'x', hash: 'h' }, unknown: { at: 1, dev: 'x', hash: 'h' } } }),
     )
-    expect(s.settings).toEqual({ endpoint: '', user: 'u', deviceId: 'd', remember: false, lastSyncAt: null })
+    expect(s.settings).toEqual({ endpoint: '', user: 'u', deviceId: 'd', remember: false, auto: false, lastSyncAt: null })
     expect(s.stamps).toEqual({}) // at=0 的坏戳与不认识的段都丢掉
   })
 
   it('序列化再解析是等价的（写的和读的同一套字段）', () => {
-    const raw = serializeSyncState({ settings: { endpoint: 'e', user: 'u', deviceId: 'd', remember: true, lastSyncAt: 5 }, stamps: { layout: { at: 9, dev: 'd', hash: 'h' } } })
-    expect(parseSyncState(raw)).toEqual({ settings: { endpoint: 'e', user: 'u', deviceId: 'd', remember: true, lastSyncAt: 5 }, stamps: { layout: { at: 9, dev: 'd', hash: 'h' } } })
+    const raw = serializeSyncState({ settings: { endpoint: 'e', user: 'u', deviceId: 'd', remember: true, auto: false, lastSyncAt: 5 }, stamps: { layout: { at: 9, dev: 'd', hash: 'h' } } })
+    expect(parseSyncState(raw)).toEqual({ settings: { endpoint: 'e', user: 'u', deviceId: 'd', remember: true, auto: false, lastSyncAt: 5 }, stamps: { layout: { at: 9, dev: 'd', hash: 'h' } } })
   })
 
   it('写非 JSON / 非对象的内容不记戳（记原文指纹会让同一份数据永远判不等）', () => {
@@ -806,5 +806,223 @@ describe('历史副本：不可用与参数不合法时不发请求', () => {
     await sync.refreshHistory()
     expect(t.calls).toEqual([])
     expect(sync.status.value).toBe('error')
+  })
+})
+
+describe('自动同步：判据是纯函数，节拍只是执行它', () => {
+  const base = {
+    enabled: true,
+    usable: true,
+    busy: false,
+    pending: false,
+    lastSyncAt: null as number | null,
+    now: 1_000_000,
+    hidden: false,
+  }
+
+  it('六个条件缺一不可', () => {
+    expect(shouldAutoSync(base)).toBe(true)
+    for (const patch of [{ enabled: false }, { usable: false }, { busy: true }, { pending: true }, { hidden: true }]) {
+      expect(shouldAutoSync({ ...base, ...patch }), JSON.stringify(patch)).toBe(false)
+    }
+  })
+
+  it('间隔：满 15 分钟才跑，差一毫秒都不跑', () => {
+    const last = base.now - AUTO_INTERVAL_MS + 1
+    expect(shouldAutoSync({ ...base, lastSyncAt: last })).toBe(false)
+    expect(shouldAutoSync({ ...base, lastSyncAt: base.now - AUTO_INTERVAL_MS })).toBe(true)
+  })
+
+  it('从没成功过就立刻可以跑（首次同步都是上传，不需要抉择）', () => {
+    expect(shouldAutoSync({ ...base, lastSyncAt: null })).toBe(true)
+  })
+
+  it('开启后立刻跑一次，之后按 15 分钟节拍走，关掉就不再跑', async () => {
+    vi.useFakeTimers()
+    try {
+      const t = new FakeTransport()
+      const { sync, store } = setup({ transport: t })
+      sync.save({ auto: true })
+      sync.startAuto()
+      await vi.advanceTimersByTimeAsync(0)
+      expect(t.calls.filter((c) => c.startsWith('get ')).length).toBe(1) // 首次立刻跑
+      expect(store.state().settings.lastSyncAt).not.toBeNull()
+
+      sync.stopAuto()
+      const before = t.calls.length
+      await vi.advanceTimersByTimeAsync(20 * 60_000)
+      expect(t.calls.length).toBe(before) // 停了就不动
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('有下载待确认时自动同步不跑（绝不替用户按确认）', async () => {
+    vi.useFakeTimers()
+    try {
+      const t = new FakeTransport()
+      t.remote[LIVE_NAME] = JSON.stringify(bundleWith({ layout: { at: 1900, dev: 'dev-b', body: { items: [] } } }))
+      const { sync, applied } = setup({ transport: t })
+      sync.save({ auto: true })
+      sync.startAuto()
+      await vi.advanceTimersByTimeAsync(0)
+      expect(sync.pending.value).not.toBeNull() // 进了确认块
+      expect(applied).toEqual([])
+      const after = t.calls.length
+      await vi.advanceTimersByTimeAsync(20 * 60_000)
+      expect(t.calls.length).toBe(after) // pending 未清，不再跑
+      sync.cancelApply()
+      sync.stopAuto()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('后台失败不把状态打红，只留一条"自动同步没成"', async () => {
+    const t = new FakeTransport()
+    t.get = async () => {
+      throw new Error('连不上网盘：timeout')
+    }
+    const { sync } = setup({ transport: t })
+    sync.save({ auto: true })
+    await sync.syncNow({ auto: true })
+    expect(sync.status.value).toBe('idle')
+    expect(sync.notices.value.join()).toContain('自动同步没成')
+  })
+})
+
+describe('自动同步的启停边界', () => {
+  it('重复 startAuto 不会挂第二个定时器（只跑一轮）', async () => {
+    vi.useFakeTimers()
+    try {
+      const t = new FakeTransport()
+      const { sync } = setup({ transport: t })
+      sync.save({ auto: true })
+      sync.startAuto()
+      sync.startAuto()
+      await vi.advanceTimersByTimeAsync(0)
+      const gets = t.calls.filter((c) => c.startsWith('get ')).length
+      expect(gets).toBe(1)
+      sync.stopAuto()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('没启动就 stopAuto / 再 stopAuto 都是无操作（不抛）', () => {
+    const { sync } = setup()
+    expect(() => sync.stopAuto()).not.toThrow()
+    expect(() => sync.stopAuto()).not.toThrow()
+  })
+
+  it('没开开关时 startAuto 的那次立刻判据直接放弃（不发请求）', async () => {
+    const t = new FakeTransport()
+    const { sync } = setup({ transport: t })
+    sync.save({ auto: false })
+    sync.startAuto()
+    await Promise.resolve()
+    expect(t.calls).toEqual([])
+    sync.stopAuto()
+  })
+})
+
+describe('补充 3：默认时钟、空 done、无 ETag 的恢复、空轮转、展示函数', () => {
+  it('不注入时钟时用 Date.now（默认参数的兜底不能是坏的）', async () => {
+    const storage = mem()
+    const store = createSyncStore(storage)
+    store.patch({ endpoint: 'https://dav.example.com/dav/modulo/', user: 'me' })
+    const t = new FakeTransport()
+    const sync = useSync({ store, transport: t, desktop: true, sections: () => SECTIONS, applyRemote: () => ({ done: [], warnings: [] }) })
+    sync.password.value = 'pw'
+    await sync.syncNow()
+    expect(sync.status.value).toBe('ok')
+    expect(store.state().settings.lastSyncAt).toBeGreaterThan(0)
+  })
+
+  it('非 Error 的抛出（字符串）也进提示，不会变成 [object Object]', async () => {
+    const t = new FakeTransport()
+    t.get = async () => {
+      throw '网盘挂了' // eslint-disable-line no-throw-literal
+    }
+    const { sync } = setup({ transport: t })
+    await sync.syncNow()
+    expect(sync.status.value).toBe('error')
+    expect(sync.message.value).toContain('网盘挂了')
+  })
+
+  it('网页版点「测试连接」：静默返回（没有通道，不该假报成功）', async () => {
+    const store = createSyncStore(mem())
+    const sync = useSync({ store, transport: null, desktop: false, sections: () => ({}), applyRemote: () => ({ done: [], warnings: [] }) })
+    await sync.test()
+    expect(sync.status.value).toBe('idle')
+  })
+
+  it('测试连接：端点不合法时直接给理由，不 probe', async () => {
+    const t = new FakeTransport()
+    const { sync } = setup({ transport: t })
+    sync.save({ endpoint: 'http://nas.local/dav/' })
+    await sync.test()
+    expect(sync.status.value).toBe('error')
+    expect(t.calls).toEqual([])
+  })
+
+  it('没有待确认时 confirmApply 是无操作；落地后本机无变化也能说清', async () => {
+    const t = new FakeTransport()
+    t.remote[LIVE_NAME] = JSON.stringify(bundleWith({ layout: { at: 1900, dev: 'dev-b', body: { items: [] } } }))
+    const storage = mem()
+    const store = createSyncStore(storage)
+    store.patch({ endpoint: 'https://dav.example.com/dav/modulo/', user: 'me' })
+    const applied: unknown[] = []
+    const sync = useSync({
+      store,
+      transport: t,
+      desktop: true,
+      sections: () => SECTIONS,
+      applyRemote: (r) => {
+        applied.push(r)
+        return { done: [], warnings: [] } // 宿主认为没有需要落地的东西
+      },
+      now: () => 2000,
+    })
+    sync.password.value = 'pw'
+    await sync.confirmApply() // 没有 pending：直接返回，不发请求
+    expect(applied).toEqual([])
+    expect(t.calls).toEqual([])
+
+    await sync.syncNow()
+    await sync.confirmApply()
+    expect(sync.notices.value.join()).toContain('无变化')
+  })
+
+  it('恢复历史副本时 live 读不到：etag 为 null（退回无条件写）', async () => {
+    const t = new FakeTransport()
+    t.remote[historyName(1000)] = JSON.stringify(
+      bundleWith({ layout: { at: 1000, dev: 'dev-old', body: { items: [{ id: 'old' }] } } }, 'dev-old'),
+    )
+    // live 不存在 → t.get(LIVE_NAME) 返回 null
+    const { sync } = setup({ transport: t })
+    await sync.restoreHistory(historyName(1000))
+    expect(sync.pending.value?.etag).toBeNull()
+    await sync.confirmApply()
+    expect(t.ifMatches.at(-1)).toBeNull()
+  })
+
+  it('历史副本全部在额度内：轮转不发 DELETE', async () => {
+    const t = new FakeTransport()
+    t.remote[LIVE_NAME] = JSON.stringify(bundleWith({ layout: { at: 800, dev: 'dev-b', body: { items: [] } } }))
+    t.listing = [LIVE_NAME, historyName(500)]
+    const { sync } = setup({ transport: t })
+    await sync.syncNow()
+    expect(t.calls.filter((c) => c.startsWith('remove '))).toEqual([])
+  })
+
+  it('describePending 对历史副本只列那几段（source 分支）', async () => {
+    const t = new FakeTransport()
+    t.remote[historyName(1000)] = JSON.stringify(
+      bundleWith({ layout: { at: 1000, dev: 'dev-old', body: { items: [] } } }, 'dev-old'),
+    )
+    const { sync } = setup({ transport: t })
+    await sync.restoreHistory(historyName(1000))
+    expect(describePending(sync.pending.value!)).toContain('历史副本那一版')
   })
 })

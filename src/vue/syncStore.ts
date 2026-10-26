@@ -25,10 +25,15 @@ export interface SyncSettings {
   deviceId: string
   /** 勾了才把口令写系统凭据库；没勾就只在本次运行的内存里 */
   remember: boolean
+  /**
+   * 自动同步（默认关）。**只搬运"不需要抉择"的那一半**：
+   * 没有要下载的段才会上传；有下载时只提示、不落地（见 useSync 的 autoTick）。
+   */
+  auto: boolean
   lastSyncAt: number | null
 }
 
-export const EMPTY_SETTINGS: SyncSettings = { endpoint: '', user: '', deviceId: '', remember: false, lastSyncAt: null }
+export const EMPTY_SETTINGS: SyncSettings = { endpoint: '', user: '', deviceId: '', remember: false, auto: false, lastSyncAt: null }
 
 /**
  * 参与同步的段 → 对应的存储 key。`settings` 段由两个 key 组成（外观 + 上次选的模板），
@@ -71,6 +76,7 @@ export function parseSyncState(raw: string | null): SyncState {
     user: asString(o.user),
     deviceId: asString(o.deviceId),
     remember: o.remember === true,
+    auto: o.auto === true,
     lastSyncAt: typeof o.lastSyncAt === 'number' && Number.isFinite(o.lastSyncAt) && o.lastSyncAt > 0 ? o.lastSyncAt : null,
   }
   const stamps = o.stamps
