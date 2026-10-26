@@ -44,6 +44,22 @@ export async function unfloatCard(cardId: string): Promise<void> {
   await invoke('unfloat_card', { cardId })
 }
 
+/**
+ * 把某张卡的浮窗提到最前（F-08 的「置顶 / 定位」）。
+ *
+ * 返回 false = 那张窗已经不在了（刚被关掉 / 从没脱离）—— 这是**正常结果不是错误**，
+ * 不必弹错误：清单会由 `floats-changed` 广播自己收敛，不必为此重拉。
+ * 网页版直接返回 false（没有浮窗这回事）。
+ */
+export async function focusFloat(cardId: string): Promise<boolean> {
+  if (!isDesktop) return false
+  try {
+    return await invoke<boolean>('focus_float', { cardId })
+  } catch {
+    return false
+  }
+}
+
 /** 浮动清单变化（任意窗口触发都广播）：返回退订函数 */
 export function onFloatsChanged(cb: (floats: FloatEntry[]) => void): () => void {
   if (!isDesktop) return () => {}

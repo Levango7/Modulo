@@ -100,6 +100,34 @@ pub fn list_floats(state: State<'_, Floats>) -> Vec<FloatEntry> {
     state.0.lock().map(|s| s.floats.clone()).unwrap_or_default()
 }
 
+/// 把某张卡的浮窗提到最前（F-08 里「置顶 / 定位」那一半）。
+///
+/// **为什么必须由 Rust 做**：浮窗是独立 WebView，主窗的 JS 拿不到别的窗口句柄，
+/// 换不了别人的 z 序 —— 这是"渲染层只管渲染"的边界，不是没做。
+///
+/// 语义三条：
+/// - **最小化了就先还原再聚焦**：Windows 上对被最小化的窗口 `set_focus` 只会在任务栏闪一下，
+///   人会以为"点了没反应"。
+/// - **窗口已经不在了 ⇒ `Ok(false)`，不报错**。前端点的是清单里的一行，而在它渲染到点击之间
+///   那张浮窗可能已经被关掉（它自己的 × / 另一台窗口的收回）；这跟"已浮动就只聚焦"是同一种幂等，
+///   不是失败。前端据返回值决定要不要重拉清单。
+/// - **不改登记、不写盘**：置顶不是状态变更，只是把已有的窗提到前面。
+///
+/// 本命令没有自己的单测：它 100% 是 Tauri 窗口 API 的胶水，唯一可测的那一半（label 映射）
+/// 由 `label_of` / `card_of_label` 的既有单测守着；前端的整链（点一行 → 发这条命令）由 E2E 钉。
+#[tauri::command]
+pub fn focus_float(app: tauri::AppHandle, card_id: String) -> Result<bool, String> {
+    let Some(win) = app.get_webview_window(&label_of(&card_id)) else {
+        return Ok(false);
+    };
+    if win.is_minimized().unwrap_or(false) {
+        let _ = win.unminimize();
+    }
+    let _ = win.show();
+    win.set_focus().map_err(|e| e.to_string())?;
+    Ok(true)
+}
+
 /// 把某张卡脱离成浮窗。已浮动则只 show + focus（幂等）。
 /// 返回 false 表示"没有创建新窗、只是聚焦了已有的"。
 #[tauri::command]

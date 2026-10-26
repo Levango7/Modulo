@@ -34,7 +34,7 @@ import NoticeStrip from './vue/components/NoticeStrip.vue'
 import CancelEditDialog from './vue/components/CancelEditDialog.vue'
 import { type CommandBus } from './vue/commandBus'
 import type { CommandContext } from './vue/commands'
-import { floatCard, floatingSupported, unfloatCard } from './float/api'
+import { floatCard, floatingSupported, focusFloat, unfloatCard } from './float/api'
 import { floatItems } from './vue/floatList'
 import GridLayout from './vue/components/GridLayout.vue'
 import CanvasEditor from './vue/components/CanvasEditor.vue'
@@ -204,6 +204,17 @@ const floats = computed(() =>
 function unfloatAll(): void {
   floatOpen.value = false
   for (const f of floats.value) void unfloatCard(f.id)
+}
+/**
+ * 把一条浮窗提到最前（F-08 的「定位」）。
+ *
+ * 先关菜单再发命令：聚焦会让主窗失焦，菜单本就该收；这也顺手避免了"点完菜单还挂在屏幕上"。
+ * 返回值 false = 那张窗已经不在了（刚被关掉）—— 这不是错误，**静默**，清单会由
+ * floats-changed 广播自己收敛；为此跑一趟重拉反而是多余的。
+ */
+function focusFloatRow(id: string): void {
+  floatOpen.value = false
+  void focusFloat(id)
 }
 function runArrange(fn: () => void): void {
   arrangeOpen.value = false
@@ -398,6 +409,7 @@ const onGlobalKey = useGlobalKeys({
       @arrange="onArrange"
       @update:arrange-open="arrangeOpen = $event"
       @toggle-floats="floatOpen = !floatOpen"
+      @focus="focusFloatRow"
       @unfloat="(id: string) => void unfloatCard(id)"
       @unfloat-all="unfloatAll"
       @open-templates="templatesOpen = true"

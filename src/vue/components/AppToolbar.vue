@@ -57,6 +57,7 @@ const emit = defineEmits<{
   (e: 'arrange', action: ArrangeAction): void
   (e: 'update:arrangeOpen', v: boolean): void
   (e: 'toggle-floats'): void
+  (e: 'focus', id: string): void
   (e: 'unfloat', id: string): void
   (e: 'unfloat-all'): void
   (e: 'open-templates'): void
@@ -170,16 +171,31 @@ const emit = defineEmits<{
             <ChevronDown :size="12" class="caret" :class="{ up: floatOpen }" />
           </button>
           <div v-if="floatOpen" class="add-menu float-menu" role="menu" aria-label="桌面浮窗">
-            <button
-              v-for="f in floats"
-              :key="f.id"
-              role="menuitem"
-              :title="`把「${f.title}」收回工作台`"
-              @click="emit('unfloat', f.id)"
-            >
-              <span class="t">{{ f.title }}</span>
-              <span class="v">收回工作台</span>
-            </button>
+            <!--
+              每张浮窗两个动作，刻意分成两个按钮而不是一个：
+              「提到最前」是**看一眼**（不改变任何状态，只换 z 序），「收回」是**改状态**
+              （关窗 + 卡片回工作台）。塞进一个按钮就得靠长按/右键去区分，而这是最不该
+              藏起来的两个动作。顺序也是刻意的：先看后收，收在右边、不与主点击面重叠。
+            -->
+            <div v-for="f in floats" :key="f.id" class="float-row" role="none">
+              <button
+                role="menuitem"
+                class="to-front"
+                :title="`把「${f.title}」提到最前`"
+                @click="emit('focus', f.id)"
+              >
+                <span class="t">{{ f.title }}</span>
+                <span class="v">提到最前</span>
+              </button>
+              <button
+                role="menuitem"
+                class="unfloat"
+                :title="`把「${f.title}」收回工作台`"
+                @click="emit('unfloat', f.id)"
+              >
+                <span class="v">收回</span>
+              </button>
+            </div>
             <button
               v-if="floats.length > 1"
               role="menuitem"
@@ -433,6 +449,37 @@ const emit = defineEmits<{
 .add-menu [role='menuitem']:hover,
 .add-menu [role='menuitem']:focus-visible {
   background: var(--bg-card-soft);
+}
+/* 浮窗行：一条浮窗两个动作（提到最前 / 收回）。行本身是 flex 行，两个按钮分摊宽度 ——
+   `.add-menu [role='menuitem']` 是 width:100%，直接并排会把菜单撑破，所以这里改成 auto + flex。
+   「收回」只占内容宽、用次级文字色：它是**改状态**的动作，不该和"看一眼"同等份量。 */
+.float-row {
+  display: flex;
+  gap: 2px;
+  align-items: stretch;
+}
+.float-row [role='menuitem'] {
+  width: auto;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.float-row .unfloat {
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  padding-inline: var(--space-2);
+  color: var(--text-3);
+}
+.float-row .unfloat:hover,
+.float-row .unfloat:focus-visible {
+  color: var(--text-1);
+}
+/* 浮窗标题可能很长（模块名 + 序号）：截断而不是把菜单撑宽 */
+.float-row .t {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 100%;
 }
 /* 菜单项按下要有实感：tokens.css 的 button:active 只缩 0.96，
    菜单是连续列表，缩放会让相邻项跳动，这里改成背景加深，更贴合「点中了」的直觉 */
