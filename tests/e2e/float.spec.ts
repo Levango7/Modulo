@@ -88,4 +88,85 @@ describe.skipIf(skip)('脱离浮窗：前端整链（Tauri 桩）', () => {
     expect(await page.evaluate(() => document.querySelectorAll('.grid .cell').length), '关浮窗后卡片回工作台').toBe(before)
     await page.close()
   })
+
+  /**
+   * F-08（2026-10-26）浮窗清单：顶栏那枚「浮窗 N」的整链。
+   * 判定层（顺序/序号/标题）由 `tests/vue/floatList.test.ts` 锁 100，这里只管**看得见的那半**：
+   *   没浮窗不占位 → 脱离三张后计数变 3 → 菜单列出三张 + 批量项 → Esc 关菜单 →
+   *   逐条收回（清单自己缩短）→ 全部收回（按钮随之消失）。
+   */
+  it('浮窗清单：计数、逐条收回、全部收回、Esc 关菜单', async () => {
+    const page = await browser.newPage()
+    await page.setViewport({ width: 1440, height: 900, deviceScaleFactor: 1 })
+    await page.evaluateOnNewDocument((src: string) => {
+      new Function(src)()
+      localStorage.setItem('modulo.template.v1', 'general')
+    }, STUB_SOURCE)
+    const errs: string[] = []
+    page.on('pageerror', (e: unknown) => errs.push('PAGEERROR ' + String((e as Error).message).slice(0, 160)))
+    await page.goto(url, { waitUntil: 'networkidle2', timeout: 30000 })
+    await wait(900)
+
+    // 页面里的读数助手：清单在浮动集合变后就重算，所以每次都重新查 DOM
+    const wrapCount = () => page.evaluate(() => document.querySelectorAll('.float-wrap').length)
+    const badge = () => page.evaluate(() => document.querySelector('.float-wrap .tx-count')?.textContent?.trim() ?? '')
+    const menuItems = () =>
+      page.evaluate(() =>
+        Array.from(document.querySelectorAll('.float-menu [role="menuitem"]')).map(
+          (b) => b.querySelector('.t')?.textContent?.trim() ?? '',
+        ),
+      )
+    const openMenu = () => page.evaluate(() => document.querySelector<HTMLElement>('.float-wrap > button')!.click())
+
+    expect(await wrapCount(), '一张浮窗都没有时不该占顶栏的地方').toBe(0)
+
+    const ids = await page.evaluate(() =>
+      Array.from(document.querySelectorAll<HTMLElement>('.grid .cell'))
+        .slice(0, 3)
+        .map((el) => el.getAttribute('data-module') ?? ''),
+    )
+    expect(ids.every(Boolean), '出厂版面能取到前三张的卡片 id').toBe(true)
+    for (const cardId of ids) {
+      await page.evaluate((id: string) => {
+        document.querySelector<HTMLElement>(`.grid .cell[data-module="${id}"] .detach`)!.click()
+      }, cardId)
+      await wait(320)
+    }
+    expect(await page.evaluate(() => document.querySelectorAll('.grid .cell').length), '三张已离开工作台').toBe(2)
+    expect(await badge(), '顶栏计数 = 3').toBe('3')
+
+    await openMenu()
+    await wait(220)
+    const three = await menuItems()
+    expect(three, '三张单卡 + 一条批量收回').toHaveLength(4)
+    expect(three.at(-1)).toBe('全部收回（3）')
+    // 标题走注册表（`titleOf` 注入），不是把模块 id 直接甩给用户
+    expect(three.slice(0, 3).some((t) => ids.includes(t)), `清单该显示标题而不是 id：${three.join(' / ')}`).toBe(false)
+
+    await page.keyboard.press('Escape')
+    await wait(220)
+    expect(await page.evaluate(() => document.querySelectorAll('.float-menu').length), 'Esc 关掉清单').toBe(0)
+    expect(await wrapCount(), '按钮还在（浮窗没被收回）').toBe(1)
+
+    // 逐条收回：点第一条，清单就地缩短成 2（菜单不关，用户能连着点）
+    await openMenu()
+    await wait(220)
+    await page.evaluate(() => document.querySelector<HTMLElement>('.float-menu [role="menuitem"]')!.click())
+    await wait(420)
+    expect(await page.evaluate(() => document.querySelectorAll('.grid .cell').length), '这一张回到工作台').toBe(3)
+    expect(await badge(), '计数跟着掉到 2').toBe('2')
+    expect(await menuItems(), '清单就地缩短：两张单卡 + 一条批量').toHaveLength(3)
+
+    // 全部收回：批量项点完，集合空 ⇒ 整枚按钮消失
+    await page.evaluate(() => {
+      const b = Array.from(document.querySelectorAll<HTMLElement>('.float-menu [role="menuitem"]'))
+      b[b.length - 1]!.click()
+    })
+    await wait(600)
+    expect(await page.evaluate(() => document.querySelectorAll('.grid .cell').length), '五张全回工作台').toBe(5)
+    expect(await wrapCount(), '没有浮窗了，按钮不占位').toBe(0)
+
+    expect(errs, `页面不该有报错：${errs.join(' | ')}`).toEqual([])
+    await page.close()
+  })
 })

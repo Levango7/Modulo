@@ -22,9 +22,10 @@
  * 渲染上没有任何变化：Vue 对 `:disabled="false"` 本来就不输出属性，
  * 删掉绑定与保留恒假的绑定，产出的是同一份 HTML。
  */
-import { LayoutGrid, LayoutTemplate, Redo2, Settings, SlidersHorizontal, Undo2, Wand2, Check, ChevronDown, X } from 'lucide-vue-next'
+import { LayoutGrid, LayoutTemplate, Redo2, Settings, SlidersHorizontal, Undo2, Wand2, Check, ChevronDown, X, AppWindow } from 'lucide-vue-next'
 import BrandMark from './BrandMark.vue'
 import type { ArrangeAction } from '../arrangeActions'
+import type { FloatItem } from '../floatList'
 
 const props = defineProps<{
   view: 'workbench' | 'edit'
@@ -36,6 +37,10 @@ const props = defineProps<{
   canUndoAny: boolean
   canRedoAny: boolean
   arrangeOpen: boolean
+  /** 顶栏「浮窗 N」清单的开合（F-08）—— 状态留在 App（Esc 级联要问它） */
+  floatOpen: boolean
+  /** 当前在浮动的卡片（判定层 `floatList.ts` 算好，这里只展示）。**空数组 = 不显示这枚按钮** */
+  floats: FloatItem[]
   /** 版面上有没有行（「行重排」的可用态） */
   hasRows: boolean
   /** 「回工作台可用」提示文案（App 的常量，顶栏只是展示） */
@@ -51,6 +56,9 @@ const emit = defineEmits<{
   (e: 'redo'): void
   (e: 'arrange', action: ArrangeAction): void
   (e: 'update:arrangeOpen', v: boolean): void
+  (e: 'toggle-floats'): void
+  (e: 'unfloat', id: string): void
+  (e: 'unfloat-all'): void
   (e: 'open-templates'): void
   (e: 'open-settings'): void
 }>()
@@ -142,6 +150,44 @@ const emit = defineEmits<{
             >
               <span class="t">行重排</span>
               <span class="v">各行按存的参数自动重排{{ hasRows ? '' : '（还没有行）' }}</span>
+            </button>
+          </div>
+        </span>
+        <!-- F-08（2026-10-26）：只有真有浮窗时才占顶栏的地方 —— 没浮窗就不该有这枚按钮。
+             容器复用 `.add-wrap`：App 侧「点外面就关」判定的是这一个 class（outsideClick.ts），
+             复用它就不必为浮窗菜单再开一道判定。 -->
+        <span v-if="floats.length" class="add-wrap float-wrap" role="group" aria-label="桌面浮窗">
+          <span class="sep" aria-hidden="true"></span>
+          <button
+            class="wide"
+            aria-haspopup="menu"
+            :aria-expanded="floatOpen"
+            :title="`${floats.length} 张卡正浮在桌面上 —— 点这里收回`"
+            @click="emit('toggle-floats')"
+          >
+            <AppWindow :size="14" /> <span class="label">浮窗</span>
+            <span class="tx-count">{{ floats.length }}</span>
+            <ChevronDown :size="12" class="caret" :class="{ up: floatOpen }" />
+          </button>
+          <div v-if="floatOpen" class="add-menu float-menu" role="menu" aria-label="桌面浮窗">
+            <button
+              v-for="f in floats"
+              :key="f.id"
+              role="menuitem"
+              :title="`把「${f.title}」收回工作台`"
+              @click="emit('unfloat', f.id)"
+            >
+              <span class="t">{{ f.title }}</span>
+              <span class="v">收回工作台</span>
+            </button>
+            <button
+              v-if="floats.length > 1"
+              role="menuitem"
+              :title="`把 ${floats.length} 张浮窗全部收回`"
+              @click="emit('unfloat-all')"
+            >
+              <span class="t">全部收回（{{ floats.length }}）</span>
+              <span class="v">关掉桌面上这些小窗</span>
             </button>
           </div>
         </span>

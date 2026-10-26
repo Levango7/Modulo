@@ -115,6 +115,8 @@ export interface AppKeyLayers {
   editorEscape: () => boolean
   view: 'workbench' | 'edit'
   arrangeOpen: boolean
+  /** 顶栏「浮窗 N」清单开着（F-08，2026-10-26）—— 有浮窗时顶栏才出现这枚按钮 */
+  floatOpen: boolean
   templatesOpen: boolean
   settingsOpen: boolean
 }
@@ -126,6 +128,7 @@ export type AppKeyAction =
   | { kind: 'editorEscape' }
   | { kind: 'cancelEdit' }
   | { kind: 'closeArrange' }
+  | { kind: 'closeFloats' }
   | { kind: 'closeTemplates' }
   | { kind: 'closeSettings' }
 
@@ -140,6 +143,7 @@ export function appKeyIntent(e: KeyLike, layers: AppKeyLayers): AppKeyAction | n
   if (layers.editorEscape()) return { kind: 'editorEscape' }
   if (layers.view === 'edit') return { kind: 'cancelEdit' }
   if (layers.arrangeOpen) return { kind: 'closeArrange' }
+  if (layers.floatOpen) return { kind: 'closeFloats' }
   if (layers.templatesOpen) return { kind: 'closeTemplates' }
   if (layers.settingsOpen) return { kind: 'closeSettings' }
   return null

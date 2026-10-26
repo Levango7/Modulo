@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { inject, nextTick, onBeforeUnmount, onMounted, provide, ref } from 'vue'
+import { computed, inject, nextTick, onBeforeUnmount, onMounted, provide, ref } from 'vue'
 import { useElementSize } from './vue/useElementSize'
 import { useProjection } from './vue/useProjection'
 import { measureWantedRows } from './vue/useDensity'
@@ -35,6 +35,7 @@ import CancelEditDialog from './vue/components/CancelEditDialog.vue'
 import { type CommandBus } from './vue/commandBus'
 import type { CommandContext } from './vue/commands'
 import { floatCard, floatingSupported, unfloatCard } from './float/api'
+import { floatItems } from './vue/floatList'
 import GridLayout from './vue/components/GridLayout.vue'
 import CanvasEditor from './vue/components/CanvasEditor.vue'
 import StackEditor from './vue/components/StackEditor.vue'
@@ -189,16 +190,34 @@ const templatesOpen = ref(false)
  * （组件 `CardCatalogMenu.vue`）。
  */
 const arrangeOpen = ref(false)
+/** 顶栏「浮窗 N」清单（F-08）：状态留在 App —— Esc 级联与「点外面就关」都要问它 */
+const floatOpen = ref(false)
+/**
+ * 当前在浮动的卡片清单。判定层抽在 `src/vue/floatList.ts`（顺序按版面、同模块第二张标序号），
+ * 这里只喂数据：条目取 `store.doc`，标题查注册表，集合取 `useDetached()` 的那一份
+ * （浮窗开关可能由任意窗口触发，所以不能只信本地动作）。
+ */
+const floats = computed(() =>
+  floatItems(store.doc.value.items, (m) => E.findModule(store.reg, m)?.title ?? m, detached.value),
+)
+/** 一键收回：逐个调 `unfloat_card`（Rust 侧每次都会广播 floats-changed，清单自己会缩短） */
+function unfloatAll(): void {
+  floatOpen.value = false
+  for (const f of floats.value) void unfloatCard(f.id)
+}
 function runArrange(fn: () => void): void {
   arrangeOpen.value = false
   fn()
 }
 
 function onDocMousedown(e: MouseEvent): void {
-  if (!arrangeOpen.value) return
+  if (!arrangeOpen.value && !floatOpen.value) return
   // 落点判定（closest 从 target 自身开始，与 contains 语义一致）抽成了
   // `insideAddWrap`，理由与那道 instanceof 判断的必要性写在 outsideClick.ts 文件头。
-  if (!insideAddWrap(e.target)) arrangeOpen.value = false
+  // F-08：浮窗菜单的容器刻意复用 `.add-wrap` 这一个 class，于是两个下拉共用同一道判定。
+  if (insideAddWrap(e.target)) return
+  arrangeOpen.value = false
+  floatOpen.value = false
 }
 const stageEl = ref<HTMLElement | null>(null)
 /** 编辑器实例：Esc 编排要问它"这层还有没有可退的"（选中/批量条/目录下拉） */
@@ -342,6 +361,7 @@ const onGlobalKey = useGlobalKeys({
   editorEscape: () => editorRef.value?.escapePressed() ?? false,
   view,
   arrangeOpen,
+  floatOpen,
   templatesOpen,
   settingsOpen,
   cancelEdit,
@@ -365,6 +385,8 @@ const onGlobalKey = useGlobalKeys({
       :can-undo-any="canUndoAny"
       :can-redo-any="canRedoAny"
       :arrange-open="arrangeOpen"
+      :float-open="floatOpen"
+      :floats="floats"
       :has-rows="!!store.doc.value.rows?.length"
       :only-workbench="onlyWorkbench"
       @select-view="onSelectView"
@@ -375,6 +397,9 @@ const onGlobalKey = useGlobalKeys({
       @redo="redoLatest"
       @arrange="onArrange"
       @update:arrange-open="arrangeOpen = $event"
+      @toggle-floats="floatOpen = !floatOpen"
+      @unfloat="(id: string) => void unfloatCard(id)"
+      @unfloat-all="unfloatAll"
       @open-templates="templatesOpen = true"
       @open-settings="settingsOpen = true"
     />

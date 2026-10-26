@@ -32,6 +32,8 @@ export interface GlobalKeysDeps {
   editorEscape: () => boolean
   view: Ref<TxView>
   arrangeOpen: Ref<boolean>
+  /** 顶栏「浮窗 N」清单的开合（F-08） */
+  floatOpen: Ref<boolean>
   templatesOpen: Ref<boolean>
   settingsOpen: Ref<boolean>
   cancelEdit: () => void
@@ -53,6 +55,7 @@ export function useGlobalKeys(deps: GlobalKeysDeps): (e: GlobalKeyLike) => void 
         editorEscape: deps.editorEscape,
         view: deps.view.value,
         arrangeOpen: deps.arrangeOpen.value,
+        floatOpen: deps.floatOpen.value,
         templatesOpen: deps.templatesOpen.value,
         settingsOpen: deps.settingsOpen.value,
       }
@@ -62,6 +65,7 @@ export function useGlobalKeys(deps: GlobalKeysDeps): (e: GlobalKeyLike) => void 
         case 'editorEscape': break // 编辑器消费掉了（清选中/关目录下拉）
         case 'cancelEdit': deps.cancelEdit(); break
         case 'closeArrange': deps.arrangeOpen.value = false; break
+        case 'closeFloats': deps.floatOpen.value = false; break
         case 'closeTemplates': deps.closeTemplates(); break
         case 'closeSettings': deps.settingsOpen.value = false; break
         default: break // 级联走到底也没人接
