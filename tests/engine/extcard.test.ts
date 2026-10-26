@@ -94,6 +94,11 @@ describe('parseExtManifest：每条失败原因都有用例走到', () => {
     expect(parseExtManifest({ ...good, variants: [[]] }).ok).toBe(false)
     expect(parseExtManifest({ ...good, variants: [{ ...good.variants[0], id: '' }] }).ok).toBe(false)
     expect(parseExtManifest({ ...good, variants: [{ ...good.variants[0], id: 'x'.repeat(17) }] }).ok).toBe(false)
+  })
+
+  it('形态的 id / name 不是字符串同样拒（ternary 的另一侧）', () => {
+    expect(parseExtManifest({ ...good, variants: [{ ...good.variants[0], id: 7 }] }).ok).toBe(false)
+    expect(parseExtManifest({ ...good, variants: [{ ...good.variants[0], name: 7 }] }).ok).toBe(false)
     expect(
       parseExtManifest({
         ...good,
