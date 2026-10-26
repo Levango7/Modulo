@@ -96,17 +96,34 @@ export function searchCards(reg: ModuleRegistry, query: string): PaletteHit[] {
  * 只收"有可读文本"的字段；机器采的数据（行情/探测历史/RSS 条目）不在 `CardData` 里，
  * 天然不会被搜到 —— 这是数据分层的直接收益，不需要额外排除。
  */
-export function contentIndex(data: CardData): { cardId: string; title: string; text: string }[] {
-  const out: { cardId: string; title: string; text: string }[] = []
-  if (data.sticky.trim()) out.push({ cardId: 'sticky', title: '便签', text: data.sticky })
-  for (const t of data.todos) out.push({ cardId: 'todo', title: `待办 · ${t.done ? '已完成' : '未完成'}`, text: t.text })
-  for (const m of data.matrix) out.push({ cardId: 'matrix', title: '四象限待办', text: m.text })
-  for (const n of data.notes) out.push({ cardId: 'notes', title: `速记 · ${n.title || '无标题'}`, text: `${n.title} ${n.body}` })
-  for (const l of data.links) out.push({ cardId: 'links', title: `快捷链接 · ${l.label}`, text: `${l.label} ${l.href}` })
-  for (const c of data.commands) out.push({ cardId: 'commands', title: `命令速查 · ${c.label}`, text: `${c.label} ${c.cmd}` })
-  for (const f of data.feeds) out.push({ cardId: 'rss', title: `RSS · ${f.label}`, text: `${f.label} ${f.url}` })
-  for (const s of data.stocks) out.push({ cardId: 'stock', title: `自选 · ${s.label}`, text: `${s.label} ${s.code}` })
-  for (const b of data.birthdays) out.push({ cardId: 'birthday', title: `生日 · ${b.name}`, text: b.name })
+export interface ContentEntry {
+  /**
+   * 这一条在内容域里的**稳定局部 id**（`todo:0` / `notes:2` …）。
+   *
+   * 为什么必须有它：结果的 `key` 曾经是 `cardId:title`，而 title 对一整类条目是**常量**
+   * （所有未完成待办都叫「待办 · 未完成」、所有四象限条目都叫「四象限待办」、无标题速记都叫
+   * 「速记 · 无标题」）。同组两条同时命中查询时后一条会被去重块静默吞掉 —— 用户看到的是
+   * 「搜索结果少了一条」，没有任何报错。2026-10-27 实测确认。
+   */
+  id: string
+  cardId: string
+  title: string
+  text: string
+}
+
+export function contentIndex(data: CardData): ContentEntry[] {
+  const out: ContentEntry[] = []
+  if (data.sticky.trim()) out.push({ id: 'sticky', cardId: 'sticky', title: '便签', text: data.sticky })
+  data.todos.forEach((t, i) => out.push({ id: `todo:${i}`, cardId: 'todo', title: `待办 · ${t.done ? '已完成' : '未完成'}`, text: t.text }))
+  data.matrix.forEach((m, i) => out.push({ id: `matrix:${i}`, cardId: 'matrix', title: '四象限待办', text: m.text }))
+  data.notes.forEach((n, i) =>
+    out.push({ id: `notes:${i}`, cardId: 'notes', title: `速记 · ${n.title || '无标题'}`, text: `${n.title} ${n.body}` }),
+  )
+  data.links.forEach((l, i) => out.push({ id: `links:${i}`, cardId: 'links', title: `快捷链接 · ${l.label}`, text: `${l.label} ${l.href}` }))
+  data.commands.forEach((c, i) => out.push({ id: `commands:${i}`, cardId: 'commands', title: `命令速查 · ${c.label}`, text: `${c.label} ${c.cmd}` }))
+  data.feeds.forEach((f, i) => out.push({ id: `rss:${i}`, cardId: 'rss', title: `RSS · ${f.label}`, text: `${f.label} ${f.url}` }))
+  data.stocks.forEach((s, i) => out.push({ id: `stock:${i}`, cardId: 'stock', title: `自选 · ${s.label}`, text: `${s.label} ${s.code}` }))
+  data.birthdays.forEach((b, i) => out.push({ id: `birthday:${i}`, cardId: 'birthday', title: `生日 · ${b.name}`, text: b.name }))
   return out
 }
 
@@ -116,7 +133,7 @@ export function searchContent(data: CardData, query: string): PaletteHit[] {
     const s = fuzzyScore(query, entry.text)
     if (s === null) continue
     hits.push({
-      key: `content:${entry.cardId}:${entry.title}`,
+      key: `content:${entry.id}`,
       kind: 'content',
       title: entry.title,
       sub: excerpt(entry.text, query),
@@ -124,12 +141,7 @@ export function searchContent(data: CardData, query: string): PaletteHit[] {
       score: s,
     })
   }
-  const seen = new Set<string>()
-  return hits
-    .sort((a, b) => b.score - a.score)
-    .filter((h) => {
-      if (seen.has(h.key)) return false
-      seen.add(h.key)
-      return true
-    })
+  // 键由 id 唯一决定，不需要再去重（那段 seen 块在 2026-10-27 之前是靠"吞掉后一条"工作的，
+  // 它吞掉的正是本该显示出来的搜索结果）。唯一性由用例守着，见 tests/vue/commands.test.ts。
+  return hits.sort((a, b) => b.score - a.score)
 }
