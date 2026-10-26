@@ -370,6 +370,55 @@ describe('命令层：补上棘轮咬出来的缺口', () => {
     expect(searchCards(REGISTRY, '不存在的卡名').length).toBe(0)
   })
 
+  /**
+   * 2026-10-27 的真缺陷：内容域的 key 曾经是 `cardId:title`，而 title 对一整类条目是常量
+   * （未完成待办全是「待办 · 未完成」、四象限全是「四象限待办」、无标题速记全是「速记 · 无标题」）。
+   * 同组两条同时命中时，后一条被去重块吞掉 —— 用户看到的是"搜索结果少了一条"，没有任何报错。
+   */
+  it('索引：同组多条同时命中时每一条都要出现（曾经只剩一条）', async () => {
+    const { searchContent } = await import('../../src/vue/paletteIndex')
+    const data = (await import('../../src/vue/cardData')).createCardData(memoryStorage())
+    // 注意：createCardData 起步是**示例内容**（有自带的待办/速记），所以断言只能盯"我加的这两条
+    // 是否都在"，不能用总数 —— 那是把别人的种子算进自己的分母。
+    data.addTodo('写周报')
+    data.addTodo('写季度总结')
+    data.addNote('', '第一段没标题')
+    data.addNote('', '第二段也没标题')
+    data.addMatrixTodo('周报相关的四象限', 'do')
+    data.addMatrixTodo('周报相关的四象限二', 'plan')
+
+    const subs = (q: string, cardId: string) =>
+      searchContent(data.state, q)
+        .filter((h) => h.cardId === cardId)
+        .map((h) => h.sub)
+
+    const todos = subs('写', 'todo')
+    expect(todos.some((t) => t.includes('写周报'))).toBe(true)
+    expect(todos.some((t) => t.includes('写季度总结'))).toBe(true)
+
+    const notes = subs('没标题', 'notes')
+    expect(notes.some((t) => t.includes('第一段'))).toBe(true)
+    expect(notes.some((t) => t.includes('第二段'))).toBe(true)
+
+    const matrix = subs('周报相关', 'matrix')
+    expect(matrix.filter((t) => t.includes('周报相关')).length).toBe(2)
+  })
+
+  it('索引：内容域的 id 两两不同（这条不变量守的是"以后新增条目类型"）', async () => {
+    const { contentIndex } = await import('../../src/vue/paletteIndex')
+    const data = (await import('../../src/vue/cardData')).createCardData(memoryStorage())
+    data.state.sticky = '便签一句'
+    data.addTodo('待办一')
+    data.addTodo('待办二')
+    data.addNote('', '无标题一')
+    data.addNote('', '无标题二')
+    data.addMatrixTodo('四象限一', 'do')
+    data.addMatrixTodo('四象限二', 'plan')
+    const ids = contentIndex(data.state).map((e) => e.id)
+    expect(ids.length).toBeGreaterThanOrEqual(8)
+    expect(new Set(ids).size, '有重复 id：新条目类型的 id 撞了').toBe(ids.length)
+  })
+
   it('索引：内容域覆盖多种数据、且同 key 去重', async () => {
     const { searchContent } = await import('../../src/vue/paletteIndex')
     const data = (await import('../../src/vue/cardData')).createCardData(memoryStorage())
@@ -379,7 +428,7 @@ describe('命令层：补上棘轮咬出来的缺口', () => {
     expect(hits.length).toBeGreaterThan(0)
     expect(hits[0].cardId).toBe('todo')
     expect(searchContent(data.state, '要紧').some((h) => h.cardId === 'sticky')).toBe(true)
-    // 多条目同 key 时去重（同一张卡的同名条目只留一条）
+    // 键必须两两不同（曾经是 cardId:title，同组条目会撞成一个、后一条被静默吞掉）
     const keys = hits.map((h) => h.key)
     expect(new Set(keys).size).toBe(keys.length)
   })
