@@ -36,24 +36,38 @@ const SECTIONS = {
 
 class FakeTransport implements SyncTransport {
   remote: Record<string, string> = {}
+  etags: Record<string, string> = {}
   listing: string[] = []
   calls: string[] = []
+  /** 下一次 put 返回"冲突"（模拟另一台设备抢先写了） */
+  conflictOnce = false
+  /** 收到的 If-Match（按调用顺序） */
+  ifMatches: (string | null)[] = []
   failPut = false
 
   async probe(endpoint: string): Promise<number> {
     this.calls.push(`probe ${endpoint}`)
     return 207
   }
-  async get(_e: string, name: string): Promise<string | null> {
+  async get(_e: string, name: string): Promise<{ body: string; etag: string | null } | null> {
     this.calls.push(`get ${name}`)
-    return this.remote[name] ?? null
+    const body = this.remote[name]
+    return body === undefined ? null : { body, etag: this.etags[name] ?? null }
   }
-  async put(_e: string, name: string, body: string): Promise<void> {
+  async put(_e: string, name: string, body: string, _u: string, _p: string | null, ifMatch: string | null): Promise<{ conflict: boolean }> {
     if (this.failPut) throw new Error('网盘写失败')
+    this.ifMatches.push(ifMatch)
+    // 412 只可能发生在**条件写**上（带 If-Match）；无条件写不该被它拦，否则历史副本那步会被误伤
+    if (this.conflictOnce && ifMatch !== null) {
+      this.conflictOnce = false
+      this.calls.push(`put-conflict ${name}`)
+      return { conflict: true }
+    }
     this.calls.push(`put ${name}`)
     this.remote[name] = body
     // 真实的 WebDAV 在 PUT 之后就能列出来 —— 假传输也要这样，否则轮转永远少算一份
     if (!this.listing.includes(name)) this.listing.push(name)
+    return { conflict: false }
   }
   async list(): Promise<string[]> {
     this.calls.push('list')
@@ -80,7 +94,10 @@ function setup(over: { remote?: SyncBundle | null; transport?: FakeTransport; lo
   // 设置好端点/用户名/设备标识
   store.patch({ endpoint: 'https://dav.example.com/dav/modulo/', user: 'me', remember: false })
   const transport = over.transport ?? new FakeTransport()
-  if (over.remote) transport.remote[LIVE_NAME] = JSON.stringify(over.remote)
+  if (over.remote) {
+    transport.remote[LIVE_NAME] = JSON.stringify(over.remote)
+    transport.etags[LIVE_NAME] = '"v1"'
+  }
   if (over.localStamps !== false) {
     // 本机三段的戳：都以"比远端旧"的时刻记下
     store.setStamps({
@@ -379,12 +396,16 @@ describe('desktopTransport：命令名与参数形状（与 Rust 侧注册的一
     const seen: [string, Record<string, unknown> | undefined][] = []
     const invoke = async <T>(cmd: string, args?: Record<string, unknown>) => {
       seen.push([cmd, args])
-      return (cmd === 'webdav_probe' ? { status: 207 } : cmd === 'webdav_get' ? null : cmd === 'webdav_list' ? [] : true) as T
+      if (cmd === 'webdav_probe') return { status: 207 } as T
+      if (cmd === 'webdav_get') return null as T
+      if (cmd === 'webdav_list') return [] as T
+      if (cmd === 'webdav_put') return { conflict: false } as T
+      return true as T
     }
     const t = desktopTransport(invoke)
     await t.probe('https://x.example.com/d/', 'u', 'p')
     await t.get('https://x.example.com/d/', LIVE_NAME, 'u', null)
-    await t.put('https://x.example.com/d/', historyName(1), '{}', 'u', 'p')
+    await t.put('https://x.example.com/d/', historyName(1), '{}', 'u', 'p', '"v1"')
     await t.list('https://x.example.com/d/', 'u', null)
     await t.remove('https://x.example.com/d/', historyName(1), 'u', null)
     await t.credStatus('https://x.example.com/d/', 'u')
@@ -402,6 +423,8 @@ describe('desktopTransport：命令名与参数形状（与 Rust 侧注册的一
     ])
     expect(seen[3][1]).toMatchObject({ dirUrl: 'https://x.example.com/d/' })
     expect(seen[1][1]).toMatchObject({ name: LIVE_NAME, password: null })
+    // 条件写的头在 Rust 侧拼，渲染层只负责把 ETag 送到 if_match
+    expect(seen[2][1]).toMatchObject({ ifMatch: '"v1"' })
   })
 })
 
@@ -600,5 +623,188 @@ describe('补充 2：无端点的设置与空存储', () => {
     await sync.init()
     expect(called).toBe(false)
     expect(sync.hasStored.value).toBe(false)
+  })
+})
+
+describe('条件写：两台机器同刻同步不许互相洗掉', () => {
+  it('GET 拿到的 ETag 会一路带到 PUT 的 If-Match', async () => {
+    const t = new FakeTransport()
+    t.remote[LIVE_NAME] = JSON.stringify(bundleWith({ layout: { at: 800, dev: 'dev-b', body: { items: [] } } }))
+    t.etags[LIVE_NAME] = '"abc123"'
+    const { sync } = setup({ transport: t })
+    await sync.syncNow()
+    expect(t.ifMatches.at(-1)).toBe('"abc123"')
+    expect(sync.status.value).toBe('ok')
+  })
+
+  it('服务端没给 ETag：退回无条件写（不编一个假校验器）', async () => {
+    const t = new FakeTransport()
+    t.remote[LIVE_NAME] = JSON.stringify(bundleWith({ layout: { at: 800, dev: 'dev-b', body: { items: [] } } }))
+    const { sync } = setup({ transport: t })
+    await sync.syncNow()
+    expect(t.ifMatches.at(-1)).toBeNull()
+    expect(sync.status.value).toBe('ok')
+  })
+
+  it('412：报"另一台设备刚改过、本次没有写入"，不落地也不假装成功', async () => {
+    const t = new FakeTransport()
+    t.remote[LIVE_NAME] = JSON.stringify(bundleWith({ layout: { at: 800, dev: 'dev-b', body: { items: [] } } }))
+    t.etags[LIVE_NAME] = '"v1"' // 条件写才有 412
+    t.conflictOnce = true
+    const { sync, applied } = setup({ transport: t })
+    await sync.syncNow()
+    expect(sync.status.value).toBe('error')
+    expect(sync.message.value).toContain('412')
+    expect(sync.message.value).toContain('没有写入')
+    expect(applied).toEqual([])
+    const pushed = JSON.parse(t.remote[LIVE_NAME]) as SyncBundle
+    expect(pushed.createdAt).toBe(1500)
+    expect(sync.settings.value.lastSyncAt).toBeNull()
+  })
+
+  it('冲突是一次性的：再点一次同步就正常写入（不需要重启或重填）', async () => {
+    const t = new FakeTransport()
+    t.remote[LIVE_NAME] = JSON.stringify(bundleWith({ layout: { at: 800, dev: 'dev-b', body: { items: [] } } }))
+    t.etags[LIVE_NAME] = '"v1"'
+    t.conflictOnce = true
+    const { sync } = setup({ transport: t })
+    await sync.syncNow()
+    expect(sync.status.value).toBe('error')
+    await sync.syncNow()
+    expect(sync.status.value).toBe('ok')
+    expect((JSON.parse(t.remote[LIVE_NAME]) as SyncBundle).createdAt).toBe(2000)
+  })
+})
+
+describe('历史副本恢复', () => {
+  const seedHistory = (t: FakeTransport) => {
+    const old = bundleWith(
+      {
+        layout: { at: 1000, dev: 'dev-old', body: { items: [{ id: 'old' }] } },
+        cardData: { at: 1000, dev: 'dev-old', body: { todos: [{ id: 'old-todo' }] } },
+      },
+      'dev-old',
+    )
+    t.remote[historyName(1000)] = JSON.stringify(old)
+    t.listing = [LIVE_NAME, historyName(1000), historyName(500), 'notes.pdf', 'sync-abc.json']
+    return old
+  }
+
+  it('刷新列表：只认 sync-<毫秒>.json，新的在前，杂文件不进列表', async () => {
+    const t = new FakeTransport()
+    seedHistory(t)
+    const { sync } = setup({ transport: t })
+    await sync.refreshHistory()
+    expect(sync.history.value.map((h) => h.name)).toEqual([historyName(1000), historyName(500)])
+  })
+
+  it('恢复一份：先进确认块（写明来源与将要覆盖的段），确认后才落地并推回网盘', async () => {
+    const t = new FakeTransport()
+    seedHistory(t)
+    t.remote[LIVE_NAME] = JSON.stringify(bundleWith({ layout: { at: 1900, dev: 'dev-new', body: { items: [{ id: 'new' }] } } }))
+    t.etags[LIVE_NAME] = '"cur"'
+    const { sync, applied } = setup({ transport: t })
+
+    await sync.restoreHistory(historyName(1000))
+    expect(sync.pending.value?.source).toBe('history')
+    expect(sync.pending.value?.historyName).toBe(historyName(1000))
+    expect(Object.keys(sync.pending.value!.sections).sort()).toEqual(['cardData', 'layout'])
+    expect(sync.message.value).toContain('确认后')
+    expect(applied).toEqual([])
+    expect(t.calls.filter((c) => c.startsWith('put '))).toEqual([])
+
+    await sync.confirmApply()
+    expect(applied).toHaveLength(1)
+    expect(applied[0]).toEqual({ layout: { items: [{ id: 'old' }] }, cardData: { todos: [{ id: 'old-todo' }] } })
+    expect(t.ifMatches.at(-1)).toBe('"cur"')
+    expect(sync.status.value).toBe('ok')
+  })
+
+  it('名字不是历史副本 / 副本已被轮转清掉：都拒绝，且什么都不动', async () => {
+    const t = new FakeTransport()
+    const { sync, applied } = setup({ transport: t })
+    await sync.restoreHistory('notes.pdf')
+    expect(sync.status.value).toBe('error')
+    expect(sync.message.value).toContain('不是历史副本')
+
+    await sync.restoreHistory(historyName(999))
+    expect(sync.status.value).toBe('error')
+    expect(sync.message.value).toContain('已经不在了')
+    expect(applied).toEqual([])
+  })
+
+  it('历史副本本身读不懂：拒绝并说明"没有改动任何东西"', async () => {
+    const t = new FakeTransport()
+    t.remote[historyName(700)] = '{"sections":{'
+    const { sync, applied } = setup({ transport: t })
+    await sync.restoreHistory(historyName(700))
+    expect(sync.status.value).toBe('error')
+    expect(sync.message.value).toContain('没有改动任何东西')
+    expect(applied).toEqual([])
+  })
+})
+
+describe('历史副本与确认块的边界', () => {
+  it('列历史副本失败：留一条提示，不挡其它操作', async () => {
+    const t = new FakeTransport()
+    t.list = async () => {
+      throw new Error('目录列不出来')
+    }
+    const { sync } = setup({ transport: t })
+    await sync.refreshHistory()
+    expect(sync.notices.value.join()).toContain('读历史副本列表失败')
+    expect(sync.history.value).toEqual([])
+  })
+
+  it('历史副本里一段都没有：拒绝恢复，什么都不动', async () => {
+    const t = new FakeTransport()
+    t.remote[historyName(600)] = JSON.stringify({
+      kind: SYNC_KIND,
+      version: SYNC_VERSION,
+      deviceId: 'dev-x',
+      createdAt: 600,
+      sections: {},
+    })
+    const { sync, applied } = setup({ transport: t })
+    await sync.restoreHistory(historyName(600))
+    expect(sync.status.value).toBe('error')
+    expect(sync.message.value).toContain('没有可恢复的段')
+    expect(applied).toEqual([])
+  })
+
+  it('确认时网盘被抢先写：如实说"本机已更新、网盘没推上去"，不谎报本机失败', async () => {
+    const t = new FakeTransport()
+    t.remote[historyName(1000)] = JSON.stringify(
+      bundleWith({ layout: { at: 1000, dev: 'dev-old', body: { items: [{ id: 'old' }] } } }, 'dev-old'),
+    )
+    t.remote[LIVE_NAME] = JSON.stringify(bundleWith({ layout: { at: 1900, dev: 'dev-new', body: { items: [{ id: 'new' }] } } }))
+    t.etags[LIVE_NAME] = '"cur"'
+    const { sync } = setup({ transport: t })
+    await sync.restoreHistory(historyName(1000))
+    t.conflictOnce = true // 落地之后、推回那一刻被抢先
+    await sync.confirmApply()
+    expect(sync.status.value).toBe('error')
+    expect(sync.message.value).toContain('本机已更新')
+    expect(sync.message.value).toContain('412')
+  })
+})
+
+describe('历史副本：不可用与参数不合法时不发请求', () => {
+  it('网页版（无传输）：refreshHistory / restoreHistory 都直接返回', async () => {
+    const store = createSyncStore(mem())
+    const sync = useSync({ store, transport: null, desktop: false, sections: () => ({}), applyRemote: () => ({ done: [], warnings: [] }) })
+    await sync.refreshHistory()
+    await sync.restoreHistory(historyName(1))
+    expect(sync.history.value).toEqual([])
+    expect(sync.status.value).toBe('idle')
+  })
+
+  it('端点不合法时不列目录（避免把坏地址发给网盘）', async () => {
+    const t = new FakeTransport()
+    const { sync } = setup({ transport: t })
+    sync.save({ endpoint: 'http://192.168.1.2/dav/' })
+    await sync.refreshHistory()
+    expect(t.calls).toEqual([])
+    expect(sync.status.value).toBe('error')
   })
 })
