@@ -507,7 +507,8 @@ describe('自定卡（HTML 扩展）：加/改/删与校验原因', () => {
 describe('各家动作的"坏输入不落库"边界（棘轮缺口补齐）', () => {
   it('空输入一律不动状态：命令/待办/四象限/探测/自选/订阅', () => {
     const d = memStorage().api()
-    const before = JSON.stringify(d.state)    d.addCommand('名', '   ') // 空命令文本：sanitizeCommands 会丢掉 → 长度不变 → 早退
+    const before = JSON.stringify(d.state)
+    d.addCommand('名', '   ') // 空命令文本：sanitizeCommands 会丢掉 → 长度不变 → 早退
     d.addTodo('   ')
     d.addProbe('甲', '   ')
     d.addStock('甲', '   ')
