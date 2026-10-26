@@ -381,6 +381,19 @@ export const REGISTRY: ModuleRegistry = [
     ],
   },
   {
+    id: 'extcard',
+    title: '原生卡',
+    group: '工具',
+    // 隔离与自定卡同一条实测边界（沙箱 iframe）；差异是它有 manifest（尺寸契约/库位）、
+    // 持久状态（extState）与一个最小的桥（getState/setState/notify）—— 引擎 extcard.ts
+    blurb: '导入卡包（manifest + HTML），注册成一等公民卡片，可带自己的状态',
+    defaultVariant: 'panel',
+    variants: [
+      { id: 'panel', name: '整卡', minW: 3, minH: 3, idealW: 4, idealH: 4 },
+      { id: 'mini', name: '小格', minW: 2, minH: 2, idealW: 3, idealH: 3 },
+    ],
+  },
+  {
     id: 'fixed',
     title: '整数位计算',
     group: '工具',

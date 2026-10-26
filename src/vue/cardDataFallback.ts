@@ -44,6 +44,8 @@ export function createFallbackCardData(): CardData {
   endpoints: [],
   launch: [],
   htmlCards: [],
+  extCards: [],
+  extState: {},
     fixed: { base: '', rate: '', symbol: '¥' },
     duty: { roster: [], anchor: '' },
   }

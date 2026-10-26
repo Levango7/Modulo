@@ -90,6 +90,8 @@ export function emptyCardData(): CardData {
     endpoints: [],
     launch: [],
     htmlCards: [],
+    extCards: [],
+    extState: {},
     fixed: { base: '', rate: '', symbol: '' },
     duty: { roster: [], anchor: '' },
   }
@@ -136,6 +138,8 @@ export function buildBackup(input: BackupInput): BackupPayload {
       endpoints: input.cardData.endpoints.map((e) => ({ ...e })),
       launch: input.cardData.launch.map((x) => ({ ...x })),
       htmlCards: input.cardData.htmlCards.map((c) => ({ ...c })),
+      extCards: input.cardData.extCards.map((c) => ({ ...c, variants: c.variants.map((v) => ({ ...v })) })),
+      extState: JSON.parse(JSON.stringify(input.cardData.extState)) as Record<string, unknown>,
   watch: input.cardData.watch.map((w) => ({ ...w })),
       fixed: { ...input.cardData.fixed },
       duty: { ...input.cardData.duty, roster: [...input.cardData.duty.roster] },

@@ -2,7 +2,7 @@
 import { computed, onBeforeUnmount, onMounted } from 'vue'
 import { Minimize2, Pin, X } from 'lucide-vue-next'
 import { getCurrentWindow } from '@tauri-apps/api/window'
-import { CARD_COMPONENTS } from '../vue/cardComponents'
+import { cardComponentOf } from '../vue/cardComponents'
 import type { CardDataApi } from '../vue/cardData'
 import { unfloatCard } from './api'
 
@@ -35,7 +35,7 @@ const layoutItem = computed(() => {
   }
 })
 const moduleId = computed(() => (typeof layoutItem.value?.module === 'string' ? layoutItem.value.module : props.cardId))
-const comp = computed(() => CARD_COMPONENTS[moduleId.value])
+const comp = computed(() => cardComponentOf(moduleId.value))
 /** 浮窗里的形态取存档里的当前形态；卡片不在版面上时按各组件默认走 */
 const variant = computed(() => (typeof layoutItem.value?.variant === 'string' ? layoutItem.value.variant : undefined))
 /** 便签/待办这类卡有 chromeless 变体：浮窗里去掉卡头（把手条已经承担了标题职责） */

@@ -8,6 +8,7 @@
  */
 import type {
   CommandEntry,
+  ExtCard,
   FeedSource,
   HtmlCard,
   HttpEndpoint,
@@ -204,6 +205,18 @@ export interface CardData {
    * 渲染走 `sandbox="allow-scripts"` 的 iframe（隔离边界见引擎 htmlcard.ts 文件头）。
    */
   htmlCards: HtmlCard[]
+  /**
+   * 原生卡扩展（2026-10-27，路线第三层）：用户导入的卡包（manifest + 入口 HTML），
+   * 宿主校验后注册成**一等公民卡片**（进模块库、有尺寸契约、可多开/可浮窗）。
+   * 入口跑在与自定卡同一条隔离边界里（沙箱 iframe）；manifest 校验在引擎 `extcard.ts`。
+   */
+  extCards: ExtCard[]
+  /**
+   * 扩展卡的持久状态（桥 `setState` 写入），键 = 扩展 id。**按扩展共享**而非按实例 ——
+   * 与「卡内容按模块共享」的既有口径一致（两张待办卡本来就是同一份 todos）。
+   * 用户内容，进备份；读盘时逐键过 `sanitizeExtState`（朴素 JSON + 字节上限）。
+   */
+  extState: Record<string, unknown>
   /** 固定整数位计算的输入草稿；结果全在引擎算，这里只存两个输入 */
   fixed: { base: string; rate: string; symbol: string }
   duty: DutySetting

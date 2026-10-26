@@ -1,4 +1,4 @@
-import { computed, shallowRef } from 'vue'
+import { computed, reactive, shallowRef } from 'vue'
 import * as E from '@levango7/engine'
 
 export interface StorageAdapter {
@@ -69,7 +69,15 @@ export function createLayoutStore(opts: {
   key?: string
   templateKey?: string
 }) {
-  const reg = opts.registry
+  /**
+   * 注册表 = 内置表 + 已装扩展卡。**reactive 数组**：扩展是运行时装进来的（用户导入卡包），
+   * 而加卡 / 钳制 / 降档这些引擎调用都从这里查模块定义 —— 静态值会让"导入后加卡"查无此模块。
+   * 原地 splice（`setExtensions`）而不是换引用：`store.reg` 的全部消费点拿到的都是同一个
+   * 数组代理，一行不用改；Vue 的响应让依赖它的 computed（模块库清单等）自动重算。
+   */
+  const reg = reactive<E.ModuleDef[]>([...opts.registry])
+  /** 内置表长度：ext 段永远排在它后面（引擎 `extModuleDefs` 的约定），splice 只动这一段 */
+  const baseLen = opts.registry.length
   const storage = opts.storage ?? browserStorage()
   const key = opts.key ?? 'modulo.layout.v1'
   /** 只是"上次选了哪张模板"的记录，用于高亮；用户手动拖过之后它就不再代表版面了。 */
@@ -151,7 +159,16 @@ export function createLayoutStore(opts: {
     /** 版面上已出现的实例 id（含折叠现场 —— 模块库据此标「已在版面」） */
     placedIds,
     /** 模块库的完整清单：**多开之后不再过滤已放置的模块**（同一个模块可以放第二张） */
-    available: computed(() => reg),
+    available: computed(() => reg.slice()),
+
+    /**
+     * 已装扩展卡 → 注册表 ext 段的整体替换（`useExtensions` 在 extCards 变化时调）。
+     * 卡 → ModuleDef 的映射与撞车防御都在引擎 `extModuleDefs`（纯函数，单测钉住）；
+     * 内置段一根手指都不碰。
+     */
+    setExtensions: (cards: readonly E.ExtCard[]) => {
+      reg.splice(baseLen, reg.length - baseLen, ...E.extModuleDefs(opts.registry, cards))
+    },
 
     /** 加卡：模块 id 进来，实例 id 由 nextInstanceId 生成（第一张仍是模块 id） */
     add: (id: string, x: number, y: number, variant?: string) =>

@@ -24,6 +24,7 @@ import {
 import { sanitizeEndpoints } from '@levango7/engine/http'
 import { sanitizeLaunch } from '@levango7/engine/launcher'
 import { sanitizeHtmlCards } from '@levango7/engine/htmlcard'
+import { sanitizeExtCards, sanitizeExtState } from '@levango7/engine/extcard'
 import {
   MAX_BIRTHDAYS,
   MAX_ITEMS,
@@ -309,6 +310,23 @@ const pickSeen = new Set<string>()
       const r = sanitizeHtmlCards(o.htmlCards as { id?: unknown; title?: unknown; html?: unknown }[])
       if (r.rejected > 0) console.warn(`导入的自定卡里有 ${r.rejected} 条没能通过校验（空片段/超长/带 </script>），已丢弃`)
       return r.cards
+    })(),
+    // 扩展卡名单同 htmlCards 的骨架：manifest 逐份过 parseExtManifest，坏的丢并计数回显
+    extCards: (() => {
+      if (!Array.isArray(o.extCards)) return fallback.extCards
+      const r = sanitizeExtCards(o.extCards)
+      if (r.rejected > 0) console.warn(`导入的扩展卡里有 ${r.rejected} 份没能通过校验（manifest 缺字段或超上限），已丢弃`)
+      return r.cards
+    })(),
+    // 状态逐键过 sanitizeExtState（朴素 JSON + 字节上限）：盘上数据不可信，坏的丢那一键，不整份报废
+    extState: (() => {
+      if (typeof o.extState !== 'object' || o.extState === null || Array.isArray(o.extState)) return fallback.extState
+      const out: Record<string, unknown> = {}
+      for (const [k, v] of Object.entries(o.extState as Record<string, unknown>)) {
+        const st = sanitizeExtState(v)
+        if (st.ok) out[k] = st.value
+      }
+      return out
     })(),
     launch: (() => {
       if (!Array.isArray(o.launch)) return fallback.launch

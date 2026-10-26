@@ -26,6 +26,7 @@ import {
 import { sanitizeEndpoints } from '@levango7/engine/http'
 import { sanitizeLaunch } from '@levango7/engine/launcher'
 import { MAX_HTML_CARDS, validateSnippet } from '@levango7/engine/htmlcard'
+import { MAX_EXT_CARDS, parseExtManifest, sanitizeExtState } from '@levango7/engine/extcard'
 import { sanitizeCardData } from './cardDataSanitize'
 import {
   MAX_BIRTHDAYS,
@@ -117,6 +118,8 @@ export function createCardData(storage = browserStorage()) {
       endpoints: [...state.endpoints],
       launch: [...state.launch],
       htmlCards: state.htmlCards.map((c) => ({ ...c })),
+      extCards: state.extCards.map((c) => ({ ...c })),
+      extState: { ...state.extState },
       'duty.roster': [...state.duty.roster],
       timers: {
         stopwatch: { ...state.timers.stopwatch },
@@ -361,6 +364,42 @@ export function createCardData(storage = browserStorage()) {
     },
     removeHtmlCard(id: string) {
       state.htmlCards = state.htmlCards.filter((c) => c.id !== id)
+    },
+    /**
+     * 原生卡：导入一份卡包（JSON 文本）。返回原因字符串（null = 成功）——
+     * 与 addHtmlCard 同一条约定：校验信息要能原样显示给用户，不静默改写。
+     */
+    addExtCard(json: string): string | null {
+      let raw: unknown
+      try {
+        raw = JSON.parse(json)
+      } catch {
+        return '这段 JSON 没解析开 —— 卡包要是一份合法 JSON（manifest 字段 + html 入口）'
+      }
+      const r = parseExtManifest(raw)
+      if (!r.ok) return r.reason
+      if (state.extCards.length >= MAX_EXT_CARDS) return `扩展卡最多 ${MAX_EXT_CARDS} 张`
+      if (state.extCards.some((c) => c.id === r.card.id)) {
+        return `已经装着 id 为 ${r.card.id} 的卡包 —— 先删掉旧的再导入`
+      }
+      state.extCards = [...state.extCards, r.card]
+      return null
+    },
+    /** 卸载扩展卡：状态跟着走 —— 留着它的 extState 是数据尸体，重装同名卡包从空白开始更干净 */
+    removeExtCard(id: string) {
+      state.extCards = state.extCards.filter((c) => c.id !== id)
+      if (id in state.extState) {
+        const rest = { ...state.extState }
+        delete rest[id]
+        state.extState = rest
+      }
+    },
+    /** 桥 setState 的唯一落点：上限与朴素 JSON 校验在引擎 `sanitizeExtState`，这里只管写回 */
+    setExtState(id: string, value: unknown): string | null {
+      const st = sanitizeExtState(value)
+      if (!st.ok) return st.reason ?? '这份状态没能通过校验'
+      state.extState = { ...state.extState, [id]: st.value }
+      return null
     },
     addLaunch(label: string, target: string) {
       const { items, rejected } = sanitizeLaunch([...state.launch, { label, target }])

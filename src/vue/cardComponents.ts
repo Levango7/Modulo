@@ -1,4 +1,5 @@
 import { defineAsyncComponent, defineComponent, h, type Component } from 'vue'
+import { isExtModule } from '@levango7/engine/extcard'
 import ClockCard from '../app/cards/ClockCard.vue'
 import StickyCard from '../app/cards/StickyCard.vue'
 import TodoCard from '../app/cards/TodoCard.vue'
@@ -91,10 +92,21 @@ const preloading = new Set<string>()
  */
 export function preloadCard(id: string): void {
   if (preloading.has(id)) return
-  const load = (CARD_COMPONENTS[id] as { __load?: () => Promise<unknown> } | undefined)?.__load
+  const load = (cardComponentOf(id) as { __load?: () => Promise<unknown> } | undefined)?.__load
   if (!load) return
   preloading.add(id)
   void load().catch(() => preloading.delete(id))
+}
+
+/**
+ * 模块 id → 渲染组件的**统一入口**。静态表覆盖内置卡；`ext:` 前缀的扩展卡全部落到
+ * `ExtCard`（运行态由 `moduleId` prop 区分是哪张扩展）—— 注册表是动态的、组件表不能是，
+ * 所以分叉必须收在这一个函数里，渲染点（工作台 / 浮窗 / 缩略图）一律走它，
+ * 不许再各自直查 `CARD_COMPONENTS`。
+ */
+export function cardComponentOf(moduleId: string): Component | undefined {
+  if (isExtModule(moduleId)) return ExtCardComp
+  return CARD_COMPONENTS[moduleId]
 }
 
 export const CARD_COMPONENTS: Record<string, Component> = {
@@ -156,3 +168,6 @@ export const CARD_COMPONENTS: Record<string, Component> = {
   minutes: lazy(() => import('../app/cards/MinutesCard.vue')),
   winview: lazy(() => import('../app/cards/WinViewCard.vue')),
 }
+
+/** 所有扩展卡的渲染组件都是它（管理态 = 模块 id `extcard`；运行态 = `ext:<id>`，由 moduleId prop 区分） */
+const ExtCardComp = lazy(() => import('../app/cards/ExtCard.vue'))

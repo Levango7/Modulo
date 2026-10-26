@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import { ExternalLink } from 'lucide-vue-next'
-import { CARD_COMPONENTS } from '../cardComponents'
+import { cardComponentOf } from '../cardComponents'
 import type { PhysicalRect } from '@levango7/engine/projection'
 
 const props = defineProps<{
@@ -35,7 +35,7 @@ const rows = computed(() => props.rects.reduce((m, r) => Math.max(m, r.y + r.h),
       :data-module="r.module ?? r.id"
       :style="{ gridColumn: `${r.x + 1} / span ${r.w}`, gridRow: `${r.y + 1} / span ${r.h}` }"
     >
-      <component :is="CARD_COMPONENTS[r.module ?? r.id]" :variant="r.variant" :module-id="r.module ?? r.id" />
+      <component :is="cardComponentOf(r.module ?? r.id)" :variant="r.variant" :module-id="r.module ?? r.id" />
       <button
         v-if="canDetach"
         class="detach"
