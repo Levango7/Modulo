@@ -21,6 +21,7 @@ import {
   planHistoryRotation,
   planMerge,
   parseBundle,
+  parseHistoryName,
   stampsOf,
   summarizePlan,
   validateSyncEndpoint,
@@ -37,8 +38,19 @@ import type { SyncSettings, SyncStore } from './syncStore'
 /** Rust 侧命令的可替换接口：单测用假实现，生产用 `invoke`（见 `desktopTransport`） */
 export interface SyncTransport {
   probe(endpoint: string, user: string, password: string | null): Promise<number>
-  get(endpoint: string, name: string, user: string, password: string | null): Promise<string | null>
-  put(endpoint: string, name: string, body: string, user: string, password: string | null): Promise<void>
+  get(endpoint: string, name: string, user: string, password: string | null): Promise<{ body: string; etag: string | null } | null>
+  /**
+   * 写一个文件。`ifMatch` 有值就带上 `If-Match`：服务端发现那一版已被改过会回 412，
+   * 这里以 `{ conflict: true }` 回报（**不是异常**）—— 冲突要能与"网络坏了"分开处理。
+   */
+  put(
+    endpoint: string,
+    name: string,
+    body: string,
+    user: string,
+    password: string | null,
+    ifMatch: string | null,
+  ): Promise<{ conflict: boolean }>
   list(endpoint: string, user: string, password: string | null): Promise<string[]>
   remove(endpoint: string, name: string, user: string, password: string | null): Promise<void>
   credStatus(endpoint: string, user: string): Promise<boolean>
@@ -47,6 +59,10 @@ export interface SyncTransport {
 }
 
 export interface SyncPending {
+  /** 这次覆盖的依据：网盘上的当前版本，还是某一份历史副本 */
+  source: 'live' | 'history'
+  /** `source === 'history'` 时的那份文件名 */
+  historyName: string | null
   decisions: MergeDecision[]
   /** 只含 `winner === 'remote'` 的那几段 */
   sections: Partial<Record<SyncSection, unknown>>
@@ -54,6 +70,8 @@ export interface SyncPending {
   remote: SyncBundle
   endpoint: string
   user: string
+  /** GET 时服务端给的 ETag；写回时用它做条件写（没给就退化成无条件写） */
+  etag: string | null
 }
 
 export interface SyncDeps {
@@ -69,6 +87,17 @@ export interface SyncDeps {
 }
 
 const errText = (e: unknown) => (e instanceof Error ? e.message : String(e))
+
+/**
+ * 409/412 之类的"有人先改了"单独成一类：上层要能说清**这次什么都没写**，
+ * 而不是把它混进"网盘报错"里让人以为半成功了。
+ */
+export class SyncConflict extends Error {
+  constructor() {
+    super('网盘上的同步文件刚被另一台设备改过（412），本次没有写入任何东西；再点一次同步会基于最新版本重新裁决')
+    this.name = 'SyncConflict'
+  }
+}
 
 export function useSync(deps: SyncDeps) {
   const now = deps.now ?? (() => Date.now())
@@ -179,15 +208,15 @@ export function useSync(deps: SyncDeps) {
     status.value = 'busy'
     message.value = '正在读网盘上的同步文件…'
     try {
-      const raw = await t.get(ok.endpoint, LIVE_NAME, ok.user, password.value || null)
+      const read = await t.get(ok.endpoint, LIVE_NAME, ok.user, password.value || null)
       const localSections = deps.sections()
       const localStamps = deps.store.state().stamps
-      if (!raw) {
-        const r = await upload(ok.endpoint, ok.user, localSections, localStamps, null, false)
+      if (!read) {
+        const r = await upload(ok.endpoint, ok.user, localSections, localStamps, null, false, null)
         done(`首次同步：${r}`)
         return
       }
-      const parsed = parseBundle(raw)
+      const parsed = parseBundle(read.body)
       if (!parsed.bundle) {
         status.value = 'error'
         message.value = `网盘上的同步文件读不懂（${parsed.problems.join('；')}）—— 没有改动任何东西`
@@ -211,13 +240,22 @@ export function useSync(deps: SyncDeps) {
       if (downloads.length) {
         const sections: Partial<Record<SyncSection, unknown>> = {}
         for (const d of downloads) sections[d.section] = parsed.bundle.sections[d.section]?.body
-        pending.value = { decisions, sections, remote: parsed.bundle, endpoint: ok.endpoint, user: ok.user }
+        pending.value = {
+          source: 'live',
+          historyName: null,
+          decisions,
+          sections,
+          remote: parsed.bundle,
+          endpoint: ok.endpoint,
+          user: ok.user,
+          etag: read.etag,
+        }
         status.value = 'idle'
         message.value = `有 ${downloads.length} 段要以网盘为准（${downloads.map((d) => d.section).join(' / ')}），确认后才写入本机`
         return
       }
       const changed = decisions.some((d) => d.action === 'upload' || d.action === 'local-wins')
-      const r = await upload(ok.endpoint, ok.user, localSections, localStamps, parsed.bundle, changed)
+      const r = await upload(ok.endpoint, ok.user, localSections, localStamps, parsed.bundle, changed, read.etag)
       done(summarizePlan(decisions) + '；' + r)
     } catch (e) {
       status.value = 'error'
@@ -236,12 +274,28 @@ export function useSync(deps: SyncDeps) {
       const applied = deps.applyRemote({ ...p.sections })
       pending.value = null
       notices.value = [...applied.warnings, `本机已更新（${applied.done.join('、') || '无变化'}）`]
-      const r = await upload(p.endpoint, p.user, deps.sections(), deps.store.state().stamps, p.remote, true)
+      // 落地之后本机内容变了 → 重新读一次拿最新 ETag，再条件写；读不到（404）就无条件写
+      // 条件写：live 这次没被别人动过才写；被动了就用**刚读到的那版**再试一次，仍冲突就报冲突
+      const fresh = await t.get(p.endpoint, LIVE_NAME, p.user, password.value || null)
+      const r = await upload(
+        p.endpoint,
+        p.user,
+        deps.sections(),
+        deps.store.state().stamps,
+        p.remote,
+        true,
+        fresh?.etag ?? p.etag,
+      )
       done(r)
     } catch (e) {
       pending.value = null
       status.value = 'error'
-      message.value = `写入本机失败：${errText(e)}（网盘没有改动）`
+      // 这两种失败的性质完全不同：落地失败 = 本机没变；推回冲突 = **本机已经变了**，
+      // 只是网盘上那份被别的设备抢先写。说反了会让人以为本地白改了。
+      message.value =
+        e instanceof SyncConflict
+          ? `本机已更新，但网盘上那份刚被另一台设备改过（412），这次没推上去；再点一次同步会把结果合并上去`
+          : `写入本机失败：${errText(e)}（网盘没有改动）`
     }
   }
 
@@ -249,6 +303,93 @@ export function useSync(deps: SyncDeps) {
     pending.value = null
     status.value = 'idle'
     message.value = '已取消，本机与网盘都没有改动'
+  }
+
+  /** 网盘上现成的历史副本（新的在前）。只认 `sync-<毫秒>.json`，别的文件不碰 */
+  const history = ref<{ name: string; at: number }[]>([])
+
+  async function refreshHistory(): Promise<void> {
+    const t = deps.transport
+    if (!t) return
+    const ok = validate()
+    if (!ok) return
+    try {
+      const names = await t.list(ok.endpoint, ok.user, password.value || null)
+      history.value = names
+        .map((name) => ({ name, at: parseHistoryName(name) }))
+        .filter((x): x is { name: string; at: number } => x.at !== null)
+        .sort((a, b) => b.at - a.at)
+    } catch (e) {
+      notices.value = [`读历史副本列表失败：${errText(e)}`]
+    }
+  }
+
+  /**
+   * 从某一份历史副本恢复。**这一步是用户显式选择的"回到某个时刻"**，所以不和本机做裁决，
+   * 但要先把那份包里有什么摆出来（确认块），落地仍然走备份的恢复管道。
+   */
+  async function restoreHistory(name: string): Promise<void> {
+    const t = deps.transport
+    if (!t) return
+    const at = parseHistoryName(name)
+    if (at === null) {
+      status.value = 'error'
+      message.value = `${name} 不是历史副本（只认 sync-<毫秒>.json）`
+      return
+    }
+    const ok = validate()
+    if (!ok) return
+    status.value = 'busy'
+    message.value = '正在读这份历史副本…'
+    try {
+      const read = await t.get(ok.endpoint, name, ok.user, password.value || null)
+      if (!read) {
+        status.value = 'error'
+        message.value = '这份历史副本已经不在了（可能被轮转清掉），没有改动任何东西'
+        return
+      }
+      const parsed = parseBundle(read.body)
+      if (!parsed.bundle) {
+        status.value = 'error'
+        message.value = `这份历史副本读不懂（${parsed.problems.join('；')}）—— 没有改动任何东西`
+        return
+      }
+      const sections: Partial<Record<SyncSection, unknown>> = {}
+      const decisions: MergeDecision[] = []
+      for (const section of SYNC_SECTIONS) {
+        const slot = parsed.bundle.sections[section]
+        if (!slot) continue
+        sections[section] = slot.body
+        decisions.push({
+          section,
+          action: 'local-wins',
+          winner: 'local',
+          reason: `历史副本那一版（${new Date(slot.at).toLocaleString()}，${slot.dev}）`,
+        })
+      }
+      if (!decisions.length) {
+        status.value = 'error'
+        message.value = '这份历史副本里没有可恢复的段，没有改动任何东西'
+        return
+      }
+      // 恢复之后要把这份内容推回去，所以先拿一份当前 live 的 ETag 做条件写
+      const live = await t.get(ok.endpoint, LIVE_NAME, ok.user, password.value || null)
+      pending.value = {
+        source: 'history',
+        historyName: name,
+        decisions,
+        sections,
+        remote: parsed.bundle,
+        endpoint: ok.endpoint,
+        user: ok.user,
+        etag: live?.etag ?? null,
+      }
+      status.value = 'idle'
+      message.value = `即将用 ${new Date(at).toLocaleString()} 那一版覆盖本机的 ${decisions.length} 段（确认后才落）`
+    } catch (e) {
+      status.value = 'error'
+      message.value = errText(e)
+    }
   }
 
   function done(extra: string): void {
@@ -268,6 +409,8 @@ export function useSync(deps: SyncDeps) {
     remote: SyncBundle | null,
     /** 这次写入会不会**改到远端内容**；false 时不产生历史副本（否则连点几次同步就把额度塞满同一份） */
     writeHistory: boolean,
+    /** 条件写用的 ETag（GET 拿到的那个）；null = 服务器没给，只能无条件写 */
+    ifMatch: string | null,
   ): Promise<string> {
     const t = deps.transport!
     const at = now()
@@ -285,8 +428,12 @@ export function useSync(deps: SyncDeps) {
       }
     }
     const bundle: SyncBundle = { kind: SYNC_KIND, version: SYNC_VERSION, deviceId: dev, createdAt: at, sections }
-    if (remote && writeHistory) await t.put(endpoint, historyName(at), JSON.stringify(remote), user, password.value || null)
-    await t.put(endpoint, LIVE_NAME, JSON.stringify(bundle), user, password.value || null)
+    if (remote && writeHistory) {
+      // 历史副本用唯一文件名，不需要条件写
+      await t.put(endpoint, historyName(at), JSON.stringify(remote), user, password.value || null, null)
+    }
+    const outcome = await t.put(endpoint, LIVE_NAME, JSON.stringify(bundle), user, password.value || null, ifMatch)
+    if (outcome.conflict) throw new SyncConflict()
     // 戳对齐成远端那份（拉下来之后本机内容 = 远端，不该再被算成"本机更新"）
     const aligned: Partial<Record<SyncSection, SectionStamp>> = {}
     for (const section of SYNC_SECTIONS) {
@@ -324,6 +471,7 @@ export function useSync(deps: SyncDeps) {
     message,
     notices,
     pending,
+    history,
     init,
     save,
     rememberPassword,
@@ -331,6 +479,8 @@ export function useSync(deps: SyncDeps) {
     syncNow,
     confirmApply,
     cancelApply,
+    refreshHistory,
+    restoreHistory,
   }
 }
 
@@ -358,8 +508,10 @@ export function desktopTransport(
       const r = await call<{ status: number }>('webdav_probe', { endpoint, user, password })
       return r.status
     },
-    get: (endpoint, name, user, password) => call<string | null>('webdav_get', { endpoint, name, user, password }),
-    put: (endpoint, name, body, user, password) => call<void>('webdav_put', { endpoint, name, body, user, password }),
+    get: (endpoint, name, user, password) =>
+      call<{ body: string; etag: string | null } | null>('webdav_get', { endpoint, name, user, password }),
+    put: (endpoint, name, body, user, password, ifMatch) =>
+      call<{ conflict: boolean }>('webdav_put', { endpoint, name, body, user, password, ifMatch }),
     list: (endpoint, user, password) => call<string[]>('webdav_list', { dirUrl: endpoint, user, password }),
     remove: (endpoint, name, user, password) => call<void>('webdav_delete', { endpoint, name, user, password }),
     credStatus: (endpoint, user) => call<boolean>('sync_cred_status', { endpoint, user }),
@@ -370,6 +522,8 @@ export function desktopTransport(
 
 /** 给界面看的"这份远端包里有什么"（不含口令；用于确认块的一句话） */
 export function describePending(p: SyncPending): string {
-  const parts = p.decisions.filter((d) => d.winner === 'remote').map((d) => `${d.section}（${d.reason}）`)
-  return parts.join('；')
+  // live：只列"要以远端为准"的那几段（其余是会被推上去的，不该混进覆盖说明）；
+  // history：这份副本里有多少段就列多少段 —— 用户选的是"整份回到那一刻"。
+  const rows = p.source === 'history' ? p.decisions : p.decisions.filter((d) => d.winner === 'remote')
+  return rows.map((d) => `${d.section}（${d.reason}）`).join('；')
 }

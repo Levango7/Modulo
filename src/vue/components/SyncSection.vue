@@ -32,7 +32,14 @@ async function toggleRemember(e: Event) {
   }
 }
 
-onMounted(() => void sync.init())
+onMounted(() => {
+  void sync.init()
+  // 历史副本列表要用户点「刷新」才去列 —— 进设置页就发请求，等于把"打开设置"变成一次联网
+})
+
+async function refreshHistory() {
+  await sync.refreshHistory()
+}
 
 const statusLabel = { idle: '', busy: '进行中…', ok: '完成', error: '失败' } as const
 </script>
@@ -86,18 +93,44 @@ const statusLabel = { idle: '', busy: '进行中…', ok: '完成', error: '失�
         覆盖前的确认：逐段说清为什么以网盘为准。上传不在这里问 ——
         它只动网盘上的那份，而且覆盖前会先把远端那份留成历史副本。
       -->
-      <div v-if="sync.pending.value" class="confirm" role="group" aria-label="确认以网盘为准">
-        <p class="muted">这几段网盘上更新，确认后会写入本机：</p>
+      <div v-if="sync.pending.value" class="confirm" role="group" aria-label="确认覆盖本机">
+        <p class="muted">
+          <template v-if="sync.pending.value.source === 'history'">
+            即将用<strong>{{ sync.pending.value.historyName }}</strong>那份覆盖本机这几段：
+          </template>
+          <template v-else>这几段网盘上更新，确认后会写入本机：</template>
+        </p>
         <ul>
-          <li v-for="d in sync.pending.value.decisions.filter((x) => x.winner === 'remote')" :key="d.section">
+          <li v-for="d in sync.pending.value.decisions" :key="d.section">
             <b>{{ d.section }}</b> —— {{ d.reason }}
           </li>
         </ul>
         <p class="muted small">{{ describePending(sync.pending.value) }}</p>
         <div class="row">
-          <button class="primary" @click="sync.confirmApply()">确认以网盘为准</button>
+          <button class="primary" @click="sync.confirmApply()">
+            {{ sync.pending.value.source === 'history' ? '确认用这一版覆盖' : '确认以网盘为准' }}
+          </button>
           <button @click="sync.cancelApply()">取消</button>
         </div>
+      </div>
+
+      <div class="history">
+        <div class="row">
+          <h4>网盘上的历史副本</h4>
+          <button @click="refreshHistory">刷新列表</button>
+        </div>
+        <p class="muted small">
+          每次覆盖网盘上的那份之前都会留一份（保留最近 7 份）。选一份可以把它恢复回本机 ——
+          这是"回到某个时刻"，会覆盖当前内容，所以仍然要确认。
+        </p>
+        <ul v-if="sync.history.value.length" class="history-list">
+          <li v-for="h in sync.history.value" :key="h.name">
+            <span class="at">{{ new Date(h.at).toLocaleString() }}</span>
+            <code class="muted">{{ h.name }}</code>
+            <button @click="sync.restoreHistory(h.name)">恢复这份</button>
+          </li>
+        </ul>
+        <p v-else class="muted small">还没列过，或网盘上还没有历史副本。</p>
       </div>
 
       <p v-if="sync.message.value" class="status" :class="sync.status.value">
@@ -185,6 +218,43 @@ p.small {
 .confirm p {
   margin: 0;
   font-size: 12px;
+}
+.history {
+  margin-top: var(--space-3);
+  border-top: 1px solid var(--border-soft);
+  padding-top: var(--space-2);
+}
+.history h4 {
+  margin: 0;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-2);
+}
+.history .row {
+  align-items: center;
+  justify-content: space-between;
+}
+.history-list {
+  margin: var(--space-2) 0 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: 4px;
+  max-height: 180px;
+  overflow: auto;
+}
+.history-list li {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: 12px;
+}
+.history-list .at {
+  font-variant-numeric: tabular-nums;
+}
+.history-list code {
+  flex: 1;
+  font-size: 11px;
 }
 .notices {
   margin: var(--space-2) 0 0;

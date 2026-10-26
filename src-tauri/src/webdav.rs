@@ -150,6 +150,16 @@ pub async fn webdav_probe(
     })
 }
 
+/// 读回来的文件：正文 + `ETag`（服务端给了才有）。
+///
+/// 把 ETag 一起带回去是**条件写的前提**：拿不到它就只能无条件覆盖，
+/// 而"两台机器同刻同步"正是靠它才挡得住。
+#[derive(Serialize, Debug, PartialEq, Eq)]
+pub struct FileRead {
+    pub body: String,
+    pub etag: Option<String>,
+}
+
 /// 读一个同步文件。404 → None（"还没有"是合法状态，不是错误）
 #[tauri::command]
 pub async fn webdav_get(
@@ -157,7 +167,7 @@ pub async fn webdav_get(
     name: String,
     user: String,
     password: Option<String>,
-) -> Result<Option<String>, String> {
+) -> Result<Option<FileRead>, String> {
     let password = resolve_password(&endpoint, &user, password)?;
     checked_endpoint(&endpoint)?;
     safe_name(&name)?;
@@ -174,10 +184,26 @@ pub async fn webdav_get(
     if !resp.status().is_success() {
         return Err(humanize_status(resp.status()));
     }
-    read_capped(resp).await.map(Some)
+    // 头要在读正文之前取（`read_capped` 会消费掉响应）
+    let etag = resp
+        .headers()
+        .get("etag")
+        .and_then(|v| v.to_str().ok())
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty());
+    let body = read_capped(resp).await?;
+    Ok(Some(FileRead { body, etag }))
 }
 
-/// 写一个同步文件（覆盖）
+/// 一次写的结果。**412 不是错误，是"有人先改了"** —— 把它和网络故障混在一个 Err 里，
+/// 上层就只能猜；分开之后，冲突可以"什么都不动、让人重试"。
+#[derive(Serialize, Debug, PartialEq, Eq)]
+pub struct PutOutcome {
+    /// 服务端用 `If-Match` 拒绝了这次写（412 Precondition Failed）
+    pub conflict: bool,
+}
+
+/// 写一个同步文件（覆盖）。`if_match` 有值就带上 `If-Match`：服务端发现那一版已被改过会回 412。
 #[tauri::command]
 pub async fn webdav_put(
     endpoint: String,
@@ -185,26 +211,41 @@ pub async fn webdav_put(
     body: String,
     user: String,
     password: Option<String>,
-) -> Result<(), String> {
+    if_match: Option<String>,
+) -> Result<PutOutcome, String> {
     let password = resolve_password(&endpoint, &user, password)?;
     checked_endpoint(&endpoint)?;
     safe_name(&name)?;
     let url = format!("{endpoint}{name}");
-    let resp = client()?
+    let mut req = client()?
         .put(&url)
         .header("Content-Type", "application/json; charset=utf-8")
-        .basic_auth(&user, Some(&password))
+        .basic_auth(&user, Some(&password));
+    if let Some(tag) = if_match.filter(|t| !t.trim().is_empty()) {
+        // 带引号的强校验器原样透传；有的网盘给的是 W/"..." 弱校验器，也照传 ——
+        // 服务端认不认由它决定（不认就退化成 412 或直接写成功，两种都被上层处理）。
+        req = req.header("If-Match", tag.trim());
+    }
+    let resp = req
         .body(body)
         .send()
         .await
         .map_err(|e| format!("写网盘失败：{e}"))?;
     let status = resp.status();
+    if is_conflict(status.as_u16()) {
+        return Ok(PutOutcome { conflict: true });
+    }
     // 201 Created / 204 No Content / 200 都算成功（各家实现不同）
     if status.is_success() {
-        Ok(())
+        Ok(PutOutcome { conflict: false })
     } else {
         Err(humanize_status(status))
     }
+}
+
+/// 412 单独判成"冲突"。抽成纯函数是为了能进单测 —— 这条判据决定"会不会洗掉另一台机器的写入"。
+pub fn is_conflict(code: u16) -> bool {
+    code == 412
 }
 
 /// 列目录（depth-1 PROPFIND）→ 返回文件名（不含路径）
@@ -500,6 +541,16 @@ mod tests {
     #[test]
     fn 空用户名不许取凭据() {
         assert!(cred_entry("https://dav.example.com/", "  ").is_err());
+    }
+
+    /// 冲突判据只有一条：412。其余状态码（含 409 目录冲突、423 锁住）都还是"错误"，
+    /// 混进来会让"另一台设备刚写过"这句人话出现在与它无关的故障上。
+    #[test]
+    fn 只有412算冲突() {
+        assert!(is_conflict(412));
+        for code in [200, 201, 204, 400, 401, 403, 404, 409, 423, 500, 507] {
+            assert!(!is_conflict(code), "{code} 不该被判成冲突");
+        }
     }
 
     #[test]
