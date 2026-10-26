@@ -88,6 +88,12 @@
         queueMicrotask(() => emit('modulo:floats-changed', floats.slice()))
         return Promise.resolve(undefined)
       }
+      case 'focus_float': {
+        // 聚焦是纯窗口操作：改 z 序，**不动登记、不广播**。桩里只需要如实回答"那张窗还在不在"
+        // （不在 ⇒ false，前端静默），调用本身由 __STUB_CALLS__ 记账，测试据此断言真的发了命令。
+        const id = String(args?.cardId ?? '')
+        return Promise.resolve(floats.some((f) => f.card_id === id))
+      }
       case 'read_doc':
         return Promise.resolve(localStorage.getItem('modulo.__stubdoc.' + args?.name) ?? null)
       case 'write_doc':
