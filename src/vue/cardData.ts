@@ -397,7 +397,7 @@ export function createCardData(storage = browserStorage()) {
     /** 桥 setState 的唯一落点：上限与朴素 JSON 校验在引擎 `sanitizeExtState`，这里只管写回 */
     setExtState(id: string, value: unknown): string | null {
       const st = sanitizeExtState(value)
-      if (!st.ok) return st.reason ?? '这份状态没能通过校验'
+      if (!st.ok) return st.reason
       state.extState = { ...state.extState, [id]: st.value }
       return null
     },

@@ -61,6 +61,8 @@ const cardData: CardData = {
   endpoints: [{ id: 'hp1', label: '接口价', url: 'https://api.example.com/price', refreshSec: 30, path: 'data[0].price', scale100: true }],
   launch: [{ id: 'la1', label: '仓库', target: 'https://github.com', kind: 'url' }],
   htmlCards: [],
+  extCards: [],
+  extState: {},
   fixed: { base: '1,280.00', rate: '6%', symbol: '¥' },
   duty: { roster: ['张三', '李四'], anchor: '2026-01-01' },
 }
@@ -148,6 +150,8 @@ describe('buildBackup：三样东西必须都在里面', () => {
   endpoints: [],
   launch: [],
   htmlCards: [],
+  extCards: [],
+  extState: {},
       fixed: { base: '100', rate: '10%', symbol: '¥' },
       duty: { roster: ['原样'], anchor: '2026-01-01' },
     }

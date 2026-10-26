@@ -226,22 +226,23 @@ export function parseBridgeRequest(payload: unknown): BridgeRequest | null {
   if (typeof rid !== 'string' || !rid || rid.length > 64) return null
   const method = o.method
   if (typeof method !== 'string' || !EXT_METHODS.includes(method as ExtMethod)) return null
+  const m = method as ExtMethod
   const args = o.args
-  if (method === 'setState') {
+  if (m === 'setState') {
     const st = sanitizeExtState(args)
     if (!st.ok) return null
-    return { rid, method, args: st.value }
+    return { rid, method: m, args: st.value }
   }
-  if (method === 'notify') {
+  if (m === 'notify') {
     const text =
       args && typeof args === 'object' && !Array.isArray(args) ? (args as { text?: unknown }).text : undefined
     if (typeof text !== 'string') return null
     const t = text.trim()
     if (!t) return null
-    return { rid, method, args: { text: t.slice(0, MAX_EXT_NOTICE) } }
+    return { rid, method: m, args: { text: t.slice(0, MAX_EXT_NOTICE) } }
   }
   // getState：无参数。多余的 args 忽略 —— 宽进，能力面收在方法清单上
-  return { rid, method, args: undefined }
+  return { rid, method: m, args: undefined }
 }
 
 export interface BridgeReply {
@@ -261,8 +262,9 @@ export function bridgeReply(rid: string, ok: boolean, value?: unknown, error?: s
 /**
  * 扩展状态校验：朴素 JSON（深度 ≤ 6、节点 ≤ 512，复用 `plainJson`）+ 序列化后字节上限。
  * `undefined` 归一成 null —— "清空状态"就是 setState(null)，不必单设 clear 方法。
+ * 失败时 `reason` 必有（判别联合）—— 调用方不用再写 `?? 兜底话`，那句兜底话从来不可达。
  */
-export function sanitizeExtState(v: unknown): { ok: boolean; reason?: string; value?: unknown } {
+export function sanitizeExtState(v: unknown): { ok: true; value: unknown } | { ok: false; reason: string } {
   if (!plainJson(v, 0)) {
     return { ok: false, reason: '状态必须是朴素 JSON（深度 ≤ 6、节点 ≤ 512）' }
   }

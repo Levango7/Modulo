@@ -13,8 +13,6 @@ import { describe, expect, it } from 'vitest'
 import {
   DEFAULT_EXT_GROUP,
   EXT_METHODS,
-  EXT_PREFIX,
-  LOGICAL_COLS,
   MAX_EXT_CARDS,
   MAX_EXT_HTML_BYTES,
   MAX_EXT_MIN_H,
@@ -31,6 +29,7 @@ import {
   sanitizeExtState,
   type ExtCard,
 } from '../../packages/engine/src/extcard'
+import { LOGICAL_COLS } from '../../packages/engine/src/types'
 
 /** 一份合法卡包：改哪条字段就让它死在哪条原因上 */
 const good = {

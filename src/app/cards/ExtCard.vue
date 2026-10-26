@@ -32,14 +32,12 @@ import { Plus, Trash2 } from 'lucide-vue-next'
 import {
   MAX_EXT_CARDS,
   bridgeReply,
-  extIdOf,
   extModuleId,
-  isExtMessage,
   isExtModule,
   parseBridgeRequest,
-  snippetLiteral,
   type ExtCard as ExtCardDef,
 } from '@levango7/engine/extcard'
+import { isExtMessage, snippetLiteral } from '@levango7/engine/htmlcard'
 import { sendSystemNotifications, shouldSendSystemNotification } from '../../vue/notify'
 import { isDesktop } from '../../vue/useShell'
 import type { CardDataApi } from '../../vue/cardData'
