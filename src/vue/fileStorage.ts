@@ -47,6 +47,11 @@ export const DATA_KEYS: readonly string[] = [
   'modulo.repo-snapshot.v1',
   'modulo.update.v1',
   'modulo.worldclock.v1',
+  // 两张卡自己的历史（2026-10-27 搬回适配器）：RSS 抓到的条目 / 探测的延迟样本。
+  // 此前它们写**裸 localStorage** —— 跨重启还在，但不在文件镜像、不在备份清单、也不参与同步；
+  // 搬进来之后前两件成立（备份仍是显式清单，不含它们：机器采的历史不该进备份）。
+  'modulo.rss.v1',
+  'modulo.probe.v1',
   // 多端同步的设置与各段戳（`syncStore.ts`，2026-10-25）：端点 / 用户名 / 设备标识 /
   // 上次同步时刻 / 每段「本机最后写过」的时刻与指纹。**口令不在这些字段里** —— 它只在
   // 本次运行的内存中，或用户显式勾选后进系统凭据库（Rust `webdav.rs`）。

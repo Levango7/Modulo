@@ -16,10 +16,13 @@ import { PROBE_INTERVAL_MS, probeLevel, probeStats, pushSample, sanitizeSamples,
 import { linePoints, scaleSeries } from '@levango7/engine/chart'
 import { Plus, RefreshCw, Trash2, Activity } from 'lucide-vue-next'
 import type { CardDataApi } from '../../vue/cardData'
+import { adoptLegacyKey, type StorageAdapter } from '../../vue/store'
 import { isDesktop } from '../../vue/useShell'
 
 const props = defineProps<{ variant: string }>()
 const cards = inject<CardDataApi>('cardData')!
+/** 探测历史同样走适配器：此前裸 localStorage，桌面端不在文件镜像与备份里 */
+const storage = inject<StorageAdapter>('storage') ?? { get: () => null, set: () => {} }
 
 const HISTORY_KEY = 'modulo.probe.v1'
 /** 每个端点的样本窗口：url → 样本环。不是响应式持久态的一部分，手动触发渲染 */
@@ -32,7 +35,8 @@ let timer: number | null = null
 
 function loadHistory(): void {
   try {
-    const raw = localStorage.getItem(HISTORY_KEY)
+    // 老版本写在裸 localStorage 里：镜像为空时一次性搬过来
+    const raw = adoptLegacyKey(storage, (k) => localStorage.getItem(k), HISTORY_KEY)
     const parsed = raw ? (JSON.parse(raw) as Record<string, unknown>) : {}
     const out: Record<string, ProbeSample[]> = {}
     for (const p of cards.state.probes) out[p.url] = sanitizeSamples(parsed[p.url])
@@ -43,7 +47,7 @@ function loadHistory(): void {
 }
 function saveHistory(): void {
   try {
-    localStorage.setItem(HISTORY_KEY, JSON.stringify(history.value))
+    storage.set(HISTORY_KEY, JSON.stringify(history.value))
   } catch {
     /* 存不进去就不存 —— 历史是最好可以有、没有也能活的缓存 */
   }

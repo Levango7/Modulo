@@ -11,6 +11,45 @@ export function memoryStorage(): StorageAdapter {
   return { get: (k) => m.get(k) ?? null, set: (k, v) => void m.set(k, v) }
 }
 
+/**
+ * 把某张卡过去写在**裸 `localStorage`** 里的数据接管进存储适配器（一次性）。
+ *
+ * 为什么要有这一步：桌面壳的 `get` 只读启动 hydrate 出来的文件镜像（见 `fileStorage.ts`），
+ * 而 rss / probe 这两张卡此前直接读写 `localStorage` —— 数据能跨重启（WebView2 的
+ * user data 目录），但**不在文件镜像里、不在备份清单里、也不参与同步**。搬进适配器之后
+ * 三件事一起成立，代价是老用户的那份历史要搬一次家。
+ *
+ * 三条纪律：
+ *  1. **只在镜像为空时搬**：镜像有值就以镜像为准，绝不拿旧值覆盖新的。
+ *  2. **搬完不删旧值**：写盘是异步的、失败会挂在 `error` 上（`fileStorage` 那套）。
+ *     删掉旧值等于把"写失败"变成"数据没了"；而且下次镜像为空时它还能再搬一次。
+ *  3. **空串当没有**：`localStorage` 里的空串不是有效归档，搬过去只会让"有没有历史"判错。
+ *
+ * @returns 可用的原始 JSON 文本（镜像优先），没有就 null。**不解析** —— 解析与容错由调用方
+ *          照旧处理（那两张卡各自有坏数据兜底）。
+ */
+export function adoptLegacyKey(
+  storage: StorageAdapter,
+  readLegacy: (key: string) => string | null,
+  key: string,
+): string | null {
+  const current = storage.get(key)
+  if (current !== null && current !== '') return current
+  let legacy: string | null = null
+  try {
+    legacy = readLegacy(key)
+  } catch {
+    return null // 隐私模式 / 配额限制下读 localStorage 会抛，按"没有"处理
+  }
+  if (!legacy) return null
+  try {
+    storage.set(key, legacy)
+  } catch {
+    /* 写不进适配器就先不搬：旧值还在，下次再试（这条卡的数据本来就是可丢的缓存） */
+  }
+  return legacy
+}
+
 export function browserStorage(): StorageAdapter {
   return typeof localStorage === 'undefined' ? memoryStorage() : { get: (k) => localStorage.getItem(k), set: (k, v) => localStorage.setItem(k, v) }
 }
