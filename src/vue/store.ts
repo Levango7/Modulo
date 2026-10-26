@@ -68,6 +68,11 @@ export function createLayoutStore(opts: {
   storage?: StorageAdapter
   key?: string
   templateKey?: string
+  /**
+   * 启动时就已装好的扩展卡（main.ts 在首次 parseLayout **之前**传入）。
+   * 缺了它，旧版面里的 `ext:<id>` 条目会在静态表上解析、被当未知模块清洗掉。
+   */
+  extensions?: readonly E.ExtCard[]
 }) {
   /**
    * 注册表 = 内置表 + 已装扩展卡。**reactive 数组**：扩展是运行时装进来的（用户导入卡包），
@@ -75,7 +80,7 @@ export function createLayoutStore(opts: {
    * 原地 splice（`setExtensions`）而不是换引用：`store.reg` 的全部消费点拿到的都是同一个
    * 数组代理，一行不用改；Vue 的响应让依赖它的 computed（模块库清单等）自动重算。
    */
-  const reg = reactive<E.ModuleDef[]>([...opts.registry])
+  const reg = reactive<E.ModuleDef[]>([...opts.registry, ...E.extModuleDefs(opts.registry, opts.extensions ?? [])])
   /** 内置表长度：ext 段永远排在它后面（引擎 `extModuleDefs` 的约定），splice 只动这一段 */
   const baseLen = opts.registry.length
   const storage = opts.storage ?? browserStorage()

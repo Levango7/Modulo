@@ -6,8 +6,9 @@
  *   入口 HTML）/ 列出已装 / 卸载。装好的卡**不在这里渲染** —— 每份卡包有自己的模块库条目
  *   （`ext:<id>`，由 `useExtensions` 同步进注册表），像内置卡一样添加、缩放、多开、脱离浮窗。
  * - **运行态**（模块 id `ext:<id>`）：渲染那份卡包的入口 HTML（沙箱 iframe），并把**桥**
- *   的三个方法（getState / setState / notify）接到宿主。卡包卸载后版面上残留的实例如实
- *   说"已卸载"，不白屏；刷新后 `parseLayout` 会把未知模块的条目清掉。
+ *   的三个方法（getState / setState / notify）接到宿主。卡包卸载后，版面上的实例按引擎
+ *   「未知模块」的既有口径退场（当场进「已收起」清单，刷新后被 parseLayout 清除并留告警）；
+ *   下面的空态分支只是防御 —— 正常路径到不了它。
  *
  * ## 隔离边界（与自定卡同一条实测结论，见引擎 `htmlcard.ts` 文件头）
  *
@@ -183,7 +184,10 @@ function onMessage(e: MessageEvent): void {
   if (!req) return
   const id = ext.value.id
   if (req.method === 'getState') {
-    reply(req.rid, true, cards.state.extState[id] ?? null)
+    // **必须先剥掉 Vue 的响应式代理**：postMessage 走 structuredClone，Proxy 不可克隆
+    // （DataCloneError，应答永远发不出去）—— 状态本身已由 sanitizeExtState 保证是朴素 JSON，
+    // JSON 往返既剥离代理也不改变形状。
+    reply(req.rid, true, JSON.parse(JSON.stringify(cards.state.extState[id] ?? null)))
   } else if (req.method === 'setState') {
     const err = cards.setExtState(id, req.args)
     if (err === null) reply(req.rid, true, req.args)

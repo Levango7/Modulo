@@ -8,7 +8,7 @@
  *   ④ **桥**三个承诺：setState 写进 extState（落盘）、getState 读回、
  *      白名单外的请求没有回声（不会把错误当应答）；
  *   ⑤ 刷新后状态还在（extState 持久化）、版面还在（ext 段随注册表重建）；
- *   ⑥ 卸载后版面上的残留实例如实说「已卸载」，不白屏、不假装。
+ *   ⑥ 卸载后版面上的实例按引擎「未知模块」口径退场（已收起 / 刷新清除），状态一并清。
  */
 import { describe, expect, it } from 'vitest'
 import puppeteer from 'puppeteer-core'
@@ -159,6 +159,8 @@ describe.skipIf(skip)('原生卡：导入、入库、上版与桥', () => {
     expect(gotBack).toEqual({ ok: true, value: { n: 42 } })
 
     // 白名单外的请求没有回声：桥不回应方法面之外的东西（这里只能从宿主侧断言落盘形状）
+    // cardData 写盘有 300ms 合并窗口 —— setState 的应答是即时的，落盘要等一拍
+    await wait(600)
     const storedState = await page.evaluate(() => {
       const d = JSON.parse(localStorage.getItem('modulo.carddata.v1') || '{}') as {
         extState?: Record<string, unknown>
@@ -179,13 +181,11 @@ describe.skipIf(skip)('原生卡：导入、入库、上版与桥', () => {
       .catch((e: unknown) => ({ ok: false, value: String(e) }))
     expect(got2, '刷新后 getState 读回持久状态').toEqual({ ok: true, value: { n: 42 } })
 
-    // ⑥ 卸载：管理卡删掉卡包 → 版面上的残留实例如实说「已卸载」
+    // ⑥ 卸载：卡包删掉 → 版面上的实例按引擎「未知模块」的既有口径退场
+    //（当场进「已收起」清单，刷新后被 parseLayout 清除并留告警）—— 不白屏、不假装还在
     await page.evaluate(() => document.querySelector<HTMLElement>('.xcard .xdel')?.click())
     await wait(600)
-    expect(
-      await page.evaluate(() => document.querySelector('.xcard .xempty')?.textContent?.trim() ?? ''),
-      '运行态残留要如实说已卸载',
-    ).toContain('已卸载')
+    expect(await page.evaluate(() => document.querySelectorAll('.xframe').length), '运行态实例随之退场').toBe(0)
     expect(
       await page.evaluate(() => {
         const d = JSON.parse(localStorage.getItem('modulo.carddata.v1') || '{}') as {
