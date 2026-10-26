@@ -117,7 +117,13 @@ describe('存储键登记：写下去的键必须重启还读得回来（2026-10
    * 但不在文件镜像里、也不在备份清单里）。白名单是「已知分叉」的登记处，不是省事：
    * 下面一条用例要求每个白名单键**确实还在源码里出现**，卡片改走适配器后这一条会逼着来删。
    */
-  const RAW_LOCAL_STORAGE_KEYS = ['modulo.rss.v1', 'modulo.probe.v1']
+  /**
+   * 走**裸 `localStorage`**、明确不进文件存储的键。**2026-10-27 起是空的**：
+   * rss / probe 两张卡的历史已经搬回存储适配器（见 `store.ts` 的 `adoptLegacyKey`），
+   * 于是"源码里出现的每个存储键都必须在 DATA_KEYS 里"这条判据现在**没有例外**。
+   * 机制留着而不是删掉：下次真要分叉时，往这里加一条比放宽整体判据干净。
+   */
+  const RAW_LOCAL_STORAGE_KEYS: string[] = []
 
   it('8 个缓存/偏好键都在 DATA_KEYS 里（漏登记 = 写得下去、重启读不到）', () => {
     for (const k of CACHE_KEYS) expect(DATA_KEYS, `${k} 没登记`).toContain(k)
@@ -165,6 +171,9 @@ describe('存储键登记：写下去的键必须重启还读得回来（2026-10
     for (const key of RAW_LOCAL_STORAGE_KEYS) {
       expect(found, `白名单里的 ${key} 已不在源码里 —— 请把这一条从白名单删掉`).toContain(key)
     }
+    // 白名单现在是空的：如果有人重新引入"裸 localStorage 存储"，把键加回白名单的同时
+    // 这条断言会提醒他这不是免费的（判据从"全部登记"退化成"登记或白名单"）。
+    expect(RAW_LOCAL_STORAGE_KEYS, '白名单应保持为空；要开例外先想清楚为什么').toEqual([])
   })
 })
 

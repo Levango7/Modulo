@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { createLayoutStore, memoryStorage } from '../../src/vue/store'
+import { adoptLegacyKey, createLayoutStore, memoryStorage } from '../../src/vue/store'
 import type { ModuleRegistry } from '@levango7/engine/types'
 
 const REG: ModuleRegistry = [
@@ -184,5 +184,60 @@ describe('编辑器事务的 store 原语（restore，2026-10-12）', () => {
     const undoableBefore = s.canUndo.value
     s.restore(snapshot)
     expect(s.canUndo.value).toBe(undoableBefore)
+  })
+})
+
+describe('adoptLegacyKey：把裸 localStorage 的历史接管进适配器（一次性）', () => {
+  const KEY = 'modulo.rss.v1'
+
+  it('镜像为空时才搬：搬完镜像里有，旧值仍在（写盘失败不至于连旧值都没了）', () => {
+    const storage = memoryStorage()
+    let legacy: string | null = '{"a":1}'
+    const out = adoptLegacyKey(storage, () => legacy, KEY)
+    expect(out).toBe('{"a":1}')
+    expect(storage.get(KEY)).toBe('{"a":1}')
+    expect(legacy).toBe('{"a":1}') // 没删旧值
+  })
+
+  it('镜像有值就以镜像为准，绝不拿旧值覆盖新的', () => {
+    const storage = memoryStorage()
+    storage.set(KEY, '{"new":true}')
+    let read = 0
+    const out = adoptLegacyKey(storage, () => {
+      read += 1
+      return '{"old":true}'
+    }, KEY)
+    expect(out).toBe('{"new":true}')
+    expect(read).toBe(0) // 连读都不读（少一次可能的异常路径）
+    expect(storage.get(KEY)).toBe('{"new":true}')
+  })
+
+  it('空串当"没有"：localStorage 里的空串不是有效归档', () => {
+    const storage = memoryStorage()
+    expect(adoptLegacyKey(storage, () => '', KEY)).toBeNull()
+    expect(storage.get(KEY)).toBeNull()
+  })
+
+  it('读 localStorage 抛错（隐私模式/配额）：按"没有"处理，不把启动带崩', () => {
+    const storage = memoryStorage()
+    expect(
+      adoptLegacyKey(storage, () => {
+        throw new Error('SecurityError')
+      }, KEY),
+    ).toBeNull()
+  })
+
+  it('写适配器失败：旧值照旧返回（这一轮先用着），镜像仍是空', () => {
+    const storage = {
+      get: () => null,
+      set: () => {
+        throw new Error('disk full')
+      },
+    }
+    expect(adoptLegacyKey(storage, () => '{"a":1}', KEY)).toBe('{"a":1}')
+  })
+
+  it('两边都没有：null（调用方照旧走"没有历史"分支）', () => {
+    expect(adoptLegacyKey(memoryStorage(), () => null, KEY)).toBeNull()
   })
 })

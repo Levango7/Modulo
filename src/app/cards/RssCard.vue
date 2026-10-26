@@ -16,10 +16,13 @@ import { Plus, RefreshCw, Rss, Trash2 } from 'lucide-vue-next'
 import { parseFeed } from '@levango7/engine/rss'
 import { invoke } from '@tauri-apps/api/core'
 import type { CardDataApi } from '../../vue/cardData'
+import { adoptLegacyKey, type StorageAdapter } from '../../vue/store'
 import { isDesktop } from '../../vue/useShell'
 
 const props = defineProps<{ variant: string }>()
 const cards = inject<CardDataApi>('cardData')!
+/** 历史走存储适配器（桌面 = 文件镜像）：此前是裸 localStorage —— 不在镜像、不在备份、也不参与同步 */
+const storage = inject<StorageAdapter>('storage') ?? { get: () => null, set: () => {} }
 
 const HISTORY_KEY = 'modulo.rss.v1'
 const REFRESH_MS = 5 * 60_000
@@ -39,7 +42,8 @@ let timer: number | null = null
 
 function loadHistory(): void {
   try {
-    const raw = localStorage.getItem(HISTORY_KEY)
+    // 老版本写在裸 localStorage 里：镜像为空时一次性搬过来（见 store.ts 的 adoptLegacyKey）
+    const raw = adoptLegacyKey(storage, (k) => localStorage.getItem(k), HISTORY_KEY)
     const parsed = raw ? (JSON.parse(raw) as Record<string, unknown>) : {}
     const out: Record<string, FeedResult> = {}
     for (const f of cards.state.feeds) {
@@ -57,7 +61,7 @@ function saveHistory(): void {
   try {
     const out: Record<string, { summary: FeedResult['summary']; note: string }> = {}
     for (const [url, r] of Object.entries(results.value)) out[url] = { summary: r.summary, note: r.note }
-    localStorage.setItem(HISTORY_KEY, JSON.stringify(out))
+    storage.set(HISTORY_KEY, JSON.stringify(out))
   } catch {
     /* 存不进去就不存 —— 缓存是最好可以有、没有也能活的缓存 */
   }
