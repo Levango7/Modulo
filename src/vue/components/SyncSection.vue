@@ -37,6 +37,8 @@ onMounted(() => {
   // 历史副本列表要用户点「刷新」才去列 —— 进设置页就发请求，等于把"打开设置"变成一次联网
 })
 
+const setAuto = (e: Event) => sync.save({ auto: (e.target as HTMLInputElement).checked })
+
 async function refreshHistory() {
   await sync.refreshHistory()
 }
@@ -76,6 +78,12 @@ const statusLabel = { idle: '', busy: '进行中…', ok: '完成', error: '失�
         <label class="check">
           <input type="checkbox" :checked="sync.settings.value.remember" @change="toggleRemember" />
           <span>记住口令（存进 Windows 凭据管理器）</span>
+        </label>
+      </div>
+      <div class="row wrap">
+        <label class="check">
+          <input type="checkbox" :checked="sync.settings.value.auto" @change="setAuto" />
+          <span>自动同步（每 15 分钟；有更新待确认时只提示，绝不替你应用）</span>
         </label>
       </div>
       <div class="row wrap">

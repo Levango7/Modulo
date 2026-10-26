@@ -88,6 +88,40 @@ export interface SyncDeps {
 
 const errText = (e: unknown) => (e instanceof Error ? e.message : String(e))
 
+/** 自动同步的间隔：15 分钟。手动点的那次不算"到期"，但会刷新 lastSyncAt */
+export const AUTO_INTERVAL_MS = 15 * 60 * 1000
+
+export interface AutoGate {
+  /** 用户开了自动同步 */
+  enabled: boolean
+  /** 桌面且传输可用 */
+  usable: boolean
+  /** 上一轮还没跑完 */
+  busy: boolean
+  /** 有等用户确认的下载 —— 自动同步**不许**替用户按确认 */
+  pending: boolean
+  /** 上次成功同步的时刻（null = 从没成功过） */
+  lastSyncAt: number | null
+  now: number
+  /** 窗口在后台时不跑（省流量、也避免在用户看不见的时候弹确认） */
+  hidden: boolean
+}
+
+/**
+ * 这一分钟该不该自动同步。**纯判据**，六个条件缺一不可：
+ *
+ * - 开了自动同步、桌面可用、不在忙、没有待确认的下载；
+ * - 距上次成功同步满 15 分钟（从没成功过则立刻可以跑 —— 首次同步都是上传，不需要抉择）；
+ * - 窗口在前台。
+ *
+ * 最后一条是刻意的：后台跑出来一个"要确认"的提示，用户回来只看到一行结果，等于白问。
+ */
+export function shouldAutoSync(g: AutoGate): boolean {
+  if (!g.enabled || !g.usable || g.busy || g.pending || g.hidden) return false
+  if (g.lastSyncAt === null) return true
+  return g.now - g.lastSyncAt >= AUTO_INTERVAL_MS
+}
+
 /**
  * 409/412 之类的"有人先改了"单独成一类：上层要能说清**这次什么都没写**，
  * 而不是把它混进"网盘报错"里让人以为半成功了。
@@ -185,8 +219,14 @@ export function useSync(deps: SyncDeps) {
     }
   }
 
-  /** 主流程：取远端 → 裁决 → （有下载就先问）→ 留现场 → 写 live → 轮转 */
-  async function syncNow(): Promise<void> {
+  /**
+   * 主流程：取远端 → 裁决 → （有下载就先问）→ 留现场 → 写 live → 轮转。
+   *
+   * `auto` 只影响**失败怎么呈现**和**要不要惊动用户**：后台跑的时候，网络抖动/412 都只
+   * 留一条提示，不把设置页的状态打成红的（用户没点任何东西）；有下载仍然**只进确认块**，
+   * 绝不替用户按确认。
+   */
+  async function syncNow(opts: { auto?: boolean } = {}): Promise<void> {
     const t = deps.transport
     if (!t) {
       status.value = 'error'
@@ -258,8 +298,14 @@ export function useSync(deps: SyncDeps) {
       const r = await upload(ok.endpoint, ok.user, localSections, localStamps, parsed.bundle, changed, read.etag)
       done(summarizePlan(decisions) + '；' + r)
     } catch (e) {
-      status.value = 'error'
-      message.value = errText(e)
+      if (opts.auto) {
+        // 后台失败不红：下一次 tick 会自己重试；留一条提示让人回来时能看见发生过什么
+        status.value = 'idle'
+        notices.value = [`自动同步没成：${errText(e)}`]
+      } else {
+        status.value = 'error'
+        message.value = errText(e)
+      }
     }
   }
 
@@ -392,6 +438,47 @@ export function useSync(deps: SyncDeps) {
     }
   }
 
+  let autoTimer: number | null = null
+
+  /** 一分钟判一次；真正要不要跑由纯函数 `shouldAutoSync` 决定 */
+  function autoTick(): void {
+    const hidden = typeof document !== 'undefined' && document.hidden
+    if (
+      !shouldAutoSync({
+        enabled: settings.value.auto,
+        usable,
+        busy: status.value === 'busy',
+        pending: pending.value !== null,
+        lastSyncAt: settings.value.lastSyncAt,
+        now: now(),
+        hidden,
+      })
+    ) {
+      return
+    }
+    void syncNow({ auto: true })
+  }
+
+  function onVisible(): void {
+    if (typeof document !== 'undefined' && !document.hidden) autoTick()
+  }
+
+  /** 启动节拍。重复调用无副作用；App 卸载时用 stopAuto 收掉 */
+  function startAuto(): void {
+    // 用 globalThis 而不是 window：桌面壳里等价，node 里（单测）也能驱动假定时器
+    if (autoTimer !== null) return
+    autoTimer = globalThis.setInterval(autoTick, 60_000) as unknown as number
+    if (typeof document !== 'undefined') document.addEventListener('visibilitychange', onVisible)
+    autoTick() // 首次不必等一分钟
+  }
+
+  function stopAuto(): void {
+    if (autoTimer === null) return
+    globalThis.clearInterval(autoTimer)
+    autoTimer = null
+    if (typeof document !== 'undefined') document.removeEventListener('visibilitychange', onVisible)
+  }
+
   function done(extra: string): void {
     status.value = 'ok'
     message.value = `同步完成：${extra}`
@@ -481,6 +568,8 @@ export function useSync(deps: SyncDeps) {
     cancelApply,
     refreshHistory,
     restoreHistory,
+    startAuto,
+    stopAuto,
   }
 }
 

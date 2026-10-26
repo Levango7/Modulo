@@ -100,6 +100,9 @@ const sync = useSync({
   },
 })
 provide('sync', sync)
+// 自动同步的节拍挂在应用生命周期上，不跟设置面板走：关掉面板不等于关掉同步
+onMounted(() => sync.startAuto())
+onBeforeUnmount(() => sync.stopAuto())
 provide('shell', useShell(storage))
 
 /**
