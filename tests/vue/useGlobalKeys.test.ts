@@ -19,6 +19,7 @@ function setup(over: Partial<GlobalKeysDeps> = {}) {
     editorEscape: vi.fn(() => false),
     view: ref<TxView>('workbench'),
     arrangeOpen: ref(false),
+    floatOpen: ref(false),
     templatesOpen: ref(false),
     settingsOpen: ref(false),
     cancelEdit: vi.fn(),
@@ -80,7 +81,7 @@ describe('useGlobalKeys · Esc 七层', () => {
     expect(deps.cancelEdit).toHaveBeenCalledTimes(1)
   })
 
-  it('弹层按 arrange → templates → settings 的顺序逐层往下', () => {
+  it('弹层按 arrange → floats → templates → settings 的顺序逐层往下', () => {
     const a = setup()
     a.deps.arrangeOpen.value = true
     a.onKey(key({ key: 'Escape' }).e)
@@ -91,6 +92,13 @@ describe('useGlobalKeys · Esc 七层', () => {
     b.deps.templatesOpen.value = true
     b.onKey(key({ key: 'Escape' }).e)
     expect(b.deps.closeTemplates).toHaveBeenCalledTimes(1)
+
+    // F-08：浮窗清单这一层的 ref 是否接对 —— 接错的症状是"顶栏浮窗菜单按 Esc 不关"
+    const f = setup()
+    f.deps.floatOpen.value = true
+    f.onKey(key({ key: 'Escape' }).e)
+    expect(f.deps.floatOpen.value).toBe(false)
+    expect(f.deps.closeTemplates).not.toHaveBeenCalled()
 
     const c = setup()
     c.deps.settingsOpen.value = true

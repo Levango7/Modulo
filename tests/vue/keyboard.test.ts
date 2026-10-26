@@ -159,6 +159,8 @@ describe('appKeyIntent（Esc 级联）', () => {
     editorEscape: () => false,
     view: 'workbench' as const,
     arrangeOpen: false,
+    /** 顶栏「浮窗 N」清单（F-08，2026-10-26）：夹在排布与模板之间 */
+    floatOpen: false,
     templatesOpen: false,
     settingsOpen: false,
   }
@@ -177,6 +179,9 @@ describe('appKeyIntent（Esc 级联）', () => {
     expect(appKeyIntent(esc, { ...base, settingsOpen: true })?.kind).toBe('closeSettings')
     expect(appKeyIntent(esc, { ...base, settingsOpen: true, templatesOpen: true })?.kind).toBe('closeTemplates')
     expect(appKeyIntent(esc, { ...base, templatesOpen: true, arrangeOpen: true })?.kind).toBe('closeArrange')
+    // F-08：浮窗清单这一层夹在排布与模板之间（与它俩同为顶栏下拉）
+    expect(appKeyIntent(esc, { ...base, templatesOpen: true, floatOpen: true })?.kind).toBe('closeFloats')
+    expect(appKeyIntent(esc, { ...base, floatOpen: true, arrangeOpen: true })?.kind).toBe('closeArrange')
     // 编辑态压过 arrange：取消整场编辑比关下拉更该先发生
     expect(appKeyIntent(esc, { ...base, arrangeOpen: true, view: 'edit' })?.kind).toBe('cancelEdit')
     // 编辑器自退压过"取消整场编辑"
