@@ -43,6 +43,8 @@ import { QUADRANTS, type CardData, type Quadrant, type TimerKey } from './cardDa
 
 export * from './cardDataTypes'
 export { sanitizeCardData } from './cardDataSanitize'
+/** 按实例取数的判定层（F-01 阶段 2）：卡片组件直接拿它配 `state` 用，不绕一层 API */
+export { stickyOf, writeSticky } from './instanceData'
 
 const KEY = 'modulo.carddata.v1'
 
@@ -120,6 +122,9 @@ export function createCardData(storage = browserStorage()) {
       htmlCards: state.htmlCards.map((c) => ({ ...c })),
       extCards: state.extCards.map((c) => ({ ...c })),
       extState: { ...state.extState },
+      // 按实例的内容（F-01 阶段 2）：整段替换式写入（见 `instanceData.ts` 的 writeSticky），
+      // 所以这里浅拷贝一层就够触发 —— 但它必须出现在 getter 里，否则深层 watch 看不见它。
+      byInstance: { ...state.byInstance },
       'duty.roster': [...state.duty.roster],
       timers: {
         stopwatch: { ...state.timers.stopwatch },

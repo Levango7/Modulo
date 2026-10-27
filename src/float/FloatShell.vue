@@ -76,7 +76,13 @@ function onKey(e: KeyboardEvent): void {
       </span>
     </header>
     <main class="fbody">
-      <component :is="comp" v-if="comp" :variant="variant" :module-id="cardId" :chromeless="chromeless" />
+      <!--
+        `module-id` 此前传的是 `cardId`（**实例** id）—— 多开之后浮起来的第二张会把 `todo:2`
+        当成模块 id 交给卡组件（拿不到模块，形态与内容都错）。现在两者各归其位：
+        `moduleId` 是按版面解析出的模块 id，`cardId`（实例 id）走 `instance-id`。
+        单实例时两者相等，渲染与之前逐字相同。
+      -->
+      <component :is="comp" v-if="comp" :variant="variant" :module-id="moduleId" :instance-id="cardId" :chromeless="chromeless" />
       <p v-else class="muted">这张卡暂不支持浮窗</p>
     </main>
   </div>

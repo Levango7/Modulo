@@ -404,6 +404,20 @@ describe('命令层：补上棘轮咬出来的缺口', () => {
     expect(matrix.filter((t) => t.includes('周报相关')).length).toBe(2)
   })
 
+  it('索引：第二张便签的正文也搜得到（F-01 阶段 2 —— 不然它是个没人会报的静默洞）', async () => {
+    const { contentIndex, searchContent } = await import('../../src/vue/paletteIndex')
+    const data = (await import('../../src/vue/cardData')).createCardData(memoryStorage())
+    data.state.sticky = '第一张的内容'
+    data.state.byInstance = { 'sticky:2': { sticky: '第二张里写了买牛奶' } }
+    const hits = searchContent(data.state, '买牛奶')
+    expect(hits.length).toBe(1)
+    // cardId 是**实例** id：面板里"跳到这张卡"要指得准
+    expect(hits[0].cardId).toBe('sticky:2')
+    // id 仍两两不同（守的是"以后新增条目类型"那条不变量）
+    const ids = contentIndex(data.state).map((e) => e.id)
+    expect(new Set(ids).size).toBe(ids.length)
+  })
+
   it('索引：内容域的 id 两两不同（这条不变量守的是"以后新增条目类型"）', async () => {
     const { contentIndex } = await import('../../src/vue/paletteIndex')
     const data = (await import('../../src/vue/cardData')).createCardData(memoryStorage())
