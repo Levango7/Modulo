@@ -109,6 +109,33 @@ describe('layout store', () => {
     expect(s.doc.value.items.map((p) => p.id)).toContain('clock:2')
   })
 
+  it('setExtensions：ext 段整体替换，内置段不动；装好的扩展卡按 manifest 契约可加卡/可多开', () => {
+    const s = fresh()
+    const base = s.reg.length
+    const card = {
+      id: 'k1',
+      title: '扩展一',
+      group: '扩展',
+      blurb: '测试卡包',
+      variants: [{ id: 'std', name: '标准', minW: 1, minH: 1, idealW: 2, idealH: 2 }],
+      html: '<b/>',
+    }
+    s.setExtensions([card])
+    expect(s.reg.length).toBe(base + 1)
+    expect(s.reg[s.reg.length - 1].id).toBe('ext:k1')
+    expect(s.available.value.some((m) => m.id === 'ext:k1'), '模块库看得到').toBe(true)
+    // 装好后就能像内置卡一样加卡（引擎能查到它的尺寸契约），第二张起 ext:k1:2
+    s.add('ext:k1', 0, 0)
+    s.add('ext:k1', 2, 0)
+    const ids = s.doc.value.items.map((p) => p.id)
+    expect(ids).toContain('ext:k1')
+    expect(ids).toContain('ext:k1:2')
+    // 换一份名单 = ext 段整体替换；内置段一根手指都没动
+    s.setExtensions([])
+    expect(s.reg.length).toBe(base)
+    expect(s.reg.slice(0, base).map((m) => m.id)).toEqual(REG.map((m) => m.id))
+  })
+
   it('锁定项拒绝移动', () => {
     const s = fresh()
     s.toggleLock('clock')

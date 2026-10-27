@@ -26,9 +26,11 @@ async function bootstrap() {
   app.provide('storage', watched)
   app.provide('syncStore', syncStore)
   app.provide('migrationNotes', migration.notes)
-  app.provide('store', createLayoutStore({ registry: REGISTRY, storage: watched }))
+  // cardData 必须先于 store：**首次 parseLayout 的注册表要已含扩展卡** ——
+  // 旧版面里的 `ext:<id>` 条目若在静态表上解析，会被当未知模块清洗掉（E2E 实测）。
   const cardData = createCardData(watched)
   app.provide('cardData', cardData)
+  app.provide('store', createLayoutStore({ registry: REGISTRY, storage: watched, extensions: cardData.state.extCards }))
   // 内容级撤销（P0-②）：与版面历史各自独立，由 App 的 undoLatest() 按时间戳择近
   app.provide('contentHistory', createContentHistory(cardData.state))
   app.mount('#app')

@@ -26,6 +26,7 @@ import { useReminders } from './vue/useReminders'
 import type { Reminder } from './vue/reminders'
 import { sendSystemNotifications, shouldSendSystemNotification } from './vue/notify'
 import { useSchemes } from './vue/useSchemes'
+import { useExtensions } from './vue/useExtensions'
 import { isDesktop, useShell } from './vue/useShell'
 import { useDetached } from './vue/useDetached'
 import CommandPalette from './vue/components/CommandPalette.vue'
@@ -46,6 +47,8 @@ import TitleBar from './vue/components/TitleBar.vue'
 const storage = inject<PersistentStorage>('storage')!
 const store = inject<LayoutStore>('store')!
 const cardDataApi = inject<CardDataApi>('cardData')!
+/** 已装扩展卡 → 模块注册表的同步（immediate：首帧就绪，模块库第一眼就能看到装好的卡） */
+useExtensions(store, cardDataApi)
 const contentHistory = inject<ContentHistoryApi>('contentHistory')!
 const appearance = useAppearance(storage)
 provide('appearance', appearance)

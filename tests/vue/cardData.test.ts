@@ -28,6 +28,8 @@ const fallback: CardData = {
   endpoints: [],
   launch: [],
   htmlCards: [],
+  extCards: [],
+  extState: {},
   fixed: { base: '', rate: '', symbol: '¥' },
   duty: { roster: [], anchor: '' },
 }
@@ -57,6 +59,8 @@ describe('sanitizeCardData：盘上数据先清洗再用', () => {
       endpoints: fallback.endpoints,
       launch: fallback.launch,
       htmlCards: fallback.htmlCards,
+      extCards: fallback.extCards,
+      extState: fallback.extState,
       fixed: fallback.fixed,
       duty: fallback.duty,
     })
@@ -93,6 +97,30 @@ describe('sanitizeCardData：盘上数据先清洗再用', () => {
     } finally {
       console.warn = orig
     }
+  })
+
+  it('extCards：不是数组整栏回退；坏卡包丢弃并告警；好卡包归一化保留', () => {
+    expect(sanitizeCardData({ extCards: 'x' }, fallback).extCards).toEqual(fallback.extCards)
+    const warned: string[] = []
+    const orig = console.warn
+    console.warn = (m?: unknown) => void warned.push(String(m))
+    try {
+      const good = { id: 'ok', title: '好卡', html: '<b/>', variants: [{ id: 's', name: '标准', minW: 1, minH: 1, idealW: 2, idealH: 2 }] }
+      const r = sanitizeCardData({ extCards: [good, { id: 'bad' }, { ...good, id: 'ok' }] }, fallback)
+      expect(r.extCards.map((c) => c.id)).toEqual(['ok'])
+      expect(warned.some((m) => m.includes('扩展卡')), '丢弃要回显').toBe(true)
+    } finally {
+      console.warn = orig
+    }
+  })
+
+  it('extState：不是对象（含数组 / null）整栏回退；逐键清洗 —— 坏值丢那一键、好值保留', () => {
+    for (const bad of ['x', 42, [], null]) {
+      expect(sanitizeCardData({ extState: bad }, fallback).extState, String(bad)).toEqual(fallback.extState)
+    }
+    const deep7 = { a: { b: { c: { d: { e: { f: { g: 1 } } } } } } }
+    const r = sanitizeCardData({ extState: { good: { n: 1 }, junk: () => 1, deep: deep7 } }, fallback)
+    expect(r.extState).toEqual({ good: { n: 1 } })
   })
 
   it('todos 是 null 时整栏回退示例，而不是把 null 交给渲染期', () => {
@@ -149,7 +177,7 @@ describe('sanitizeCardData：盘上数据先清洗再用', () => {
   it('__proto__ 之类的键不会漏进状态：只认白名单字段', () => {
     const r = sanitizeCardData(JSON.parse('{"__proto__":{"polluted":1},"sticky":"ok"}'), fallback)
     expect(Object.keys(r).sort()).toEqual([
-      'birthdays', 'commands', 'countdown', 'duty', 'elapsed', 'endpoints', 'feeds', 'fixed', 'habit', 'htmlCards', 'launch', 'ledger', 'links', 'matrix', 'meeting', 'notes', 'pickList', 'probes', 'sticky', 'stocks', 'timers', 'todos', 'watch',
+      'birthdays', 'commands', 'countdown', 'duty', 'elapsed', 'endpoints', 'extCards', 'extState', 'feeds', 'fixed', 'habit', 'htmlCards', 'launch', 'ledger', 'links', 'matrix', 'meeting', 'notes', 'pickList', 'probes', 'sticky', 'stocks', 'timers', 'todos', 'watch',
     ])
     expect({} as Record<string, unknown>).not.toHaveProperty('polluted')
   })

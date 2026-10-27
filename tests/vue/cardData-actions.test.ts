@@ -748,3 +748,52 @@ describe('股票自选与 RSS 订阅的写入规则', () => {
     expect(d.state.feeds).toEqual([])
   })
 })
+
+describe('原生卡（扩展卡包）：导入/卸载与桥状态', () => {
+  const pack = JSON.stringify({
+    id: 'hello',
+    title: '问候',
+    group: '演示',
+    blurb: '一句话',
+    html: '<b>你好</b>',
+    variants: [{ id: 'std', name: '标准', minW: 2, minH: 2, idealW: 3, idealH: 3 }],
+  })
+
+  it('导入：合法卡包收下并归一化；坏 JSON / 非法 manifest 给一句人话原因（不静默丢）', () => {
+    const d = memStorage().api()
+    expect(d.addExtCard(pack)).toBeNull()
+    expect(d.state.extCards).toHaveLength(1)
+    expect(d.state.extCards[0]).toMatchObject({ id: 'hello', title: '问候', group: '演示' })
+    expect(d.addExtCard('{ 不是 JSON'), 'JSON 解析失败要给原因').toContain('JSON')
+    expect(d.addExtCard(JSON.stringify({ id: 'HELLO', title: 'x', html: '<b/>', variants: [{ id: 's', name: 's', minW: 1, minH: 1, idealW: 1, idealH: 1 }] })), '形状错的原因要原样带出').toContain('id')
+    expect(d.state.extCards, '被拒的不进名单').toHaveLength(1)
+  })
+
+  it('重复 id 与张数上限都在导入端拦下', () => {
+    const d = memStorage().api()
+    expect(d.addExtCard(pack)).toBeNull()
+    expect(d.addExtCard(pack), '重复导入要给原因').toContain('已经装着')
+    for (let i = 0; i < 7; i++) {
+      expect(d.addExtCard(pack.replace('"hello"', `"p${i}"`))).toBeNull()
+    }
+    expect(d.addExtCard(pack.replace('"hello"', '"one-more"')), '第 9 张要给原因').toContain('最多')
+  })
+
+  it('桥状态：合法写回、超字节给原因、按扩展定点；卸载连状态一起清（不留数据尸体）', () => {
+    const d = memStorage().api()
+    d.addExtCard(pack)
+    expect(d.setExtState('hello', { n: 1 })).toBeNull()
+    expect(d.state.extState.hello).toEqual({ n: 1 })
+    expect(d.setExtState('hello', 'x'.repeat(17000)), '超上限要给原因').toContain('太大')
+    expect(d.state.extState.hello, '被拒的写不进').toEqual({ n: 1 })
+    d.setExtState('hello', null)
+    expect(d.state.extState.hello).toBeNull()
+    d.removeExtCard('hello')
+    expect(d.state.extCards).toHaveLength(0)
+    expect('hello' in d.state.extState, '状态跟着卡走').toBe(false)
+    // 没有状态的扩展卡卸载也要走得通（`id in extState` 的另一侧）
+    d.addExtCard(pack)
+    d.removeExtCard('hello')
+    expect(d.state.extCards).toHaveLength(0)
+  })
+})
