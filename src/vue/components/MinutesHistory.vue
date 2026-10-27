@@ -9,12 +9,18 @@
  * **删除是两步确认**：第一下只武装（按钮变成「确认删除」），第二下才真发 IPC。
  * 武装态一次只挂一行，点到别的行就挪过去；那一行被删掉后武装态自动解除 ——
  * 这是删除会议记录（不可恢复、没有回收站）在一张小卡里能做的最短防线。
+ *
+ * **每行一枚导出键**（2026-10-28）：列表里的标题就是会议名，想带走一场不用先进详情。
+ * 导出 = `meeting_get` 取数 → `meetingExport.ts` 的纯函数算文本与文件名 → `downloadText`
+ * （与备份导出同一条 Blob 链）。失败共用这条的 `error`，不另摆第二个错误位。
  */
 import { computed, onMounted, ref, watch } from 'vue'
 import { invoke } from '@tauri-apps/api/core'
-import { Check, History, RefreshCw, Sparkles, Trash2 } from 'lucide-vue-next'
-import { capMeetings, formatMeetingWhen, groupMeetings, type MeetingItem } from '../meetings'
+import { Check, Download, History, RefreshCw, Sparkles, Trash2 } from 'lucide-vue-next'
+import { capMeetings, formatMeetingWhen, groupMeetings, type MeetingItem, type MeetingTranscript } from '../meetings'
+import { buildMeetingExport } from '../meetingExport'
 import { formatDuration } from '../minutesLive'
+import { downloadText } from '../fileIo'
 import { isDesktop } from '../useShell'
 
 const emit = defineEmits<{
@@ -27,6 +33,8 @@ const error = ref('')
 const armed = ref<string | null>(null)
 /** 正在删除的那一条；非 null 时其余行的删除键一并禁用（防连点开出两个删除） */
 const deletingId = ref<string | null>(null)
+/** 正在导出的那一条；同 deletingId 的道理：导出要先取数，连点开两份下载没有意义 */
+const exportingId = ref<string | null>(null)
 
 /** 「现在」跟着列表数据走：凌晨跨天时旧标签不会一直错到重开应用 */
 const now = ref(Date.now())
@@ -71,6 +79,22 @@ async function onDel(m: MeetingItem): Promise<void> {
   }
   await reload()
 }
+
+/** 导出一场：取数与下载之间的判定全在纯函数里，这里只排顺序与兜错 */
+async function onExport(m: MeetingItem): Promise<void> {
+  if (exportingId.value !== null) return
+  exportingId.value = m.id
+  error.value = ''
+  try {
+    const t = await invoke<MeetingTranscript>('meeting_get', { id: m.id })
+    const e = buildMeetingExport(t, m.title, Date.now())
+    downloadText(e.filename, e.text, 'text/plain;charset=utf-8')
+  } catch (err) {
+    error.value = String(err)
+  } finally {
+    exportingId.value = null
+  }
+}
 onMounted(() => {
   // 网页版没有历史可读（整块只在桌面壳渲染），别在网页上发起会议 IPC
   if (isDesktop) void reload()
@@ -103,9 +127,19 @@ onMounted(() => {
               </span>
             </button>
             <button
+              class="exp"
+              :disabled="deletingId !== null || exportingId !== null"
+              :aria-label="`导出转写：${m.title}`"
+              title="导出这场转写为文本"
+              @click="onExport(m)"
+            >
+              <Download v-if="exportingId !== m.id" :size="12" />
+              <RefreshCw v-else :size="12" class="spin" />
+            </button>
+            <button
               class="del"
               :data-armed="armed === m.id"
-              :disabled="deletingId !== null"
+              :disabled="deletingId !== null || exportingId === m.id"
               :aria-label="armed === m.id ? `确认删除：${m.title}` : `删除：${m.title}`"
               @click="onDel(m)"
             >
@@ -239,6 +273,24 @@ onMounted(() => {
 }
 .at {
   margin-inline-start: auto;
+}
+.exp {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 4px;
+  background: transparent;
+  border: none;
+  color: var(--text-3);
+  cursor: pointer;
+}
+.exp:hover,
+.exp:focus-visible {
+  color: var(--text-1);
+}
+.exp:disabled {
+  opacity: 0.4;
+  cursor: default;
 }
 .del {
   flex: none;

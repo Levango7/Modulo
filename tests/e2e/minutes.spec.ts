@@ -6,6 +6,12 @@
  * （形状与 Rust session_store.rs 的 serde 输出逐字段一致），删除与摘要**原地改桩数据**
  * —— 「列表徽标回读落盘值」这条前端行为才能被真测。
  *
+ * 导出（2026-10-28）**没有新 IPC**：复用已登记有调用点的 `meeting_get`，文本与文件名
+ * 在前端纯函数里算，下载走 `Blob`。桩没有文件系统，所以截 `URL.createObjectURL`
+ * （拿到的是 Blob **对象本身** —— 后面的 revoke 毁不掉它）与
+ * `HTMLAnchorElement.prototype.click`（记 `download` 文件名），把「本该落盘的文本与
+ * 文件名」读回来断言。不截这两个口子，导出在 headless 里就是哑的。
+ *
  * 这条链路卡在纯单测做不了的地方：MinutesHistory / MinutesDetail 是真组件，
  * 分组渲染、两步删除、drill-down 替换都长在 DOM 上；引擎侧的纯判定（日界/截断/字数）
  * 已由 tests/vue/meetings.test.ts 钉死，这里不重复。
@@ -221,5 +227,96 @@ describe.skipIf(skip)('会议速记历史：前端整链（Tauri 桩）', () => 
     expect((await calls(page)).some((c) => c.cmd === 'meeting_delete' && c.args.id === 'm1'), '真调了 delete').toBe(true)
     const badge2 = await page.evaluate(() => !!document.querySelector('.mhist .mi .badge'))
     expect(badge2, 'm2 的摘要徽标仍在').toBe(true)
+  })
+
+  /**
+   * 截住「Blob 下载」这条出口：createObjectURL 截 Blob 对象（revoke 后仍可读），
+   * click 截文件名。装在导出点击之前即可 —— 导出是点击时才取数、才造 Blob。
+   */
+  async function armDownloadCapture(page: Page): Promise<void> {
+    await page.evaluate(() => {
+      const w = window as unknown as {
+        __EXPORT_SNAP__?: () => { name: string; text: string }[]
+      }
+      const cap: { url: string; text: string }[] = []
+      const names: Record<string, string> = {}
+      const origCreate = URL.createObjectURL
+      URL.createObjectURL = function (obj: Blob | MediaSource): string {
+        const url = origCreate.call(URL, obj)
+        if (obj instanceof Blob) void obj.text().then((text) => cap.push({ url, text }))
+        return url
+      }
+      const origClick = HTMLAnchorElement.prototype.click
+      HTMLAnchorElement.prototype.click = function (): void {
+        if (this.download && this.href.startsWith('blob:')) names[this.href] = this.download
+        origClick.call(this)
+      }
+      w.__EXPORT_SNAP__ = () => cap.filter((c) => names[c.url]).map((c) => ({ name: names[c.url], text: c.text }))
+    })
+  }
+  const readExports = (page: Page) =>
+    page.evaluate(() => (window as unknown as { __EXPORT_SNAP__: () => { name: string; text: string }[] }).__EXPORT_SNAP__())
+
+  it('导出（列表行）：完整文本 + 带标题与时间戳的文件名；导出不把页面带走', async () => {
+    const page = await freshPage()
+    await armDownloadCapture(page)
+
+    await page.evaluate(() => {
+      const li = [...document.querySelectorAll<HTMLElement>('.mhist li')].find((e) =>
+        e.textContent!.includes('昨天休会待补'),
+      )
+      ;(li!.querySelector('.exp') as HTMLElement).click()
+    })
+    await wait(400)
+
+    const snaps = await readExports(page)
+    expect(snaps, '恰好一场导出').toHaveLength(1)
+    const { name, text } = snaps[0]
+    expect(name, '文件名 = 前缀 + 标题 + 时间戳').toMatch(/^modulo-minutes-昨天休会待补-\d{8}-\d{4}\.txt$/)
+    const lines = text.split('\n')
+    expect(lines[0], '首行是标题').toBe('昨天休会待补')
+    expect(text).toContain('01:01') // 61s → mm:ss（formatDuration 口径）
+    expect(text).toContain('4 字') // 「改天再开」去空白 4 字
+    expect(text).toContain('1 句')
+    expect(text).toContain('摘要：要点：改到周四')
+    expect(text).toContain('[00:00] 改天再开')
+    expect(text.endsWith('\n'), '文件尾留一个换行').toBe(true)
+
+    expect(await page.evaluate(() => document.querySelectorAll('.mhist').length), '仍停在列表').toBe(1)
+    expect(await page.evaluate(() => document.querySelector('.mhist .hint[data-tone]')), '无错误提示').toBeNull()
+    const cs = await calls(page)
+    expect(cs.some((c) => c.cmd === 'meeting_get' && c.args.id === 'm2'), '导出复用已登记的 meeting_get').toBe(true)
+  })
+
+  it('导出（详情页）：手里已有 t 就不重取；无摘要的场导出里也不假装有摘要', async () => {
+    const page = await freshPage()
+    await page.evaluate(() => {
+      const el = [...document.querySelectorAll<HTMLElement>('.mhist .mi')].find((e) =>
+        e.textContent!.includes('今天讨论发布计划'),
+      )
+      el!.click()
+    })
+    await wait(400)
+    expect(await page.evaluate(() => document.querySelectorAll('.mdetail').length), '进到详情').toBe(1)
+
+    await armDownloadCapture(page)
+    await page.evaluate(() => (document.querySelector('.mdetail .exp') as HTMLElement).click())
+    await wait(400)
+
+    const snaps = await readExports(page)
+    expect(snaps, '恰好一场导出').toHaveLength(1)
+    const { name, text } = snaps[0]
+    expect(name, '文件名同源').toMatch(/^modulo-minutes-今天讨论发布计划-\d{8}-\d{4}\.txt$/)
+    expect(text.split('\n')[0], '首行是标题').toBe('今天讨论发布计划')
+    expect(text).toContain('12:34') // 754s
+    expect(text).toContain('16 字') // 两句各 8 字
+    expect(text).toContain('2 句')
+    expect(text).not.toContain('摘要：') // 这场没存摘要 —— 导出不能无中生有
+    expect(text).toContain('[00:00] 今天讨论发布计划')
+    expect(text).toContain('[00:02] 先过一遍门禁清单')
+
+    expect(await page.evaluate(() => document.querySelectorAll('.mdetail').length), '导出后仍在详情').toBe(1)
+    const gets = (await calls(page)).filter((c) => c.cmd === 'meeting_get')
+    expect(gets, '导出不重取：只有进详情那一次 meeting_get').toHaveLength(1)
   })
 })

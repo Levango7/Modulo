@@ -10,12 +10,18 @@
  *
  * **删除是两步确认**（同列表那半）：详情里没有第二行可挪，武装态就是本条；
  * 换一场速记（id 变了）自动解除武装。
+ *
+ * **导出**：详情里 `t` 已经取回来了，导出不再多取一次 —— 直接把现成的转写喂给
+ * `meetingExport.ts` 的纯函数算文本与文件名，`downloadText` 落盘。与摘要/删除不同，
+ * 它不改 `t` 也不该挡着它们，所以走自己的 `exporting` 忙线而不是共用 `busy`。
  */
 import { computed, onMounted, ref, watch } from 'vue'
 import { invoke } from '@tauri-apps/api/core'
-import { ArrowLeft, Check, Sparkles, Trash2 } from 'lucide-vue-next'
+import { ArrowLeft, Check, Download, Sparkles, Trash2 } from 'lucide-vue-next'
 import { formatDuration } from '../minutesLive'
 import { formatMeetingWhen, wordCountOf, type MeetingTranscript } from '../meetings'
+import { buildMeetingExport } from '../meetingExport'
+import { downloadText } from '../fileIo'
 import MinutesTranscript from './MinutesTranscript.vue'
 
 const props = defineProps<{
@@ -35,6 +41,8 @@ const loadError = ref('')
 const loading = ref(false)
 /** 摘要生成 / 删除进行中（两件事共用一条忙线：同一个详情里它们不该并发） */
 const busy = ref(false)
+/** 导出进行中：不改 t、不阻塞摘要/删除，所以不并入 busy */
+const exporting = ref(false)
 const error = ref('')
 const armed = ref(false)
 
@@ -98,6 +106,21 @@ async function onDel(): Promise<void> {
     busy.value = false
   }
 }
+
+/** 导出：t 已在手里不重取，文本/文件名的判定在纯函数里，这里只排顺序与兜错 */
+function onExport(): void {
+  if (!t.value || busy.value || exporting.value) return
+  exporting.value = true
+  error.value = ''
+  try {
+    const e = buildMeetingExport(t.value, props.title, Date.now())
+    downloadText(e.filename, e.text, 'text/plain;charset=utf-8')
+  } catch (err) {
+    error.value = String(err)
+  } finally {
+    exporting.value = false
+  }
+}
 </script>
 
 <template>
@@ -105,6 +128,16 @@ async function onDel(): Promise<void> {
     <div class="bar">
       <button class="back" @click="emit('close')"><ArrowLeft :size="12" />返回</button>
       <span class="t" :title="title">{{ title }}</span>
+      <button
+        v-if="t"
+        class="exp"
+        :disabled="busy || exporting"
+        title="导出这场转写为文本"
+        aria-label="导出这场转写为文本"
+        @click="onExport"
+      >
+        <Download :size="12" />
+      </button>
     </div>
 
     <p v-if="loadError" class="hint" data-tone="error">打开失败：{{ loadError }}</p>
@@ -176,6 +209,24 @@ async function onDel(): Promise<void> {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+.exp {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 5px;
+  background: transparent;
+  border: none;
+  color: var(--text-2);
+  cursor: pointer;
+}
+.exp:hover,
+.exp:focus-visible {
+  color: var(--text-1);
+}
+.exp:disabled {
+  opacity: 0.4;
+  cursor: default;
 }
 .meta {
   display: flex;
