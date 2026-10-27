@@ -92,6 +92,12 @@ jobs:
       # 能在几分钟的构建之前就把漂移红了。
       - name: 网络策略单源一致性（net-policy.json → TS / Rust / CSP）
         run: node scripts/net-policy-check.mjs
+      # F-11②：注册面必须等于调用点面。Phase 3「后端先建」时 16 条命令进了
+      # generate_handler! 却没有前端卡，注册面空转了好几个版本 —— 注释维系同源
+      # 没有机器保证，这道门把「要么有调用点、要么撤注册」变成红的。位置同理：
+      # 只读源文件，排在构建之前先红。
+      - name: IPC 命令面一致性（注册 == 前端调用点，F-11②）
+        run: node scripts/cmd-surface.mjs
       - name: 类型检查
         run: npm run typecheck
       - name: 单测 + 投影属性测试（受测层分支覆盖 ≥90% 门禁）

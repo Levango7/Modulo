@@ -96,11 +96,16 @@ pub fn sys_stats() -> SysStats {
 // 与"速率由前端差分"是同一条逻辑与采样分离的思路。
 
 /// proc_list 单页条数上限。再多的热力没有阅读价值，前端想要也不给
+///（以下常量 / 结构 / 纯函数 / 命令随 proc_list 一起挂着 dead_code，F-11②）
+#[allow(dead_code)]
 pub const PROC_LIST_LIMIT_MAX: usize = 200;
 /// 未显式传 limit 时的默认条数
+#[allow(dead_code)]
 pub const PROC_LIST_LIMIT_DEFAULT: usize = 50;
 
 /// 一条进程条目。序列化给前端（camelCase 与 SysStats 一致）
+///（proc_list 按 F-11② 撤了注册，前端卡未动工，先挂着 dead_code；回注册时去掉本注）
+#[allow(dead_code)]
 #[derive(serde::Serialize, PartialEq, Debug, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct ProcInfo {
@@ -114,6 +119,7 @@ pub struct ProcInfo {
 }
 
 /// 一页进程列表。`total` 是系统进程总数（前端显示「共 N 个」），不受截断影响
+#[allow(dead_code)]
 #[derive(serde::Serialize, PartialEq, Debug)]
 #[serde(rename_all = "camelCase")]
 pub struct ProcPage {
@@ -124,6 +130,7 @@ pub struct ProcPage {
 /// 排序 + 截断（纯函数，可单测）。
 /// `sort` 只认 `"cpu"` / `"mem"`，其余值一律按 cpu 处理 —— 诚实降级，
 /// 不报错也不猜。`limit` 为 0 视同要默认值，超过上限夹到 [`PROC_LIST_LIMIT_MAX`]。
+#[allow(dead_code)]
 fn pick_top(mut procs: Vec<ProcInfo>, sort: &str, limit: usize) -> ProcPage {
     let total = procs.len();
     let limit = match limit {
@@ -145,6 +152,8 @@ fn pick_top(mut procs: Vec<ProcInfo>, sort: &str, limit: usize) -> ProcPage {
 }
 
 /// 进程列表采样：按 sort（cpu|mem）回 top-N + 总数。不失败 —— 采不到就是空表。
+///（按 F-11② 从注册面撤下：没有前端调用点；函数与单测保留，接线即回注册）
+#[allow(dead_code)]
 #[tauri::command]
 pub fn proc_list(sort: String, limit: Option<usize>) -> ProcPage {
     let mut guard = SYS.lock().unwrap();
