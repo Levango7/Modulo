@@ -134,6 +134,11 @@ export function createFileStorage(initial: Record<string, string | null>, write:
 /**
  * 读盘，并把桌面壳早期只存在 WebView2 localStorage 里的数据搬过来。
  * 迁移是单向的：磁盘上有内容就以磁盘为准，避免用户回滚过的旧 localStorage 覆盖新数据。
+ *
+ * **读盘失败 ≠ 磁盘上没有文件**（权限拒绝 / IO 错误 / 文件被占用都会抛异常）。
+ * 所以抛异常的键既不采 legacy 值进内存、也**绝不回写磁盘** —— 否则一旦磁盘上其实有数据，
+ * 就成了拿 localStorage 旧值覆盖新数据（规格书 §4「可靠性」行点名过的风险）。
+ * 失败的键经 `onReadError` 报出去：空值启动已经够糟了，不能再静默。
  */
 export async function hydrateData(
   read: Reader = tauriRead,
@@ -146,14 +151,19 @@ export async function hydrateData(
       return null
     }
   },
+  onReadError?: (failedKeys: string[]) => void,
 ): Promise<Record<string, string | null>> {
   const out: Record<string, string | null> = {}
+  const failed: string[] = []
   for (const key of DATA_KEYS) {
     let text: string | null = null
     try {
       text = await read(key)
     } catch {
-      text = null
+      // 空值启动；不采 legacy、不回写（见上面函数注释）
+      out[key] = null
+      failed.push(key)
+      continue
     }
     if (text === null) {
       const legacy = legacyGet(key)
@@ -163,6 +173,7 @@ export async function hydrateData(
     }
     out[key] = text
   }
+  if (failed.length) onReadError?.(failed)
   return out
 }
 
@@ -206,7 +217,21 @@ export function webStorage(fallback: StorageAdapter): PersistentStorage {
 export async function createStorage(desktop = isDesktop): Promise<PersistentStorage> {
   // browserStorage() 内部已经处理了"没有 localStorage 就用内存"
   if (!desktop) return webStorage(browserStorage())
-  return createFileStorage(await hydrateData())
+  let readError: string | null = null
+  const data = await hydrateData(
+    tauriRead,
+    serialize(tauriWrite),
+    undefined,
+    // 启动期读盘失败不阻止启动（空值启动），但必须从第一帧就顶出红条：
+    // 这些键此刻是空的，用户看不见原因就会以为"数据没了"。
+    (failed) => {
+      const some = failed.length <= 3 ? failed.join('、') : `${failed[0]} 等 ${failed.length} 个`
+      readError = `启动时读盘失败（${some}）：这些键暂以空值启动，且没有用 localStorage 旧值回填。改动仍会写穿，但重启前请先检查数据目录。`
+    },
+  )
+  const storage = createFileStorage(data, tauriWrite)
+  if (readError) storage.error.value = readError
+  return storage
 }
 
 export async function dataDir(): Promise<string | null> {

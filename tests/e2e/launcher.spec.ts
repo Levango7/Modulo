@@ -2,11 +2,14 @@
  * 速达卡（2026-10-13 批 4）：真实链路的端到端验证。
  *
  * 锁两件事（都是"这张卡敢让人点下去"的前提）：
- *   ① **输入端的形状边界**：裸命令名（`explorer.exe` 这类）被拒并说明原因 ——
- *      不把"打开"变成"执行任意命令"；
+ *   ① **输入端的形状边界**：裸命令名（`explorer.exe` 这类）与 UNC 网络路径
+ *      （`\\server\share\…`）都被拒并说明原因 —— 前者把"打开"变成"执行任意命令"，
+ *      后者打开要走 SMB，SMB 协商会把当前用户的 NTLM 凭据发给那台服务器（F-11①）；
  *   ② **网页版如实降级**：点了只列不打开（写明"网页版不能打开本机程序"），
  *      不静默、不假装成功。
  * 真打开由 Rust 单测（shape_ok / describe_code）与桌面真机验收覆盖。
+ * 网页版这层用的是引擎 `kindOf`，与 Rust 的 `shape_ok` 是同一条边界 ——
+ * 所以这里拒 UNC 不是"前端凑合拦"，而是边界在用户真点得到的地方同样成立。
  */
 import { describe, expect, it } from 'vitest'
 import puppeteer from 'puppeteer-core'
@@ -79,8 +82,16 @@ describe.skipIf(skip)('速达卡：输入边界与网页版降级', () => {
       await wait(250)
     }
     await submitWith('explorer.exe')
-    const rejected = await page.evaluate(() => document.querySelector('.lcard .lerr')?.textContent?.trim() ?? '')
-    expect(rejected, '裸命令名应被拒且写明边界').toContain('只收 http(s) 链接或绝对路径')
+    let rejected = await page.evaluate(() => document.querySelector('.lcard .lerr')?.textContent?.trim() ?? '')
+    expect(rejected, '裸命令名应被拒且写明边界').toContain('只收 http(s) 链接或本机绝对路径')
+
+    // UNC 也得拒（F-11①）：打开 \\server\share\… 要走 SMB，SMB 会把本机系统凭据
+    // 发给那台服务器 —— 前端这层用的是引擎 kindOf，与 Rust shape_ok 同一条边界，
+    // 网页版守不住就等于边界只存在于桌面壳里。
+    await submitWith('\\\\server\\share\\app.exe')
+    rejected = await page.evaluate(() => document.querySelector('.lcard .lerr')?.textContent?.trim() ?? '')
+    expect(rejected, 'UNC 网络路径应被拒').toContain('只收 http(s) 链接或本机绝对路径')
+    expect(rejected, '拒绝理由要点明凭据风险，而不是一句「格式不对」').toContain('网络路径')
 
     // 换合法路径 → 进名单（落进 cardData，跟着备份走）
     await submitWith('C:\\Windows\\System32\\notepad.exe')
