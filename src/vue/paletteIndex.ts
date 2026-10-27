@@ -114,6 +114,15 @@ export interface ContentEntry {
 export function contentIndex(data: CardData): ContentEntry[] {
   const out: ContentEntry[] = []
   if (data.sticky.trim()) out.push({ id: 'sticky', cardId: 'sticky', title: '便签', text: data.sticky })
+  // 第二张起的便签正文存在 `byInstance` 里（F-01 阶段 2），也要能被搜到 ——
+  // 否则"第二张便签的内容搜不到"是一个没人会报、只会觉得搜索不准的静默洞。
+  // `cardId` 用**实例** id：`goCard` 是让编辑器选中并滚到那一张，实例 id 才指得准。
+  for (const [instanceId, inst] of Object.entries(data.byInstance ?? {})) {
+    const text = inst?.sticky
+    if (typeof text === 'string' && text.trim()) {
+      out.push({ id: `sticky:${instanceId}`, cardId: instanceId, title: '便签', text })
+    }
+  }
   data.todos.forEach((t, i) => out.push({ id: `todo:${i}`, cardId: 'todo', title: `待办 · ${t.done ? '已完成' : '未完成'}`, text: t.text }))
   data.matrix.forEach((m, i) => out.push({ id: `matrix:${i}`, cardId: 'matrix', title: '四象限待办', text: m.text }))
   data.notes.forEach((n, i) =>

@@ -162,6 +162,21 @@ export interface DutySetting {
   anchor: string
 }
 
+/**
+ * **按实例**的内容（F-01 阶段 2，2026-10-28）。键是**实例 id**（第二张起是 `模块:2`）。
+ *
+ * 为什么是"叠加层"而不是"每个实例一份完整 `CardData`"：`CardData` 有二十多个字段，
+ * 一次全搬要连带 54 张卡的取数路径、备份与迁移一起改。按字段**逐个**搬过来，
+ * 每搬一个都有它自己的用例与取舍；没搬的那些字段语义与今天完全一致（按模块共享）——
+ * 这就是阶段 2 的形状，也是它为什么分几笔做。
+ *
+ * 字段一律**可选**：缺省表示"这个实例还没写过自己的内容"，读取口径见 `instanceData.ts`。
+ */
+export interface InstanceData {
+  /** 便签正文。**本阶段唯一按实例分开的字段**（其余字段仍按模块共享） */
+  sticky?: string
+}
+
 export interface CardData {
   sticky: string
   todos: Todo[]
@@ -220,4 +235,12 @@ export interface CardData {
   /** 固定整数位计算的输入草稿；结果全在引擎算，这里只存两个输入 */
   fixed: { base: string; rate: string; symbol: string }
   duty: DutySetting
+  /**
+   * 按实例的内容（F-01 阶段 2）。**只有真正属于某一个实例的字段放这里**；
+   * 顶层那些字段仍是"不分实例时"的内容，也是**第一实例与旧档**存的地方 —— 不重复存两份。
+   *
+   * 为什么"第一实例仍写顶层"：旧档、模板、单实例的形状因此**逐字不变**（键缺省即无此段），
+   * 备份摘要与搜索这类按模块读的口径也不用改。代价写在 `instanceData.ts` 文件头。
+   */
+  byInstance?: Record<string, InstanceData>
 }

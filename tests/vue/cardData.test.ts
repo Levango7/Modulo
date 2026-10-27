@@ -153,6 +153,25 @@ describe('sanitizeCardData：盘上数据先清洗再用', () => {
     expect(sanitizeCardData({ sticky: 'x'.repeat(9000) }, fallback).sticky.length).toBe(4000)
   })
 
+  it('byInstance：只收认得的字段与朴素对象；一条都不剩时这个键根本不出现（旧档形状逐字不变）', () => {
+    const clean = sanitizeCardData({ byInstance: { 'sticky:2': { sticky: '第二张' } } }, fallback).byInstance
+    expect(clean).toEqual({ 'sticky:2': { sticky: '第二张' } })
+    // 不认识的字段 / 非字符串 / 非对象 / 空键一律丢；整段不是对象同理
+    expect(sanitizeCardData({ byInstance: { 'sticky:2': { sticky: 42, zzz: 'x' } } }, fallback).byInstance).toBeUndefined()
+    expect(sanitizeCardData({ byInstance: { 'sticky:2': '不是对象' } }, fallback).byInstance).toBeUndefined()
+    expect(sanitizeCardData({ byInstance: { '': { sticky: 'x' } } }, fallback).byInstance).toBeUndefined()
+    expect(sanitizeCardData({ byInstance: [] }, fallback).byInstance).toBeUndefined()
+    // 坏键不影响好键
+    expect(sanitizeCardData({ byInstance: { 'sticky:2': { sticky: '好' }, 'sticky:3': null } }, fallback).byInstance).toEqual({
+      'sticky:2': { sticky: '好' },
+    })
+  })
+
+  it('byInstance 的正文也按上限截断（与顶层 sticky 同一条边界）', () => {
+    const clean = sanitizeCardData({ byInstance: { 'sticky:2': { sticky: 'x'.repeat(9000) } } }, fallback).byInstance
+    expect(clean?.['sticky:2']?.sticky?.length).toBe(4000)
+  })
+
   it('条目数夹到上限：几百 MB 的坏文件不该冻住首屏', () => {
     const many = Array.from({ length: 5000 }, (_, i) => ({ id: `t${i}`, text: `第 ${i} 条` }))
     expect(sanitizeCardData({ todos: many }, fallback).todos.length).toBe(200)

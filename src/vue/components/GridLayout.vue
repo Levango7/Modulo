@@ -35,7 +35,17 @@ const rows = computed(() => props.rects.reduce((m, r) => Math.max(m, r.y + r.h),
       :data-module="r.module ?? r.id"
       :style="{ gridColumn: `${r.x + 1} / span ${r.w}`, gridRow: `${r.y + 1} / span ${r.h}` }"
     >
-      <component :is="cardComponentOf(r.module ?? r.id)" :variant="r.variant" :module-id="r.module ?? r.id" />
+      <!--
+        `module-id` 是**模块** id（卡组件按它挑形态/尺寸契约），`instance-id` 是**实例** id
+        （第二张起是 `模块:2`）—— 两张便签要各写各的内容，就得两个都给（`instanceData.ts`）。
+        单实例时两者相等，行为与只给 module-id 时逐字相同。
+      -->
+      <component
+        :is="cardComponentOf(r.module ?? r.id)"
+        :variant="r.variant"
+        :module-id="r.module ?? r.id"
+        :instance-id="r.id"
+      />
       <button
         v-if="canDetach"
         class="detach"

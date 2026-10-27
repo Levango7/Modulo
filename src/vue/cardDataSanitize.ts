@@ -34,7 +34,7 @@ import {
   clampWeight,
   knownCategory,
 } from './cardDataLimits'
-import type { CardData, CountdownSetting, ElapsedSetting, HabitSetting, LedgerRow, MatrixTodo, MeetingSetting, Note, PickItem, Quadrant, StoredBirthday, TimerStore, Todo } from './cardDataTypes'
+import type { CardData, CountdownSetting, ElapsedSetting, HabitSetting, InstanceData, LedgerRow, MatrixTodo, MeetingSetting, Note, PickItem, Quadrant, StoredBirthday, TimerStore, Todo } from './cardDataTypes'
 import { QUADRANTS } from './cardDataTypes'
 
 /** 单条文本截断（清洗层独用；跨层共用的上限在 cardDataLimits.ts） */
@@ -50,6 +50,33 @@ const MAX_TEXT = 2000
 const textOf = (v: unknown, max = MAX_TEXT): string => (typeof v === 'string' ? v.slice(0, max) : '')
 
 /** id 必须唯一：toggleTodo / removeTodo 都是按 id find/filter，撞号会连坐改错条目 */
+
+/**
+ * 按实例的内容（F-01 阶段 2）。**这是读盘边界**，所以规则是"不认识的就丢"：
+ *
+ * - 键必须是非空字符串（实例 id）；值必须是朴素对象（数组不算）。
+ * - 只收**认得的字段**（现阶段 `sticky`），且只收字符串 —— 其余一律丢掉，
+ *   这样将来给 `InstanceData` 加字段时，旧备份读进来是"这一段没有"而不是"有一段看不懂的"。
+ * - 一条都不剩 ⇒ 返回 **undefined**，让 `byInstance` 这个键**根本不出现** ——
+ *   旧档、模板、单实例读出来的对象因此与今天逐字相同（备份的字节对账也靠这条）。
+ * - 有上限：一份坏备份不该把几十万个键塞进内存与写盘路径。
+ */
+const MAX_INSTANCES = 500
+const MAX_INSTANCE_STICKY = 4000
+
+function sanitizeByInstance(raw: unknown): Record<string, InstanceData> | undefined {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return undefined
+  const out: Record<string, InstanceData> = {}
+  for (const [key, value] of Object.entries(raw as Record<string, unknown>)) {
+    if (!key.trim() || Object.keys(out).length >= MAX_INSTANCES) continue
+    if (!value || typeof value !== 'object' || Array.isArray(value)) continue
+    const entry: InstanceData = {}
+    const sticky = (value as { sticky?: unknown }).sticky
+    if (typeof sticky === 'string') entry.sticky = sticky.slice(0, MAX_INSTANCE_STICKY)
+    if (Object.keys(entry).length) out[key] = entry
+  }
+  return Object.keys(out).length ? out : undefined
+}
 function uniqueId(seen: Set<string>, want: unknown, prefix: string, i: number): string {
   const first = typeof want === 'string' && want ? want : `${prefix}${i}`
   if (!seen.has(first)) {
@@ -263,6 +290,8 @@ const pickSeen = new Set<string>()
     }
   }
 
+  const byInstance = sanitizeByInstance(o.byInstance)
+
   return {
     sticky: textOf(o.sticky, 4000),
     todos: Array.isArray(o.todos) ? todos : fallback.todos,
@@ -360,5 +389,9 @@ const pickSeen = new Set<string>()
           ? String((o.duty as Record<string, unknown>).anchor)
           : fallback.duty.anchor,
     },
+    // 按实例的内容（F-01 阶段 2）。**没有实例数据时这个键根本不出现**，而不是
+    // `byInstance: undefined` —— 「只认白名单字段」那条用例断言的是**键集合**，
+    // 值为 undefined 的键仍然算一个键，会让旧档读出来的形状与今天不一样。
+    ...(byInstance ? { byInstance } : {}),
   }
 }
