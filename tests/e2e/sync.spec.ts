@@ -194,6 +194,9 @@ async function installHelpers(page: Page): Promise<void> {
 
 const openSettings = async (page: Page): Promise<void> => {
   await page.click('button.wide[title="外观设置"]')
+  // F-10 之后设置分六组：多端同步在「数据」组里，面板只渲染当前组
+  await page.waitForSelector('.panel .nav-item[data-group="data"]', { timeout: 15000 })
+  await page.click('.panel .nav-item[data-group="data"]')
   await page.waitForFunction(
     () => !!document.querySelector('section input[autocomplete="username"]'),
     { timeout: 15000 },
@@ -711,6 +714,9 @@ describe.skipIf(skip)('多端同步：设置面板链（Tauri 桩 + 网盘桩，
     })
     await page.goto(url, { waitUntil: 'networkidle2', timeout: 30000 })
     await page.click('button.wide[title="外观设置"]')
+    // F-10 之后设置分六组（网页版五组）：多端同步在「数据」组里，先进那一组再看
+    await page.waitForSelector('.panel .nav-item[data-group="data"]', { timeout: 15000 })
+    await page.click('.panel .nav-item[data-group="data"]')
     await page.waitForFunction(
       () => [...document.querySelectorAll('section')].some((s) => (s.querySelector('h3')?.textContent ?? '').includes('多端同步')),
       { timeout: 15000 },

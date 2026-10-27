@@ -1,11 +1,15 @@
 <script setup lang="ts">
-import { inject, onBeforeUnmount, onMounted, ref } from 'vue'
-import { Check, X } from 'lucide-vue-next'
+import { computed, inject, onBeforeUnmount, onMounted, ref } from 'vue'
+import { Check, Gift, X } from 'lucide-vue-next'
 import { ACCENTS, MODES, SKINS } from '../appearance'
 import { isCancelEscape, toChord } from '../chord'
 import { useFocusTrap } from '../useFocusTrap'
 import { dataDir as fetchDataDir } from '../fileStorage'
 import { isDesktop, type ShortcutKind, type ShellApi } from '../useShell'
+import { resolveGroup, visibleGroups, type SettingsGroupId } from '../settingsNav'
+import { parseOnboarding, ONBOARDING_KEY } from '../onboarding'
+import type { OnboardingApi } from '../onboarding'
+import type { StorageAdapter } from '../store'
 import BackupSection from './BackupSection.vue'
 import SyncSection from './SyncSection.vue'
 import SchemesSection from './SchemesSection.vue'
@@ -13,13 +17,29 @@ import VersionSection from './VersionSection.vue'
 import type { AppearanceApi } from '../useAppearance'
 import type { RemindersApi } from '../useReminders'
 
-defineEmits<{ (e: 'close'): void }>()
+defineEmits<{ (e: 'close'): void; (e: 'open-templates'): void }>()
 const appearance = inject<AppearanceApi>('appearance')!
 const a = appearance.state
 const shell = inject<ShellApi>('shell')!
 const reminders = inject<RemindersApi>('reminders')!
+const onboarding = inject<OnboardingApi>('onboarding')!
+const storage = inject<StorageAdapter>('storage')!
 const panelEl = ref<HTMLElement | null>(null)
 useFocusTrap(panelEl)
+
+/**
+ * 六个分组（F-10）。**导航本身不落盘**：设置页停在哪一组不值得一个存储键，
+ * 也不该被带进备份 —— 每次打开回第一组是"可预期"的那一边。
+ */
+const groups = visibleGroups(isDesktop)
+const active = ref<SettingsGroupId>(resolveGroup(null, isDesktop).id)
+const activeHint = computed(() => groups.find((g) => g.id === active.value)?.hint ?? '')
+
+/**
+ * 「关于」里那句状态：这台机器上的引导看过没有。
+ * 直接读盘而不是读 `onboarding.state()` —— 回放后再进设置页要看到最新的那一份。
+ */
+const onboardingState = computed(() => parseOnboarding(storage.get(ONBOARDING_KEY)))
 
 const setRemindersOn = (e: Event) => reminders.setSettings({ enabled: (e.target as HTMLInputElement).checked })
 const setSystemNotifications = (e: Event) => reminders.setSettings({ systemNotifications: (e.target as HTMLInputElement).checked })
@@ -79,129 +99,195 @@ onBeforeUnmount(stopRecord)
         <button class="x" title="关闭 (Esc)" @click="$emit('close')"><X :size="16" /></button>
       </header>
 
-      <section>
-        <h3>视觉方向</h3>
-        <div class="skins">
+      <div class="body">
+        <!--
+          分组导航。窄屏时它变成一条可以横向滚动的标签条，**不折叠成下拉** ——
+          下拉会把"设置一共分六组"这个事实藏起来，而那正是这轮改版要解决的问题之一。
+        -->
+        <nav class="nav" aria-label="设置分组">
           <button
-            v-for="s in SKINS"
-            :key="s.id"
-            class="skin"
-            :data-skin-option="s.id"
-            :data-active="a.skin === s.id"
-            @click="appearance.set({ skin: s.id })"
+            v-for="g in groups"
+            :key="g.id"
+            class="nav-item"
+            :data-active="active === g.id"
+            :data-group="g.id"
+            :aria-current="active === g.id ? 'page' : undefined"
+            :title="g.hint"
+            @click="active = g.id"
           >
-            <span class="dot" :data-s="s.id" />
-            <span class="name">{{ s.label }}</span>
-            <span class="desc">{{ s.desc }}</span>
-            <Check v-if="a.skin === s.id" :size="14" class="tick" />
+            {{ g.title }}
           </button>
+        </nav>
+
+        <div class="group">
+          <p class="group-hint">{{ activeHint }}</p>
+
+          <template v-if="active === 'appearance'">
+            <section>
+              <h3>视觉方向</h3>
+              <div class="skins">
+                <button
+                  v-for="s in SKINS"
+                  :key="s.id"
+                  class="skin"
+                  :data-skin-option="s.id"
+                  :data-active="a.skin === s.id"
+                  @click="appearance.set({ skin: s.id })"
+                >
+                  <span class="dot" :data-s="s.id" />
+                  <span class="name">{{ s.label }}</span>
+                  <span class="desc">{{ s.desc }}</span>
+                  <Check v-if="a.skin === s.id" :size="14" class="tick" />
+                </button>
+              </div>
+            </section>
+
+            <section>
+              <h3>明暗</h3>
+              <div class="seg">
+                <button v-for="m in MODES" :key="m.id" :data-active="a.mode === m.id" @click="appearance.set({ mode: m.id })">
+                  {{ m.label }}
+                </button>
+              </div>
+            </section>
+
+            <section>
+              <h3>强调色</h3>
+              <div class="accents">
+                <button
+                  v-for="c in ACCENTS"
+                  :key="c.id"
+                  class="swatch"
+                  :title="c.label"
+                  :data-active="a.accent === c.id"
+                  :data-auto="c.value === 'auto'"
+                  :style="c.value === 'auto' ? undefined : { background: c.value }"
+                  @click="appearance.set({ accent: c.value })"
+                >
+                  <Check v-if="a.accent === c.id" :size="12" />
+                </button>
+              </div>
+              <p class="hint">「跟随皮肤」= 每套方向用它自己的强调色；选具体颜色则会覆盖皮肤默认值。</p>
+            </section>
+          </template>
+
+          <template v-else-if="active === 'layout'">
+            <section>
+              <h3>版面模板</h3>
+              <p class="hint">挑一张就换成那个排法；换错了按 Ctrl+Z 退回。</p>
+              <div class="row">
+                <button class="wide" data-open-templates @click="$emit('open-templates')">
+                  <Gift :size="14" /> <span>挑一种排法…</span>
+                </button>
+              </div>
+            </section>
+            <SchemesSection />
+          </template>
+
+          <template v-else-if="active === 'data'">
+            <BackupSection />
+            <SyncSection />
+            <section v-if="dataDir">
+              <h3>数据目录</h3>
+              <p class="hint">
+                版面、方案册、卡片内容和这些设置都各自是一个 JSON 文件，放在
+                <code>{{ dataDir }}</code>
+                ，整个目录拷走就是备份。也可以在上面的备份节导出一个 JSON 自己收着。
+              </p>
+            </section>
+          </template>
+
+          <template v-else-if="active === 'reminders'">
+            <section>
+              <h3>提醒</h3>
+              <label class="switch">
+                <input type="checkbox" :checked="reminders.state.settings.enabled" @change="setRemindersOn" />
+                <span>昨天之前记下的事到"今天"了，就提醒我（倒数日 / 生日 / 习惯）</span>
+              </label>
+              <label v-if="isDesktop" class="switch">
+                <input
+                  type="checkbox"
+                  :checked="reminders.state.settings.systemNotifications"
+                  @change="setSystemNotifications"
+                />
+                <span>同时发系统通知（窗口不在前台也能看到；开发态图标显示为 PowerShell，装成安装包后才是 Modulo）</span>
+              </label>
+              <div class="times">
+                <label>
+                  <span>静默从</span>
+                  <input type="time" :value="reminders.state.settings.quietStart" @change="setReminderTime('quietStart')" />
+                </label>
+                <label>
+                  <span>到</span>
+                  <input type="time" :value="reminders.state.settings.quietEnd" @change="setReminderTime('quietEnd')" />
+                </label>
+                <label>
+                  <span>习惯提醒从</span>
+                  <input type="time" :value="reminders.state.settings.habitAfter" @change="setReminderTime('habitAfter')" />
+                </label>
+              </div>
+              <p class="hint">
+                静默默认关闭（起止相同即视为关）。开着时：时段内不弹，结束后同一天内补弹 ——
+                但如果静默跨过了午夜，那一天的事就不补了。这些设置只存本机，不进备份。
+                待办没有截止日期字段，所以不做"到期提醒"（不编不存在的东西）。
+              </p>
+            </section>
+          </template>
+
+          <template v-else-if="active === 'desktop' && isDesktop">
+            <section>
+              <h3>托盘</h3>
+              <label class="switch">
+                <input type="checkbox" :checked="shell.hideOnClose.value" @change="onHideChange" />
+                <span>点关闭时收进托盘，而不是直接退出</span>
+              </label>
+            </section>
+
+            <section>
+              <h3>全局快捷键</h3>
+              <ul v-if="shell.shortcuts.value.length" class="keys">
+                <li v-for="k in shell.shortcuts.value" :key="k.kind">
+                  <kbd>{{ k.keys }}</kbd>
+                  <span>{{ k.label }}</span>
+                  <em v-if="!k.registered" class="warn">注册失败，多半被别的程序占用了</em>
+                  <button
+                    class="rec"
+                    :class="{ live: recording === k.kind }"
+                    :aria-pressed="recording === k.kind"
+                    @click="startRecord(k.kind)"
+                  >
+                    {{ recording === k.kind ? '按下组合键…' : '改键' }}
+                  </button>
+                </li>
+              </ul>
+              <p v-if="recording" class="hint recording" role="status" aria-live="polite">
+                正在录制「{{ shell.shortcuts.value.find((s) => s.kind === recording)?.label }}」：按 Esc 取消。
+                必须带 Ctrl / Alt / Shift / Win 中的一个或多个。
+              </p>
+              <p v-else class="hint">快捷键是系统级的，窗口不在前台也能用。注册失败只影响那一条，其余功能照常。</p>
+              <p v-if="shell.shortcutError.value" class="error" role="alert">{{ shell.shortcutError.value }}</p>
+            </section>
+          </template>
+
+          <template v-else-if="active === 'about'">
+            <section>
+              <h3>首启引导</h3>
+              <p class="hint">
+                <template v-if="onboardingState.done">
+                  这台机器<template v-if="onboardingState.skipped">跳过过</template><template v-else>走过</template>一次引导<template
+                    v-if="onboardingState.at"
+                  >（{{ new Date(onboardingState.at).toLocaleString() }}）</template>。想再看一遍可以重播 —— 它不会改你的版面，选版面那一步点了才生效。
+                </template>
+                <template v-else>还没走过引导。下次以空版面启动时会自动打开。</template>
+              </p>
+              <div class="row">
+                <button data-replay-onboarding @click="onboarding.replay()">重新播放首启引导</button>
+              </div>
+            </section>
+            <VersionSection />
+          </template>
         </div>
-      </section>
-
-      <section>
-        <h3>明暗</h3>
-        <div class="seg">
-          <button v-for="m in MODES" :key="m.id" :data-active="a.mode === m.id" @click="appearance.set({ mode: m.id })">
-            {{ m.label }}
-          </button>
-        </div>
-      </section>
-
-      <section>
-        <h3>强调色</h3>
-        <div class="accents">
-          <button
-            v-for="c in ACCENTS"
-            :key="c.id"
-            class="swatch"
-            :title="c.label"
-            :data-active="a.accent === c.id"
-            :data-auto="c.value === 'auto'"
-            :style="c.value === 'auto' ? undefined : { background: c.value }"
-            @click="appearance.set({ accent: c.value })"
-          >
-            <Check v-if="a.accent === c.id" :size="12" />
-          </button>
-        </div>
-        <p class="hint">「跟随皮肤」= 每套方向用它自己的强调色；选具体颜色则会覆盖皮肤默认值。</p>
-      </section>
-
-      <section>
-        <h3>提醒</h3>
-        <label class="switch">
-          <input type="checkbox" :checked="reminders.state.settings.enabled" @change="setRemindersOn" />
-          <span>昨天之前记下的事到"今天"了，就提醒我（倒数日 / 生日 / 习惯）</span>
-        </label>
-        <label v-if="isDesktop" class="switch">
-          <input
-            type="checkbox"
-            :checked="reminders.state.settings.systemNotifications"
-            @change="setSystemNotifications"
-          />
-          <span>同时发系统通知（窗口不在前台也能看到；开发态图标显示为 PowerShell，装成安装包后才是 Modulo）</span>
-        </label>
-        <div class="times">
-          <label>
-            <span>静默从</span>
-            <input type="time" :value="reminders.state.settings.quietStart" @change="setReminderTime('quietStart')" />
-          </label>
-          <label>
-            <span>到</span>
-            <input type="time" :value="reminders.state.settings.quietEnd" @change="setReminderTime('quietEnd')" />
-          </label>
-          <label>
-            <span>习惯提醒从</span>
-            <input type="time" :value="reminders.state.settings.habitAfter" @change="setReminderTime('habitAfter')" />
-          </label>
-        </div>
-        <p class="hint">
-          静默默认关闭（起止相同即视为关）。开着时：时段内不弹，结束后同一天内补弹 ——
-          但如果静默跨过了午夜，那一天的事就不补了。这些设置只存本机，不进备份。
-          待办没有截止日期字段，所以不做"到期提醒"（不编不存在的东西）。
-        </p>
-      </section>
-
-      <section v-if="isDesktop">
-        <h3>桌面</h3>
-        <label class="switch">
-          <input type="checkbox" :checked="shell.hideOnClose.value" @change="onHideChange" />
-          <span>点关闭时收进托盘，而不是直接退出</span>
-        </label>
-        <ul v-if="shell.shortcuts.value.length" class="keys">
-          <li v-for="k in shell.shortcuts.value" :key="k.kind">
-            <kbd>{{ k.keys }}</kbd>
-            <span>{{ k.label }}</span>
-            <em v-if="!k.registered" class="warn">注册失败，多半被别的程序占用了</em>
-            <button
-              class="rec"
-              :class="{ live: recording === k.kind }"
-              :aria-pressed="recording === k.kind"
-              @click="startRecord(k.kind)"
-            >
-              {{ recording === k.kind ? '按下组合键…' : '改键' }}
-            </button>
-          </li>
-        </ul>
-        <p v-if="recording" class="hint recording" role="status" aria-live="polite">
-          正在录制「{{ shell.shortcuts.value.find((s) => s.kind === recording)?.label }}」：按 Esc 取消。
-          必须带 Ctrl / Alt / Shift / Win 中的一个或多个。
-        </p>
-        <p v-else class="hint">快捷键是系统级的，窗口不在前台也能用。注册失败只影响那一条，其余功能照常。</p>
-        <p v-if="shell.shortcutError.value" class="error" role="alert">{{ shell.shortcutError.value }}</p>
-        <p v-if="dataDir" class="hint">
-          版面、方案册、卡片内容和这些设置都各自是一个 JSON 文件，放在
-          <code>{{ dataDir }}</code>
-          ，整个目录拷走就是备份。也可以在上面那节导出一个 JSON 自己收着。
-        </p>
-      </section>
-
-      <SchemesSection />
-
-      <BackupSection />
-
-      <SyncSection />
-
-      <VersionSection />
+      </div>
     </div>
   </div>
 </template>
@@ -217,11 +303,11 @@ onBeforeUnmount(stopRecord)
   padding: var(--space-4);
 }
 .panel {
-  width: min(560px, 100%);
+  /* F-10：560 → 760 —— 左侧多了 148px 的分组栏，内容区仍是旧的可用宽度 */
+  width: min(760px, 100%);
   /* 与 TemplatePicker 同档（86vh / 760）：640 的旧上限会让「版本 / 检查更新」
      在大屏上也躲到滚动之下 —— 实测 1440×900 时内容高 925px、可视只有 640px。 */
   max-height: min(86vh, 760px);
-  overflow: auto;
   background: var(--bg-card-solid);
   border: 1px solid var(--border-strong);
   border-radius: var(--radius-xl);
@@ -229,7 +315,8 @@ onBeforeUnmount(stopRecord)
   padding: var(--space-5);
   display: flex;
   flex-direction: column;
-  gap: var(--space-5);
+  gap: var(--space-4);
+  overflow: hidden;
 }
 .head {
   display: flex;
@@ -245,6 +332,62 @@ onBeforeUnmount(stopRecord)
   background: transparent;
   display: grid;
   place-items: center;
+}
+.body {
+  display: grid;
+  grid-template-columns: 148px 1fr;
+  gap: var(--space-4);
+  min-height: 0;
+}
+.nav {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  align-self: start;
+}
+.nav-item {
+  position: relative;
+  text-align: left;
+  padding: 7px var(--space-2) 7px var(--space-3);
+  border: none;
+  background: transparent;
+  color: var(--text-2);
+  font-size: 13px;
+  border-radius: var(--radius-sm);
+  white-space: nowrap;
+}
+.nav-item:hover {
+  background: var(--bg-card-soft);
+  color: var(--text-1);
+}
+.nav-item[data-active='true'] {
+  background: var(--bg-card-soft);
+  color: var(--text-1);
+  font-weight: 600;
+}
+/* 当前组左侧那根 2px 竖条：靠 background 的色差分辨不够，位置要给一个形状 */
+.nav-item[data-active='true']::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 6px;
+  bottom: 6px;
+  width: 2px;
+  border-radius: 2px;
+  background: var(--accent);
+}
+.group {
+  overflow: auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  padding-right: var(--space-1);
+}
+.group-hint {
+  margin: 0;
+  font-size: 12px;
+  color: var(--text-3);
 }
 section h3 {
   margin: 0 0 var(--space-3);
@@ -447,6 +590,26 @@ section h3 {
 @media (max-width: 480px) {
   .skins {
     grid-template-columns: 1fr;
+  }
+}
+/* 窄屏：左栏转成顶部横向标签条（见文件头那条理由：不折叠成下拉） */
+@media (max-width: 640px) {
+  .body {
+    grid-template-columns: 1fr;
+    grid-template-rows: auto 1fr;
+  }
+  .nav {
+    flex-direction: row;
+    overflow-x: auto;
+    padding-bottom: 2px;
+  }
+  .nav-item[data-active='true']::before {
+    left: 8px;
+    right: 8px;
+    top: auto;
+    bottom: 0;
+    width: auto;
+    height: 2px;
   }
 }
 </style>
