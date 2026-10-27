@@ -56,6 +56,9 @@ export const DATA_KEYS: readonly string[] = [
   // 上次同步时刻 / 每段「本机最后写过」的时刻与指纹。**口令不在这些字段里** —— 它只在
   // 本次运行的内存中，或用户显式勾选后进系统凭据库（Rust `webdav.rs`）。
   'modulo.sync.v1',
+  // 首启引导是否了结（`onboarding.ts`，2026-10-28）：`{done, skipped, at}`。**不进备份/同步** ——
+  // 它记的是"这台机器看过没有"，搬到新机器上要么跳过引导、要么在老机器上重弹，两种都不对。
+  'modulo.onboarding.v1',
 ]
 
 

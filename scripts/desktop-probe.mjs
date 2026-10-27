@@ -917,6 +917,14 @@ try {
   // ---- 托盘与关闭行为 ----
   await clickIn(app.page, 'button[title="外观设置"]')
   await sleep(400)
+  // F-10（2026-10-28）之后设置分六组，面板只渲染当前组：托盘开关与快捷键在「桌面」组里。
+  // 先数一下分组（桌面版应为六组），再点进「桌面」——顺序反了下面那条 switch 就找不到。
+  const groupNames = await app.page.evaluate(() =>
+    [...document.querySelectorAll('.panel .nav-item')].map((b) => (b.textContent || '').trim()),
+  );
+  check('设置页有六个分组', groupNames.length === 6, { groups: groupNames });
+  await clickIn(app.page, '.panel .nav-item[data-group="desktop"]')
+  await sleep(300)
   await app.page.screenshot({ path: `${OUT}/05-settings-desktop.png` })
   // 按**标签文字**定位：设置面板里不止一个 checkbox（2026-10-21 起「提醒」段还有一个），
   // 取第一个会点到提醒开关 —— 托盘开关没拨开，后面「关窗进托盘」三条会连锁假红（0.8.4 实测）。
@@ -1078,6 +1086,8 @@ try {
     if (!(await click())) {
       await clickIn(app.page, 'button[title="外观设置"]')
       await sleep(400)
+      await clickIn(app.page, '.panel .nav-item[data-group="desktop"]')
+      await sleep(200)
       return click()
     }
     return true

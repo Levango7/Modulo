@@ -129,6 +129,8 @@ const waitStartupBaseline = (page: Page) =>
 
 async function openSettings(page: Page): Promise<void> {
   await page.click('button.wide[title="外观设置"]')
+  // F-10 之后设置分六组，备份与自动备份在「数据」组里（面板只渲染当前组）
+  await page.click('.panel .nav-item[data-group="data"]')
   await page.waitForSelector('.panel .auto', { timeout: 10000 })
 }
 

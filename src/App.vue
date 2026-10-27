@@ -22,6 +22,7 @@ import { useBackup, applyParsedSections, APP_VERSION } from './vue/useBackup'
 import { parseBackup, BACKUP_VERSION } from './vue/backup'
 import { useSync, desktopTransport } from './vue/useSync'
 import type { SyncStore } from './vue/syncStore'
+import { createOnboarding } from './vue/onboarding'
 import { useReminders } from './vue/useReminders'
 import type { Reminder } from './vue/reminders'
 import { sendSystemNotifications, shouldSendSystemNotification } from './vue/notify'
@@ -41,6 +42,7 @@ import GridLayout from './vue/components/GridLayout.vue'
 import CanvasEditor from './vue/components/CanvasEditor.vue'
 import StackEditor from './vue/components/StackEditor.vue'
 import SettingsPanel from './vue/components/SettingsPanel.vue'
+import OnboardingWizard from './vue/components/OnboardingWizard.vue'
 import TemplatePicker from './vue/components/TemplatePicker.vue'
 import TitleBar from './vue/components/TitleBar.vue'
 
@@ -49,6 +51,12 @@ const store = inject<LayoutStore>('store')!
 const cardDataApi = inject<CardDataApi>('cardData')!
 /** 已装扩展卡 → 模块注册表的同步（immediate：首帧就绪，模块库第一眼就能看到装好的卡） */
 useExtensions(store, cardDataApi)
+/**
+ * 首启引导（F-10）：`firstRun` 是 store 的派生量（版面为空且没挑过模板）⇒ 升级上来的老用户
+ * 永远看不到它，只有真首启才会遇到；见过一次就被盘上的 `done` 挡住。
+ */
+const onboarding = createOnboarding(storage, { firstRun: () => store.firstRun })
+provide('onboarding', onboarding)
 const contentHistory = inject<ContentHistoryApi>('contentHistory')!
 const appearance = useAppearance(storage)
 provide('appearance', appearance)
@@ -263,8 +271,7 @@ function detachCard(id: string): void {
 onMounted(() => {
   window.addEventListener('keydown', onGlobalKey)
   document.addEventListener('mousedown', onDocMousedown)
-  /** 首启（没有存档、也没挑过模板）自动开一次选择器 —— 这正是"选项"该出现的地方 */
-  if (store.firstRun) templatesOpen.value = true
+  // 首启不再开模板选择器，改由 OnboardingWizard 承接（见上面 createOnboarding 那处注释）
   /** 自动备份：没有基线就建一份；版本变过或距上一份超过 24h 也各留一份（只桌面） */
   backup.initAutoBackup()
   /** 提醒：启动先对一次表，之后每分钟一次（静默时段只压投递，不压事实） */
@@ -299,6 +306,15 @@ function pickAndEdit() {
 function closeTemplates() {
   templatesOpen.value = false
   if (!store.templateId.value) store.setTemplateChoice(E.DEFAULT_TEMPLATE_ID)
+}
+
+/**
+ * 设置里那条「挑一种排法」：先关设置再开选择器 —— 两个全屏遮罩叠在一起，
+ * 底下的焦点陷阱会互相抢 Esc（而且用户会分不清按 Esc 关的是哪一个）。
+ */
+function openTemplatesFromSettings() {
+  settingsOpen.value = false
+  templatesOpen.value = true
 }
 
 /**
@@ -469,7 +485,9 @@ const onGlobalKey = useGlobalKeys({
 
     <TemplatePicker v-if="templatesOpen" @close="closeTemplates" @edit="pickAndEdit" />
 
-    <SettingsPanel v-if="settingsOpen" @close="settingsOpen = false" />
+    <OnboardingWizard v-if="onboarding.visible.value" />
+
+    <SettingsPanel v-if="settingsOpen" @close="settingsOpen = false" @open-templates="openTemplatesFromSettings" />
   </div>
 </template>
 

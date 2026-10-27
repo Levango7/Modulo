@@ -80,6 +80,19 @@ async function openCatalog(page: Page) {
 const settle = (ms = 400) => new Promise((r) => setTimeout(r, ms))
 
 /**
+ * F-10 之后设置面板分六组，**点开设置只渲染当前组**（默认「外观」）。
+ * 方案册在「版面与方案」组里，所以凡是要跟 `.schemes` 打交道的用例都得先点那一组。
+ */
+const openGroup = async (page: Page, id: string): Promise<void> => {
+  await page.click(`.panel .nav-item[data-group="${id}"]`)
+  await page.waitForFunction(
+    (g: string) => document.querySelector(`.panel .nav-item[data-group="${g}"]`)?.getAttribute('data-active') === 'true',
+    { timeout: 10000 },
+    id,
+  )
+}
+
+/**
  * 点顶栏上那枚工具按钮。
  *
  * **找不到就抛，绝不静默。** 这里原来是 `?.click()`：按钮不存在时什么也不做、也不报错，
@@ -570,6 +583,7 @@ it.skipIf(skip)('版面方案：另存为 → 改版面 → 应用旧方案可�
 
   await page.click('button[title="外观设置"]')
   await new Promise((r) => setTimeout(r, 300))
+  await openGroup(page, 'layout')
   await page.type('input[placeholder="方案名称"]', '方案甲')
   expect(await press('另存为')).toBe(true)
   await new Promise((r) => setTimeout(r, 300))
@@ -584,6 +598,7 @@ it.skipIf(skip)('版面方案：另存为 → 改版面 → 应用旧方案可�
 
   await page.click('button[title="外观设置"]')
   await new Promise((r) => setTimeout(r, 300))
+  await openGroup(page, 'layout')
   await page.type('input[placeholder="方案名称"]', '方案乙')
   await press('另存为')
   await new Promise((r) => setTimeout(r, 300))
@@ -772,21 +787,33 @@ it.skipIf(skip)('版面模板：出厂默认窗口 1280×800 里不用滚就能�
   await page.close()
 })
 
-it.skipIf(skip)('首启：自动弹一次模板选择器，挑过之后刷新就不再拦', async () => {
+it.skipIf(skip)('首启：弹的是向导而不是模板选择器；走完一次之后刷新就不再拦', async () => {
   const ctx = await browser.createBrowserContext()
   const page = await ctx.newPage()
   await page.setViewport({ width: 1440, height: 900, deviceScaleFactor: 1 })
   await page.goto(url, { waitUntil: 'networkidle2', timeout: 30000 })
   await settle(700)
-  expect(await page.evaluate(() => !!document.querySelector('.picker[role="dialog"]')), '没有存档时首启应自动出选择器').toBe(true)
+  // F-10：首启入口从「只弹模板选择器」换成三步向导 —— 后者第 1 步就是选版面，
+  // 但还会说清外观与那三条"你可能不知道"的事。选择器本身仍从顶栏/设置里进。
+  expect(await page.evaluate(() => !!document.querySelector('.wizard')), '没有存档时首启应出向导').toBe(true)
+  expect(
+    await page.evaluate(() => !!document.querySelector('.picker[role="dialog"]')),
+    '首启不该再直接砸出模板选择器（那会让人以为这个应用只有选版面一件事）',
+  ).toBe(false)
 
-  await page.evaluate(() => {
-    ;[...document.querySelectorAll<HTMLElement>('.picker .card')].find((b) => b.textContent?.includes('通用'))?.click()
-  })
+  // 第 1 步挑「通用」→ 后面两步一路「下一步」→ 开始用
+  await page.click('.wizard [data-tpl="general"]')
+  await page.click('.wizard [data-next="layout"]')
+  await page.waitForSelector('.wizard .skin', { timeout: 10000 })
+  await page.click('.wizard [data-next="look"]')
+  await page.waitForSelector('.wizard [data-next="ready"]', { timeout: 10000 })
+  await page.click('.wizard [data-next="ready"]')
   await settle(600)
+
   await page.reload({ waitUntil: 'networkidle2' })
   await settle(700)
-  expect(await page.evaluate(() => !!document.querySelector('.picker')), '挑过一次就不该再拦第二次').toBe(false)
+  expect(await page.evaluate(() => !!document.querySelector('.wizard')), '走完一次就不该再拦第二次').toBe(false)
+  expect(await page.evaluate(() => !!document.querySelector('.picker')), '选择器也不该自己冒出来').toBe(false)
   await ctx.close()
 })
 
@@ -879,6 +906,7 @@ it.skipIf(skip)('方案册：新建空白可撤销，键盘与拖拽都能排序
 
   await page.click('button[title="外观设置"]')
   await wait()
+  await openGroup(page, 'layout')
   await page.type('input[placeholder="方案名称"]', '甲')
   expect(await press('另存为')).toBe(true)
   await wait()
@@ -902,6 +930,7 @@ it.skipIf(skip)('方案册：新建空白可撤销，键盘与拖拽都能排序
 
   await page.click('button[title="外观设置"]')
   await wait()
+  await openGroup(page, 'layout')
   await page.focus('.schemes li')
   await page.keyboard.down('Alt')
   await page.keyboard.press('ArrowDown')
@@ -924,6 +953,7 @@ it.skipIf(skip)('方案册：新建空白可撤销，键盘与拖拽都能排序
   await wait(500)
   await page.click('button[title="外观设置"]')
   await wait()
+  await openGroup(page, 'layout')
   expect(await names()).toEqual(['从零', '甲'])
   expect(errs).toEqual([])
   await page.close()

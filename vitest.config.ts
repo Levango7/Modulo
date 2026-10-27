@@ -69,6 +69,10 @@ const GATED_VUE_MODULES = [
   // 按实例取数（F-01 阶段 2，2026-10-28）：「这是不是第二张便签 / 正文该读哪一份」是纯判定，
   // 一样为了不开浏览器也能断言才单独成文件；组件那半（v-model 接读写对）留给 E2E。
   'src/vue/instanceData.ts',
+  // 设置分组与首启引导（F-10，2026-10-28）：两处判定抽成纯模块的理由同上 —— 「网页版不该出现
+  // 『桌面』组」「跳过也要落盘」这两条恰好在组件里最难自己证明自己。锁 100。
+  'src/vue/settingsNav.ts',
+  'src/vue/onboarding.ts',
   // App.vue 拆分 Cut A（2026-10-24）：外点关闭判定 / 「打开界面」查表。两处判定原来长在
   // App.vue 里、只有 E2E 兜底；都满足「不开浏览器也能断言」的纳入判据（见各文件头注释）。
   'src/vue/openUI.ts',
@@ -211,6 +215,10 @@ export default defineConfig({
         // 按实例取数（F-01 阶段 2，2026-10-28）：分支数在写完用例后由 `coverage-summary.json`
         // 实测回填，锁 100 —— 以后这里长出 if / 兜底而没测，当场红。
         'src/vue/instanceData.ts': { branches: 100 },
+        // 设置分组 / 首启引导（F-10，2026-10-28）：两处都是显式清单 + 纯函数，分支在写完用例后
+        // 由 `coverage-summary.json` 回填为 100 —— 以后长出没测的兜底，这里当场红。
+        'src/vue/settingsNav.ts': { branches: 100 },
+        'src/vue/onboarding.ts': { branches: 100 },
         // App.vue 拆分②（2026-10-23）：三个 composable，26 条断言，全量套件实测回填：
         //   useEditTransaction 8/8 —— 快照/保存/取消/还原状态机全钉住，含"快照已清"
         //                   时确认取消的防御路径（界面到不了、composable 层可达，不演戏）；

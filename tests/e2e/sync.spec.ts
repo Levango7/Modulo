@@ -194,6 +194,9 @@ async function installHelpers(page: Page): Promise<void> {
 
 const openSettings = async (page: Page): Promise<void> => {
   await page.click('button.wide[title="外观设置"]')
+  // F-10 之后设置分六组：多端同步在「数据」组里，面板只渲染当前组
+  await page.waitForSelector('.panel .nav-item[data-group="data"]', { timeout: 15000 })
+  await page.click('.panel .nav-item[data-group="data"]')
   await page.waitForFunction(
     () => !!document.querySelector('section input[autocomplete="username"]'),
     { timeout: 15000 },
@@ -626,6 +629,16 @@ describe.skipIf(skip)('多端同步：设置面板链（Tauri 桩 + 网盘桩，
     await page.reload({ waitUntil: 'networkidle2' })
     await installHelpers(page)
     await openSettings(page)
+    // 面板挂载时 `init()` 才会去查凭据库（异步）：等占位文案真的变成"已保存"再往下，
+    // 否则这一拍可能落在 `hasStored` 还是 false 的窗口里 —— 那时点「立即同步」会被
+    // 前置条件挡成「先输入一次口令」，用例就成了跟竞态赛跑（CI 上实测红过一次）。
+    await page.waitForFunction(
+      () => {
+        const el = (window as any).__SEC__()?.querySelector('input[type="password"]') as HTMLInputElement | null
+        return el?.placeholder?.includes('已保存在系统凭据库') === true
+      },
+      { timeout: 15000 },
+    )
     const pwValue = await page.evaluate(() => ((window as any).__SEC__()!.querySelector('input[type="password"]') as HTMLInputElement).value)
     expect(pwValue, 'reload 后渲染层手里没有口令').toBe('')
 
@@ -698,6 +711,9 @@ describe.skipIf(skip)('多端同步：设置面板链（Tauri 桩 + 网盘桩，
     })
     await page.goto(url, { waitUntil: 'networkidle2', timeout: 30000 })
     await page.click('button.wide[title="外观设置"]')
+    // F-10 之后设置分六组（网页版五组）：多端同步在「数据」组里，先进那一组再看
+    await page.waitForSelector('.panel .nav-item[data-group="data"]', { timeout: 15000 })
+    await page.click('.panel .nav-item[data-group="data"]')
     await page.waitForFunction(
       () => [...document.querySelectorAll('section')].some((s) => (s.querySelector('h3')?.textContent ?? '').includes('多端同步')),
       { timeout: 15000 },
