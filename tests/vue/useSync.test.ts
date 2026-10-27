@@ -889,6 +889,39 @@ describe('自动同步：判据是纯函数，节拍只是执行它', () => {
     expect(sync.status.value).toBe('idle')
     expect(sync.notices.value.join()).toContain('自动同步没成')
   })
+
+  it('后台节拍遇到"还没口令 / 地址不合法"同样不打红（早退路径与 catch 同一条规矩）', async () => {
+    const t = new FakeTransport()
+    const { sync } = setup({ transport: t })
+    sync.save({ auto: true })
+    sync.password.value = '' // 没勾「记住口令」，重启后手上没有口令
+    await sync.syncNow({ auto: true })
+    expect(sync.status.value).toBe('idle')
+    expect(sync.message.value).toBe('')
+    expect(sync.notices.value.join()).toContain('自动同步没跑：先输入一次口令')
+    // 一次命令都没发：条件不满足就该原地停，不该拿空口令去敲门
+    expect(t.calls).toEqual([])
+
+    sync.save({ endpoint: 'http://192.168.1.5/dav/modulo/' }) // 内网地址：判据层直接拒
+    await sync.syncNow({ auto: true })
+    expect(sync.status.value).toBe('idle')
+    expect(sync.notices.value.join()).toContain('自动同步没跑')
+  })
+
+  it('同一条失败由用户点出来时**要**打红（否则"后台不红"会变成"前台也不说"）', async () => {
+    const t = new FakeTransport()
+    const { sync } = setup({ transport: t })
+    sync.password.value = ''
+    await sync.syncNow()
+    expect(sync.status.value).toBe('error')
+    expect(sync.message.value).toContain('先输入一次口令')
+    sync.save({ endpoint: 'https://dav.example.com/dav/modulo/', auto: false })
+    sync.password.value = 'pw'
+    sync.save({ endpoint: 'http://192.168.1.5/dav/modulo/' })
+    await sync.syncNow()
+    expect(sync.status.value).toBe('error')
+    expect(sync.message.value).toContain('内网')
+  })
 })
 
 describe('自动同步的启停边界', () => {
