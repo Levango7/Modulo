@@ -186,17 +186,15 @@ export function useSync(deps: SyncDeps) {
     save({ remember: false })
   }
 
-  function validate(): { endpoint: string; user: string } | null {
+  function validate(auto = false): { endpoint: string; user: string } | null {
     const v = validateSyncEndpoint(settings.value.endpoint)
     if (!v.ok) {
-      status.value = 'error'
-      message.value = v.reason ?? '网盘地址不合法'
+      preflightFail(v.reason ?? '网盘地址不合法', auto)
       return null
     }
     const user = settings.value.user.trim()
     if (!user) {
-      status.value = 'error'
-      message.value = '先填用户名'
+      preflightFail('先填用户名', auto)
       return null
     }
     return { endpoint: v.url!, user }
@@ -220,6 +218,22 @@ export function useSync(deps: SyncDeps) {
   }
 
   /**
+   * 前置条件不满足时怎么说。
+   *
+   * `auto`（后台节拍）与"用户点了按钮"是两种性质：没人点任何东西的时候，把设置页那行状态
+   * 打成红的，等于替用户制造了一次失败现场 —— 与 `syncNow` 的 catch 同一条规矩（后台失败
+   * 只留一条提示，下一次 tick 自己重试）。
+   */
+  function preflightFail(reason: string, auto: boolean): void {
+    if (auto) {
+      notices.value = [`自动同步没跑：${reason}`]
+      return
+    }
+    status.value = 'error'
+    message.value = reason
+  }
+
+  /**
    * 主流程：取远端 → 裁决 → （有下载就先问）→ 留现场 → 写 live → 轮转。
    *
    * `auto` 只影响**失败怎么呈现**和**要不要惊动用户**：后台跑的时候，网络抖动/412 都只
@@ -229,20 +243,17 @@ export function useSync(deps: SyncDeps) {
   async function syncNow(opts: { auto?: boolean } = {}): Promise<void> {
     const t = deps.transport
     if (!t) {
-      status.value = 'error'
-      message.value = '网页版没有同步通道（桌面版才支持）'
+      preflightFail('网页版没有同步通道（桌面版才支持）', !!opts.auto)
       return
     }
-    const ok = validate()
+    const ok = validate(!!opts.auto)
     if (!ok) return
     if (!password.value && !hasStored.value) {
-      status.value = 'error'
-      message.value = '先输入一次口令（勾「记住口令」下次就不用输）'
+      preflightFail('先输入一次口令（勾「记住口令」下次就不用输）', !!opts.auto)
       return
     }
     if (!settings.value.deviceId) {
-      status.value = 'error'
-      message.value = '设备标识缺失，请重新打开一次设置页'
+      preflightFail('设备标识缺失，请重新打开一次设置页', !!opts.auto)
       return
     }
     status.value = 'busy'
