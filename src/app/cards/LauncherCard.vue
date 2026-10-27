@@ -3,8 +3,10 @@
  * 速达（2026-10-13 批 4）：常用程序 / 网页 / 文件收成"点一下就开"的收藏。
  *
  * 三条决定（与引擎 `launcher.ts` 的边界配套）：
- * 1. **目标形状在输入端就判**：只收 http(s) 链接与绝对路径 —— 裸命令名会被拒
- *    （否则这张卡就成了"执行任意命令"的入口）。引擎判一次、Rust 再判一次。
+ * 1. **目标形状在输入端就判**：只收 http(s) 链接与本机绝对路径 —— 裸命令名、
+ *    `\\server\share` 这类 UNC 网络路径都会被拒（前者把卡变成"执行任意命令"的入口；
+ *    后者打开要走 SMB，SMB 协商会把当前用户的 NTLM 凭据发给那台服务器）。
+ *    引擎判一次、Rust 再判一次。
  * 2. **网页版只列不打开**：没有系统调用能力，按钮写明这一点（同 sysmon/probe 的降级纪律）。
  * 3. **UAC 由系统弹**：桌面壳走 `ShellExecuteW`（等价双击），需要管理员权限的目标
  *    会弹系统提权框 —— 我们**不代劳静默提权**（那会让一个被改过的收藏项拿到管理员会话）。
@@ -59,7 +61,7 @@ function submitAdd(): void {
   addError.value = ''
   const kind = kindOf(draftTarget.value)
   if (!kind) {
-    addError.value = '只收 http(s) 链接或绝对路径（如 C:\\Program Files\\…\\app.exe）—— 不接受的“命令名”'
+    addError.value = '只收 http(s) 链接或本机绝对路径（如 C:\\Program Files\\…\\app.exe）—— 不收裸命令名，也不收 \\\\server\\share 这类网络路径（打开它会把系统凭据发给那台机器）'
     return
   }
   const ok = cards.addLaunch(draftLabel.value, draftTarget.value)

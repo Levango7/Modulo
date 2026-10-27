@@ -98,6 +98,65 @@ describe('桌面壳的数据落盘适配器', () => {
     expect(Object.keys(out).sort()).toEqual([...DATA_KEYS].sort())
     expect(Object.values(out).every((v) => v === null)).toBe(true)
   })
+
+  /**
+   * 读盘失败的键**绝不能**走 legacy 迁移分支（规格书 §4「可靠性」点名过的覆盖风险）：
+   * 抛异常只代表"这次没读出来"，不代表"磁盘上没有"。真去回写，就是拿 localStorage
+   * 旧值覆盖可能存在的磁盘新数据。
+   */
+  it('读盘抛异常的键：不采 legacy、不回写磁盘', async () => {
+    const legacy: Record<string, string> = Object.fromEntries(
+      DATA_KEYS.map((k) => [k, '{"from":"localstorage"}']),
+    )
+    const migrated: Array<[string, string]> = []
+    const out = await hydrateData(
+      async () => {
+        throw new Error('EACCES')
+      },
+      async (n, c) => void migrated.push([n, c]),
+      (k) => legacy[k] ?? null,
+    )
+
+    expect(Object.values(out).every((v) => v === null)).toBe(true)
+    expect(migrated).toEqual([])
+  })
+
+  it('读盘抛异常：失败的键经 onReadError 报出去（静默 = 假装数据没事）', async () => {
+    const reported: string[][] = []
+    const out = await hydrateData(
+      async (k) => {
+        if (k === DATA_KEYS[0] || k === DATA_KEYS[1]) throw new Error('EIO')
+        return null
+      },
+      async () => {},
+      () => null,
+      (failed) => void reported.push([...failed]),
+    )
+
+    expect(reported).toEqual([[DATA_KEYS[0], DATA_KEYS[1]]])
+    expect(out[DATA_KEYS[0]]).toBeNull()
+    expect(out[DATA_KEYS[1]]).toBeNull()
+    // 没抛的键仍走正常分支（这里是"磁盘无文件 + 无 legacy" ⇒ 同样为 null，但没进失败名单）
+    expect(reported[0]).not.toContain(DATA_KEYS[2])
+  })
+
+  it('读盘抛异常与正常 legacy 迁移可以共存（同一次启动里两路分清）', async () => {
+    const legacy: Record<string, string> = { [DATA_KEYS[2]]: '{"from":"localstorage"}' }
+    const migrated: Array<[string, string]> = []
+    const out = await hydrateData(
+      async (k) => {
+        if (k === DATA_KEYS[0]) throw new Error('EBUSY')
+        if (k === DATA_KEYS[2]) return null
+        return '{"from":"disk"}'
+      },
+      async (n, c) => void migrated.push([n, c]),
+      (k) => legacy[k] ?? null,
+    )
+
+    expect(out[DATA_KEYS[0]]).toBeNull() // 抛异常 ⇒ 空值，不采 legacy
+    expect(out[DATA_KEYS[2]]).toBe('{"from":"localstorage"}') // 真没有 ⇒ 正常迁移
+    expect(migrated).toEqual([[DATA_KEYS[2], '{"from":"localstorage"}']]) // 回写只发生在"真没有"那一支
+  })
 })
 
 describe('存储键登记：写下去的键必须重启还读得回来（2026-10-24 修）', () => {

@@ -1,5 +1,9 @@
 use std::sync::Mutex;
 
+// AI 命令面（Phase 3「后端先建」）：十条命令的前端卡尚未动工，按 F-11② 从
+// `generate_handler!` 撤注册 —— **注册面必须等于调用点面**（由 `scripts/cmd-surface.mjs`
+// 在 CI 里钉死）。模块本体与单测保留，接线 PR 一来，回注册是一行。
+#[allow(dead_code)]
 mod ai;
 mod capture;
 mod feeds;
@@ -377,22 +381,8 @@ pub fn run() {
             web::bing_daily,
             monitor::web_probe,
             sysmon::sys_stats,
-            sysmon::proc_list,
-            ai::keys::ai_set_key,
-            ai::keys::ai_delete_key,
-            ai::openai_compat::ai_providers,
-            ai::openai_compat::ai_chat,
-            ai::openai_compat::ai_chat_cancel,
-            ai::openai_compat::ai_summarize,
-            ai::history::ai_history_list,
-            ai::history::ai_history_get,
-            ai::history::ai_history_delete,
-            ai::history::ai_history_clear,
-            capture::shot::shot_full,
-            capture::shot::shot_region,
-            capture::shot::shot_window,
-            capture::shot::shot_list,
-            capture::shot::shot_delete,
+            // 撤下的未接线注册（F-11②，撤注册不删代码）：sysmon::proc_list、
+            // ai::keys::*、ai::openai_compat::*、ai::history::*、capture::shot::*。
             capture::winlist::win_list,
             capture::preview::win_preview_start,
             capture::preview::win_preview_stop,
