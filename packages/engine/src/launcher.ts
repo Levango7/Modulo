@@ -29,9 +29,11 @@ export const MAX_LAUNCH_LABEL = 20
 export const MAX_TARGET_LEN = 500
 
 /**
- * 判定目标类型。URL 只看 `https?://` 前缀；其余一律当路径（Windows 盘符、UNC、POSIX）。
+ * 判定目标类型。URL 只看 `https?://` 前缀；其余一律当路径（Windows 盘符、POSIX）。
  * 刻意**不认** `file://`、`javascript:`、`shell:` 这类 scheme —— 它们要么不是路径、
- * 要么就是 shell 面。
+ * 要么就是 shell 面。**UNC 也不认**（`\\server\share` 与 `//server/share`）：打开它
+ * 要走 SMB，SMB 协商能把当前用户的 NTLM 凭据发给那台服务器 —— 与 Rust 侧 `shape_ok`
+ * 同一条边界，两层一起收（F-11）。
  */
 export function kindOf(target: string): LaunchKind | null {
   const t = target.trim()
@@ -39,7 +41,9 @@ export function kindOf(target: string): LaunchKind | null {
   if (/^https?:\/\//i.test(t)) return 'url'
   // 去掉可能的两端引号（从资源管理器"复制为路径"粘过来会带引号）
   const bare = t.replace(/^"|"$/g, '')
-  if (/^[A-Za-z]:[\\/]/.test(bare) || bare.startsWith('\\\\') || bare.startsWith('/')) return 'file'
+  // UNC（反斜杠与正斜杠两种写法，Windows 都算）：先于单杠判定，不然 `//server/x` 会漏过去
+  if (bare.startsWith('\\\\') || bare.startsWith('//')) return null
+  if (/^[A-Za-z]:[\\/]/.test(bare) || bare.startsWith('/')) return 'file'
   // 既不是 URL 也不是绝对路径：**宁可拒绝也不猜**（裸命令名会让"打开"变成"执行任意命令"）
   return null
 }

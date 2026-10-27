@@ -1,21 +1,27 @@
 /**
  * 速达（launcher）引擎层单测：边界与清洗。
  *
- * 断言的重点不是"能打开"，而是**什么被拒**：裸命令名、非 http(s) 的 scheme、空目标。
- * 这是这张卡敢做"点开就执行"的前提 —— 打开面必须恰好等于"绝对路径 + http(s) 链接"。
+ * 断言的重点不是"能打开"，而是**什么被拒**：裸命令名、非 http(s) 的 scheme、空目标、
+ * UNC 网络路径。这是这张卡敢做"点开就执行"的前提 —— 打开面必须恰好等于
+ * "绝对路径 + http(s) 链接"，多出一条（UNC → SMB → NTLM 凭据泄漏）都不行（F-11）。
  */
 import { describe, expect, it } from 'vitest'
 import { MAX_LAUNCH_ITEMS, fallbackLabel, kindOf, sanitizeLaunch } from '../../packages/engine/src/launcher'
 
 describe('目标形状：只认绝对路径与 http(s)', () => {
-  it('URL 判 url；盘符 / UNC / POSIX 判 file', () => {
+  it('URL 判 url；盘符 / POSIX 判 file', () => {
     expect(kindOf('https://example.com/a')).toBe('url')
     expect(kindOf('http://example.com')).toBe('url')
     expect(kindOf('C:\\Program Files\\App\\a.exe')).toBe('file')
     expect(kindOf('c:/tools/a.exe')).toBe('file')
-    expect(kindOf('\\\\server\\share\\a.docx')).toBe('file')
     expect(kindOf('/usr/bin/thing')).toBe('file')
     expect(kindOf('"C:\\带 空格的 路径\\a.exe"')).toBe('file')
+  })
+
+  it('UNC 网络路径一律拒（SMB 协商会把 NTLM 凭据发给那台服务器）', () => {
+    for (const unc of ['\\\\server\\share\\a.docx', '//server/share/a.docx', '"\\\\server\\share"', '  \\\\server\\share\\sub\\f.txt  ']) {
+      expect(kindOf(unc), `不该接受 ${JSON.stringify(unc)}`).toBeNull()
+    }
   })
 
   it('裸命令名与其它 scheme 一律拒（这是"不做任意命令执行"的判据）', () => {
@@ -69,5 +75,15 @@ describe('名单清洗：同 watch/endpoints 的骨架', () => {
   it('id 缺省用 target（稳定、可复现）', () => {
     const { items } = sanitizeLaunch([{ target: 'https://e.com/a' }])
     expect(items[0].id).toBe('https://e.com/a')
+  })
+
+  it('UNC 条目在清洗时被丢弃（已存的 UNC 收藏会被请出名单，而不是留着每次点都报错）', () => {
+    const { items, rejected } = sanitizeLaunch([
+      { target: 'C:\\a\\x.exe' },
+      { target: '\\\\server\\share\\a.docx' },
+      { target: '//server/share/b.docx' },
+    ])
+    expect(items.map((i) => i.target)).toEqual(['C:\\a\\x.exe'])
+    expect(rejected).toBe(2)
   })
 })

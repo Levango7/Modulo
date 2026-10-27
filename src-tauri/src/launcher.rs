@@ -5,6 +5,9 @@
 //! - **只吃绝对路径与 http(s) URL**：判定在引擎 `launcher.ts`（`kindOf`），前端已经
 //!   拦过一道；这里**再判一次**（前端能被 XSS 改，Rust 不能 —— 同 net.rs 的分工）。
 //!   裸命令名（`explorer.exe`、`cmd`）一律拒：那会把"打开"变成"执行任意命令"。
+//!   UNC（`\\server\share`、`//server/share`）同样拒：打开它要走 SMB，SMB 协商会把
+//!   当前用户的 NTLM 凭据发给那台服务器 —— 收藏项被改一次就是一次凭据泄漏，
+//!   这是"打开文件"兜不住的代价（F-11）。
 //! - **不做 shell 解释**：不经 cmd/powershell，`ShellExecuteW` 是 Windows 打开文件的
 //!   标准入口（等价双击）。正因如此，需要管理员权限的目标会弹系统 UAC —— 那是系统的
 //!   决定，不是我们代劳（x-hub 用 ShellExecute 的 `runas` 动词静默提权，我们不做：
@@ -88,13 +91,18 @@ pub fn shape_ok(target: &str) -> bool {
     if t.starts_with("http://") || t.starts_with("https://") {
         return true;
     }
-    // Windows 盘符 / UNC / POSIX 绝对路径
+    // UNC（`\\server\share` 与 `//server/share`，Windows 两种写法都算）一律拒：
+    // 打开 UNC 走 SMB，SMB 协商能把当前用户的 NTLM 凭据发给那台服务器。收藏项一旦
+    // 被改（或被 XSS 改），就是一次凭据泄漏 —— 这条面不能靠"用户自己当心"兜底（F-11）。
+    if t.starts_with("\\\\") || t.starts_with("//") {
+        return false;
+    }
+    // Windows 盘符 / POSIX 绝对路径
     let bytes = t.as_bytes();
     (bytes.len() >= 3
         && bytes[0].is_ascii_alphabetic()
         && bytes[1] == b':'
         && (bytes[2] == b'\\' || bytes[2] == b'/'))
-        || t.starts_with("\\\\")
         || t.starts_with('/')
 }
 
@@ -130,7 +138,6 @@ mod tests {
         for good in [
             "C:\\Program Files\\App\\app.exe",
             "c:/tools/thing.exe",
-            "\\\\server\\share\\a.docx",
             "/usr/bin/thing",
             "https://example.com/x",
             "http://example.com/x",
@@ -144,6 +151,9 @@ mod tests {
             "file:///c:/a.txt",
             "javascript:alert(1)",
             "  ",
+            // UNC 两种写法都拒（SMB / NTLM 凭据泄漏面，F-11）
+            "\\\\server\\share\\a.docx",
+            "//server/share/a.docx",
         ] {
             assert!(!shape_ok(bad), "{bad} 应被拒");
         }

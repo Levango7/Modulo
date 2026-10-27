@@ -331,7 +331,7 @@ const pickSeen = new Set<string>()
     launch: (() => {
       if (!Array.isArray(o.launch)) return fallback.launch
       const r = sanitizeLaunch(o.launch as { id?: unknown; label?: unknown; target?: unknown }[])
-      if (r.rejected > 0) console.warn(`导入的速达名单里有 ${r.rejected} 条不合规（既不是 http(s) 链接也不是绝对路径），已丢弃`)
+      if (r.rejected > 0) console.warn(`导入的速达名单里有 ${r.rejected} 条不合规（既不是 http(s) 链接也不是本机绝对路径，或为 UNC 网络路径），已丢弃`)
       return r.items
     })(),
     fixed: {
