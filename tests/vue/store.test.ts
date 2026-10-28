@@ -119,6 +119,7 @@ describe('layout store', () => {
       blurb: '测试卡包',
       variants: [{ id: 'std', name: '标准', minW: 1, minH: 1, idealW: 2, idealH: 2 }],
       html: '<b/>',
+      permissions: [],
     }
     s.setExtensions([card])
     expect(s.reg.length).toBe(base + 1)

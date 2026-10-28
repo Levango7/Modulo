@@ -6,18 +6,87 @@
  *   ② 装好的卡成为**一等公民**：模块库/目录菜单里出现它的标题（manifest 的 title/group 生效）；
  *   ③ 上版后 iframe 渲染入口 HTML、**脚本真的执行**（沙箱里能动才有用）；
  *   ④ **桥**三个承诺：setState 写进 extState（落盘）、getState 读回、
- *      白名单外的请求没有回声（不会把错误当应答）；
+ *      白名单外的请求没有回声（不会把错误当应答）—— 这条要求卡包声明
+ *      `permissions: ['state']`；「没声明会怎样」由第二条用例单独钉；
  *   ⑤ 刷新后状态还在（extState 持久化）、版面还在（ext 段随注册表重建）；
  *   ⑥ 卸载后版面上的实例按引擎「未知模块」口径退场（已收起 / 刷新清除），状态一并清。
+ *
+ * 另两条钉权限声明面与扫描面：
+ *   ⑦ 未声明 permissions 的卡包：桥给**显式拒绝**并指回 manifest —— 与白名单外的
+ *      静默是两件事（那是防枚举探测，这是给卡包作者的话术）；
+ *   ⑧ 网页形态下扫描入口按 isDesktop **隐藏**（同浮窗入口的约定）+ 一句降级说明 ——
+ *      桌面态那半（invoke → 落袋循环 → 摘要）的钉子在 tests/vue/extcardScan.test.ts
+ *      与 cargo 单测 scan_cards_dir：E2E 跑桌面态须注 Tauri 桩，与本仓安全钩的
+ *      动态执行禁令冲突，注不进来。
  */
 import { describe, expect, it } from 'vitest'
 import puppeteer from 'puppeteer-core'
+import type { Browser, Page } from 'puppeteer-core'
 import { chromePath } from './chrome'
 
 const EXE = chromePath()
 const skip = !EXE
 let url = 'http://localhost:1430'
 const wait = (ms: number) => new Promise((r) => setTimeout(r, ms))
+
+/**
+ * 两条新用例的公共台阶：开浏览器 → 放「原生卡」管理卡 → 保存回工作台。
+ * 与第一条用例完全同一条路径，只是抽出来省得抄三遍。
+ */
+async function openManager(): Promise<{ browser: Browser; page: Page }> {
+  const browser = await puppeteer.launch({
+    executablePath: EXE!,
+    headless: true,
+    args: ['--no-sandbox', '--disable-gpu'],
+    userDataDir: `F:/tmp/pptr-profile-${Date.now()}`,
+  })
+  const page = await browser.newPage()
+  await page.setViewport({ width: 1440, height: 900, deviceScaleFactor: 1 })
+  await page.evaluateOnNewDocument(() => localStorage.setItem('modulo.template.v1', 'general'))
+  await page.goto(process.env.MODULO_URL ?? url, { waitUntil: 'networkidle2', timeout: 30000 })
+  await wait(800)
+  await enterLayout(page)
+  await page.evaluate(() => document.querySelector<HTMLElement>('.add-cat')?.click())
+  await wait(300)
+  await page.evaluate(() => {
+    const el = [...document.querySelectorAll<HTMLElement>('.add-menu [role=menuitem]')].find((x) =>
+      (x.textContent || '').includes('原生卡'),
+    )
+    el?.click()
+  })
+  await wait(400)
+  await saveLayout(page)
+  await wait(500)
+  return { browser, page }
+}
+
+async function enterLayout(page: Page): Promise<void> {
+  await page.evaluate(() => {
+    const b = [...document.querySelectorAll<HTMLButtonElement>('.bar button')].find(
+      (e) => (e.textContent || '').trim() === '布局编辑',
+    )
+    b?.click()
+  })
+  await wait(500)
+}
+
+async function saveLayout(page: Page): Promise<void> {
+  await page.evaluate(() => {
+    const b = [...document.querySelectorAll<HTMLButtonElement>('.bar button')].find(
+      (e) => (e.textContent || '').includes('保存'),
+    )
+    b?.click()
+  })
+}
+
+async function typeJson(page: Page, json: string): Promise<void> {
+  await page.evaluate((j: string) => {
+    const ta = document.querySelector<HTMLTextAreaElement>('.xcard .xtarea')
+    if (!ta) return
+    ta.value = j
+    ta.dispatchEvent(new Event('input', { bubbles: true }))
+  }, json)
+}
 
 describe.skipIf(skip)('原生卡：导入、入库、上版与桥', () => {
   it('粘贴卡包 → 一等公民上版 → 桥读写与持久 → 卸载残留如实降级', async () => {
@@ -79,12 +148,14 @@ describe.skipIf(skip)('原生卡：导入、入库、上版与桥', () => {
       '坏 JSON 要给原因',
     ).toContain('JSON')
 
-    // 合法卡包（源码不留字面 </script>—— 连测试源码都要守法）
+    // 合法卡包（源码不留字面 </script>—— 连测试源码都要守法）。声明 permissions：
+    // 这条用例要真的写状态，没声明的桥行为在下面那条用例里钉
     const pack = JSON.stringify({
       id: 'hello',
       title: '问候',
       group: '演示',
       blurb: 'E2E 卡包',
+      permissions: ['state'],
       html: [
         '<b id="t">你好</b>',
         '<script>',
@@ -197,5 +268,81 @@ describe.skipIf(skip)('原生卡：导入、入库、上版与桥', () => {
     ).toBe(false)
 
     await browser.close()
+  })
+
+  it('未声明权限：桥回显式拒绝并指回 manifest（不静默）', async () => {
+    const { browser, page } = await openManager()
+    try {
+      // 这份卡包**不写 permissions**（老卡包的形状）：渲染照旧，但桥被 default-deny
+      const pack = JSON.stringify({
+        id: 'quiet',
+        title: '静默卡',
+        group: '演示',
+        blurb: '未声明权限的卡包',
+        html: '<b id="t">不声明</b>',
+        variants: [{ id: 'std', name: '标准', minW: 2, minH: 2, idealW: 3, idealH: 3 }],
+      })
+      await typeJson(page, pack)
+      await page.evaluate(() => document.querySelector<HTMLElement>('.xcard .xok')?.click())
+      await wait(600)
+      expect(
+        await page.evaluate(() => document.querySelector('.xcard .xperm')?.textContent?.trim() ?? ''),
+        '管理卡上要有「未声明权限」徽章',
+      ).toBe('未声明权限')
+
+      // 上板成运行态：渲染不受 permissions 影响（老卡包兼容就靠这条）
+      await enterLayout(page)
+      await page.evaluate(() => document.querySelector<HTMLElement>('.add-cat')?.click())
+      await wait(300)
+      const added = await page.evaluate(() => {
+        const el = [...document.querySelectorAll<HTMLElement>('.add-menu [role=menuitem]')].find((x) =>
+          (x.textContent || '').includes('静默卡'),
+        )
+        el?.click()
+        return !!el
+      })
+      expect(added, '未声明权限的卡包照常上版').toBe(true)
+      await wait(400)
+      await saveLayout(page)
+      await wait(800)
+      expect(await page.evaluate(() => document.querySelectorAll('.xframe').length), '运行态 iframe 照常渲染').toBe(1)
+
+      // 桥的应答：显式拒绝 + 指回 manifest（resolve 而非 reject —— 应答即话术）
+      const frames = page.frames().filter((f) => f !== page.mainFrame())
+      const frame = frames[frames.length - 1]
+      const denied = await frame.evaluate(() =>
+        (window as unknown as { MODULO: { bridge: { getState: () => Promise<{ ok: boolean; error?: string }> } } }).MODULO.bridge.getState(),
+      )
+      expect(denied.ok, '未声明权限：getState 该被拒').toBe(false)
+      expect(denied.error ?? '', '拒绝原因要点回 manifest').toContain('未声明权限')
+      expect(denied.error ?? '', '拒绝原因要说出路（去 permissions 声明）').toContain('permissions')
+    } finally {
+      await browser.close()
+    }
+  })
+
+  it('网页形态：扫描入口按 isDesktop 隐藏，一句人话指路（桌面路径由单测 + 真机兜底）', async () => {
+    const { browser, page } = await openManager()
+    try {
+      // 网页形态（无 __TAURI_INTERNALS__）：扫描按钮按 isDesktop **隐藏**（同浮窗入口的约定），
+      // 取而代之一句降级说明。桌面形态那半（invoke → 落袋循环 → 摘要）的钉子：
+      // 落袋循环在 `tests/vue/extcardScan.test.ts`，Rust 侧 scan_cards_dir 在 cargo 单测 ——
+      // E2E 要跑桌面态须往页面里注 Tauri 桩，与本仓安全钩的动态执行禁令冲突，跑不了。
+      const scanBtn = await page.evaluate(() => {
+        const b = [...document.querySelectorAll<HTMLButtonElement>('.xcard .xrowbtn button')].find((e) =>
+          (e.textContent || '').includes('扫描 cards 目录'),
+        )
+        return !!b
+      })
+      expect(scanBtn, '网页形态不该有扫描入口（点不动的死按钮不如没有）').toBe(false)
+      expect(
+        await page.evaluate(() =>
+          [...document.querySelectorAll('.xcard .xtip')].some((e) => (e.textContent || '').includes('扫描是桌面壳的功能')),
+        ),
+        '要有降级说明，告诉网页用户这功能在哪',
+      ).toBe(true)
+    } finally {
+      await browser.close()
+    }
   })
 })

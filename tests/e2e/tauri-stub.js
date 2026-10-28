@@ -160,6 +160,11 @@
         return Promise.resolve(undefined)
       case 'data_dir':
         return Promise.resolve('/stub')
+      // —— 原生卡 cards 目录扫描（形状与 Rust extcards.rs 的 ScannedPack 逐字段一致：
+      //    { dir, json }，json 是 card.json 的原文，判定全在 TS 引擎）。数据由测试经
+      //    __STUB_EXT_PACKS__ 预置；不预置 = 空数组（= 界面那句"cards 目录里没有卡包"）。
+      case 'extcards_scan':
+        return Promise.resolve((window.__STUB_EXT_PACKS__ ?? []).slice())
       case 'set_hide_on_close':
       case 'set_shortcut':
         return Promise.resolve(undefined)

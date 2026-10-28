@@ -13,10 +13,12 @@ import { describe, expect, it } from 'vitest'
 import {
   DEFAULT_EXT_GROUP,
   EXT_METHODS,
+  EXT_PERMISSIONS,
   MAX_EXT_CARDS,
   MAX_EXT_HTML_BYTES,
   MAX_EXT_MIN_H,
   MAX_EXT_STATE_BYTES,
+  bridgeAllowed,
   bridgeReply,
   extIdOf,
   extModuleDef,
@@ -25,6 +27,7 @@ import {
   isExtModule,
   parseBridgeRequest,
   parseExtManifest,
+  permissionDeniedMessage,
   sanitizeExtCards,
   sanitizeExtState,
   type ExtCard,
@@ -143,6 +146,37 @@ describe('parseExtManifest：每条失败原因都有用例走到', () => {
     expect(bare.group).toBe(DEFAULT_EXT_GROUP)
     expect(bare.blurb).toBe('')
   })
+
+  it('permissions：缺省是空集（default-deny）；合法声明原样保留；声明里只有合法值', () => {
+    // 缺省 = 空集：卡包照常装、照常渲染，只是桥什么都不能用（最小权限）
+    expect(asExt(parseExtManifest(good)).permissions).toEqual([])
+    const noField = { ...good } as Record<string, unknown>
+    delete noField.permissions
+    expect(asExt(parseExtManifest(noField)).permissions).toEqual([])
+    expect(asExt(parseExtManifest({ ...good, permissions: ['state'] })).permissions).toEqual(['state'])
+    // 顺序原样保留（不排序、不去重 —— 去重是校验的事，不是清洗的事）
+    expect(asExt(parseExtManifest({ ...good, permissions: ['notify', 'state'] })).permissions).toEqual([
+      'notify',
+      'state',
+    ])
+    expect(asExt(parseExtManifest({ ...good, permissions: [] })).permissions).toEqual([])
+  })
+
+  it('permissions：非数组 / 非字符串项 / 未知令牌 / 重复声明都拒，原因指回合法值', () => {
+    expect(parseExtManifest({ ...good, permissions: 'state' }).ok).toBe(false)
+    expect(parseExtManifest({ ...good, permissions: { a: 1 } }).ok).toBe(false)
+    expect(parseExtManifest({ ...good, permissions: ['state', 7] }).ok).toBe(false)
+    const unknown = parseExtManifest({ ...good, permissions: ['storage'] })
+    expect(unknown.ok).toBe(false)
+    // 未知令牌是最可能写错的那条：原因要点出名并给全合法值
+    if (!unknown.ok) {
+      expect(unknown.reason).toContain('"storage"')
+      expect(unknown.reason).toContain('"state"')
+      expect(unknown.reason).toContain('"notify"')
+    }
+    expect(parseExtManifest({ ...good, permissions: ['state', 'state'] }).ok).toBe(false)
+    expect(parseExtManifest({ ...good, permissions: ['notify', 'notify'] }).ok).toBe(false)
+  })
 })
 
 describe('sanitizeExtCards：丢坏条 / 去重 / 上限', () => {
@@ -180,7 +214,7 @@ describe('模块映射：ext: 前缀与注册表合成', () => {
   })
 
   it('extModuleDef：空形态表兜底 std（防御分支 —— parse 过的卡不会走到）', () => {
-    const def = extModuleDef({ id: 'x', title: 't', group: DEFAULT_EXT_GROUP, blurb: '', variants: [], html: '' })
+    const def = extModuleDef({ id: 'x', title: 't', group: DEFAULT_EXT_GROUP, blurb: '', variants: [], html: '', permissions: [] })
     expect(def.defaultVariant).toBe('std')
   })
 
@@ -252,6 +286,31 @@ describe('parseBridgeRequest：方法白名单外的请求拿不到回声', () =
       method: 'getState',
       args: undefined,
     })
+  })
+})
+
+describe('bridgeAllowed：声明面与方法白名单是两层，别并成一个', () => {
+  it('空声明（含没写 permissions 的旧卡包）三个方法全拒 —— default-deny 不是漏洞，作者补一行就恢复', () => {
+    for (const m of EXT_METHODS) expect(bridgeAllowed([], m), m).toBe(false)
+    expect(EXT_PERMISSIONS).toEqual(['state', 'notify'])
+  })
+
+  it('state 令牌放行 getState/setState、notify 令牌放行 notify —— 2×3 矩阵逐格', () => {
+    expect(bridgeAllowed(['state'], 'getState')).toBe(true)
+    expect(bridgeAllowed(['state'], 'setState')).toBe(true)
+    expect(bridgeAllowed(['state'], 'notify')).toBe(false)
+    expect(bridgeAllowed(['notify'], 'notify')).toBe(true)
+    expect(bridgeAllowed(['notify'], 'getState')).toBe(false)
+    expect(bridgeAllowed(['notify'], 'setState')).toBe(false)
+    // 两个都声明 = 全放行
+    for (const m of EXT_METHODS) expect(bridgeAllowed(['state', 'notify'], m), m).toBe(true)
+  })
+
+  it('permissionDeniedMessage：点名缺失的令牌并指到 manifest 的 permissions 字段', () => {
+    expect(permissionDeniedMessage('getState')).toContain('未声明权限: state')
+    expect(permissionDeniedMessage('setState')).toContain('未声明权限: state')
+    expect(permissionDeniedMessage('notify')).toContain('未声明权限: notify')
+    expect(permissionDeniedMessage('notify')).toContain('permissions')
   })
 })
 

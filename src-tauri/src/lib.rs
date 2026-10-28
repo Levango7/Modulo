@@ -31,6 +31,8 @@ mod webdav;
 
 use tauri::{AppHandle, Manager, WindowEvent};
 
+/// 原生卡的 cards 目录扫描（只列读，判定在 TS 引擎 —— 见模块头）
+mod extcards;
 mod storage;
 
 /// 点关闭是「收进托盘」还是「直接退出」。默认退出 —— Windows 会把新出现的托盘图标
@@ -378,6 +380,7 @@ pub fn run() {
             storage::read_doc,
             storage::write_doc,
             storage::data_dir,
+            extcards::extcards_scan,
             web::bing_daily,
             monitor::web_probe,
             sysmon::sys_stats,
