@@ -57,7 +57,7 @@ const run = (text: string): { code: number; out: string } => {
       encoding: 'utf8',
       cwd: ROOT,
       stdio: ['ignore', 'pipe', 'pipe'],
-      timeout: 20_000,
+      timeout: 60_000,
       env: {
         ...process.env,
         COORD_BOARD: file,
@@ -73,9 +73,15 @@ const run = (text: string): { code: number; out: string } => {
   }
 }
 
-// 每条都要起一个 node 子进程跑整道门（本机实测 500–680 ms/条冷启动），全量跑时 vitest
-// 并发起几十个 worker 会把其中某一条顶穿默认 5000ms —— 照 2026-10-16 PR #99 那条先例：
-// **放宽的是预算不是断言**，给到整个 describe。
+// 每条都要起一个 node 子进程跑整道门。门的耗时**随本地分支数线性涨**：判据 3 逐分支
+// `rev-parse` / `rev-list`（外加一次 `ls-remote --tags origin` 的网络往返）。PR #99 记的
+// 500–680 ms/条是分支个位数时的数；2026-10-28 本机 **22 条本地分支**实测单条 **10.7 s**
+// （`NODE_DEBUG=child_process` 数出 78 次 spawnSync，其中 ls-remote 一次 4.2 s），vitest
+// 并发起几十个 worker 时被顶到 **16 s+** —— 顶穿 20 s 的 execFileSync 预算就 SIGTERM，
+// 子进程 stdout 清空，于是「门没跑起来」这条**守卫**红。它红是对的：空输出不许绿。
+// 照 2026-10-16 PR #99 那条先例：**放宽的是预算不是断言** —— 下面两条
+// `expect(…, '门没跑起来')` 一字未动；子进程预算 20 s → 60 s，describe 预算 30 s → 90 s。
+// 真要让门快下来是**删本地死分支**（判据 3 存在的意义就是它们，别替它做这件事）。
 describe(
   '协调板行的切分只认未转义竖线',
   () => {
@@ -144,5 +150,5 @@ describe(
       expect(src).not.toMatch(/\.split\('\|'\)\.map/)
     })
   },
-  30_000,
+  90_000,
 )

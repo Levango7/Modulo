@@ -1,7 +1,11 @@
 /** 浏览器文件读写的薄胶水层：桌面壳阶段换 Tauri 实现，只改这一个文件 */
 
-export function downloadText(filename: string, text: string): void {
-  const blob = new Blob([text], { type: 'application/json' })
+/**
+ * `type` 只在导出非 JSON 时传（会议转写导出给 `text/plain;charset=utf-8`：
+ * 一份 `.txt` 被标成 application/json 是错的，且 CJK 内容要把字符集写明）。
+ */
+export function downloadText(filename: string, text: string, type = 'application/json'): void {
+  const blob = new Blob([text], { type })
   const url = URL.createObjectURL(blob)
   const a = document.createElement('a')
   a.href = url

@@ -59,6 +59,9 @@ const GATED_VUE_MODULES = [
   'src/vue/commands.ts',
   'src/vue/keyboard.ts',
   'src/vue/meetings.ts',
+  // 会议转写导出（2026-10-28）：导出文案 / 安全文件名的判定层 —— 同 meetings.ts 的
+  // 分工理由，胶水（取数 + Blob 下载）留在组件，留给 E2E。
+  'src/vue/meetingExport.ts',
   'src/vue/minutesLive.ts',
   // 模块库搜索（F-09，2026-10-26）：判定层单独成文件就是为了能被断言 —— 本仓**没有组件测试
   // 设施**（无 @vue/test-utils / jsdom），判定留在组件里就只剩 E2E 一层兜底。
@@ -250,9 +253,12 @@ export default defineConfig({
         // 两条都实跑 100%，锁 100 才是「加一条没测到的分支当场红」的写法 ——
         // 它们恰好都是"所有分支都靠卡片状态穷举出来的"那种模块，没有理由留余量。
         'src/vue/minutesLive.ts': { branches: 100 },
-        // 会议历史（2026-10-17）：minutes 卡的「历史」半边抽成纯模块（列表截断 / 日界
-        // 分组 / 字数），随本批进受测层。判定全部可由固定时钟穷举，同 minutesLive 锁 100。
-        'src/vue/meetings.ts': { branches: 100 },
+  // 会议历史（2026-10-17）：minutes 卡的「历史」半边抽成纯模块（列表截断 / 日界
+  // 分组 / 字数），随本批进受测层。判定全部可由固定时钟穷举，同 minutesLive 锁 100。
+  'src/vue/meetings.ts': { branches: 100 },
+  // 会议转写导出（2026-10-28）：同 minutes 家族的分工 —— 导出文案与文件名的判定
+  // 抽成纯函数才好钉死（白名单 / 空白句 / 时间戳同源），组件只留「取数 → 下载」胶水。
+  'src/vue/meetingExport.ts': { branches: 100 },
         'src/vue/winPreview.ts': { branches: 100 },
 
         // ── 逐文件棘轮：6 个低于 90 的引擎文件 ─────────────────────────────
