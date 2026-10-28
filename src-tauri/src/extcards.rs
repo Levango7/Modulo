@@ -167,7 +167,7 @@ mod tests {
         let root = fixture("utf8");
         let bad = root.join("bad");
         fs::create_dir_all(&bad).unwrap();
-        fs::write(bad.join("card.json"), &[0xFFu8, 0xFE, 0x00, 0x01]).unwrap();
+        fs::write(bad.join("card.json"), [0xFFu8, 0xFE, 0x00, 0x01]).unwrap();
 
         assert_eq!(scan_cards_dir(&root).unwrap(), vec![]);
 
