@@ -19,7 +19,7 @@ that will apply once signing is active, and are marked where that is the case.
 
 ## What is signed
 
-- **Nothing is Authenticode-signed today** (baseline: v0.8.7, 2026-10-27; see Current status).
+- **Nothing is Authenticode-signed today** (baseline: v0.8.8, 2026-10-29; see Current status).
 - Once the SignPath program is active, the artifact to be signed will be the Windows installer
   published on GitHub Releases: `Modulo_<version>_x64-setup.exe` (an NSIS installer containing
   the application binary `modulo.exe`).
@@ -89,16 +89,19 @@ on the GitHub account and on the SignPath account used for review and approval.
 
 ## Current status
 
-As of **2026-10-27** (baseline release: **v0.8.7**), releases are **not yet Authenticode-signed**.
-Evidence (2026-10-27 / 2026-10-25 / 2026-10-22 / 2026-10-18, maintainer machine):
+As of **2026-10-29** (baseline release: **v0.8.8**), releases are **not yet Authenticode-signed**.
+Evidence (2026-10-29 / 2026-10-27 / 2026-10-25 / 2026-10-22 / 2026-10-18, maintainer machine):
 
-- The v0.8.7 installer was downloaded from its GitHub Release (draft stage) in full: **10,107,913 bytes**,
-  sha256 **`274caa4be789491b3ed0e65fd8fde863630a396255dc1d72126b840e3bb9a00a`** — matching the GitHub
+- The v0.8.8 installer was downloaded from its GitHub Release (draft stage) in full: **9,962,675 bytes**,
+  sha256 **`47ca83c1fb4a3317a2bbd9fd18a43918b12e7a570cb46966f0337adb2892444a`** — matching the GitHub
   release asset digest and `release-manifest.json` (three independent sources).
   `Get-AuthenticodeSignature` on it reports **NotSigned**; control: the same command on
-  `C:\Windows\System32\cmd.exe` reports **Valid** on the same machine. Checked 2026-10-27 during the
-  pre-release drill (hard step 5 of the release process).
-- The v0.8.6 baseline (2026-10-25) was measured the same way: **NotSigned**, 10,046,654 bytes,
+  `C:\Windows\System32\cmd.exe` reports **Valid** on the same machine. Checked 2026-10-29 during the
+  pre-release drill (hard step 5 of the release process). The file's `FileVersion` / `ProductVersion`
+  both read `0.8.8`.
+- The v0.8.7 baseline (2026-10-27) was measured the same way: **NotSigned**, 10,107,913 bytes,
+  sha256 **`274caa4be789491b3ed0e65fd8fde863630a396255dc1d72126b840e3bb9a00a`**.
+  The v0.8.6 baseline (2026-10-25): **NotSigned**, 10,046,654 bytes,
   sha256 **`104f1f1a01edd65224e6db8f8cb9754398ed45f2b1288836542771aef04901a9`**. The v0.8.4 baseline
   (2026-10-22): **NotSigned**, 4,255,593 bytes, sha256 **`cd9cb8a7…14cfa`** — checked after the
   release. The v0.8.3 baseline (2026-10-18): **NotSigned**, 4,042,044 bytes,
