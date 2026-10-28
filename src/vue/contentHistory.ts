@@ -87,13 +87,22 @@ export function createContentHistory(state: CardData, opts: ContentHistoryOption
     bump()
   }
 
-  /** 回填：删掉现有键再赋新值（保留同一个 reactive 对象的引用，组件不重挂） */
+  /**
+   * 回填：删掉现有键再赋新值（保留同一个 reactive 对象的引用，组件不重挂）。
+   *
+   * **必须走代理改，不能 `toRaw` 改（2026-10-29 修）**：原写法先 `toRaw(state)` 拿原始对象
+   * 再删键赋值 —— 直接写原始对象**不过 Proxy，一个依赖都不触发**（本机实测：`watch(deep, sync)`
+   * 的 fired 增量 = 0；走代理则是 4）。后果是撤销/重做之后：界面不刷新（卡片还显示旧内容）、
+   * `cardData` 那个 300ms 落盘 watch 也不响（**刷新一下，撤销就蒸发了**）。
+   * 单测读的是 `state` 本身 —— 代理读会拿到新值，所以这条缺陷在单测里一直是绿的，
+   * 只有端到端（`tests/e2e/undo.spec.ts`）看得见。
+   */
   function apply(data: CardData): void {
-    const raw = toRaw(state) as unknown as Record<string, unknown>
+    const target = state as unknown as Record<string, unknown>
     suppress = true
     try {
-      for (const k of Object.keys(raw)) delete raw[k]
-      Object.assign(raw, JSON.parse(JSON.stringify(data)) as Record<string, unknown>)
+      for (const k of Object.keys(target)) delete target[k]
+      Object.assign(target, JSON.parse(JSON.stringify(data)) as Record<string, unknown>)
     } finally {
       suppress = false
     }
