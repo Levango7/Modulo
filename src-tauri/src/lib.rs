@@ -1,8 +1,8 @@
 use std::sync::Mutex;
 
-// AI 命令面（Phase 3「后端先建」）：十条命令的前端卡尚未动工，按 F-11② 从
-// `generate_handler!` 撤注册 —— **注册面必须等于调用点面**（由 `scripts/cmd-surface.mjs`
-// 在 CI 里钉死）。模块本体与单测保留，接线 PR 一来，回注册是一行。
+// AI 命令面（Phase 3「后端先建」）：F-12 一期接回了三条（配置界面要读、要写密钥），
+// 其余七条仍无调用点，按 F-11② 继续撤注册 —— **注册面必须等于调用点面**（由
+// `scripts/cmd-surface.mjs` 在 CI 里钉死）。模块本体与单测保留，二期对话坞一来再逐条接。
 #[allow(dead_code)]
 mod ai;
 mod capture;
@@ -384,8 +384,14 @@ pub fn run() {
             web::bing_daily,
             monitor::web_probe,
             sysmon::sys_stats,
-            // 撤下的未接线注册（F-11②，撤注册不删代码）：sysmon::proc_list、
-            // ai::keys::*、ai::openai_compat::*、ai::history::*、capture::shot::*。
+            // AI 命令面（F-12 一期，2026-10-29）：配置界面要读 keyConfigured/ready，
+            // 也要写/删密钥 —— 这三条是会议摘要那条死路唯一的前置。
+            ai::openai_compat::ai_providers,
+            ai::keys::ai_set_key,
+            ai::keys::ai_delete_key,
+            // 仍未接线的注册（F-11②，撤注册不删代码）：sysmon::proc_list、
+            // ai::openai_compat::{ai_chat, ai_chat_cancel, ai_summarize}、ai::history::*、
+            // capture::shot::*。
             capture::winlist::win_list,
             capture::preview::win_preview_start,
             capture::preview::win_preview_stop,

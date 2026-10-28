@@ -2,7 +2,7 @@
  * F-10 设置分组 + 首启向导的 E2E（设计稿 `docs/design/F-10-SETTINGS-IA.md`）。
  *
  * 补的是哪一格：分组表与引导判据都有单测（`tests/vue/settingsNav.test.ts` / `onboarding.test.ts`），
- * 但"六个组真点得开、网页版真少一组、向导真能跳过且不再弹、关于里真能重播"这四件事
+ * 但"七组真点得开、网页版真少两组（桌面 / 实验室）、向导真能跳过且不再弹、关于里真能重播"这四件事
  * 只有组件层能证 —— 本仓没有组件测试设施（无 @vue/test-utils / jsdom），所以归 E2E。
  *
  * 桌面形态走 `tauri-stub.js`（`isDesktop` 由 `__TAURI_INTERNALS__` 决定，桌面组只在那时出现）；
@@ -102,12 +102,12 @@ const disk = (page: Page, key: string): Promise<string | null> =>
   page.evaluate((k: string) => localStorage.getItem('modulo.__stubdoc.' + k), key)
 
 describe.skipIf(skip)('F-10 设置分组（桌面形态）', () => {
-  it('侧栏六组按固定顺序排列，逐个点开都渲染出该组的内容', async () => {
+  it('侧栏七组按固定顺序排列，逐个点开都渲染出该组的内容', async () => {
     const errs: string[] = []
     const page = await open({}, errs)
     await openSettings(page)
 
-    expect(await navTitles(page)).toEqual(['外观', '版面与方案', '数据', '提醒', '桌面', '关于'])
+    expect(await navTitles(page)).toEqual(['外观', '版面与方案', '数据', '提醒', '桌面', '实验室', '关于'])
 
     // 外观：三张皮肤卡
     await clickGroup(page, 'appearance')
@@ -133,6 +133,11 @@ describe.skipIf(skip)('F-10 设置分组（桌面形态）', () => {
     await clickGroup(page, 'desktop')
     expect(await groupText(page)).toContain('收进托盘')
     expect(await page.evaluate(() => document.querySelectorAll('.panel .keys li').length)).toBe(2)
+
+    // 实验室（F-12）：AI 模型服务的配置入口 —— 空态那句要真渲染出来
+    await clickGroup(page, 'lab')
+    expect(await groupText(page)).toContain('AI 模型服务')
+    expect(await has(page, '.panel [data-ai-empty], .panel [data-provider]')).toBe(true)
 
     // 关于：版本 + 重播引导
     await clickGroup(page, 'about')
@@ -164,7 +169,7 @@ describe.skipIf(skip)('F-10 设置分组（桌面形态）', () => {
 })
 
 describe.skipIf(skip)('F-10 设置分组（网页形态）', () => {
-  it('网页版五组：没有「桌面」，其余顺序不变', async () => {
+  it('网页版五组：没有「桌面」与「实验室」，其余顺序不变', async () => {
     const errs: string[] = []
     const page = await open({ desktop: false }, errs)
     await openSettings(page)
@@ -172,8 +177,10 @@ describe.skipIf(skip)('F-10 设置分组（网页形态）', () => {
     const titles = await navTitles(page)
     expect(titles).toEqual(['外观', '版面与方案', '数据', '提醒', '关于'])
     expect(titles).not.toContain('桌面')
-    // 也不该有那个按钮（藏起来 ≠ 没渲染）
+    // 也不该有那两个按钮（藏起来 ≠ 没渲染）—— 网页版没有 Rust 出口，也没有凭据库
     expect(await has(page, '.panel .nav-item[data-group="desktop"]')).toBe(false)
+    expect(await has(page, '.panel .nav-item[data-group="lab"]')).toBe(false)
+    expect(titles).not.toContain('实验室')
     expect(errs, `页面不该有报错：${errs.join(' | ')}`).toEqual([])
   })
 })

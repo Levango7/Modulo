@@ -201,6 +201,13 @@ pub struct SummaryOut {
     pub summary: String,
 }
 
+/// 没有可用 provider 时的提示。**文案要指向真的存在的入口**：F-12 一期之前设置里
+/// 根本没有配 AI 的地方，用户照着那句话做也走不通（死路）。`settingsNav.ts` 里那一组的
+/// `title` 是「实验室」，改这边记得同步那边 —— 单测钉住的是"这句话仍指向那条路径"。
+pub(crate) fn no_provider_hint() -> String {
+    "还没有可用的模型服务：先到「设置 → 实验室」添加一个并点「测试连接」".to_string()
+}
+
 /// 契约 `meeting_summarize`。
 ///
 /// **契约只给 `id`，没给 `providerId`（登记 D-15）**：这里取第一个 `ready`
@@ -225,9 +232,10 @@ pub async fn meeting_summarize(app: AppHandle, id: String) -> Result<SummaryOut,
     }
 
     let providers = crate::ai::openai_compat::ai_providers(app.clone()).await?;
-    let provider = providers.into_iter().find(|p| p.ready).ok_or_else(|| {
-        "还没有可用的模型服务：请先在 AI 设置里配置并测试一个 provider".to_string()
-    })?;
+    let provider = providers
+        .into_iter()
+        .find(|p| p.ready)
+        .ok_or_else(no_provider_hint)?;
 
     let summary = crate::ai::openai_compat::ai_summarize(app.clone(), provider.id, text, None)
         .await?
@@ -235,4 +243,18 @@ pub async fn meeting_summarize(app: AppHandle, id: String) -> Result<SummaryOut,
     t.summary = Some(summary.clone());
     session_store::write_transcript(&root, &t)?;
     Ok(SummaryOut { summary })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::no_provider_hint;
+
+    /// 这条提示是给"点了摘要但没配模型"的人看的：它必须指向**真的存在**的入口。
+    /// 设置分组的标题在 `src/vue/settingsNav.ts`，改名字时两处一起改（跨语言，只能靠这条钉）。
+    #[test]
+    fn 没有可用模型时的提示指向设置里的实验室() {
+        let hint = no_provider_hint();
+        assert!(hint.contains("设置 → 实验室"), "实为：{hint}");
+        assert!(hint.contains("测试连接"), "要告诉人下一步做什么：{hint}");
+    }
 }

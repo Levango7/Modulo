@@ -201,6 +201,46 @@
         if (m) m.hasSummary = true
         return Promise.resolve({ summary })
       }
+      // —— AI 模型服务（F-12 一期，形状与 Rust 的 ai_providers / ai_set_key / ai_delete_key
+      //    逐字段一致）。配置文档由前端经 `write_doc` 落到 `modulo.__stubdoc.ai-settings.v1`；
+      //    探测结果由 `window.__STUB_AI_READY__` 决定（默认 false = 「连不上」）。
+      //    **密钥另存一格**（`modulo.__stubai.key.<id>`）：与配置文档分开，测试才能证明
+      //    "密钥确实没进文档" —— 同一个格子里存的就自证不了自己。
+      case 'ai_providers': {
+        let doc = {}
+        try {
+          doc = JSON.parse(localStorage.getItem('modulo.__stubdoc.ai-settings.v1') ?? '{}')
+        } catch {
+          doc = {}
+        }
+        const ready = window.__STUB_AI_READY__ === true
+        return Promise.resolve(
+          (doc.providers ?? []).map((p) => ({
+            id: String(p.id ?? ''),
+            kind: String(p.kind ?? ''),
+            baseUrl: String(p.baseUrl ?? ''),
+            model: String(p.model ?? ''),
+            keyConfigured: localStorage.getItem('modulo.__stubai.key.' + String(p.id)) !== null,
+            ready,
+          })),
+        )
+      }
+      case 'ai_set_key': {
+        const id = String(args?.providerId ?? '')
+        const key = String(args?.key ?? '')
+        if (!key.trim()) return Promise.reject(new Error('密钥不能为空'))
+        localStorage.setItem('modulo.__stubai.key.' + id, key)
+        return Promise.resolve(undefined)
+      }
+      case 'ai_delete_key':
+        // 凭据库被锁/拒绝访问是可发生的一路：Rust 的 `humanize` 对 NoStorageAccess 就是这么说的。
+        // 测试用它逼出「删不掉密钥就别删配置」那条分支 —— 否则只能靠读顺序猜，而顺序在 IPC
+        // 记账里量不准（`write_doc` 走串行队列，永远排在同步的 invoke 之后）。
+        if (window.__STUB_AI_DELETE_KEY_FAIL__ === true) {
+          return Promise.reject(new Error('系统凭据库被锁或拒绝访问，解锁 Windows 后再试'))
+        }
+        localStorage.removeItem('modulo.__stubai.key.' + String(args?.providerId ?? ''))
+        return Promise.resolve(undefined)
       // —— WebDAV 同步命令（形状与 Rust webdav.rs 的 8 条命令一一对应）——
       case 'webdav_probe': {
         const deny = davDeny(String(args?.user ?? ''), args?.password ?? null)
@@ -292,4 +332,6 @@
     localStorage.setItem('modulo.__stubdav.cfg', JSON.stringify({ ...davCfg(), ...patch }))
   /** 凭据库里存的那条原文（只有测试用它来证明"口令确实进过这条通道"，界面从不读它） */
   window.__STUB_DAV_CRED__ = davCred
+  /** AI 探测结果的开合：true = `GET /models` 通（`ready:true`），false = 连不上 */
+  window.__STUB_AI_READY__ = false
 })()

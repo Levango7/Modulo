@@ -13,6 +13,7 @@ import type { StorageAdapter } from '../store'
 import BackupSection from './BackupSection.vue'
 import SyncSection from './SyncSection.vue'
 import SchemesSection from './SchemesSection.vue'
+import AiLabSection from './AiLabSection.vue'
 import VersionSection from './VersionSection.vue'
 import type { AppearanceApi } from '../useAppearance'
 import type { RemindersApi } from '../useReminders'
@@ -28,7 +29,7 @@ const panelEl = ref<HTMLElement | null>(null)
 useFocusTrap(panelEl)
 
 /**
- * 六个分组（F-10）。**导航本身不落盘**：设置页停在哪一组不值得一个存储键，
+ * 分组（F-10 六组，F-12 加「实验室」后桌面七组）。**导航本身不落盘**：设置页停在哪一组不值得一个存储键，
  * 也不该被带进备份 —— 每次打开回第一组是"可预期"的那一边。
  */
 const groups = visibleGroups(isDesktop)
@@ -102,7 +103,7 @@ onBeforeUnmount(stopRecord)
       <div class="body">
         <!--
           分组导航。窄屏时它变成一条可以横向滚动的标签条，**不折叠成下拉** ——
-          下拉会把"设置一共分六组"这个事实藏起来，而那正是这轮改版要解决的问题之一。
+          下拉会把"设置一共分几组"这个事实藏起来，而那正是这轮改版要解决的问题之一。
         -->
         <nav class="nav" aria-label="设置分组">
           <button
@@ -267,6 +268,10 @@ onBeforeUnmount(stopRecord)
               <p v-else class="hint">快捷键是系统级的，窗口不在前台也能用。注册失败只影响那一条，其余功能照常。</p>
               <p v-if="shell.shortcutError.value" class="error" role="alert">{{ shell.shortcutError.value }}</p>
             </section>
+          </template>
+
+          <template v-else-if="active === 'lab' && isDesktop">
+            <AiLabSection />
           </template>
 
           <template v-else-if="active === 'about'">

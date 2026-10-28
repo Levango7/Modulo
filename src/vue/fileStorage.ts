@@ -5,6 +5,7 @@ import { isDesktop } from './useShell'
 import { AUTO_INDEX_KEY, AUTO_SLOT_COUNT, autoSlotKey } from './useBackup'
 import { REMINDERS_KEY } from './useReminders'
 import { MIGRATE_BACKUP_KEY } from './migrate'
+import { AI_DOC_KEY } from './aiSettings'
 
 /**
  * 桌面壳的数据落盘。
@@ -59,6 +60,11 @@ export const DATA_KEYS: readonly string[] = [
   // 首启引导是否了结（`onboarding.ts`，2026-10-28）：`{done, skipped, at}`。**不进备份/同步** ——
   // 它记的是"这台机器看过没有"，搬到新机器上要么跳过引导、要么在老机器上重弹，两种都不对。
   'modulo.onboarding.v1',
+  // AI 模型服务的配置（F-12 一期，2026-10-29）：`{providers:[{id,kind,baseUrl,model}]}`。
+  // **键名不是 `modulo.*`** —— Rust 按 `ai::settings::SETTINGS_DOC`（`ai-settings.v1`）
+  // 直读 `data/ai-settings.v1.json`，这里必须一字不差，否则"界面写进去了、Rust 读不到"。
+  // 密钥不在这个文件里：它只进系统凭据库（`ai_set_key`）。也不进备份/同步（一期）。
+  AI_DOC_KEY,
 ]
 
 

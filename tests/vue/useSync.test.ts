@@ -286,8 +286,19 @@ describe('口令不落盘、只在显式勾选时进凭据库', () => {
     const { sync, storage } = setup()
     await sync.syncNow()
     const raw = storage.map.get('modulo.sync.v1') ?? ''
-    expect(raw).not.toContain('pw')
-    expect(raw.toLowerCase()).not.toContain('password')
+    const doc = JSON.parse(raw) as Record<string, unknown>
+    // 逐字段核对，不做整段文本的子串扫描：deviceId 是 base36 随机串（字母表里有 p 和 w），
+    // 整段扫 'pw' 会以约 0.5% 的概率撞在**自己刚生成的设备标识**上 —— 2026-10-29 实红过一次
+    // （PR #209 的文档核对腿），红了还看不出是假红。
+    expect(Object.keys(doc).sort()).toEqual(['auto', 'deviceId', 'endpoint', 'lastSyncAt', 'remember', 'stamps', 'user'])
+    // 字段白名单挡得住"新增一个装口令的键"，但挡不住"塞进现成的字符串字段里"，两个都要
+    const leaves: string[] = []
+    const walk = (v: unknown): void => {
+      if (typeof v === 'string') leaves.push(v)
+      else if (v !== null && typeof v === 'object') Object.values(v as Record<string, unknown>).forEach(walk)
+    }
+    walk(doc)
+    expect(leaves).not.toContain('pw') // setup() 里填进内存的那份口令
   })
 
   it('勾「记住口令」才写凭据库；取消勾选会清掉', async () => {
