@@ -10,7 +10,7 @@
  *  ⑤ 直接改 `state`（卡组件的 v-model 路径）与走 API 一样被记录。
  */
 import { describe, expect, it } from 'vitest'
-import { reactive } from 'vue'
+import { reactive, watch } from 'vue'
 import { createFallbackCardData } from '../../src/vue/cardDataFallback'
 import { createContentHistory } from '../../src/vue/contentHistory'
 
@@ -121,5 +121,35 @@ describe('内容级撤销', () => {
     const { hist } = setup()
     expect(hist.undo()).toBe(false)
     expect(hist.redo()).toBe(false)
+  })
+
+  /**
+   * 2026-10-29：E2E 抓出来的缺陷（`apply()` 用 `toRaw(state)` 回填）。
+   * 直接写原始对象**不过 Proxy，一个依赖都不触发** —— 数据确实变了（上面几条读 `state`
+   * 的断言因此全绿），但界面不刷新、`cardData` 的落盘 watch 也不响：**刷新一下撤销就没了**。
+   * 这里用一个 deep + sync 的观察者模拟那两个下游（组件渲染 / 落盘 watch），它必须响。
+   */
+  it('回填必须走响应式：撤销之后依赖 state 的观察者要被触发（界面与落盘都靠这一下）', () => {
+    const { state, hist } = setup()
+    const start = state.sticky
+    let fired = 0
+    let seen = start
+    watch(
+      () => state,
+      () => {
+        fired++
+        seen = state.sticky
+      },
+      { deep: true, flush: 'sync' },
+    )
+
+    state.sticky = '改动一'
+    hist.flush()
+    const afterEdit = fired
+    expect(afterEdit, '前置：用户自己的改动本来就会被观察到').toBeGreaterThan(0)
+
+    expect(hist.undo()).toBe(true)
+    expect(fired, '撤销的回填必须触发依赖（写 toRaw 时这里是 0，界面与落盘都收不到）').toBeGreaterThan(afterEdit)
+    expect(seen, '观察者读到的是撤销后的值').toBe(start)
   })
 })
