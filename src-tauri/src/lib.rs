@@ -31,9 +31,9 @@ mod webdav;
 
 use tauri::{AppHandle, Manager, WindowEvent};
 
-mod storage;
 /// 原生卡的 cards 目录扫描（只列读，判定在 TS 引擎 —— 见模块头）
 mod extcards;
+mod storage;
 
 /// 点关闭是「收进托盘」还是「直接退出」。默认退出 —— Windows 会把新出现的托盘图标
 /// 塞进溢出浮层，默认藏进去等于把用户关在门外。开关由前端持久化并在启动时推过来。

@@ -97,7 +97,7 @@ mod tests {
         dir
     }
 
-    fn drop_fixture(dir: &PathBuf) {
+    fn drop_fixture(dir: &Path) {
         let _ = fs::remove_dir_all(dir);
     }
 
