@@ -84,7 +84,7 @@ pub fn extcards_scan(app: AppHandle) -> Result<Vec<ScannedPack>, String> {
 mod tests {
     use super::scan_cards_dir;
     use std::fs;
-    use std::path::PathBuf;
+    use std::path::{Path, PathBuf};
 
     /// 每条测试一个独立名字：Rust 测试默认并行，共享同一个临时路径会互相踩。
     fn fixture(name: &str) -> PathBuf {
