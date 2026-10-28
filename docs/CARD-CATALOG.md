@@ -358,6 +358,23 @@ parseLayout 清除并留告警），状态连着卡一起清。**网页版与桌
 structuredClone 拒收 Proxy（DataCloneError，应答永远发不出去）→ JSON 往返剥离；③ 注册表
 静态值会让「导入后加卡」查无此模块 → reactive 数组 + 原地 splice。
 
+**2026-10-28 补：不加卡的两件事（注册表仍 55）** ——
+
+- **桥改 default-deny**：三方法（getState / setState / notify）从「注册即给」改成按 manifest 的
+  `permissions` 授权（缺省 = 空集）；未声明的方法桥**显式拒绝**并指回 manifest —— 走 resolve 而非
+  reject，因为卡里的 `await bridge.xxx()` 是常态路径，reject 会变成卡作者看不见的 unhandled
+  rejection，显式拒绝是控制台里一眼能懂的反馈。方法白名单（桥有哪些方法）与权限声明（这份卡包
+  能用哪些）刻意分两层：新加桥方法不必回头改所有老卡包的 manifest，授权的扩张永远朝卡包一侧。
+- **桌面端 cards 目录扫描**：新增 `extcards_scan` 命令，扫应用数据目录下的 `cards/` 文件夹，逐份把
+  `card.json` 交给**已有的**导入判定（≤ 32 个卡包、单包 ≤ 64 KiB，超限的那一份记拒因、不连坐）。
+  Rust 只管读盘与上限，**判定零下沉** —— 拒因文案与粘贴导入同一套，两条进库路径不会出现两种措辞；
+  网页版没有这个入口（只留粘贴导入）。
+- **覆盖与已知缺口**：判定层 `tests/engine/extcard.test.ts` 加到 27 条、新增
+  `tests/vue/extcardScan.test.ts` 5 条（扫描落袋的逐份拒因与三态摘要）、Rust `extcards.rs` +5 条。
+  桌面扫描路径**没有 E2E**：往真浏览器注 Tauri 桩所需的动态执行（`new Function` / 读桩注入）被本仓
+  安全钩判为代码注入而拦截 —— 钩子该干的，不绕 —— 该路径由判定层单测 + Rust 单测 + 真机兜底扛；
+  网页形态的入口隐藏（`isDesktop` 为假时扫描钮不渲染）则进了 E2E。
+
 ## 状态
 
 - 批次 1 ✅ 已交付（四张卡 + 天气，0.4.0 已发）
@@ -381,6 +398,7 @@ structuredClone 拒收 Proxy（DataCloneError，应答永远发不出去）→ J
   桌面能力卡，网页版如实降级。
 - 批次 7 ✅ 已交付 1 张（原生卡，注册表 54 → **55**）——
   扩展路线第三层收官：声明式 → HTML → 原生卡三层全部落地。
+  2026-10-28 另补桥 default-deny 权限层与 cards 目录扫描（**不加卡**，注册表仍 55，见上节）。
 
 **55 张全部有正文小节，清单与正文一致**；数字以首行那句 + `src/vue/cardRegistry.ts`
 为准（这两处由 `npm run docs:check` 守着）。
