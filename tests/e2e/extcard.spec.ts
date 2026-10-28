@@ -11,13 +11,16 @@
  *   ⑤ 刷新后状态还在（extState 持久化）、版面还在（ext 段随注册表重建）；
  *   ⑥ 卸载后版面上的实例按引擎「未知模块」口径退场（已收起 / 刷新清除），状态一并清。
  *
- * 另两条钉权限声明面与扫描面：
+ * 另三条钉权限声明面与扫描面：
  *   ⑦ 未声明 permissions 的卡包：桥给**显式拒绝**并指回 manifest —— 与白名单外的
  *      静默是两件事（那是防枚举探测，这是给卡包作者的话术）；
  *   ⑧ 网页形态下扫描入口按 isDesktop **隐藏**（同浮窗入口的约定）+ 一句降级说明 ——
  *      桌面态那半（invoke → 落袋循环 → 摘要）的钉子在 tests/vue/extcardScan.test.ts
  *      与 cargo 单测 scan_cards_dir：E2E 跑桌面态须注 Tauri 桩，与本仓安全钩的
  *      动态执行禁令冲突，注不进来。
+ *   ⑨ 只声明 `notify`（不声明 `state`）的卡包：notify 放行并 ok 应答、state 照拒 ——
+ *      权限声明面**按方法逐条**，不是「声明一个就全开」；应答 ok 不断言系统通知真
+ *      投递（网页形态投递层按 §12.16 静默降级，「坏了不反噬」是设计取舍）。
  */
 import { describe, expect, it } from 'vitest'
 import puppeteer from 'puppeteer-core'
@@ -341,6 +344,69 @@ describe.skipIf(skip)('原生卡：导入、入库、上版与桥', () => {
         ),
         '要有降级说明，告诉网页用户这功能在哪',
       ).toBe(true)
+    } finally {
+      await browser.close()
+    }
+  })
+
+  it('只声明 notify：桥放行并 ok 应答，state 照拒（声明面按方法逐条）', async () => {
+    const { browser, page } = await openManager()
+    try {
+      // 这份卡包**只声明 notify**：徽章「通知」，上版渲染照旧（声明只管桥，不管渲染）
+      const pack = JSON.stringify({
+        id: 'notifier',
+        title: '通知卡',
+        group: '演示',
+        blurb: '声明了 notify 权限',
+        html: '<b id="t">通知</b>',
+        permissions: ['notify'],
+        variants: [{ id: 'std', name: '标准', minW: 2, minH: 2, idealW: 3, idealH: 3 }],
+      })
+      await typeJson(page, pack)
+      await page.evaluate(() => document.querySelector<HTMLElement>('.xcard .xok')?.click())
+      await wait(600)
+      expect(
+        await page.evaluate(() => document.querySelector('.xcard .xperm')?.textContent?.trim() ?? ''),
+        '徽章按声明显示「通知」',
+      ).toBe('通知')
+
+      // 上板成运行态
+      await enterLayout(page)
+      await page.evaluate(() => document.querySelector<HTMLElement>('.add-cat')?.click())
+      await wait(300)
+      const added = await page.evaluate(() => {
+        const el = [...document.querySelectorAll<HTMLElement>('.add-menu [role=menuitem]')].find((x) =>
+          (x.textContent || '').includes('通知卡'),
+        )
+        el?.click()
+        return !!el
+      })
+      expect(added, '声明 notify 的卡包照常上版').toBe(true)
+      await wait(400)
+      await saveLayout(page)
+      await wait(800)
+      expect(await page.evaluate(() => document.querySelectorAll('.xframe').length), '运行态 iframe 照常渲染').toBe(1)
+
+      const frames = page.frames().filter((f) => f !== page.mainFrame())
+      const frame = frames[frames.length - 1]
+      // notify 放行 + ok 应答。**不断言系统通知真投递**：网页形态下投递层按 §12.16
+      // 静默降级（无插件 / 非桌面）；桥应答 ok:true 不反映投递成败 —— 与 notify.ts
+      // 「坏了不反噬」同一条设计取舍，不把宿主投递状态漏给卡包。
+      const sent = await frame.evaluate(() =>
+        (window as unknown as {
+          MODULO: { bridge: { notify: (t: string) => Promise<{ ok: boolean; value: unknown }> } }
+        }).MODULO.bridge.notify('你好'),
+      )
+      expect(sent.ok, '声明了 notify：桥放行并应答 ok').toBe(true)
+      expect(sent.value, 'notify 的应答值是 null（它不是数据回读）').toBeNull()
+
+      // 同一份卡包没声明 state：getState 仍被拒 —— 声明面是**按方法逐条**的，
+      // 「声明一个就全开」正是两层分离要防的形状（§12.37）。
+      const denied = await frame.evaluate(() =>
+        (window as unknown as { MODULO: { bridge: { getState: () => Promise<{ ok: boolean; error?: string }> } } }).MODULO.bridge.getState(),
+      )
+      expect(denied.ok, '未声明 state：getState 照拒').toBe(false)
+      expect(denied.error ?? '', '拒绝原因依旧指回 manifest').toContain('未声明权限')
     } finally {
       await browser.close()
     }
