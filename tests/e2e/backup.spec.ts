@@ -7,6 +7,13 @@
  * **挂载时刷新**（P0-③ 修的那个 bug：刚生成的自动备份曾要手点一次「刷新」才出现）
  * 没有被自动化覆盖。这个文件只证那半条：**在真实浏览器里，模板层与挂载刷新真的发生**。
  *
+ * 2026-10-29 再加两条（文件末尾）：**每日**与**版本变化**这两种启动判定此前只有单测 ——
+ * 单测测的是 `initAutoBackup` 这个纯判定，而"启动时真的跑了、且只跑一份"取决于 App 的
+ * 挂载时机、hydrate 有没有把种下去的索引搬到盘上、界面列表有没有跟上。这两条用**种索引**
+ * 逼出两种判定（不用改产品代码、也不用冻时钟）：旧的那份留着、新的一份按判据追加，
+ * 并且断言「换版」那条**早退**（不同时补一份每日）—— 早退不写下来，下次有人把
+ * `pre-upgrade` 的 `return` 去掉，界面上只是多一行没人看出来的备份。
+ *
  * 桌面形态：自动备份整条链要求 `isDesktop`（`'__TAURI_INTERNALS__' in window`），
  * 所以走 `tests/e2e/tauri-stub.js` 的桩（`__TAURI_INTERNALS__` + `read_doc`/`write_doc`
  * 都由会议历史那批 E2E 供上了，本文件不需要扩桩）。桌面形态的「盘」就是桩背后的
@@ -126,6 +133,25 @@ const waitStartupBaseline = (page: Page) =>
   page.waitForFunction(() => localStorage.getItem('modulo.__stubdoc.modulo.autobackup.index.v1') !== null, {
     timeout: 15000,
   })
+
+/**
+ * 等盘上的自动备份索引长到 n 条。启动补哪一份是在 App.onMounted 里发生的 ——
+ * 等条件成立再断言，否则断言的是"开得比启动快"（本机负载下这种假绿/假红都出现过）。
+ */
+const waitIndexLen = (page: Page, n: number) =>
+  page.waitForFunction(
+    (want: number) => {
+      const raw = localStorage.getItem('modulo.__stubdoc.modulo.autobackup.index.v1')
+      if (!raw) return false
+      try {
+        return (JSON.parse(raw) as unknown[]).length === want
+      } catch {
+        return false
+      }
+    },
+    { timeout: 15000 },
+    n,
+  )
 
 async function openSettings(page: Page): Promise<void> {
   await page.click('button.wide[title="外观设置"]')
@@ -377,6 +403,68 @@ describe.skipIf(skip)('F-04 自动备份：设置面板链（Tauri 桩，桌面�
     expect(await page.evaluate(() => !!document.querySelector('.confirm')), '读不出来就不进确认块').toBe(false)
     expect(await disk(page, 'modulo.carddata.v1'), '数据没动').toBe(cardBefore)
     expect(await readIndex(page), '索引没动').toEqual(idxBefore)
+    expect(errs, `页面不该有报错：${errs.join(' | ')}`).toEqual([])
+  })
+
+  it('最近一份超过 24 小时 → 启动补一份「每日」；旧的留着，槽往后排而不是覆盖', async () => {
+    const errs: string[] = []
+    const ago25h = new Date(Date.now() - 25 * 60 * 60 * 1000).toISOString()
+    const seeded = JSON.stringify([
+      { slot: 0, at: ago25h, reason: 'daily', app: APP_VERSION, version: 2, bytes: 2048 },
+    ])
+    const page = await freshPage({ cardData: JSON.stringify(CARD_DATA), autoIndex: seeded }, errs)
+
+    await waitStartupBaseline(page)
+    await waitIndexLen(page, 2)
+
+    const idx = await readIndex(page)
+    expect(idx, '旧的一份 + 这次启动补的一份').toHaveLength(2)
+    expect(idx.filter((m) => m.reason === 'daily'), '两份都是每日：旧的本来就是，新的是这次补的').toHaveLength(2)
+    expect(idx.map((m) => m.slot).sort((a, b) => a - b), '槽 0 已占 → 新的落到槽 1（环形没满时不覆盖最老的）').toEqual([0, 1])
+    const byAt = [...idx].sort((a, b) => Date.parse(b.at) - Date.parse(a.at))
+    expect(Date.parse(byAt[0].at), '新的一份晚于 25 小时前那份').toBeGreaterThan(Date.parse(ago25h))
+    // 槽内容也真的写了，不是只改了索引
+    const raw = await disk(page, `modulo.autobackup.slot.${byAt[0].slot}.v1`)
+    expect(JSON.parse(raw ?? '{}') as { kind?: string; app?: string }).toMatchObject({
+      kind: 'modulo.backup',
+      app: APP_VERSION,
+    })
+
+    await openSettings(page)
+    await page.waitForSelector('.auto-list li', { timeout: 10000 })
+    const items = await listItems(page)
+    expect(items, '界面两条').toHaveLength(2)
+    expect(items[0], '最新一条标「每日」').toMatch(/每日/)
+    expect(errs, `页面不该有报错：${errs.join(' | ')}`).toEqual([])
+  })
+
+  it('盘上都是上一个版本留的备份 → 启动补一份「版本变化」，且不再同时补一份「每日」（早退）', async () => {
+    const errs: string[] = []
+    // 两个条件**同时**成立：超过 24 小时 + 版本不是当前版本。两条都该触发，
+    // 但 `initAutoBackup` 里 pre-upgrade 先判并 return —— 这份"只补一份"就是那个 return 的钉子。
+    const ago25h = new Date(Date.now() - 25 * 60 * 60 * 1000).toISOString()
+    const seeded = JSON.stringify([
+      { slot: 2, at: ago25h, reason: 'daily', app: '0.0.1', version: 2, bytes: 2048 },
+    ])
+    const page = await freshPage({ cardData: JSON.stringify(CARD_DATA), autoIndex: seeded }, errs)
+
+    await waitStartupBaseline(page)
+    await waitIndexLen(page, 2)
+
+    const idx = await readIndex(page)
+    // 早退的机械证据：只多一份。把 pre-upgrade 那个 return 去掉就会变成 3 份。
+    expect(idx, '只补一份 —— 换版判定早退，没有再叠一份每日').toHaveLength(2)
+    expect(idx.filter((m) => m.reason === 'daily'), '上一个版本留下的每日那份原样留着').toHaveLength(1)
+    const byAt = [...idx].sort((a, b) => Date.parse(b.at) - Date.parse(a.at))
+    expect(byAt[0].reason, '最新一份是换版留的').toBe('pre-upgrade')
+    expect(byAt[0].app, '记的是当前版本').toBe(APP_VERSION)
+    expect(idx.map((m) => m.slot).sort((a, b) => a - b), '槽 2 已占 → 新的落到槽 0').toEqual([0, 2])
+
+    await openSettings(page)
+    await page.waitForSelector('.auto-list li', { timeout: 10000 })
+    const items = await listItems(page)
+    expect(items, '界面两条').toHaveLength(2)
+    expect(items[0], '最新一条标「版本变化」').toMatch(/版本变化/)
     expect(errs, `页面不该有报错：${errs.join(' | ')}`).toEqual([])
   })
 })
