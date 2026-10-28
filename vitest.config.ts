@@ -109,6 +109,10 @@ const GATED_VUE_MODULES = [
   // 两条都不开浏览器也能断言（假传输 + 内存存储驱动），符合纳入判据。
   'src/vue/syncStore.ts',
   'src/vue/useSync.ts',
+  // 原生卡目录扫描（2026-10-28）：落袋循环是纯判定，同 moduleFilter/instanceData 的理由
+  // 单独成文件 —— 组件那半（按钮 + invoke）在桌面态，E2E 注 Tauri 桩与本仓安全钩的
+  // 动态执行禁令冲突，跑不了；Rust 侧 scan_cards_dir 由 cargo 单测兜底。
+  'src/vue/extcardScan.ts',
 ]
 
 /** 仓库内按源码解析引擎包（与 vite.config.ts 同一条约定） */
@@ -214,6 +218,9 @@ export default defineConfig({
         // 按实例取数（F-01 阶段 2，2026-10-28）：分支数在写完用例后由 `coverage-summary.json`
         // 实测回填，锁 100 —— 以后这里长出 if / 兜底而没测，当场红。
         'src/vue/instanceData.ts': { branches: 100 },
+        // 原生卡目录扫描（2026-10-28）：落袋循环 5 条断言钉满（装 / 跳 / 空目录 / 摘要两支），
+        // 分支数写完用例后由 `coverage-summary.json` 实测回填，锁 100。
+        'src/vue/extcardScan.ts': { branches: 100 },
         // App.vue 拆分②（2026-10-23）：三个 composable，26 条断言，全量套件实测回填：
         //   useEditTransaction 8/8 —— 快照/保存/取消/还原状态机全钉住，含"快照已清"
         //                   时确认取消的防御路径（界面到不了、composable 层可达，不演戏）；

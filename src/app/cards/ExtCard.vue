@@ -25,22 +25,31 @@
  *                              同一道总门：只在桌面壳、且设置里开着系统通知时投递；
  *                              应答恒 ok（投递是尽力而为，失败不回滚用户动作）。
  *
+ *   三个方法都要卡包在 manifest 的 `permissions` 里声明（`state` / `notify`，
+ *   缺省 = 空集）：没声明的方法回**显式拒绝**并指回 manifest。方法白名单
+ *   （parseBridgeRequest）管"桥有哪些方法"，权限声明管"这份卡包能用哪些"，
+ *   两层都在引擎里，这里是接线点。
+ *
  * **桥应答的 targetOrigin 只能是 '*'**（opaque origin 无法指定目标）—— 与 sendInit
  * 同一条注释的理由：安全性靠出站内容（只回该扩展自己的状态与确认），不靠出站地址。
  */
 import { computed, inject, onBeforeUnmount, ref, watch } from 'vue'
-import { Plus, Trash2 } from 'lucide-vue-next'
+import { FolderOpen, Plus, Trash2 } from 'lucide-vue-next'
 import {
   MAX_EXT_CARDS,
+  bridgeAllowed,
   bridgeReply,
   extModuleId,
   isExtModule,
   parseBridgeRequest,
+  permissionDeniedMessage,
   type ExtCard as ExtCardDef,
+  type ExtPermission,
 } from '@levango7/engine/extcard'
 import { isExtMessage, snippetLiteral } from '@levango7/engine/htmlcard'
 import { sendSystemNotifications, shouldSendSystemNotification } from '../../vue/notify'
 import { isDesktop } from '../../vue/useShell'
+import { importScanned, scanSummaryText, type ScannedPack } from '../../vue/extcardScan'
 import type { CardDataApi } from '../../vue/cardData'
 
 const props = defineProps<{ variant: string; chromeless?: boolean; moduleId?: string }>()
@@ -72,6 +81,40 @@ function clearError(): void {
 }
 function remove(id: string): void {
   cards.removeExtCard(id)
+}
+
+const scanning = ref(false)
+const scanSummary = ref('')
+const scanSkips = ref<string[]>([])
+
+/**
+ * 扫描 appData 下的 cards 目录。**点按钮即授权** —— 不做启动自动扫描：自动扫等于
+ * 替用户授权一批未知的卡包。落袋循环在 `extcardScan.ts`（纯判定，单测钉着），
+ * 这里只管 invoke 与 UI 状态。
+ */
+async function scanCards(): Promise<void> {
+  if (!isDesktop || scanning.value) return
+  scanning.value = true
+  scanSummary.value = ''
+  scanSkips.value = []
+  try {
+    // 动态 import：这张卡在主包里，静态引入会把 tauri 壳塞进网页版首屏（同 useSync 的理由）
+    const { invoke } = await import('@tauri-apps/api/core')
+    const packs = await invoke<ScannedPack[]>('extcards_scan')
+    const out = importScanned(packs, cards)
+    scanSkips.value = out.skips
+    scanSummary.value = scanSummaryText(out)
+  } catch (e) {
+    scanSummary.value = `扫描失败：${String(e)}`
+  } finally {
+    scanning.value = false
+  }
+}
+
+/** 权限徽章：让用户一眼看懂"为什么我的卡记不住状态 / 发不出通知" */
+function permLabel(perms: readonly ExtPermission[]): string {
+  if (perms.length === 0) return '未声明权限'
+  return perms.map((p) => (p === 'state' ? '状态' : '通知')).join(' + ')
 }
 
 /* ---------------- 运行态 ---------------- */
@@ -182,6 +225,13 @@ function onMessage(e: MessageEvent): void {
   if (!isExtMessage(e.data, e.source, win)) return
   const req = parseBridgeRequest(e.data.payload)
   if (!req) return
+  // 权限声明面：在方法白名单（白名单外不回话）之后、dispatch 之前。没声明该方法
+  // 所需权限的卡包拿到**显式拒绝**并指回 manifest —— 与白名单外的静默是两件事：
+  // 那是防枚举探测，这是给卡包作者的话术。
+  if (!bridgeAllowed(ext.value.permissions, req.method)) {
+    reply(req.rid, false, undefined, permissionDeniedMessage(req.method))
+    return
+  }
   const id = ext.value.id
   if (req.method === 'getState') {
     // **必须先剥掉 Vue 的响应式代理**：postMessage 走 structuredClone，Proxy 不可克隆
@@ -219,6 +269,7 @@ watch(
     <div v-if="installed.length" class="xlist">
       <div v-for="c in installed" :key="c.id" class="xrow">
         <span class="xname">{{ c.title }}</span>
+        <span class="xperm" :title="c.permissions.length ? 'manifest 里声明的宿主能力' : 'manifest 没写 permissions —— 桥调用会被拒'">{{ permLabel(c.permissions) }}</span>
         <span class="xmeta">{{ c.group }} · {{ c.variants.length }} 个形态</span>
         <button class="xdel" title="卸载这张扩展卡（版面上的实例刷新后消失）" @click="remove(c.id)">
           <Trash2 :size="12" />
@@ -226,7 +277,7 @@ watch(
       </div>
       <p class="xtip">装好的卡在「添加卡片」里，按分组归位；卸载后它的状态一并清除。</p>
     </div>
-    <p v-else class="xempty">还没有装任何卡包。把卡包 JSON 粘到下面，导入后它会成为一张普通卡片。</p>
+    <p v-else class="xempty">还没有装任何卡包。把卡包 JSON 粘到下面，或在桌面壳里把卡包文件夹放进 cards 目录再扫。</p>
 
     <div class="ximport">
       <textarea
@@ -240,7 +291,17 @@ watch(
       <p v-if="errorMsg" class="xerr">{{ errorMsg }}</p>
       <div class="xrowbtn">
         <button class="xok" :disabled="!draftJson.trim()" @click="importPack"><Plus :size="11" /> 导入卡包</button>
-        <span class="xtip">沙箱隔离：碰不到应用数据；桥只有读写自身状态与发通知</span>
+        <!-- 桌面独占入口按 isDesktop **隐藏**而不是禁用 —— 与浮窗入口同一条约定：
+        网页版给一个点不动的死按钮，不如一句「这功能在哪」。 -->
+        <button v-if="isDesktop" class="xok" :disabled="scanning" title="扫描应用数据目录下的 cards 文件夹" @click="scanCards">
+          <FolderOpen :size="11" /> {{ scanning ? '扫描中…' : '扫描 cards 目录' }}
+        </button>
+        <span class="xtip">沙箱隔离：碰不到应用数据；桥只有读写自身状态与发通知，且要卡包声明</span>
+      </div>
+      <p v-if="!isDesktop" class="xtip">扫描是桌面壳的功能（读应用数据目录里的卡包文件夹）；网页版用上面的粘贴导入。</p>
+      <p v-if="scanSummary" class="xtip">{{ scanSummary }}</p>
+      <div v-if="scanSkips.length" class="xskips">
+        <p v-for="(s, i) in scanSkips" :key="i" class="xerr">跳过 {{ s }}</p>
       </div>
     </div>
   </div>
@@ -311,6 +372,25 @@ watch(
   color: var(--text-4);
   margin-left: auto;
   white-space: nowrap;
+}
+.xperm {
+  flex: none;
+  font-size: 10px;
+  color: var(--text-4);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-sm);
+  padding: 0 4px;
+  white-space: nowrap;
+}
+.xskips {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  max-height: 72px;
+  overflow: auto;
+}
+.xskips .xerr {
+  font-size: 10px;
 }
 .xdel {
   display: grid;
