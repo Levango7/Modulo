@@ -626,6 +626,19 @@ describe.skipIf(skip)('多端同步：设置面板链（Tauri 桩 + 网盘桩，
     await page.reload({ waitUntil: 'networkidle2' })
     await installHelpers(page)
     await openSettings(page)
+    // reload 后 init() 是在本节 onMounted 里**重跑**的：`hasStored.value = await credStatus`
+    // 是异步一跳，而 syncNow 的前置门 `!password.value && !hasStored.value` 是同步读。
+    // 点早了会被门挡下（状态行变「先输入一次口令…」），白等 15 秒超时 —— 这条测试
+    // 2026-10-28 在 master 首跑上连红两次就是踩在这里（面板挂载与 credStatus resolve 的
+    // 先后会被调度噪声翻面）。占位文案是 hasStored 的镜像（见上面那条断言），等它翻回来
+    // 再点，等于"用户看到凭据库可用之后才动手"，顺序就此钉死。
+    await page.waitForFunction(
+      () =>
+        ((window as any).__SEC__()!.querySelector('input[type="password"]') as HTMLInputElement).placeholder.includes(
+          '已保存在系统凭据库',
+        ),
+      { timeout: 15000 },
+    )
     const pwValue = await page.evaluate(() => ((window as any).__SEC__()!.querySelector('input[type="password"]') as HTMLInputElement).value)
     expect(pwValue, 'reload 后渲染层手里没有口令').toBe('')
 
