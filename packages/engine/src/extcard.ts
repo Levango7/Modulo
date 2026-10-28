@@ -20,6 +20,10 @@
  *   信封三查（来源 / 标记 / 朴素 JSON）仍由宿主侧的 `isExtMessage` 承担。
  * - 能力面刻意小：getState / setState / notify 三个方法，**没有**"执行任意命令 /
  *   读任意数据"的方法 —— 能力每扩一个都要在这里过一遍理由，不是在组件里顺手加。
+ * - 桥的能力是**声明式**的：卡包在 manifest 的 `permissions` 里声明要用哪些宿主能力
+ *   （`state` / `notify`），缺省是空集 —— 没声明的卡包桥调用被显式拒绝并给话术
+ *   （`bridgeAllowed` / `permissionDeniedMessage`）。方法白名单管"桥有哪些方法"，
+ *   权限声明管"这份卡包能用哪些方法"，两层各管各的，别并成一个。
  * - manifest 是粘贴进来的**不可信数据**：`parseExtManifest` 逐字段校验并给一句人话原因，
  *   `sanitizeExtCards` 丢坏条、去重、砍上限 —— 与其它名单同一套骨架。
  * - 状态按**扩展**共享而不是按实例：与「卡内容按模块共享」的既有口径一致
@@ -43,6 +47,12 @@ export const MAX_EXT_MIN_H = 12
 export const MAX_EXT_STATE_BYTES = 16_384
 /** notify 的正文上限（截断，不拒绝） */
 export const MAX_EXT_NOTICE = 200
+/**
+ * 桥的权限令牌：卡包在 manifest 的 `permissions` 里声明自己要用哪些宿主能力。
+ * 合法值只有两个，且重复声明会被拒 ⇒ 这个数组天然不会超过 2 项，不必另设上限。
+ */
+export type ExtPermission = 'state' | 'notify'
+export const EXT_PERMISSIONS: readonly ExtPermission[] = ['state', 'notify']
 /** 扩展卡的模块 id 前缀：`ext:<id>`。冒号在浮窗 label 的允许字符集里（`floatwin.rs`） */
 export const EXT_PREFIX = 'ext:'
 /** 管理卡（导入 / 删除扩展卡的地方）的模块 id —— 与其它内置卡一样是静态注册表的一员 */
@@ -57,6 +67,8 @@ export interface ExtCard {
   blurb: string
   variants: VariantDef[]
   html: string
+  /** 声明的宿主能力（桥权限）。**空数组 = 什么都没声明**（default-deny），不是 bug */
+  permissions: ExtPermission[]
 }
 
 /** 卡包 id：小写字母开头的小写字母/数字/连字符。它会进实例 id（`ext:<id>:2`）与浮窗 label，字符集必须安全 */
@@ -64,6 +76,41 @@ const EXT_ID_RE = /^[a-z][a-z0-9-]{0,23}$/
 
 function intIn(v: unknown, lo: number, hi: number): v is number {
   return typeof v === 'number' && Number.isInteger(v) && v >= lo && v <= hi
+}
+
+/**
+ * manifest 的 permissions 字段。**缺省 = 空集**（default-deny：没声明就什么宿主能力都
+ * 没有，卡包仍正常渲染 —— 权限只管桥，不卡渲染）。填了就必须全对：非数组 / 非字符串 /
+ * 未知令牌 / 重复声明都给一句指回合法值 —— 与 id / variants 同一套"给原因不改写"的口径。
+ */
+function parseExtPermissions(
+  raw: unknown,
+): { ok: true; perms: ExtPermission[] } | { ok: false; reason: string } {
+  if (raw === undefined) return { ok: true, perms: [] }
+  if (!Array.isArray(raw)) {
+    return {
+      ok: false,
+      reason: `permissions 若填则必须是字符串数组（可选值：${EXT_PERMISSIONS.map((p) => `"${p}"`).join(' / ')}）`,
+    }
+  }
+  const perms: ExtPermission[] = []
+  const seen = new Set<ExtPermission>()
+  for (const item of raw) {
+    if (typeof item !== 'string') {
+      return { ok: false, reason: 'permissions 的每一项必须是字符串（可选值："state" / "notify"）' }
+    }
+    if (!EXT_PERMISSIONS.includes(item as ExtPermission)) {
+      return {
+        ok: false,
+        reason: `permissions 含未知权限 "${item}"：只支持 "state"（读写自身状态）/ "notify"（发系统通知）`,
+      }
+    }
+    const p = item as ExtPermission
+    if (seen.has(p)) return { ok: false, reason: `permissions 重复声明了 "${p}"` }
+    seen.add(p)
+    perms.push(p)
+  }
+  return { ok: true, perms }
 }
 
 export type ExtManifestResult = { ok: true; card: ExtCard } | { ok: false; reason: string }
@@ -92,6 +139,8 @@ export function parseExtManifest(raw: unknown): ExtManifestResult {
   if (html.length > MAX_EXT_HTML_BYTES) {
     return { ok: false, reason: `html 太长（${html.length} 字符，上限 ${MAX_EXT_HTML_BYTES}）` }
   }
+  const perms = parseExtPermissions(o.permissions)
+  if (!perms.ok) return { ok: false, reason: perms.reason }
   const rawVariants = Array.isArray(o.variants) ? o.variants : []
   if (rawVariants.length === 0) return { ok: false, reason: 'variants 至少要有一个形态（尺寸契约）' }
   if (rawVariants.length > MAX_EXT_VARIANTS) {
@@ -134,7 +183,7 @@ export function parseExtManifest(raw: unknown): ExtManifestResult {
   }
   return {
     ok: true,
-    card: { id, title, group: group || DEFAULT_EXT_GROUP, blurb, variants, html },
+    card: { id, title, group: group || DEFAULT_EXT_GROUP, blurb, variants, html, permissions: perms.perms },
   }
 }
 
@@ -204,6 +253,30 @@ export function extModuleDefs(base: ModuleRegistry, cards: readonly ExtCard[]): 
 
 export type ExtMethod = 'getState' | 'setState' | 'notify'
 export const EXT_METHODS: readonly ExtMethod[] = ['getState', 'setState', 'notify']
+
+/** 桥方法 → 它需要的权限令牌（getState/setState 都是"读写自身状态"，合一个令牌） */
+function extPermissionOf(method: ExtMethod): ExtPermission {
+  return method === 'notify' ? 'notify' : 'state'
+}
+
+/**
+ * 桥方法是否被这份卡包的权限声明放行。**缺省 = 空集**：旧卡包（manifest 没写
+ * permissions）照常渲染，桥调用一律被拒 —— 这是**最小权限**，不是向后兼容的漏洞：
+ * 声明权在卡包作者手里，他在 manifest 补一行 permissions 就恢复。
+ *
+ * 两层各管各的，别并成一个：`parseBridgeRequest` 的方法白名单管**"桥有哪些方法"**
+ * （枚举面：白名单外的请求连回声都没有），本函数管**"这份卡包能用哪些方法"**
+ * （声明面：没声明的方法回显式拒绝并给话术，让作者知道该补什么）。
+ */
+export function bridgeAllowed(perms: readonly ExtPermission[], method: ExtMethod): boolean {
+  return perms.includes(extPermissionOf(method))
+}
+
+/** 权限拒绝时回给扩展的那句话 —— 话术只有这一处来源，组件与 E2E 都引用它 */
+export function permissionDeniedMessage(method: ExtMethod): string {
+  const perm = extPermissionOf(method)
+  return `未声明权限: ${perm}（在卡包 manifest 的 permissions 里声明后才能调用 ${method}）`
+}
 
 export interface BridgeRequest {
   rid: string
