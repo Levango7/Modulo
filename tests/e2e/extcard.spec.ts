@@ -11,7 +11,7 @@
  *   ⑤ 刷新后状态还在（extState 持久化）、版面还在（ext 段随注册表重建）；
  *   ⑥ 卸载后版面上的实例按引擎「未知模块」口径退场（已收起 / 刷新清除），状态一并清。
  *
- * 另三条钉权限声明面与扫描面：
+ * 另四条钉权限声明面与扫描面：
  *   ⑦ 未声明 permissions 的卡包：桥给**显式拒绝**并指回 manifest —— 与白名单外的
  *      静默是两件事（那是防枚举探测，这是给卡包作者的话术）；
  *   ⑧ 网页形态下扫描入口按 isDesktop **隐藏**（同浮窗入口的约定）+ 一句降级说明 ——
@@ -21,6 +21,9 @@
  *   ⑨ 只声明 `notify`（不声明 `state`）的卡包：notify 放行并 ok 应答、state 照拒 ——
  *      权限声明面**按方法逐条**，不是「声明一个就全开」；应答 ok 不断言系统通知真
  *      投递（网页形态投递层按 §12.16 静默降级，「坏了不反噬」是设计取舍）。
+ *   ⑩ 声明 `state` + `notify` **两项全有**的卡包：徽章按声明逐项列成「状态 + 通知」
+ *      （钉逐权限展示，防哪天塌成一枚笼统徽章）、`getState` 与 `notify` 两法皆放行 ——
+ *      与 ⑨ 互补成声明面四方块（空集 / 单 notify / 双声明）。
  */
 import { describe, expect, it } from 'vitest'
 import puppeteer from 'puppeteer-core'
@@ -407,6 +410,69 @@ describe.skipIf(skip)('原生卡：导入、入库、上版与桥', () => {
       )
       expect(denied.ok, '未声明 state：getState 照拒').toBe(false)
       expect(denied.error ?? '', '拒绝原因依旧指回 manifest').toContain('未声明权限')
+    } finally {
+      await browser.close()
+    }
+  })
+
+  it('双声明：徽章逐权限列「状态 + 通知」，两法皆放行', async () => {
+    const { browser, page } = await openManager()
+    try {
+      // 这份卡包**两项都声明**：徽章该把两项逐个列出来（`permLabel` 的逐权限 join），
+      // 而不是塌成一枚笼统徽章 —— `ExtPermission` 是封闭双值联合，映射穷尽，这条
+      // 是把「穷尽」本身钉住：将来加第三种令牌或改坏映射，这里第一个红。
+      const pack = JSON.stringify({
+        id: 'dual',
+        title: '双声明卡',
+        group: '演示',
+        blurb: 'state 与 notify 都声明',
+        html: '<b id="t">双</b>',
+        permissions: ['state', 'notify'],
+        variants: [{ id: 'std', name: '标准', minW: 2, minH: 2, idealW: 3, idealH: 3 }],
+      })
+      await typeJson(page, pack)
+      await page.evaluate(() => document.querySelector<HTMLElement>('.xcard .xok')?.click())
+      await wait(600)
+      expect(
+        await page.evaluate(() => document.querySelector('.xcard .xperm')?.textContent?.trim() ?? ''),
+        '徽章逐权限列出两项，不是一枚笼统徽章',
+      ).toBe('状态 + 通知')
+
+      // 上板成运行态
+      await enterLayout(page)
+      await page.evaluate(() => document.querySelector<HTMLElement>('.add-cat')?.click())
+      await wait(300)
+      const added = await page.evaluate(() => {
+        const el = [...document.querySelectorAll<HTMLElement>('.add-menu [role=menuitem]')].find((x) =>
+          (x.textContent || '').includes('双声明卡'),
+        )
+        el?.click()
+        return !!el
+      })
+      expect(added, '双声明卡包照常上版').toBe(true)
+      await wait(400)
+      await saveLayout(page)
+      await wait(800)
+      expect(await page.evaluate(() => document.querySelectorAll('.xframe').length), '运行态 iframe 照常渲染').toBe(1)
+
+      const frames = page.frames().filter((f) => f !== page.mainFrame())
+      const frame = frames[frames.length - 1]
+      // 两法皆放行：声明面按方法逐条，这份卡包两项都声明 ⇒ 两项都开（与 ⑨「只声明
+      // notify 则 state 照拒」互补，合成声明面的四方块：空集 / 单 notify / 双声明）
+      const read = await frame.evaluate(() =>
+        (window as unknown as {
+          MODULO: { bridge: { getState: () => Promise<{ ok: boolean; value: unknown }> } }
+        }).MODULO.bridge.getState(),
+      )
+      expect(read.ok, '声明了 state：getState 放行').toBe(true)
+
+      const sent = await frame.evaluate(() =>
+        (window as unknown as {
+          MODULO: { bridge: { notify: (t: string) => Promise<{ ok: boolean; value: unknown }> } }
+        }).MODULO.bridge.notify('你好'),
+      )
+      expect(sent.ok, '声明了 notify：notify 放行并应答 ok').toBe(true)
+      // 投递成败仍不断言 —— 同 ⑨ 的取舍（§12.16 「坏了不反噬」）
     } finally {
       await browser.close()
     }
