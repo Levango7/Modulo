@@ -11,6 +11,7 @@ import {
   mentionQuery,
   outgoingFromTurns,
   stripMention,
+  summaryText,
   turnsFromHistory,
   type CardChoice,
   type ChatChunk,
@@ -182,6 +183,41 @@ describe('组装请求', () => {
   it('没有可引用内容的卡如实写一句，不替它编内容', () => {
     expect(contextBlock([choice({ label: '时钟' })], () => '')).toContain('没有可引用的文字内容')
     expect(contextBlock([], () => '')).toBeNull()
+  })
+})
+
+describe('摘要正文（三期）', () => {
+  const excerpt = (c: CardChoice): string => (c.id === 'sticky' ? '周五前把周报发给老板' : '')
+
+  it('什么都没给 → null（按钮应保持禁用）', () => {
+    expect(summaryText([], '   ', excerpt)).toBeNull()
+  })
+
+  it('只有引用：正文就是引用块 —— 带头、带卡片正文', () => {
+    const out = summaryText([choice({ id: 'sticky', module: 'sticky', label: '便签' })], '', excerpt)!
+    expect(out).toContain('用户在版面里引用了下面这些卡片')
+    expect(out).toContain('## 便签')
+    expect(out).toContain('周五前把周报发给老板')
+  })
+
+  it('只有输入：正文就是那段字（去掉首尾空白）', () => {
+    expect(summaryText([], '  下周交周报  ', excerpt)).toBe('下周交周报')
+  })
+
+  it('两者都有：卡片在前、输入在后 —— 后者往往是对前者的指令', () => {
+    const out = summaryText([choice({ id: 'sticky', module: 'sticky', label: '便签' })], '只留待办', excerpt)!
+    expect(out.indexOf('## 便签')).toBeLessThan(out.indexOf('只留待办'))
+  })
+
+  it('引用块贴着预算时再加输入会超：整段二次封顶并明说截断', () => {
+    const long = '账'.repeat(2000)
+    const out = summaryText([choice({ id: 'sticky', module: 'sticky' })], long, () => long, 2000)!
+    expect(out.length).toBe(2000)
+    expect(out.endsWith('（内容过长，已截断）')).toBe(true)
+  })
+
+  it('预算在边界内原样返回（不多切一刀）', () => {
+    expect(summaryText([], 'abc', excerpt, 10)).toBe('abc')
   })
 })
 
