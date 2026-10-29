@@ -14,6 +14,7 @@
  */
 
 import { daysUntil, streakDays, upcomingBirthdays, type Birthday, type HabitState } from '@levango7/engine'
+import type { CountdownSetting } from './cardDataTypes'
 
 export type ReminderKind = 'countdown' | 'birthday' | 'habit'
 
@@ -48,7 +49,12 @@ export interface Reminder {
 
 export interface ReminderInput {
   now: Date
-  countdown: { label: string; date: string }
+  /**
+   * **所有**倒数日（顶层 + 各实例自己的那一份）。F-01 阶段 2（2026-10-30）起倒数日
+   * 按实例分，只传第一张会让第二张的到期日静默不提醒 —— 界面上红红火火、提醒没有，
+   * 这类"看着对、实际漏"的缝最危险。由 `instanceData.allCountdowns` 铺平。
+   */
+  countdowns: readonly CountdownSetting[]
   birthdays: readonly Birthday[]
   habit: HabitState
   settings: ReminderSettings
@@ -87,16 +93,23 @@ export function inQuietHours(now: Date, start: string, end: string): boolean {
  * 不看静默时段，也不管"今天已经提醒过" —— 那两件属于投递层。
  */
 export function dueReminders(input: ReminderInput): Reminder[] {
-  const { now, countdown, birthdays, habit, settings } = input
+  const { now, countdowns, birthdays, habit, settings } = input
   if (!settings.enabled) return []
   const out: Reminder[] = []
   const today = localDay(now)
 
-  if (countdown.label.trim() && countdown.date && daysUntil(countdown.date, now) === 0) {
+  // 倒数日：今天到站的那几张。按**日子**去重 —— 同一天到站的候选只出一条提醒，
+  // 标题把名字都列上（用「」「」隔开，与单条时同一个格式，单条标题逐字不变）。
+  // key 仍是 `countdown:日子`：与既有 fired 记录逐字兼容，升级不会让已提醒过的
+  // 那一天重弹一遍。daysUntil 为 0 ⟺ 日子就是今天，所以到站的几张同一天、
+  // `due[0].date` 就是今天。
+  const due = countdowns.filter((c) => c.label.trim() && c.date && daysUntil(c.date, now) === 0)
+  if (due.length) {
+    const names = due.map((c) => c.label.trim()).join('」「')
     out.push({
-      key: `countdown:${countdown.date}`,
+      key: `countdown:${due[0].date}`,
       kind: 'countdown',
-      title: `今天是「${countdown.label.trim()}」`,
+      title: `今天是「${names}」`,
       body: '倒数到站了。',
     })
   }

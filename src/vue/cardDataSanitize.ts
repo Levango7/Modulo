@@ -79,11 +79,31 @@ function sanitizeTodos(raw: unknown): Todo[] {
 }
 
 /**
+ * "名字 + 日子"两个字段的清洗（倒数日 / 正计时，F-01 阶段 2 第三、四个字段，2026-10-30）。
+ *
+ * 名字截短到 24：只在一张卡上显示，再长也看不全；日期必须真存在（2026-02-30 一律当没设）。
+ * **顶层与按实例共用同一条** —— 与 `sanitizeTodos` 同一条理由：两份实现意味着"修了顶层
+ * 忘了第二张"，而这类分歧平时根本不响。
+ *
+ * 名字与日子**都没了**时返回 undefined：按实例那一侧因此**不落键**（清空的第二张倒数日
+ * 读回来就是"这个实例还没写过"）；顶层那一侧由调用方回落到 fallback（那里必须给出
+ * 必填字段），两侧语义不同，所以由调用方各自处理这个空。
+ */
+function sanitizeDaySetting(raw: unknown): { label: string; date: string } | undefined {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return undefined
+  const r = raw as Partial<{ label: unknown; date: unknown }>
+  const label = textOf(r.label, 24).trim()
+  const date = typeof r.date === 'string' && isValidDate(r.date) ? r.date : ''
+  return label || date ? { label, date } : undefined
+}
+
+/**
  * 按实例的内容（F-01 阶段 2）。**这是读盘边界**，所以规则是"不认识的就丢"：
  *
  * - 键必须是非空字符串（实例 id）；值必须是朴素对象（数组不算）。
- * - 只收**认得的字段**（现阶段 `sticky` / `todos`）：`sticky` 只收字符串、`todos` 走
- *   与顶层同一套条目清洗 —— 其余一律丢掉，这样将来给 `InstanceData` 加字段时，
+ * - 只收**认得的字段**（现阶段 `sticky` / `todos` / `countdown` / `elapsed`）：
+ *   `sticky` 只收字符串、`todos` 走与顶层同一套条目清洗、`countdown` / `elapsed` 走
+ *   `sanitizeDaySetting` —— 其余一律丢掉，这样将来给 `InstanceData` 加字段时，
  *   旧备份读进来是"这一段没有"而不是"有一段看不懂的"。
  * - 一条都不剩 ⇒ 返回 **undefined**，让 `byInstance` 这个键**根本不出现** ——
  *   旧档、模板、单实例读出来的对象因此与今天逐字相同（备份的字节对账也靠这条）。
@@ -104,6 +124,12 @@ function sanitizeByInstance(raw: unknown): Record<string, InstanceData> | undefi
     // 空清单不写这个键：全删光的第二张待办卡，读回来就该是"这个实例还没写过内容"
     const todos = sanitizeTodos((value as { todos?: unknown }).todos)
     if (todos.length) entry.todos = todos
+    // 名字与日子都没了也不写这个键（与空清单同一条理由）。`sticky` 空串仍落键：
+    // 对字符串字段来说"空"本身是有意义的状态（刚清空过），与清单 / 对象类字段不同
+    const countdown = sanitizeDaySetting((value as { countdown?: unknown }).countdown)
+    if (countdown) entry.countdown = countdown
+    const elapsed = sanitizeDaySetting((value as { elapsed?: unknown }).elapsed)
+    if (elapsed) entry.elapsed = elapsed
     if (Object.keys(entry).length) out[key] = entry
   }
   return Object.keys(out).length ? out : undefined
@@ -164,22 +190,9 @@ export function sanitizeCardData(raw: unknown, fallback: CardData): CardData {
     }
   }
 
-  const cdRaw = o.countdown as Partial<CountdownSetting> | undefined
-  const countdown: CountdownSetting = cdRaw && typeof cdRaw === 'object' && !Array.isArray(cdRaw)
-    ? {
-        // 名字截短：它只在一张卡上显示，24 个字足够；日期必须真存在（2026-02-30 一律当没设）
-        label: textOf(cdRaw.label, 24).trim(),
-        date: typeof cdRaw.date === 'string' && isValidDate(cdRaw.date) ? cdRaw.date : '',
-      }
-    : fallback.countdown
-
-  const elRaw = o.elapsed as Partial<ElapsedSetting> | undefined
-  const elapsed: ElapsedSetting = elRaw && typeof elRaw === 'object' && !Array.isArray(elRaw)
-    ? {
-        label: textOf(elRaw.label, 24).trim(),
-        date: typeof elRaw.date === 'string' && isValidDate(elRaw.date) ? elRaw.date : '',
-      }
-    : fallback.elapsed
+  // 倒数日 / 正计时：与 byInstance 共用同一条清洗（`sanitizeDaySetting`）
+  const countdown: CountdownSetting = sanitizeDaySetting(o.countdown) ?? fallback.countdown
+  const elapsed: ElapsedSetting = sanitizeDaySetting(o.elapsed) ?? fallback.elapsed
 
   const hbRaw = o.habit as Partial<HabitSetting> | undefined
   const habit: HabitSetting = hbRaw && typeof hbRaw === 'object' && !Array.isArray(hbRaw)

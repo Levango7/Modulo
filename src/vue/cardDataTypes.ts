@@ -170,7 +170,8 @@ export interface DutySetting {
  * 每搬一个都有它自己的用例与取舍；没搬的那些字段语义与今天完全一致（按模块共享）——
  * 这就是阶段 2 的形状，也是它为什么分几笔做。
  *
- * 已经搬过来的：`sticky`（便签，2026-10-28）、`todos`（待办，2026-10-29）。
+ * 已经搬过来的：`sticky`（便签，2026-10-28）、`todos`（待办，2026-10-29）、
+ * `countdown`（倒数日）/ `elapsed`（正计时）（2026-10-30，第三、四个字段）。
  *
  * 字段一律**可选**：缺省表示"这个实例还没写过自己的内容"，读取口径见 `instanceData.ts`。
  */
@@ -182,6 +183,15 @@ export interface InstanceData {
    * 不另造结构，读盘那道直接复用同一套条目清洗（`sanitizeCardData` 里的 `sanitizeTodos`）。
    */
   todos?: Todo[]
+  /**
+   * 倒数日（2026-10-30 起按实例分）。第三个字段 —— 与第四个（正计时）同形状
+   * （名字 + 日子），就一起搬：清洗 / 备份 / 提醒三路写的都是同一段代码，
+   * 分两笔等于把同一段读两遍。形状与顶层逐字相同，清洗也共用同一条
+   * （`sanitizeDaySetting`）。
+   */
+  countdown?: CountdownSetting
+  /** 正计时（2026-10-30 起按实例分）。与倒数日同形状、同清洗，差别只在"往前算还是往后算" */
+  elapsed?: ElapsedSetting
 }
 
 export interface CardData {

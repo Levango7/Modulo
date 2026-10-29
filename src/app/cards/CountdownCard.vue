@@ -5,20 +5,25 @@
  * 内容存在 `cardData`（**跟着完整备份走**）—— 这就是它和"世界时钟选哪些城市"的区别：
  * 用户敲进去的字属于内容，偏好属于本机。算术在引擎（`@levango7/engine/countdown`，
  * 含闰日与"看着像日子但不是"的拒收）。
+ *
+ * 同模块摆了两张时各写各的（F-01 阶段 2，2026-10-30）：第一张仍是顶层那一份
+ * （旧档形状逐字不变），第二张写 `byInstance` 里自己那一份。判据在 `instanceData.ts`
+ * （纯函数、单测锁 100），这里只把两个 id 接进来。
  */
 import { computed, inject, onBeforeUnmount, ref } from 'vue'
 import { countdownText, daysUntil, formatDateLabel, isValidDate } from '@levango7/engine/countdown'
 import { CalendarClock, Pencil } from 'lucide-vue-next'
 import type { CardDataApi } from '../../vue/cardData'
+import { countdownOf, writeCountdown } from '../../vue/instanceData'
 
-const props = defineProps<{ variant: string }>()
+const props = defineProps<{ variant: string; moduleId?: string; instanceId?: string }>()
 const cardData = inject<CardDataApi>('cardData')!
 
 const now = ref(new Date())
 const tick = window.setInterval(() => (now.value = new Date()), 60_000)
 onBeforeUnmount(() => window.clearInterval(tick))
 
-const cd = computed(() => cardData.state.countdown)
+const cd = computed(() => countdownOf(cardData.state, props.moduleId, props.instanceId))
 const days = computed(() => (cd.value.date ? daysUntil(cd.value.date, now.value) : null))
 
 const editing = ref(false)
@@ -32,15 +37,16 @@ function openEdit(): void {
 }
 
 function save(): void {
-  cd.value.label = draftLabel.value.trim().slice(0, 24)
   // 输入框里的日期可能还没填完（"2026-10-"这种中间态）：不合法就**保留原来的**，不当成清空
-  if (isValidDate(draftDate.value)) cd.value.date = draftDate.value
+  writeCountdown(cardData.state, props.moduleId, props.instanceId, {
+    label: draftLabel.value.trim().slice(0, 24),
+    date: isValidDate(draftDate.value) ? draftDate.value : cd.value.date,
+  })
   editing.value = false
 }
 
 function clear(): void {
-  cd.value.label = ''
-  cd.value.date = ''
+  writeCountdown(cardData.state, props.moduleId, props.instanceId, { label: '', date: '' })
   editing.value = false
 }
 </script>

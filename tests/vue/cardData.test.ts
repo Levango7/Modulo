@@ -215,6 +215,38 @@ describe('sanitizeCardData：盘上数据先清洗再用', () => {
     expect(sanitizeCardData({ byInstance: { 'todo:2': { todos: many } } }, fallback).byInstance?.['todo:2']?.todos?.length).toBe(200)
   })
 
+  /**
+   * 按实例的倒数日 / 正计时（F-01 阶段 2 第三、四个字段）：**走与顶层同一套
+   * `sanitizeDaySetting`**。两份实现意味着"修了顶层忘了第二张"，而这类分歧平时不响。
+   */
+  it('byInstance 的 countdown / elapsed：正常的留、坏日期清空、名字同样去空白截 24', () => {
+    const clean = sanitizeCardData(
+      {
+        byInstance: {
+          'countdown:2': { countdown: { label: '  元旦  ', date: '2027-01-01' }, elapsed: { label: '戒烟', date: '2026-02-30' } },
+        },
+      },
+      fallback,
+    ).byInstance?.['countdown:2']
+    expect(clean?.countdown).toEqual({ label: '元旦', date: '2027-01-01' })
+    expect(clean?.elapsed).toEqual({ label: '戒烟', date: '' })
+  })
+
+  it('byInstance 的 countdown / elapsed 名字和日子都空 ⇒ 这个键不出现（"空"本身没有内容）', () => {
+    expect(sanitizeCardData({ byInstance: { 'countdown:2': { countdown: { label: '', date: '' } } } }, fallback).byInstance).toBeUndefined()
+    expect(sanitizeCardData({ byInstance: { 'countdown:2': { countdown: '不是对象', elapsed: 42 } } }, fallback).byInstance).toBeUndefined()
+    // 同一实例里还有别的字段 ⇒ 那些字段照留
+    expect(sanitizeCardData({ byInstance: { 'countdown:2': { sticky: '有字', countdown: { label: '', date: '' } } } }, fallback).byInstance).toEqual({
+      'countdown:2': { sticky: '有字' },
+    })
+  })
+
+  it('byInstance 的 countdown / elapsed 与顶层形状逐字一致（读取口径共用一套的对面）', () => {
+    const top = sanitizeCardData({ countdown: { label: '发布', date: '2026-10-21' } }, fallback).countdown
+    const slice = sanitizeCardData({ byInstance: { 'countdown:2': { countdown: { label: '发布', date: '2026-10-21' } } } }, fallback).byInstance?.['countdown:2']?.countdown
+    expect(slice).toEqual(top)
+  })
+
   it('条目数夹到上限：几百 MB 的坏文件不该冻住首屏', () => {
     const many = Array.from({ length: 5000 }, (_, i) => ({ id: `t${i}`, text: `第 ${i} 条` }))
     expect(sanitizeCardData({ todos: many }, fallback).todos.length).toBe(200)

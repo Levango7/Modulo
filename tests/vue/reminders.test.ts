@@ -23,7 +23,7 @@ const at = (y: number, m: number, d: number, h = 9, min = 0) => new Date(y, m - 
 function input(over: Partial<ReminderInput> = {}): ReminderInput {
   return {
     now: at(2026, 10, 21, 9, 0),
-    countdown: { label: '', date: '' },
+    countdowns: [],
     birthdays: [],
     habit: { name: '', days: [] },
     settings: { ...DEFAULT_REMINDER_SETTINGS },
@@ -79,16 +79,49 @@ describe('hmToMinutes / inQuietHours', () => {
 describe('dueReminders：今天有什么', () => {
   it('关掉开关就一条都不出（哪怕事实成立）', () => {
     const settings: ReminderSettings = { ...DEFAULT_REMINDER_SETTINGS, enabled: false }
-    const r = dueReminders(input({ countdown: { label: '发布', date: '2026-10-21' }, settings }))
+    const r = dueReminders(input({ countdowns: [{ label: '发布', date: '2026-10-21' }], settings }))
     expect(r).toEqual([])
   })
 
   it('倒数日就是今天 → 一条；明天 / 空标签 / 空日期 → 不出', () => {
-    expect(dueReminders(input({ countdown: { label: '发布', date: '2026-10-21' } })).map((x) => x.kind)).toEqual(['countdown'])
-    expect(dueReminders(input({ countdown: { label: '发布', date: '2026-10-22' } }))).toEqual([])
-    expect(dueReminders(input({ countdown: { label: '发布', date: '2026-10-20' } }))).toEqual([])
-    expect(dueReminders(input({ countdown: { label: '  ', date: '2026-10-21' } }))).toEqual([])
-    expect(dueReminders(input({ countdown: { label: '发布', date: '' } }))).toEqual([])
+    expect(dueReminders(input({ countdowns: [{ label: '发布', date: '2026-10-21' }] })).map((x) => x.kind)).toEqual(['countdown'])
+    expect(dueReminders(input({ countdowns: [{ label: '发布', date: '2026-10-22' }] }))).toEqual([])
+    expect(dueReminders(input({ countdowns: [{ label: '发布', date: '2026-10-20' }] }))).toEqual([])
+    expect(dueReminders(input({ countdowns: [{ label: '  ', date: '2026-10-21' }] }))).toEqual([])
+    expect(dueReminders(input({ countdowns: [{ label: '发布', date: '' }] }))).toEqual([])
+  })
+
+  it('同一天到站两张（第二张也设了日子）→ 只一条，名字都列上、key 仍只有一个', () => {
+    const r = dueReminders(
+      input({
+        countdowns: [
+          { label: '发布', date: '2026-10-21' },
+          { label: '验收', date: '2026-10-21' },
+        ],
+      }),
+    )
+    expect(r).toHaveLength(1)
+    expect(r[0].title).toBe('今天是「发布」「验收」')
+    expect(r[0].key).toBe('countdown:2026-10-21')
+    expect(r[0].body).toBe('倒数到站了。')
+  })
+
+  it('两张里只有一张到站 → 只列到站那张的名字', () => {
+    const r = dueReminders(
+      input({
+        countdowns: [
+          { label: '发布', date: '2026-10-21' },
+          { label: '验收', date: '2026-10-22' },
+        ],
+      }),
+    )
+    expect(r).toHaveLength(1)
+    expect(r[0].title).toBe('今天是「发布」')
+  })
+
+  it('名字带空格的到站也按去空格后的名字列（与单条口径一致）', () => {
+    const r = dueReminders(input({ countdowns: [{ label: ' 发布 ', date: '2026-10-21' }] }))
+    expect(r[0].title).toBe('今天是「发布」')
   })
 
   it('生日就是今天 → 一条；没年份不说岁数，有年份说岁数', () => {
@@ -153,7 +186,7 @@ describe('dueReminders：今天有什么', () => {
     const r = dueReminders(
       input({
         now: at(2026, 10, 21, 21, 0),
-        countdown: { label: '发布', date: '2026-10-21' },
+        countdowns: [{ label: '发布', date: '2026-10-21' }],
         birthdays: [{ id: 'b1', name: '妈妈', month: 10, day: 21 }],
         habit: { name: '跑步', days: [] },
       }),
@@ -162,7 +195,7 @@ describe('dueReminders：今天有什么', () => {
   })
 
   it('key 稳定：同一时刻算两次结果逐字相同（去重靠它）', () => {
-    const i = input({ countdown: { label: '发布', date: '2026-10-21' }, birthdays: [{ id: 'b1', name: '妈妈', month: 10, day: 21 }] })
+    const i = input({ countdowns: [{ label: '发布', date: '2026-10-21' }], birthdays: [{ id: 'b1', name: '妈妈', month: 10, day: 21 }] })
     expect(dueReminders(i)).toEqual(dueReminders({ ...i }))
   })
 })

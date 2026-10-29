@@ -74,6 +74,24 @@ describe('去重与静默', () => {
     expect(reminders.tick().map((r) => r.key)).toEqual(['countdown:2026-10-22'])
     expect(delivered).toHaveLength(2)
   })
+
+  it('第二张倒数日到站也照提醒（只看顶层会让它静默错过）', () => {
+    const clock = { now: at(2026, 10, 21, 9, 0) }
+    const { state, reminders, delivered } = setup({ clock })
+    state.byInstance = { 'countdown:2': { countdown: { label: '验收', date: '2026-10-21' } } }
+    expect(reminders.tick().map((r) => r.key)).toEqual(['countdown:2026-10-21'])
+    expect(delivered).toHaveLength(1)
+  })
+
+  it('两张同一天到站：合成一条，名字都列上', () => {
+    const clock = { now: at(2026, 10, 21, 9, 0) }
+    const { state, reminders } = setup({ clock })
+    state.countdown = { label: '发布', date: '2026-10-21' }
+    state.byInstance = { 'countdown:2': { countdown: { label: '验收', date: '2026-10-21' } } }
+    const r = reminders.tick()
+    expect(r).toHaveLength(1)
+    expect(r[0].title).toBe('今天是「发布」「验收」')
+  })
 })
 
 describe('设置：落盘、读回、坏数据不炸', () => {

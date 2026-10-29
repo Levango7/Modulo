@@ -23,13 +23,16 @@
  *
  * - **不解析 `:2` 后缀**：是不是"第二实例"由"实例 id ≠ 模块 id"判定，不靠字符串形状
  *   （与 `moduleIdOf` 只认 `p.module ?? p.id` 同一条纪律）。
- * - 只有 `sticky` / `todos` 两个字段按实例分。其余字段（速记 / 记账 / 四象限 / 习惯 /
- *   倒数日……）仍是按模块共享，那是它们各自的下一笔。
+ * - 按实例分的字段：`sticky` / `todos` / `countdown` / `elapsed`。其余字段（速记 / 记账 /
+ *   四象限 / 习惯……）仍是按模块共享，那是它们各自的下一笔。
  */
-import type { CardData, Todo } from './cardDataTypes'
+import type { CardData, CountdownSetting, ElapsedSetting, Todo } from './cardDataTypes'
 
-/** 取数只需要这三个字段，测试不必造一整份 `CardData` */
-export type InstanceSource = Pick<CardData, 'sticky' | 'todos' | 'byInstance'>
+/** 取数只需要这五个字段，测试不必造一整份 `CardData` */
+export type InstanceSource = Pick<CardData, 'sticky' | 'todos' | 'countdown' | 'elapsed' | 'byInstance'>
+
+/** 空"名字 + 日子"：与顶层那个空形状（`emptyCardData`）逐字相同，渲染侧不必为实例分叉判空 */
+const BLANK_DAY = { label: '', date: '' }
 
 /**
  * 便签正文：按实例读。
@@ -92,6 +95,76 @@ export function writeTodos(
   const bag = data.byInstance ?? {}
   bag[instanceId as string] = { ...bag[instanceId as string], todos: next }
   data.byInstance = bag
+}
+
+/**
+ * 倒数日：按实例读。第三个字段（2026-10-30），口径与前两个**完全相同** ——
+ * 差别只有"空"的形状：便签是空串、待办是空数组、这两个是空"名字 + 日子"
+ * （与顶层同一个空形状，渲染侧不必为实例分叉判空）。
+ */
+export function countdownOf(data: InstanceSource, moduleId?: string, instanceId?: string): CountdownSetting {
+  if (!isSecondInstance(moduleId, instanceId)) return data.countdown ?? BLANK_DAY
+  return data.byInstance?.[instanceId as string]?.countdown ?? BLANK_DAY
+}
+
+/** 倒数日：按实例写（整条替换，理由同 `writeSticky`：深层 watch 靠"值变了"才触发写盘） */
+export function writeCountdown(
+  data: InstanceSource,
+  moduleId: string | undefined,
+  instanceId: string | undefined,
+  next: CountdownSetting,
+): void {
+  if (!isSecondInstance(moduleId, instanceId)) {
+    data.countdown = next
+    return
+  }
+  const bag = data.byInstance ?? {}
+  bag[instanceId as string] = { ...bag[instanceId as string], countdown: next }
+  data.byInstance = bag
+}
+
+/**
+ * 正计时：按实例读。第四个字段（2026-10-30），与 `countdownOf` 同形状、同口径 ——
+ * 与倒数日一起搬：清洗 / 备份 / 卡片三路写的是同一段代码，分两笔等于读两遍。
+ */
+export function elapsedOf(data: InstanceSource, moduleId?: string, instanceId?: string): ElapsedSetting {
+  if (!isSecondInstance(moduleId, instanceId)) return data.elapsed ?? BLANK_DAY
+  return data.byInstance?.[instanceId as string]?.elapsed ?? BLANK_DAY
+}
+
+/** 正计时：按实例写（整条替换，理由同 `writeCountdown`） */
+export function writeElapsed(
+  data: InstanceSource,
+  moduleId: string | undefined,
+  instanceId: string | undefined,
+  next: ElapsedSetting,
+): void {
+  if (!isSecondInstance(moduleId, instanceId)) {
+    data.elapsed = next
+    return
+  }
+  const bag = data.byInstance ?? {}
+  bag[instanceId as string] = { ...bag[instanceId as string], elapsed: next }
+  data.byInstance = bag
+}
+
+/**
+ * **所有**倒数日（顶层那一份 + 各实例自己的那一份），给提醒那一路用。
+ *
+ * 为什么提醒要换这个口径：倒数日按实例分之前，提醒只看顶层没问题；分了之后还只看
+ * 顶层，第二张倒数日卡到期就是"界面上红红火火、提醒静默吞掉"—— 这类"看着对、
+ * 实际漏"的缝最危险，所以提醒这一路必须拿到**全部**。
+ *
+ * 不需要实例 id 到模块的映射：切片里出现 `countdown` 字段 ⇒ 一定是某张倒数日卡写的
+ * （`writeCountdown` 是唯一写入点，读盘那道只收白名单字段）—— 不解析 `:2` 后缀，
+ * 与文件顶部「不做的事」同一条纪律。空的（没设日子的）也原样返回，判要不要提醒
+ * 由 `reminders.ts` 自己做（它本来就要判空 label / 空日期）。
+ */
+export function allCountdowns(data: InstanceSource): CountdownSetting[] {
+  const mine = Object.values(data.byInstance ?? {})
+    .map((slice) => slice?.countdown)
+    .filter((c): c is CountdownSetting => !!c)
+  return [data.countdown ?? BLANK_DAY, ...mine]
 }
 
 /**

@@ -21,6 +21,7 @@ import {
   type ReminderSettings,
 } from './reminders'
 import type { CardData } from './cardData'
+import { allCountdowns } from './instanceData'
 import type { StorageAdapter } from './store'
 
 export const REMINDERS_KEY = 'modulo.reminders.v1'
@@ -90,7 +91,8 @@ export function useReminders(cardData: () => CardData, opts: RemindersOptions = 
   const pending = computed<Reminder[]>(() => {
     const all = dueReminders({
       now: now.value,
-      countdown: cardData().countdown,
+      // 全部倒数日（顶层 + 各实例）：倒数日按实例分之后只看顶层，第二张到期会静默不提醒
+      countdowns: allCountdowns(cardData()),
       birthdays: cardData().birthdays,
       habit: cardData().habit,
       settings: state.settings,
