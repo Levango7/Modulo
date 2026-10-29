@@ -22,6 +22,8 @@ function setup(over: Partial<GlobalKeysDeps> = {}) {
     floatOpen: ref(false),
     templatesOpen: ref(false),
     settingsOpen: ref(false),
+    dockExpanded: ref(false),
+    dockVisible: ref(true),
     cancelEdit: vi.fn(),
     closeTemplates: vi.fn(),
     undo: vi.fn(),
@@ -112,6 +114,22 @@ describe('useGlobalKeys · Esc 七层', () => {
     expect(deps.cancelEdit).not.toHaveBeenCalled()
     expect(deps.editorEscape).toHaveBeenCalledTimes(1)
   })
+
+  it('坞展开着 → Esc 收起它（F-12 二期，级联最底一层）', () => {
+    const { deps, onKey } = setup()
+    deps.dockExpanded.value = true
+    onKey(key({ key: 'Escape' }).e)
+    expect(deps.dockExpanded.value).toBe(false)
+  })
+
+  it('坞上面压着设置时，Esc 先关设置而不是收坞', () => {
+    const { deps, onKey } = setup()
+    deps.dockExpanded.value = true
+    deps.settingsOpen.value = true
+    onKey(key({ key: 'Escape' }).e)
+    expect(deps.settingsOpen.value).toBe(false)
+    expect(deps.dockExpanded.value).toBe(true)
+  })
 })
 
 describe('useGlobalKeys · 全局快捷键', () => {
@@ -167,5 +185,19 @@ describe('useGlobalKeys · 全局快捷键', () => {
     expect(deps.undo).not.toHaveBeenCalled()
     expect(deps.redo).not.toHaveBeenCalled()
     expect(deps.paletteOpen.value).toBe(false)
+  })
+
+  it('Ctrl+J 开合对话坞；坞不在场（编辑态等）时既不拦也不动', () => {
+    const a = setup()
+    a.onKey(key({ key: 'j', ctrlKey: true }).e)
+    expect(a.deps.dockExpanded.value).toBe(true)
+    a.onKey(key({ key: 'j', ctrlKey: true }).e)
+    expect(a.deps.dockExpanded.value).toBe(false)
+
+    const b = setup({ dockVisible: ref(false) })
+    const { e, preventDefault } = key({ key: 'j', ctrlKey: true })
+    b.onKey(e)
+    expect(b.deps.dockExpanded.value).toBe(false)
+    expect(preventDefault).not.toHaveBeenCalled() // 没拦住：浏览器自己的快捷键照常
   })
 })

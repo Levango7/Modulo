@@ -119,9 +119,32 @@
     return { conflict: false }
   }
 
+  /** AI 对话历史（F-12 二期）：与配置文档、密钥分开存 —— 测试才能断言历史真的落盘了 */
+  const AI_HIST = 'modulo.__stubai.hist'
+  const aiHist = () => {
+    try {
+      return JSON.parse(localStorage.getItem(AI_HIST) ?? '[]')
+    } catch {
+      return []
+    }
+  }
+  const aiHistSave = (list) => localStorage.setItem(AI_HIST, JSON.stringify(list))
+  /** convId → 推帧函数：挂着不结束的流，等 ai_chat_cancel 来收尾 */
+  const aiPending = new Map()
+
+  /** 记账时把 Channel 换成占位串：Channel 带私有字段，跨 evaluate 序列化会直接抛 */
+  const sanitizeArgs = (args) => {
+    if (!args || typeof args !== 'object') return args
+    const out = {}
+    for (const [k, v] of Object.entries(args)) {
+      out[k] = v && typeof v === 'object' && v.constructor && v.constructor.name === 'Channel' ? '[channel]' : v
+    }
+    return out
+  }
+
   const invoke = (cmd, args) => {
     window.__STUB_CALLS__ = window.__STUB_CALLS__ || []
-    window.__STUB_CALLS__.push({ cmd, args })
+    window.__STUB_CALLS__.push({ cmd, args: sanitizeArgs(args) })
     // 事件插件：listen/unlisten/emit 都经它的命令名进来
     if (cmd === 'plugin:event|listen') return listen(args?.event, callbacks.get(args?.handler)?.cb ?? (() => {}))
     if (cmd === 'plugin:event|unlisten') return unlisten(args?.eventId)
@@ -241,6 +264,81 @@
         }
         localStorage.removeItem('modulo.__stubai.key.' + String(args?.providerId ?? ''))
         return Promise.resolve(undefined)
+      // —— AI 对话与历史（F-12 二期）：形状照 ai/openai_compat.rs 的 `ConversationRef` /
+      //    `AiChunk` 与 history.rs 的四个命令。**流式是真的按帧推**（走 Channel 的
+      //    index 协议），否则"增量拼接/停止/错误"这几条前端行为测的都不是真东西。
+      //    回复内容与节奏由 `__STUB_AI_REPLY__` / `__STUB_AI_HANG__` 控制；
+      //    历史落在 `modulo.__stubai.hist`（与配置文档、密钥都分开存）。
+      case 'ai_chat': {
+        const ch = args?.onChunk
+        const msgs = Array.isArray(args?.messages) ? args.messages : []
+        const reply = String(window.__STUB_AI_REPLY__ ?? '桩回复：收到。')
+        const convId = String(args?.conversationId ?? '') || 'conv-stub-' + String(Date.now())
+        let idx = 0
+        const push = (msg) => {
+          const entry = callbacks.get(ch?.id)
+          if (entry) entry.cb({ index: idx++, message: msg })
+        }
+        const finish = () => {
+          const all = msgs
+            .map((m) => ({ role: String(m?.role ?? ''), content: String(m?.content ?? '') }))
+            .filter((m) => m.role === 'user' || m.role === 'assistant')
+          if (reply.trim()) all.push({ role: 'assistant', content: reply })
+          const list = aiHist().filter((c) => c.id !== convId)
+          const firstUser = all.find((m) => m.role === 'user')
+          const now = Math.floor(Date.now() / 1000)
+          list.unshift({
+            id: convId,
+            title: firstUser ? firstUser.content.slice(0, 24) : '新对话',
+            updatedAt: now,
+            messages: all.map((m) => ({ ...m, ts: now })),
+          })
+          aiHistSave(list)
+          push({ delta: '', done: true, error: null })
+        }
+        if (window.__STUB_AI_HANG__ === true) {
+          // 「一直不结束」的流：测试在此之上点「停止」，断言 ai_chat_cancel 真发了命令
+          aiPending.set(convId, { push })
+          setTimeout(() => push({ delta: '写到一半', done: false, error: null }), 0)
+          return Promise.resolve({ conversationId: convId })
+        }
+        // 两帧增量 + 一帧收尾：前端必须把两段拼成一句，而不是只留最后一帧
+        setTimeout(() => {
+          push({ delta: reply.slice(0, 2), done: false, error: null })
+          push({ delta: reply.slice(2), done: false, error: null })
+          finish()
+        }, 0)
+        return Promise.resolve({ conversationId: convId })
+      }
+      case 'ai_chat_cancel': {
+        const id = String(args?.conversationId ?? '')
+        const pending = aiPending.get(id)
+        if (pending) {
+          aiPending.delete(id)
+          // Rust 侧中止后补的是 error 帧（"已中止"），前端据此把气泡标红
+          pending.push({ delta: '', done: true, error: '已中止' })
+        }
+        return Promise.resolve(undefined)
+      }
+      case 'ai_history_list':
+        return Promise.resolve(
+          aiHist()
+            .slice()
+            .sort((a, b) => Number(b.updatedAt) - Number(a.updatedAt))
+            .map((c) => ({ id: c.id, title: c.title, updatedAt: c.updatedAt, messageCount: (c.messages ?? []).length })),
+        )
+      case 'ai_history_get': {
+        const hit = aiHist().find((c) => c.id === String(args?.id ?? ''))
+        return hit ? Promise.resolve({ id: hit.id, messages: hit.messages ?? [] }) : Promise.reject(new Error('找不到这条对话，可能已删除'))
+      }
+      case 'ai_history_delete': {
+        const id = String(args?.id ?? '')
+        aiHistSave(aiHist().filter((c) => c.id !== id))
+        return Promise.resolve(undefined)
+      }
+      case 'ai_history_clear':
+        aiHistSave([])
+        return Promise.resolve(undefined)
       // —— WebDAV 同步命令（形状与 Rust webdav.rs 的 8 条命令一一对应）——
       case 'webdav_probe': {
         const deny = davDeny(String(args?.user ?? ''), args?.password ?? null)
@@ -334,4 +432,9 @@
   window.__STUB_DAV_CRED__ = davCred
   /** AI 探测结果的开合：true = `GET /models` 通（`ready:true`），false = 连不上 */
   window.__STUB_AI_READY__ = false
+  /** AI 对话的回复正文与节奏成对出现：默认两帧推完；HANG = 只推半句、等 cancel */
+  window.__STUB_AI_REPLY__ = '桩回复：收到。'
+  window.__STUB_AI_HANG__ = false
+  /** 历史原文（测试预置 / 复核"真的写进去了"都走它，绕开界面） */
+  window.__STUB_AI_HISTORY__ = aiHist
 })()

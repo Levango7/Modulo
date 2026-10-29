@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { appKeyIntent, cellIntent, globalIntent, isEditableTarget, isPaletteHotkey, isUndoHotkey, shouldPrevent, type KeyLike } from '../../src/vue/keyboard'
+import { appKeyIntent, cellIntent, globalIntent, isDockHotkey, isEditableTarget, isPaletteHotkey, isUndoHotkey, shouldPrevent, type KeyLike } from '../../src/vue/keyboard'
 import type { Placement } from '@levango7/engine'
 
 /** 造一个按键：只填我们关心的字段，其余与 KeyboardEvent 一致地缺省为 false */
@@ -207,6 +207,12 @@ describe('appKeyIntent（Esc 级联）', () => {
     expect(appKeyIntent(esc, { ...base, view: 'edit', editorEscape: () => false })?.kind).toBe('cancelEdit')
     expect(appKeyIntent(esc, { ...base, settingsOpen: true, editorEscape: () => false })?.kind).toBe('closeSettings')
   })
+
+  it('坞是级联最底一层：上面任一层开着都不收它', () => {
+    expect(appKeyIntent(esc, { ...base, dockExpanded: true })?.kind).toBe('collapseDock')
+    expect(appKeyIntent(esc, { ...base, dockExpanded: true, settingsOpen: true })?.kind).toBe('closeSettings')
+    expect(appKeyIntent(esc, { ...base, dockExpanded: true, view: 'edit' })?.kind).toBe('cancelEdit')
+  })
 })
 
 describe('全局快捷键判定', () => {
@@ -223,6 +229,15 @@ describe('全局快捷键判定', () => {
     expect(isPaletteHotkey(k({ key: 'k' }))).toBe(false)
     expect(isPaletteHotkey(k({ key: 'k', altKey: true }))).toBe(false)
     // 别的键 + Ctrl 也不算
+    expect(isPaletteHotkey(k({ key: 'j', ctrlKey: true }))).toBe(false)
+  })
+
+  it('Ctrl+J / Cmd+J 开合对话坞（与 Ctrl+K 同族，输入框里也生效）', () => {
+    expect(isDockHotkey(k({ key: 'j', ctrlKey: true }))).toBe(true)
+    expect(isDockHotkey(k({ key: 'J', metaKey: true }))).toBe(true)
+    expect(isDockHotkey(k({ key: 'j' }))).toBe(false)
+    // Ctrl+K 不该被当成坞的快捷键，反之亦然
+    expect(isDockHotkey(k({ key: 'k', ctrlKey: true }))).toBe(false)
     expect(isPaletteHotkey(k({ key: 'j', ctrlKey: true }))).toBe(false)
   })
 

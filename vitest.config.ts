@@ -52,6 +52,9 @@ const GATED_VUE_MODULES = [
   // AI 配置（F-12 一期，2026-10-29）：地址判据 / 文档清洗 / 增删改 / 密钥草稿全是不碰 IO 的
   // 判定，单独成文件才满足纳入判据。地址判据与 Rust 那张表同源，组件那半（invoke + 表单）留给 E2E。
   'src/vue/aiSettings.ts',
+  // 对话坞（F-12 二期，2026-10-29）：流式三态归并 / @ 触发词 / 引用块预算 / 历史气泡过滤 /
+  // 出场条件全是纯判定，单独成文件才满足纳入判据。组件那半（Channel / invoke / 焦点）留给 E2E。
+  'src/vue/aiChat.ts',
   'src/vue/appearance.ts',
   'src/vue/backup.ts',
   'src/vue/cardData.ts',
@@ -156,6 +159,10 @@ export default defineConfig({
         // 每一条丢弃分支（坏 JSON / 无 providers / 缺 id / 重复 id / 未知 kind）都有用例。
         // 隔离跑实测分支 100%，同 chord/settingsNav 锁满。
         'src/vue/aiSettings.ts': { branches: 100 },
+        // 对话坞判定层（F-12 二期）：流式四态（增量/收尾/错误/空帧）、@ 的六条边界、
+        // 每一类卡片的摘录与"没有内容"的空串、引用块预算、历史的 system 过滤与时间分档
+        // 全部有用例；隔离跑实测**分支 100%**，同 aiSettings 锁满。
+        'src/vue/aiChat.ts': { branches: 100 },
         // backup.ts 原地板 95。P0-③（2026-10-20）把恢复改成整份回填、格式升 v2 并加了设置段清洗，
         // 补齐四条从未被执行过的分支（残缺包无版面段 / 导出时间读不懂 / settings 整段不是对象 /
         // template 显式为 null）—— 两个用例文件隔离跑实测**分支 100%**，棘轮只升不降，锁满。

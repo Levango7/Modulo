@@ -389,9 +389,16 @@ pub fn run() {
             ai::openai_compat::ai_providers,
             ai::keys::ai_set_key,
             ai::keys::ai_delete_key,
+            // 对话与历史（F-12 二期，2026-10-29）：底部对话坞是它们唯一的前端调用点。
+            // 流式走 Channel<AiChunk>，中断走 ai_chat_cancel，历史由 Rust 单点落盘。
+            ai::openai_compat::ai_chat,
+            ai::openai_compat::ai_chat_cancel,
+            ai::history::ai_history_list,
+            ai::history::ai_history_get,
+            ai::history::ai_history_delete,
+            ai::history::ai_history_clear,
             // 仍未接线的注册（F-11②，撤注册不删代码）：sysmon::proc_list、
-            // ai::openai_compat::{ai_chat, ai_chat_cancel, ai_summarize}、ai::history::*、
-            // capture::shot::*。
+            // ai::openai_compat::ai_summarize（三期）、capture::shot::*。
             capture::winlist::win_list,
             capture::preview::win_preview_start,
             capture::preview::win_preview_stop,
