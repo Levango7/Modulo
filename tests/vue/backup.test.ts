@@ -329,6 +329,8 @@ describe('按实例的内容进出备份包（第二张便签 / 待办卡不能�
     byInstance: {
       'sticky:2': { sticky: '第二张的正文' },
       'todo:2': { todos: [{ id: 't9', text: '第二张的待办', done: false }] },
+      'countdown:2': { countdown: { label: '第二张的倒数日', date: '2027-01-01' } },
+      'elapsed:2': { elapsed: { label: '第二张的正计时', date: '2026-01-01' } },
     },
   }
 
@@ -341,6 +343,18 @@ describe('按实例的内容进出备份包（第二张便签 / 待办卡不能�
     twoInstances.byInstance!['todo:2'].todos![0].text = '第二张的待办' // 还原，别污染后面的用例
   })
 
+  it('countdown / elapsed 的嵌套对象也是深拷贝（`{...v}` 只抄一层，日子会被连坐改掉）', () => {
+    const p = buildBackup({ layout, schemes: book, cardData: twoInstances, app: '0.8.8' })
+    expect(p.cardData.byInstance?.['countdown:2']?.countdown).toEqual({ label: '第二张的倒数日', date: '2027-01-01' })
+    expect(p.cardData.byInstance?.['elapsed:2']?.elapsed).toEqual({ label: '第二张的正计时', date: '2026-01-01' })
+    twoInstances.byInstance!['countdown:2'].countdown!.date = '导出后才改的'
+    twoInstances.byInstance!['elapsed:2'].elapsed!.label = '也被改了'
+    expect(p.cardData.byInstance?.['countdown:2']?.countdown?.date, '包里必须是导出那一刻的').toBe('2027-01-01')
+    expect(p.cardData.byInstance?.['elapsed:2']?.elapsed?.label).toBe('第二张的正计时')
+    twoInstances.byInstance!['countdown:2'].countdown!.date = '2027-01-01' // 还原
+    twoInstances.byInstance!['elapsed:2'].elapsed!.label = '第二张的正计时'
+  })
+
   it('round-trip：导出 → 序列化 → 解析 → 回填，两张卡的内容都还在', () => {
     const json = backupToJson(buildBackup({ layout, schemes: book, cardData: twoInstances, app: '0.8.8' }))
     const parsed = parseBackup(json, REGISTRY)
@@ -350,6 +364,8 @@ describe('按实例的内容进出备份包（第二张便签 / 待办卡不能�
     applyCardData(target, parsed.cardData!)
     expect(target.byInstance?.['todo:2']?.todos?.[0]?.text).toBe('第二张的待办')
     expect(target.byInstance?.['sticky:2']?.sticky).toBe('第二张的正文')
+    expect(target.byInstance?.['countdown:2']?.countdown).toEqual({ label: '第二张的倒数日', date: '2027-01-01' })
+    expect(target.byInstance?.['elapsed:2']?.elapsed).toEqual({ label: '第二张的正计时', date: '2026-01-01' })
   })
 
   it('没有第二实例时包里根本不出现这个键（旧档形状逐字不变）', () => {

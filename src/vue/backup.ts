@@ -143,12 +143,20 @@ export function buildBackup(input: BackupInput): BackupPayload {
       // 按实例的内容（F-01 阶段 2）：**必须进包**。阶段 2 第一笔（便签，2026-10-28）只改了
       // 读写路径，忘了这里 —— 第二张便签的正文因此换台机器恢复回来就没了，而界面上
       // "备份成功"照样显示。2026-10-29 补上，待办一并带上（同一段，不必分两次）。
+      // 2026-10-30 倒数日 / 正计时跟上：这两个是**对象**，`{...v}` 只复制了外层 ——
+      // 包里第二张的日子会与界面那份共享引用，导出期间用户改一个字就跟着进包
+      // （待办犯过的同一个坑，这次一并堵上）。
       ...(input.cardData.byInstance
         ? {
             byInstance: Object.fromEntries(
               Object.entries(input.cardData.byInstance).map(([k, v]) => [
                 k,
-                { ...v, ...(v.todos ? { todos: v.todos.map((t) => ({ ...t })) } : {}) },
+                {
+                  ...v,
+                  ...(v.todos ? { todos: v.todos.map((t) => ({ ...t })) } : {}),
+                  ...(v.countdown ? { countdown: { ...v.countdown } } : {}),
+                  ...(v.elapsed ? { elapsed: { ...v.elapsed } } : {}),
+                },
               ]),
             ),
           }

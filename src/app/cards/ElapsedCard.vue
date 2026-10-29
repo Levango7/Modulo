@@ -3,20 +3,24 @@
  * 正计时：自某个日子起，今天第 N 天（戒烟 / 坚持 / 开业……正面口径的倒数日）。
  * 内容（名字 + 起始日）存 `cardData` —— **跟着完整备份走**。
  * "第 N 天"= 已过天数 + 1（开始那天算第 1 天，这是这类卡片的通行口径）。
+ *
+ * 同模块摆了两张时各写各的（F-01 阶段 2，2026-10-30，与倒数日一起搬），判据与
+ * 读写口径都在 `instanceData.ts`，这里只把两个 id 接进来。
  */
 import { computed, inject, onBeforeUnmount, ref } from 'vue'
 import { formatDateLabel, isValidDate } from '@levango7/engine'
 import { CalendarClock, Pencil } from 'lucide-vue-next'
 import type { CardDataApi } from '../../vue/cardData'
+import { elapsedOf, writeElapsed } from '../../vue/instanceData'
 
-const props = defineProps<{ variant: string }>()
+const props = defineProps<{ variant: string; moduleId?: string; instanceId?: string }>()
 const cardData = inject<CardDataApi>('cardData')!
 
 const now = ref(new Date())
 const tick = window.setInterval(() => (now.value = new Date()), 60_000)
 onBeforeUnmount(() => window.clearInterval(tick))
 
-const el = computed(() => cardData.state.elapsed)
+const el = computed(() => elapsedOf(cardData.state, props.moduleId, props.instanceId))
 const days = computed(() => (el.value.date && isValidDate(el.value.date) ? daysSince(el.value.date, now.value) : null))
 /** 已过天数：从起始日的次日起算 1 —— 与 `daysUntil` 的负数同源，口径共用一套 */
 function daysSince(date: string, at: Date): number {
@@ -37,8 +41,11 @@ function openEdit(): void {
 }
 
 function save(): void {
-  el.value.label = draftLabel.value.trim().slice(0, 24)
-  if (isValidDate(draftDate.value)) el.value.date = draftDate.value
+  // 与倒数日同一条：日期可能处在"2026-10-"这种中间态，不合法就保留原来的，不当成清空
+  writeElapsed(cardData.state, props.moduleId, props.instanceId, {
+    label: draftLabel.value.trim().slice(0, 24),
+    date: isValidDate(draftDate.value) ? draftDate.value : el.value.date,
+  })
   editing.value = false
 }
 </script>
