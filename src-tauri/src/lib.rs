@@ -419,6 +419,7 @@ pub fn run() {
             floatwin::list_floats,
             floatwin::float_card,
             floatwin::focus_float,
+            floatwin::move_float,
             floatwin::unfloat_card,
             webdav::webdav_probe,
             webdav::webdav_get,

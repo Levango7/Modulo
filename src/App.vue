@@ -36,7 +36,8 @@ import NoticeStrip from './vue/components/NoticeStrip.vue'
 import CancelEditDialog from './vue/components/CancelEditDialog.vue'
 import { type CommandBus } from './vue/commandBus'
 import type { CommandContext } from './vue/commands'
-import { floatCard, floatingSupported, focusFloat, unfloatCard } from './float/api'
+import { fetchFloats, floatCard, floatingSupported, focusFloat, moveFloat, unfloatCard } from './float/api'
+import { floatArrangeTargets } from './vue/floatArrange'
 import { floatItems } from './vue/floatList'
 import GridLayout from './vue/components/GridLayout.vue'
 import CanvasEditor from './vue/components/CanvasEditor.vue'
@@ -228,6 +229,30 @@ function unfloatAll(): void {
 function focusFloatRow(id: string): void {
   floatOpen.value = false
   void focusFloat(id)
+}
+/**
+ * 「按版面重摆」（F-08「定位」的收官，2026-10-29）：把每张浮窗搬到它在版面里的相对位置上。
+ *
+ * 坐标映射是纯判定层 `floatArrange.ts`（受测层锁 100）；尺寸用**此刻**的 `list_floats`
+ * （用户拖出来的大小，重摆不碰）；工作区读主窗的 `window.screen`（摆到主窗这块屏，
+ * 是最可预期的语义——浮窗可能在别的屏上，但"按版面排开"就是该有个确定的去处）。
+ * Rust `move_float` 只做搬运，窗已不在的返回 false 静默跳过——与「提到最前」同一种幂等。
+ */
+async function arrangeFloatsByLayout(): Promise<void> {
+  floatOpen.value = false
+  const entries = await fetchFloats()
+  const sizes = new Map(entries.map((e) => [e.card_id, { w: e.w, h: e.h }]))
+  // availLeft/availTop 是 Chromium 扩展属性（TS DOM lib 没有），缺失时按 0 —— 单屏默认就在原点
+  const scr = window.screen as Screen & { availLeft?: number; availTop?: number }
+  const wa = {
+    x: scr.availLeft ?? 0,
+    y: scr.availTop ?? 0,
+    w: scr.availWidth || 1024,
+    h: scr.availHeight || 768,
+  }
+  for (const t of floatArrangeTargets(store.doc.value.items, detached.value, sizes, wa)) {
+    void moveFloat(t.id, t.x, t.y)
+  }
 }
 function runArrange(fn: () => void): void {
   arrangeOpen.value = false
@@ -456,6 +481,7 @@ const onGlobalKey = useGlobalKeys({
       @focus="focusFloatRow"
       @unfloat="(id: string) => void unfloatCard(id)"
       @unfloat-all="unfloatAll"
+      @arrange-floats="arrangeFloatsByLayout"
       @open-templates="templatesOpen = true"
       @open-settings="settingsOpen = true"
     />
