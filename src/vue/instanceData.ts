@@ -23,13 +23,13 @@
  *
  * - **不解析 `:2` 后缀**：是不是"第二实例"由"实例 id ≠ 模块 id"判定，不靠字符串形状
  *   （与 `moduleIdOf` 只认 `p.module ?? p.id` 同一条纪律）。
- * - 按实例分的字段：`sticky` / `todos` / `countdown` / `elapsed`。其余字段（速记 / 记账 /
- *   四象限 / 习惯……）仍是按模块共享，那是它们各自的下一笔。
+ * - 按实例分的字段：`sticky` / `todos` / `countdown` / `elapsed` / `matrix`。其余字段
+ *   （速记 / 记账 / 习惯……）仍是按模块共享，那是它们各自的下一笔。
  */
-import type { CardData, CountdownSetting, ElapsedSetting, Todo } from './cardDataTypes'
+import type { CardData, CountdownSetting, ElapsedSetting, MatrixTodo, Todo } from './cardDataTypes'
 
-/** 取数只需要这五个字段，测试不必造一整份 `CardData` */
-export type InstanceSource = Pick<CardData, 'sticky' | 'todos' | 'countdown' | 'elapsed' | 'byInstance'>
+/** 取数只需要这六个字段，测试不必造一整份 `CardData` */
+export type InstanceSource = Pick<CardData, 'sticky' | 'todos' | 'countdown' | 'elapsed' | 'matrix' | 'byInstance'>
 
 /** 空"名字 + 日子"：与顶层那个空形状（`emptyCardData`）逐字相同，渲染侧不必为实例分叉判空 */
 const BLANK_DAY = { label: '', date: '' }
@@ -145,6 +145,35 @@ export function writeElapsed(
   }
   const bag = data.byInstance ?? {}
   bag[instanceId as string] = { ...bag[instanceId as string], elapsed: next }
+  data.byInstance = bag
+}
+
+/**
+ * 四象限清单：按实例读。第五个字段（2026-10-30），口径与前四个**完全相同** ——
+ * 差别只有"空"的形状：便签是空串、待办与四象限是空数组、倒数日 / 正计时是空"名字 + 日子"。
+ * 不回落顶层 —— 回落会让新拖出来的第二张四象限卡显示第一张的条目。
+ */
+export function matrixOf(data: InstanceSource, moduleId?: string, instanceId?: string): MatrixTodo[] {
+  if (!isSecondInstance(moduleId, instanceId)) return data.matrix ?? []
+  return data.byInstance?.[instanceId as string]?.matrix ?? []
+}
+
+/**
+ * 四象限清单：按实例写。**只决定写在哪，不改语义** —— 加/勾/挪/删由调用方先在数组上做，
+ * 这里整条替换回去（与 `writeSticky` / `writeTodos` 同一条理由：深层 watch 靠"值变了"才触发写盘）。
+ */
+export function writeMatrix(
+  data: InstanceSource,
+  moduleId: string | undefined,
+  instanceId: string | undefined,
+  next: MatrixTodo[],
+): void {
+  if (!isSecondInstance(moduleId, instanceId)) {
+    data.matrix = next
+    return
+  }
+  const bag = data.byInstance ?? {}
+  bag[instanceId as string] = { ...bag[instanceId as string], matrix: next }
   data.byInstance = bag
 }
 

@@ -855,3 +855,85 @@ describe('待办按实例：加 / 勾 / 删各自写对地方', () => {
     expect(d.state.todos[0].done).toBe(false)
   })
 })
+
+/**
+ * 四象限按实例（F-01 阶段 2 第三个字段）。
+ *
+ * 与待办那组同一条理由：**四个动作各自都得把两个 id 带到底**。差别只有一处 ——
+ * 四象限多一个"挪象限"，它是**原地改条目**而不是整条替换，第二实例那份改完
+ * 必须整条写回才会触发落盘（`toggleMatrixTodo` 同理）。
+ */
+describe('四象限按实例：加 / 勾 / 挪 / 删各自写对地方', () => {
+  /** 空清单起步：默认示例内容里有四条，混进来会把"顶层不多一条"这条断言搅浑 */
+  const fresh = () => memStorage(JSON.stringify({ todos: [], notes: [], matrix: [] })).api()
+  type Api = ReturnType<ReturnType<typeof memStorage>['api']>
+  const top = (d: Api) => d.state.matrix.map((m) => m.text)
+  const second = (d: Api) => d.state.byInstance?.['matrix:2']?.matrix?.map((m) => m.text) ?? []
+
+  it('第二实例加一条 ⇒ 进它自己的清单，象限照传；顶层不多一条，也不建第二条 byInstance 键', () => {
+    const d = fresh()
+    d.addMatrixTodo('第一张的', 'do', 'matrix', 'matrix')
+    d.addMatrixTodo('第二张的', 'plan', 'matrix', 'matrix:2')
+    expect(top(d)).toEqual(['第一张的'])
+    expect(second(d)).toEqual(['第二张的'])
+    expect(d.state.byInstance?.['matrix:2']?.matrix?.[0].q).toBe('plan')
+    expect(Object.keys(d.state.byInstance ?? {})).toEqual(['matrix:2'])
+  })
+
+  it('第二实例的条目勾上 ⇒ 只改自己那条，第一张那条不动；取消勾抹掉 doneAt', () => {
+    const d = fresh()
+    d.addMatrixTodo('第一张的', 'do', 'matrix', 'matrix')
+    d.addMatrixTodo('第二张的', 'do', 'matrix', 'matrix:2')
+    const mine = d.state.byInstance!['matrix:2'].matrix![0].id
+    d.toggleMatrixTodo(mine, 'matrix', 'matrix:2')
+    const row = () => d.state.byInstance!['matrix:2'].matrix![0]
+    expect(row().done).toBe(true)
+    expect(typeof row().doneAt).toBe('number')
+    expect(d.state.matrix[0].done, '第一张那条不该被连坐').toBe(false)
+    d.toggleMatrixTodo(mine, 'matrix', 'matrix:2')
+    expect(row().done).toBe(false)
+    expect('doneAt' in row()).toBe(false)
+  })
+
+  it('第二实例的条目挪象限 ⇒ 只改自己那条的 q，第一张那条不动', () => {
+    const d = fresh()
+    d.addMatrixTodo('第一张的', 'do', 'matrix', 'matrix')
+    d.addMatrixTodo('第二张的', 'do', 'matrix', 'matrix:2')
+    const mine = d.state.byInstance!['matrix:2'].matrix![0].id
+    d.moveMatrixTodo(mine, 'drop', 'matrix', 'matrix:2')
+    expect(d.state.byInstance!['matrix:2'].matrix![0].q).toBe('drop')
+    expect(d.state.matrix[0].q, '第一张那条不该被连坐').toBe('do')
+  })
+
+  it('挪到不存在的象限 ⇒ 什么都不改（坏象限归位是读盘那道的规则，不是动作层的）', () => {
+    const d = fresh()
+    d.addMatrixTodo('第二张的', 'do', 'matrix', 'matrix:2')
+    const mine = d.state.byInstance!['matrix:2'].matrix![0].id
+    const before = JSON.stringify(d.state.byInstance)
+    d.moveMatrixTodo(mine, 'nope' as never, 'matrix', 'matrix:2')
+    expect(JSON.stringify(d.state.byInstance)).toBe(before)
+  })
+
+  it('第二实例删一条 ⇒ 只从自己清单里过滤掉，第一张那条名字相同也不受影响', () => {
+    const d = fresh()
+    d.addMatrixTodo('同名', 'do', 'matrix', 'matrix')
+    d.addMatrixTodo('同名', 'do', 'matrix', 'matrix:2')
+    d.removeMatrixTodo(d.state.byInstance!['matrix:2'].matrix![0].id, 'matrix', 'matrix:2')
+    expect(second(d)).toEqual([])
+    expect(top(d)).toEqual(['同名'])
+  })
+
+  it('拿第一张的 id 去第二张里勾 / 挪 / 删 ⇒ 撞不到号，什么都不改（id 只在各自清单里有效）', () => {
+    const d = fresh()
+    d.addMatrixTodo('第一张的', 'do', 'matrix', 'matrix')
+    d.addMatrixTodo('第二张的', 'do', 'matrix', 'matrix:2')
+    const firstId = d.state.matrix[0].id
+    const before = JSON.stringify(d.state.byInstance)
+    d.toggleMatrixTodo(firstId, 'matrix', 'matrix:2')
+    d.moveMatrixTodo(firstId, 'drop', 'matrix', 'matrix:2')
+    d.removeMatrixTodo(firstId, 'matrix', 'matrix:2')
+    expect(JSON.stringify(d.state.byInstance)).toBe(before)
+    expect(d.state.matrix[0].done).toBe(false)
+    expect(d.state.matrix[0].q).toBe('do')
+  })
+})

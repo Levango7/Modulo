@@ -255,12 +255,30 @@ describe('卡片正文摘录（只读用户真写进去的字）', () => {
   })
 
   it('四象限 / 速记 / 记账 / 链接各有自己的形状', () => {
+    // `id` 必须显式给成 `matrix`：`choice()` 的默认 id 是 `todo`，配 `module: 'matrix'`
+    // 是现实里不存在的组合（实例 id 与模块 id 不等 ⇒ 按"第二实例"取 ⇒ 读 `byInstance['todo']`）。
     expect(
-      excerptFor(choice({ module: 'matrix' }), source({ matrix: [{ id: 'm', text: '季度复盘', q: 'plan', done: false }] })),
+      excerptFor(
+        choice({ module: 'matrix', id: 'matrix' }),
+        source({ matrix: [{ id: 'm', text: '季度复盘', q: 'plan', done: false }] }),
+      ),
     ).toBe('未完成：季度复盘')
+    // 第二张四象限卡读自己那份清单（F-01 阶段 2 第三个字段），不回落第一张
+    expect(
+      excerptFor(
+        choice({ module: 'matrix', id: 'matrix:2' }),
+        source({
+          matrix: [{ id: 'm', text: '第一张的复盘', q: 'plan', done: false }],
+          byInstance: { 'matrix:2': { matrix: [{ id: 'z', text: '第二张的复盘', q: 'plan', done: false }] } },
+        }),
+      ),
+    ).toBe('未完成：第二张的复盘')
     // 四象限全做完了 = 没有可引用的未完成项
     expect(
-      excerptFor(choice({ module: 'matrix' }), source({ matrix: [{ id: 'm', text: '季度复盘', q: 'plan', done: true }] })),
+      excerptFor(
+        choice({ module: 'matrix', id: 'matrix' }),
+        source({ matrix: [{ id: 'm', text: '季度复盘', q: 'plan', done: true }] }),
+      ),
     ).toBe('')
     expect(
       excerptFor(

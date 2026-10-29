@@ -132,6 +132,12 @@ export function contentIndex(data: CardData): ContentEntry[] {
         text: t.text,
       })
     }
+    // 第二张起的四象限清单也在 `byInstance` 里（F-01 阶段 2 第三个字段），同上。
+    // 标题对所有四象限条目都是常量「四象限待办」，所以 id 必须带实例 id 与下标 ——
+    // 否则同组两条命中同一次查询时会被去重块静默吞掉。
+    for (const [i, m] of (inst?.matrix ?? []).entries()) {
+      out.push({ id: `matrix:${instanceId}:${i}`, cardId: instanceId, title: '四象限待办', text: m.text })
+    }
   }
   data.todos.forEach((t, i) => out.push({ id: `todo:${i}`, cardId: 'todo', title: `待办 · ${t.done ? '已完成' : '未完成'}`, text: t.text }))
   data.matrix.forEach((m, i) => out.push({ id: `matrix:${i}`, cardId: 'matrix', title: '四象限待办', text: m.text }))

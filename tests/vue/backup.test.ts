@@ -331,6 +331,7 @@ describe('按实例的内容进出备份包（第二张便签 / 待办卡不能�
       'todo:2': { todos: [{ id: 't9', text: '第二张的待办', done: false }] },
       'countdown:2': { countdown: { label: '第二张的倒数日', date: '2027-01-01' } },
       'elapsed:2': { elapsed: { label: '第二张的正计时', date: '2026-01-01' } },
+      'matrix:2': { matrix: [{ id: 'm9', text: '第二张的四象限', q: 'plan', done: false }] },
     },
   }
 
@@ -338,9 +339,14 @@ describe('按实例的内容进出备份包（第二张便签 / 待办卡不能�
     const p = buildBackup({ layout, schemes: book, cardData: twoInstances, app: '0.8.8' })
     expect(p.cardData.byInstance?.['sticky:2']?.sticky).toBe('第二张的正文')
     expect(p.cardData.byInstance?.['todo:2']?.todos?.map((t) => t.text)).toEqual(['第二张的待办'])
+    expect(p.cardData.byInstance?.['matrix:2']?.matrix?.map((m) => m.text)).toEqual(['第二张的四象限'])
     twoInstances.byInstance!['todo:2'].todos![0].text = '导出后才改的'
     expect(p.cardData.byInstance?.['todo:2']?.todos?.[0].text, '包里必须是导出那一刻的').toBe('第二张的待办')
     twoInstances.byInstance!['todo:2'].todos![0].text = '第二张的待办' // 还原，别污染后面的用例
+    // 四象限那条也是同一条规矩：白名单里"忘了拷数组里的对象"就是浅拷贝 —— 导出后改本地会跟着变
+    twoInstances.byInstance!['matrix:2'].matrix![0].text = '导出后才改的'
+    expect(p.cardData.byInstance?.['matrix:2']?.matrix?.[0].text, '包里必须是导出那一刻的').toBe('第二张的四象限')
+    twoInstances.byInstance!['matrix:2'].matrix![0].text = '第二张的四象限'
   })
 
   it('countdown / elapsed 的嵌套对象也是深拷贝（`{...v}` 只抄一层，日子会被连坐改掉）', () => {
@@ -360,10 +366,12 @@ describe('按实例的内容进出备份包（第二张便签 / 待办卡不能�
     const parsed = parseBackup(json, REGISTRY)
     expect(parsed.cardData?.byInstance?.['sticky:2']?.sticky).toBe('第二张的正文')
     expect(parsed.cardData?.byInstance?.['todo:2']?.todos?.map((t) => t.text)).toEqual(['第二张的待办'])
+    expect(parsed.cardData?.byInstance?.['matrix:2']?.matrix?.map((m) => m.text)).toEqual(['第二张的四象限'])
     const target = emptyCardData()
     applyCardData(target, parsed.cardData!)
     expect(target.byInstance?.['todo:2']?.todos?.[0]?.text).toBe('第二张的待办')
     expect(target.byInstance?.['sticky:2']?.sticky).toBe('第二张的正文')
+    expect(target.byInstance?.['matrix:2']?.matrix?.[0]?.text).toBe('第二张的四象限')
     expect(target.byInstance?.['countdown:2']?.countdown).toEqual({ label: '第二张的倒数日', date: '2027-01-01' })
     expect(target.byInstance?.['elapsed:2']?.elapsed).toEqual({ label: '第二张的正计时', date: '2026-01-01' })
   })

@@ -1,6 +1,6 @@
 /**
  * F-01 阶段 2：同种卡多实例的**内容**各自独立 —— 便签打通全链（2026-10-28），
- * 待办接着做第二个字段（2026-10-29），倒数日 / 正计时收尾第三、四个字段（2026-10-30）。
+ * 待办接着做第二个字段（2026-10-29），倒数日 / 正计时收尾第三、四个字段（2026-10-30）；四象限是第五个（2026-10-30）。
  *
  * 阶段 1（#127）只分开了 **id**（第二张是 `sticky:2`），两个实例仍共享同一份内容：
  * 在第二张里打字，第一张跟着变。这一笔把内容也分开，判据抽在 `src/vue/instanceData.ts`
@@ -26,7 +26,7 @@ const skip = !EXE
 let url = 'http://localhost:1430'
 const wait = (ms: number) => new Promise((r) => setTimeout(r, ms))
 
-describe.skipIf(skip)('多实例内容（F-01 阶段 2）：两张卡各写各的（便签 / 待办 / 倒数日 / 正计时）', () => {
+describe.skipIf(skip)('多实例内容（F-01 阶段 2）：两张卡各写各的（便签 / 待办 / 倒数日 / 正计时 / 四象限）', () => {
   it('第二张便签有自己的正文，刷新后各自还在，且存储形状对', async () => {
     url = process.env.MODULO_URL ?? url
     const browser = await puppeteer.launch({
@@ -499,6 +499,144 @@ describe.skipIf(skip)('多实例内容（F-01 阶段 2）：两张卡各写各�
       label: '入职',
       date: '2026-01-01',
     })
+
+    expect(errs, `页面不该有报错：${errs.join(' | ')}`).toEqual([])
+    await browser.close()
+  })
+
+  /**
+   * 第三个字段：**四象限**（2026-10-30）。
+   *
+   * 与待办同形，多出一条路径：**挪象限**（`moveMatrixTodo`）是**原地改条目**而不是整条替换 ——
+   * 第二实例那条改完必须整条写回才会落盘。这里除了"各自加、各自还在"，还断言：
+   * 在第二张里勾一条**不会**把第一张里同名的那条也勾上（单测守 API 那一半，
+   * 这里补的是"组件真的把两个 id 传下去了"—— 少传一个 id，单测全绿、界面全错）。
+   *
+   * 四象限**不在出厂模板的版面里**（`general` 是时钟/待办/便签/速记/最近），
+   * 所以两张都由目录加进来 —— 顺带证明"目录里能连点两张同一模块"。
+   */
+  it('第二张四象限卡有自己的清单：各自加、勾选不连坐、刷新后各自还在，且存储形状对', async () => {
+    url = process.env.MODULO_URL ?? url
+    const browser = await puppeteer.launch({
+      executablePath: EXE!,
+      headless: true,
+      args: ['--no-sandbox', '--disable-gpu'],
+      userDataDir: `F:/tmp/pptr-profile-${Date.now()}`,
+    })
+    const page = await browser.newPage()
+    await page.setViewport({ width: 1440, height: 900, deviceScaleFactor: 1 })
+    const errs: string[] = []
+    page.on('pageerror', (e: unknown) => errs.push('PAGEERROR ' + String((e as Error).message).slice(0, 160)))
+    await page.evaluateOnNewDocument(() => localStorage.setItem('modulo.template.v1', 'general'))
+    await page.goto(url, { waitUntil: 'networkidle2', timeout: 30000 })
+    await wait(800)
+
+    /** 每张四象限卡的条目：字 + 是否已勾（四象限不隐藏已完成的，只画删除线） */
+    const rows = () =>
+      page.evaluate(() =>
+        [...document.querySelectorAll<HTMLElement>('.cell[data-module="matrix"]')].map((cell) =>
+          [...cell.querySelectorAll<HTMLElement>('ul.rows li')].map((li) => ({
+            text: (li.querySelector('.txt')?.textContent || '').trim(),
+            done: li.getAttribute('data-done') === 'true',
+          })),
+        ),
+      )
+    const clickBar = (text: string) =>
+      page.evaluate((t) => {
+        const b = [...document.querySelectorAll<HTMLButtonElement>('.bar button')].find(
+          (e) => (e.textContent || '').trim().includes(t),
+        )
+        b?.click()
+        return !!b
+      }, text)
+
+    expect(await rows(), '出厂版面里没有四象限卡').toHaveLength(0)
+
+    expect(await clickBar('布局编辑'), '顶栏上应有「布局编辑」').toBe(true)
+    await wait(500)
+    await page.evaluate(() => void document.querySelector<HTMLElement>('.add-cat')?.click())
+    await wait(350)
+    // 连点两张：目录不过滤已放置的模块（阶段 1 的验收之一）
+    const added = await page.evaluate(() => {
+      const find = () =>
+        [...document.querySelectorAll<HTMLElement>('.add-menu [role=menuitem]')].find((x) =>
+          (x.querySelector('.t')?.textContent || '').includes('四象限'),
+        )
+      let n = 0
+      for (let i = 0; i < 2; i++) {
+        const el = find()
+        if (!el) break
+        el.click()
+        n++
+      }
+      return n
+    })
+    expect(added, '目录里应能连点两张「四象限待办」').toBe(2)
+    await wait(400)
+    await clickBar('保存')
+    await wait(600)
+
+    expect(await rows(), '工作台上有两张四象限卡').toHaveLength(2)
+
+    /** 往第 i 张卡的第一个象限（重要 · 紧急）里加一条 */
+    const addItem = (i: number, text: string) =>
+      page.evaluate(
+        ({ i, text }) => {
+          const cell = [...document.querySelectorAll<HTMLElement>('.cell[data-module="matrix"]')][i]
+          const input = cell?.querySelector<HTMLInputElement>('input.in')
+          if (!input) throw new Error(`找不到第 ${i + 1} 张四象限卡的输入框`)
+          input.value = text
+          input.dispatchEvent(new Event('input', { bubbles: true }))
+          input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }))
+        },
+        { i, text },
+      )
+
+    await addItem(0, '两张都叫这条')
+    await wait(150)
+    await addItem(1, '两张都叫这条')
+    await wait(400)
+    await addItem(1, '只有第二张有')
+    await wait(500)
+
+    let now = await rows()
+    expect(now[0].filter((r) => r.text === '两张都叫这条'), '第一张里只有它自己加的那条').toHaveLength(1)
+    expect(now[0].map((r) => r.text), '第二张的东西不该出现在第一张里').not.toContain('只有第二张有')
+    expect(now[1].map((r) => r.text), '第二张两条都在').toEqual(['两张都叫这条', '只有第二张有'])
+
+    // 勾掉第二张里那条**独有**的：第一张里同名的那条不能跟着变
+    const toggled = await page.evaluate(() => {
+      const cells = [...document.querySelectorAll<HTMLElement>('.cell[data-module="matrix"]')]
+      const li = [...(cells[1]?.querySelectorAll<HTMLElement>('ul.rows li') ?? [])].find((x) =>
+        (x.querySelector('.txt')?.textContent || '').includes('只有第二张有'),
+      )
+      const box = li?.querySelector<HTMLInputElement>('input[type=checkbox]')
+      box?.click()
+      return !!box
+    })
+    expect(toggled, '第二张里应有那条四象限的勾选框').toBe(true)
+    await wait(400)
+    now = await rows()
+    expect(now[1].find((r) => r.text === '只有第二张有')?.done, '第二张那条已勾上').toBe(true)
+    expect(now[0].find((r) => r.text === '两张都叫这条')?.done, '第一张里同名的那条没被连坐勾掉').toBe(false)
+
+    // 刷新：写入必须落在对的那份上
+    await page.reload({ waitUntil: 'networkidle2' })
+    await wait(800)
+    const reloaded = await rows()
+    expect(reloaded[0].map((r) => r.text), '刷新后第一张的东西还在').toEqual(['两张都叫这条'])
+    expect(reloaded[1].map((r) => r.text), '刷新后第二张两条都还在').toEqual(['两张都叫这条', '只有第二张有'])
+    expect(reloaded[1].find((r) => r.text === '只有第二张有')?.done, '勾选状态也落盘了').toBe(true)
+
+    // 存储形状：第一实例仍写顶层 `matrix`，第二实例写 byInstance['matrix:2'].matrix
+    const stored = await page.evaluate(() => JSON.parse(localStorage.getItem('modulo.carddata.v1') ?? '{}'))
+    const mine = (stored.byInstance?.['matrix:2']?.matrix ?? []) as { text: string; done: boolean }[]
+    expect(mine.map((m) => m.text), '第二张的清单里就是它自己那两条').toEqual(['两张都叫这条', '只有第二张有'])
+    expect(mine.find((m) => m.text === '只有第二张有')?.done, '第二张那条在盘上是已完成的').toBe(true)
+    expect(
+      (stored.matrix as { text: string }[]).map((m) => m.text),
+      '顶层（第一实例）不该出现第二张的任何一条',
+    ).toEqual(['两张都叫这条'])
 
     expect(errs, `页面不该有报错：${errs.join(' | ')}`).toEqual([])
     await browser.close()
