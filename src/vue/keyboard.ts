@@ -119,6 +119,11 @@ export interface AppKeyLayers {
   floatOpen: boolean
   templatesOpen: boolean
   settingsOpen: boolean
+  /**
+   * AI 对话坞展开着（F-12 二期）。它排在**级联最底一层**：坞是常驻壳，
+   * 上面任何一层全屏遮罩都该先吃 Esc。可选 = 旧调用方不传就是"没有坞"。
+   */
+  dockExpanded?: boolean
 }
 
 /** Esc 该落在哪一层。`null` = 这个键不是 Esc，或者级联走到底也没人接 */
@@ -131,6 +136,7 @@ export type AppKeyAction =
   | { kind: 'closeFloats' }
   | { kind: 'closeTemplates' }
   | { kind: 'closeSettings' }
+  | { kind: 'collapseDock' }
 
 /**
  * Esc 从最上面一层往下走：先关命令面板与确认框，再交编辑器自退，
@@ -146,6 +152,8 @@ export function appKeyIntent(e: KeyLike, layers: AppKeyLayers): AppKeyAction | n
   if (layers.floatOpen) return { kind: 'closeFloats' }
   if (layers.templatesOpen) return { kind: 'closeTemplates' }
   if (layers.settingsOpen) return { kind: 'closeSettings' }
+  // 坞在最后：它是常驻的，先让所有全屏遮罩与编辑事务吃掉 Esc
+  if (layers.dockExpanded) return { kind: 'collapseDock' }
   return null
 }
 
@@ -155,6 +163,15 @@ export function appKeyIntent(e: KeyLike, layers: AppKeyLayers): AppKeyAction | n
  */
 export function isPaletteHotkey(e: KeyLike): boolean {
   return (e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k'
+}
+
+/**
+ * Ctrl+J 开合 AI 对话坞（F-12 二期）。与 Ctrl+K 同族：**输入框里也生效** ——
+ * 用户在坞里打字时按 Ctrl+J 就是"收起来"，这是 toggle 的语义。
+ * `Ctrl+Shift+J` 也算（与 Ctrl+K 的 Shift 口径一致，Shift 不改变意图）。
+ */
+export function isDockHotkey(e: KeyLike): boolean {
+  return (e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'j'
 }
 
 /** 全局快捷键里"撤销/重做"的判定。大小写不敏感（Ctrl+Shift+Z 与 ctrl+z 同效） */

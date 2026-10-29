@@ -11,7 +11,7 @@
  */
 
 import type { Ref } from 'vue'
-import { appKeyIntent, isEditableTarget, isPaletteHotkey, isUndoHotkey, type AppKeyLayers, type KeyLike } from './keyboard'
+import { appKeyIntent, isDockHotkey, isEditableTarget, isPaletteHotkey, isUndoHotkey, type AppKeyLayers, type KeyLike } from './keyboard'
 import type { TxView } from './useEditTransaction'
 
 /**
@@ -36,6 +36,9 @@ export interface GlobalKeysDeps {
   floatOpen: Ref<boolean>
   templatesOpen: Ref<boolean>
   settingsOpen: Ref<boolean>
+  /** AI 对话坞（F-12 二期）：展开态参与 Esc 级联，可见性决定 Ctrl+J 是否生效 */
+  dockExpanded: Ref<boolean>
+  dockVisible: Ref<boolean>
   cancelEdit: () => void
   closeTemplates: () => void
   undo: () => void
@@ -58,6 +61,7 @@ export function useGlobalKeys(deps: GlobalKeysDeps): (e: GlobalKeyLike) => void 
         floatOpen: deps.floatOpen.value,
         templatesOpen: deps.templatesOpen.value,
         settingsOpen: deps.settingsOpen.value,
+        dockExpanded: deps.dockExpanded.value,
       }
       switch (appKeyIntent(e, layers)?.kind) {
         case 'closePalette': deps.paletteOpen.value = false; break
@@ -68,6 +72,7 @@ export function useGlobalKeys(deps: GlobalKeysDeps): (e: GlobalKeyLike) => void 
         case 'closeFloats': deps.floatOpen.value = false; break
         case 'closeTemplates': deps.closeTemplates(); break
         case 'closeSettings': deps.settingsOpen.value = false; break
+        case 'collapseDock': deps.dockExpanded.value = false; break
         default: break // 级联走到底也没人接
       }
     }
@@ -75,6 +80,15 @@ export function useGlobalKeys(deps: GlobalKeysDeps): (e: GlobalKeyLike) => void 
     if (isPaletteHotkey(e)) {
       e.preventDefault()
       deps.paletteOpen.value = true
+      return
+    }
+    /**
+     * Ctrl+J 同族：坞不在场（编辑态 / 有浮窗 / 全屏遮罩）时**不拦也不动** ——
+     * 否则会留下一个"展开了但渲染不出来"的状态，下次回到工作台自己弹开。
+     */
+    if (isDockHotkey(e) && deps.dockVisible.value) {
+      e.preventDefault()
+      deps.dockExpanded.value = !deps.dockExpanded.value
       return
     }
     // 输入控件里不抢撤销/重做（本地原来那份 isEditable 与 keyboard.ts 的

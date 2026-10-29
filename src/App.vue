@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, inject, nextTick, onBeforeUnmount, onMounted, provide, ref } from 'vue'
+import { computed, inject, nextTick, onBeforeUnmount, onMounted, provide, ref, watch } from 'vue'
 import { useElementSize } from './vue/useElementSize'
 import { useProjection } from './vue/useProjection'
 import { measureWantedRows } from './vue/useDensity'
@@ -45,6 +45,8 @@ import SettingsPanel from './vue/components/SettingsPanel.vue'
 import OnboardingWizard from './vue/components/OnboardingWizard.vue'
 import TemplatePicker from './vue/components/TemplatePicker.vue'
 import TitleBar from './vue/components/TitleBar.vue'
+import ChatDock from './vue/components/ChatDock.vue'
+import { canShowDock } from './vue/aiChat'
 
 const storage = inject<PersistentStorage>('storage')!
 const store = inject<LayoutStore>('store')!
@@ -378,6 +380,27 @@ function goCard(id: string): void {
   void nextTick(() => editorRef.value?.revealCard(id))
 }
 
+/**
+ * 底部 AI 对话坞（F-12 二期）：出场条件在 `aiChat.canShowDock` —— 布局编辑、有浮窗、
+ * 全屏遮罩（设置/模板/命令面板/首启向导）时一律不渲染。展开态放这里而不是组件内部：
+ * Esc 级联与 Ctrl+J 都要问它（`keyboard.ts` 的最底一层）。
+ */
+const dockExpanded = ref(false)
+const dockVisible = computed(() =>
+  canShowDock({
+    desktop: isDesktop,
+    view: view.value,
+    floats: detached.value.size,
+    settingsOpen: settingsOpen.value,
+    templatesOpen: templatesOpen.value,
+    paletteOpen: paletteOpen.value,
+    onboardingOpen: !!onboarding.visible.value,
+  }),
+)
+// 坞被撤掉（切编辑/开设置/有浮窗）就收回展开态：回来时"自己弹开"是没有道理的
+watch(dockVisible, (v) => {
+  if (!v) dockExpanded.value = false
+})
 
 /** 收紧/紧凑要读真实渲染出来的卡片高度，编辑器里没有那张 .grid，所以只能在工作台用 */
 const onlyWorkbench = '回「工作台」可用：这一步要按真实渲染的卡片高度测量'
@@ -394,6 +417,8 @@ const onGlobalKey = useGlobalKeys({
   floatOpen,
   templatesOpen,
   settingsOpen,
+  dockExpanded,
+  dockVisible,
   cancelEdit,
   closeTemplates,
   undo: undoLatest,
@@ -472,6 +497,8 @@ const onGlobalKey = useGlobalKeys({
       </CanvasEditor>
       <StackEditor v-else />
     </main>
+
+    <ChatDock v-if="dockVisible" :expanded="dockExpanded" @update:expanded="dockExpanded = $event" />
     </div>
 
     <CancelEditDialog

@@ -57,5 +57,5 @@ pub(crate) fn load_provider(app: &AppHandle, provider_id: &str) -> Result<Provid
     load_settings(app)?
         .into_iter()
         .find(|p| p.id == provider_id)
-        .ok_or_else(|| "找不到这个模型配置，去 AI 设置里检查".to_string())
+        .ok_or_else(|| "找不到这个模型配置：去「设置 → 实验室」检查".to_string())
 }
