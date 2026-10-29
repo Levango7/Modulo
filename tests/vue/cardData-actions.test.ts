@@ -797,3 +797,61 @@ describe('原生卡（扩展卡包）：导入/卸载与桥状态', () => {
     expect(d.state.extCards).toHaveLength(0)
   })
 })
+
+/**
+ * 待办**按实例**分开（F-01 阶段 2 第二个字段，2026-10-29）。
+ *
+ * 判定层的用例在 `instanceData.test.ts`；这里钉的是"经 API 走真的写对了地方"——
+ * 加 / 勾 / 删三条路径各自都得把两个 id 带到底，漏一个就会静默写进第一张的清单。
+ */
+describe('待办按实例：加 / 勾 / 删各自写对地方', () => {
+  /** 空清单起步：默认示例内容里有三条待办，混进来会把"顶层不多一条"这条断言搅浑 */
+  const fresh = () => memStorage(JSON.stringify({ todos: [], notes: [] })).api()
+  type Api = ReturnType<ReturnType<typeof memStorage>['api']>
+  const top = (d: Api) => d.state.todos.map((t) => t.text)
+  const second = (d: Api) => d.state.byInstance?.['todo:2']?.todos?.map((t) => t.text) ?? []
+
+  it('第二实例加一条 ⇒ 进它自己的清单；顶层不多一条，也不建第二条 byInstance 键', () => {
+    const d = fresh()
+    d.addTodo('第一张的', 'todo', 'todo')
+    d.addTodo('第二张的', 'todo', 'todo:2')
+    expect(top(d)).toEqual(['第一张的'])
+    expect(second(d)).toEqual(['第二张的'])
+    expect(Object.keys(d.state.byInstance ?? {})).toEqual(['todo:2'])
+  })
+
+  it('第二实例的条目勾上 ⇒ 只改自己那条，第一张那条不动；取消勾抹掉 doneAt', () => {
+    const d = fresh()
+    d.addTodo('第一张的', 'todo', 'todo')
+    d.addTodo('第二张的', 'todo', 'todo:2')
+    const mine = d.state.byInstance!['todo:2'].todos![0].id
+    d.toggleTodo(mine, 'todo', 'todo:2')
+    expect(d.state.byInstance!['todo:2'].todos![0].done).toBe(true)
+    expect(typeof d.state.byInstance!['todo:2'].todos![0].doneAt).toBe('number')
+    expect(d.state.todos[0].done, '第一张那条不该被连坐').toBe(false)
+    d.toggleTodo(mine, 'todo', 'todo:2')
+    expect(d.state.byInstance!['todo:2'].todos![0].done).toBe(false)
+    expect('doneAt' in d.state.byInstance!['todo:2'].todos![0]).toBe(false)
+  })
+
+  it('第二实例删一条 ⇒ 只从自己清单里过滤掉，第一张那条名字相同也不受影响', () => {
+    const d = fresh()
+    d.addTodo('同名', 'todo', 'todo')
+    d.addTodo('同名', 'todo', 'todo:2')
+    d.removeTodo(d.state.byInstance!['todo:2'].todos![0].id, 'todo', 'todo:2')
+    expect(second(d)).toEqual([])
+    expect(top(d)).toEqual(['同名'])
+  })
+
+  it('拿第一张的 id 去第二张里勾 ⇒ 撞不到号，什么都不改（id 只在各自清单里有效）', () => {
+    const d = fresh()
+    d.addTodo('第一张的', 'todo', 'todo')
+    d.addTodo('第二张的', 'todo', 'todo:2')
+    const firstId = d.state.todos[0].id
+    const before = JSON.stringify(d.state.byInstance)
+    d.toggleTodo(firstId, 'todo', 'todo:2')
+    d.removeTodo(firstId, 'todo', 'todo:2')
+    expect(JSON.stringify(d.state.byInstance)).toBe(before)
+    expect(d.state.todos[0].done).toBe(false)
+  })
+})

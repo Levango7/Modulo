@@ -314,3 +314,45 @@ describe('v2：设置段与整份回填（2026-10-20，P0-③）', () => {
     expect(source.ledger.entries, '深拷贝：改目标不污染来源').toHaveLength(1)
   })
 })
+
+/**
+ * 按实例的内容进包（F-01 阶段 2 的缺口，2026-10-29 补）。
+ *
+ * 阶段 2 第一笔（便签，2026-10-28）只改了读写路径，`buildBackup` 那份**白名单**拷贝里
+ * 没有 `byInstance` —— 第二张便签的正文因此换台机器恢复回来就没了，而界面上"备份成功"
+ * 照样显示。这是 F-03 那条"导出是全的、恢复是残的"同一个病的第二次发作：
+ * 加字段时忘了备份是一份手写白名单，不是整份 `CardData`。
+ */
+describe('按实例的内容进出备份包（第二张便签 / 待办卡不能只活在这台机器上）', () => {
+  const twoInstances: CardData = {
+    ...cardData,
+    byInstance: {
+      'sticky:2': { sticky: '第二张的正文' },
+      'todo:2': { todos: [{ id: 't9', text: '第二张的待办', done: false }] },
+    },
+  }
+
+  it('包里带上 byInstance，且是深拷贝（导出之后本地再改不会跟着进包）', () => {
+    const p = buildBackup({ layout, schemes: book, cardData: twoInstances, app: '0.8.8' })
+    expect(p.cardData.byInstance?.['sticky:2']?.sticky).toBe('第二张的正文')
+    expect(p.cardData.byInstance?.['todo:2']?.todos?.map((t) => t.text)).toEqual(['第二张的待办'])
+    twoInstances.byInstance!['todo:2'].todos![0].text = '导出后才改的'
+    expect(p.cardData.byInstance?.['todo:2']?.todos?.[0].text, '包里必须是导出那一刻的').toBe('第二张的待办')
+    twoInstances.byInstance!['todo:2'].todos![0].text = '第二张的待办' // 还原，别污染后面的用例
+  })
+
+  it('round-trip：导出 → 序列化 → 解析 → 回填，两张卡的内容都还在', () => {
+    const json = backupToJson(buildBackup({ layout, schemes: book, cardData: twoInstances, app: '0.8.8' }))
+    const parsed = parseBackup(json, REGISTRY)
+    expect(parsed.cardData?.byInstance?.['sticky:2']?.sticky).toBe('第二张的正文')
+    expect(parsed.cardData?.byInstance?.['todo:2']?.todos?.map((t) => t.text)).toEqual(['第二张的待办'])
+    const target = emptyCardData()
+    applyCardData(target, parsed.cardData!)
+    expect(target.byInstance?.['todo:2']?.todos?.[0]?.text).toBe('第二张的待办')
+    expect(target.byInstance?.['sticky:2']?.sticky).toBe('第二张的正文')
+  })
+
+  it('没有第二实例时包里根本不出现这个键（旧档形状逐字不变）', () => {
+    expect('byInstance' in makePayload().cardData).toBe(false)
+  })
+})

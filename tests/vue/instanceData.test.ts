@@ -9,10 +9,14 @@
  * 行为都与今天一致，而不是把内容变没。
  */
 import { describe, expect, it } from 'vitest'
-import { stickyOf, writeSticky, type InstanceSource } from '../../src/vue/instanceData'
+import { stickyOf, todosOf, writeSticky, writeTodos, type InstanceSource } from '../../src/vue/instanceData'
+import type { Todo } from '../../src/vue/cardDataTypes'
 
-const src = (sticky: string, byInstance?: InstanceSource['byInstance']): InstanceSource =>
-  byInstance ? { sticky, byInstance } : { sticky }
+const src = (sticky: string, byInstance?: InstanceSource['byInstance'], todos: Todo[] = []): InstanceSource =>
+  byInstance ? { sticky, todos, byInstance } : { sticky, todos }
+
+/** 一条待办的最简形状（id 只要唯一，本层不看它怎么生成） */
+const todo = (id: string, text: string, done = false): Todo => ({ id, text, done })
 
 describe('stickyOf：读哪一份', () => {
   it('单实例（实例 id 就是模块 id）读顶层那一份', () => {
@@ -40,7 +44,7 @@ describe('stickyOf：读哪一份', () => {
   })
 
   it('顶层那一份本身没内容 ⇒ 空串（防御，不返回 undefined）', () => {
-    expect(stickyOf({ sticky: undefined as unknown as string }, 'sticky', 'sticky')).toBe('')
+    expect(stickyOf({ sticky: undefined as unknown as string, todos: [] }, 'sticky', 'sticky')).toBe('')
   })
 
   it('判定不靠解析 `:2` 后缀：只看两个 id 是否相等', () => {
@@ -83,6 +87,73 @@ describe('writeSticky：写哪一份', () => {
     const d = src('旧的')
     writeSticky(d, undefined, 'sticky:2', '新的')
     expect(d.sticky).toBe('新的')
+    expect(d.byInstance).toBeUndefined()
+  })
+})
+
+describe('todosOf：读哪一份清单', () => {
+  it('单实例（实例 id 就是模块 id）读顶层那一份', () => {
+    const top = [todo('t1', '买奶油')]
+    expect(todosOf(src('', undefined, top), 'todo', 'todo')).toEqual(top)
+  })
+
+  it('第二实例有自己的清单 ⇒ 读自己的', () => {
+    const d = src('', { 'todo:2': { todos: [todo('t9', '第二张的')] } }, [todo('t1', '第一张的')])
+    expect(todosOf(d, 'todo', 'todo:2')).toEqual([todo('t9', '第二张的')])
+  })
+
+  it('第二实例还没写过 ⇒ 空清单，不继承顶层（与便签同一条口径）', () => {
+    const d = src('', undefined, [todo('t1', '第一张的')])
+    expect(todosOf(d, 'todo', 'todo:2')).toEqual([])
+  })
+
+  it('只拿到实例 id、拿不到模块 id ⇒ 读顶层（不静默变空）', () => {
+    const d = src('', { 'todo:2': { todos: [todo('t9', '第二张的')] } }, [todo('t1', '第一张的')])
+    expect(todosOf(d, undefined, 'todo:2')).toEqual([todo('t1', '第一张的')])
+  })
+
+  it('顶层那一份本身没有 todos（坏数据）⇒ 空数组，不返回 undefined', () => {
+    expect(todosOf({ sticky: '', todos: undefined as unknown as Todo[] }, 'todo', 'todo')).toEqual([])
+  })
+})
+
+describe('writeTodos：写哪一份清单', () => {
+  it('写第一实例 ⇒ 仍写顶层，不建 byInstance', () => {
+    const d = src('')
+    writeTodos(d, 'todo', 'todo', [todo('t1', '新加的')])
+    expect(d.todos).toEqual([todo('t1', '新加的')])
+    expect(d.byInstance).toBeUndefined()
+  })
+
+  it('写第二实例 ⇒ 建自己的一份，顶层不动', () => {
+    const d = src('', undefined, [todo('t1', '第一张的')])
+    writeTodos(d, 'todo', 'todo:2', [todo('t9', '第二张的')])
+    expect(d.todos).toEqual([todo('t1', '第一张的')])
+    expect(d.byInstance).toEqual({ 'todo:2': { todos: [todo('t9', '第二张的')] } })
+  })
+
+  it('同一实例里便签与待办互不覆盖（写清单不碰正文，写正文不碰清单）', () => {
+    const d = src('')
+    writeSticky(d, 'todo', 'todo:2', '第二张的正文')
+    writeTodos(d, 'todo', 'todo:2', [todo('t9', '第二张的待办')])
+    expect(d.byInstance?.['todo:2']).toEqual({ sticky: '第二张的正文', todos: [todo('t9', '第二张的待办')] })
+    // 反向：再写一次正文，清单还在
+    writeSticky(d, 'todo', 'todo:2', '改过的正文')
+    expect(d.byInstance?.['todo:2']).toEqual({ sticky: '改过的正文', todos: [todo('t9', '第二张的待办')] })
+  })
+
+  it('写第二实例的清单不动同模块的第三张', () => {
+    const d = src('')
+    writeTodos(d, 'todo', 'todo:2', [todo('t2', '甲')])
+    writeTodos(d, 'todo', 'todo:3', [todo('t3', '乙')])
+    expect(d.byInstance?.['todo:2']).toEqual({ todos: [todo('t2', '甲')] })
+    expect(d.byInstance?.['todo:3']).toEqual({ todos: [todo('t3', '乙')] })
+  })
+
+  it('拿不到模块 id 时写 ⇒ 写顶层（与读的回落同一条口径）', () => {
+    const d = src('', undefined, [todo('t1', '旧的')])
+    writeTodos(d, undefined, 'todo:2', [todo('t2', '新的')])
+    expect(d.todos).toEqual([todo('t2', '新的')])
     expect(d.byInstance).toBeUndefined()
   })
 })

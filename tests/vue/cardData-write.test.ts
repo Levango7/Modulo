@@ -129,4 +129,33 @@ describe('写入防抖：300ms 合并成一次', () => {
       vi.useRealTimers()
     }
   })
+
+  /**
+   * 按实例的待办（F-01 阶段 2 第二个字段）：**写盘那一层也要看见它**。
+   *
+   * 落盘靠一个大 getter（见 `cardData.ts` 里那个 `watch`）—— 它把每个字段浅拷贝一遍，
+   * 深拷贝里改的东西才进判据。`byInstance` 若不在这个 getter 里，界面照旧更新（reactive 是另一条路），
+   * 但**磁盘上永远没有第二张的那条待办** —— 刷新就没了，而且没有任何一条断言会红。
+   * 这条用例钉的就是"它在判据里"：落盘内容里 `byInstance['todo:2'].todos` 有那一条，顶层没多。
+   */
+  it('第二实例加待办 ⇒ 落盘落在 byInstance 下，顶层不多出一条', async () => {
+    vi.useFakeTimers()
+    try {
+      const storage = countingStorage()
+      storage.set(KEY, JSON.stringify({ todos: [], notes: [] }))
+      storage.writes.length = 0 // 种子那笔不算
+      const api = createCardData(storage)
+      api.addTodo('第二张的', 'todo', 'todo:2')
+      await nextTick()
+      api.flush()
+      const stored = JSON.parse(storage.writes.at(-1)!)
+      expect(stored.byInstance?.['todo:2']).toEqual({ todos: [{ id: expect.any(String), text: '第二张的', done: false }] })
+      expect(stored.todos, '第一实例（顶层）不该跟着多一条').toEqual([])
+      // 再换一份实例读回来 —— 刷新之后那条还在（这是用户真正能看见的判据）
+      const again = createCardData(storage)
+      expect(again.state.byInstance?.['todo:2']?.todos?.map((t) => t.text)).toEqual(['第二张的'])
+    } finally {
+      vi.useRealTimers()
+    }
+  })
 })

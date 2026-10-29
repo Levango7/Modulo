@@ -170,11 +170,18 @@ export interface DutySetting {
  * 每搬一个都有它自己的用例与取舍；没搬的那些字段语义与今天完全一致（按模块共享）——
  * 这就是阶段 2 的形状，也是它为什么分几笔做。
  *
+ * 已经搬过来的：`sticky`（便签，2026-10-28）、`todos`（待办，2026-10-29）。
+ *
  * 字段一律**可选**：缺省表示"这个实例还没写过自己的内容"，读取口径见 `instanceData.ts`。
  */
 export interface InstanceData {
-  /** 便签正文。**本阶段唯一按实例分开的字段**（其余字段仍按模块共享） */
+  /** 便签正文（2026-10-28 起按实例分） */
   sticky?: string
+  /**
+   * 待办清单（2026-10-29 起按实例分）。第二个字段，形状与顶层 `todos` 逐字相同 ——
+   * 不另造结构，读盘那道直接复用同一套条目清洗（`sanitizeCardData` 里的 `sanitizeTodos`）。
+   */
+  todos?: Todo[]
 }
 
 export interface CardData {

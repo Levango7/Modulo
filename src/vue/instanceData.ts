@@ -23,13 +23,13 @@
  *
  * - **不解析 `:2` 后缀**：是不是"第二实例"由"实例 id ≠ 模块 id"判定，不靠字符串形状
  *   （与 `moduleIdOf` 只认 `p.module ?? p.id` 同一条纪律）。
- * - 只有 `sticky` 一个字段按实例分。其余字段（待办 / 速记 / 记账……）仍是按模块共享，
- *   那是它们各自的下一笔。
+ * - 只有 `sticky` / `todos` 两个字段按实例分。其余字段（速记 / 记账 / 四象限 / 习惯 /
+ *   倒数日……）仍是按模块共享，那是它们各自的下一笔。
  */
-import type { CardData, InstanceData } from './cardDataTypes'
+import type { CardData, Todo } from './cardDataTypes'
 
-/** 取数只需要这两个字段，测试不必造一整份 `CardData` */
-export type InstanceSource = Pick<CardData, 'sticky' | 'byInstance'>
+/** 取数只需要这三个字段，测试不必造一整份 `CardData` */
+export type InstanceSource = Pick<CardData, 'sticky' | 'todos' | 'byInstance'>
 
 /**
  * 便签正文：按实例读。
@@ -47,7 +47,7 @@ export function stickyOf(data: InstanceSource, moduleId?: string, instanceId?: s
  * 上限与清洗在读盘那道（`cardDataSanitize.ts`），这里不重复实现一遍。
  */
 export function writeSticky(
-  data: InstanceSource & { byInstance?: Record<string, InstanceData> },
+  data: InstanceSource,
   moduleId: string | undefined,
   instanceId: string | undefined,
   value: string,
@@ -60,6 +60,37 @@ export function writeSticky(
   // 整条替换而不是原地改字段：Vue 的深层 watch 依赖"值变了"才触发写盘，
   // 换一个新对象比"改了里面一个字符串"的信号更明确（也更好断言）。
   bag[instanceId as string] = { ...bag[instanceId as string], sticky: value }
+  data.byInstance = bag
+}
+
+/**
+ * 待办清单：按实例读。
+ *
+ * 口径与便签**完全相同**（第一条：第一实例仍用顶层那一份；第二条：第二实例没有就是空清单，
+ * 不回落顶层 —— 回落会让新拖出来的第二张待办卡显示第一张的清单）。
+ * 差别只有一处：没有内容时的"空"是空数组而不是空串（渲染侧直接 `filter`，不必再判空）。
+ */
+export function todosOf(data: InstanceSource, moduleId?: string, instanceId?: string): Todo[] {
+  if (!isSecondInstance(moduleId, instanceId)) return data.todos ?? []
+  return data.byInstance?.[instanceId as string]?.todos ?? []
+}
+
+/**
+ * 待办清单：按实例写。**只决定写在哪，不改语义** —— 加/勾/删由调用方先在数组上做，
+ * 这里整条替换回去（与 `writeSticky` 同一条理由：深层 watch 靠"值变了"才触发写盘）。
+ */
+export function writeTodos(
+  data: InstanceSource,
+  moduleId: string | undefined,
+  instanceId: string | undefined,
+  next: Todo[],
+): void {
+  if (!isSecondInstance(moduleId, instanceId)) {
+    data.todos = next
+    return
+  }
+  const bag = data.byInstance ?? {}
+  bag[instanceId as string] = { ...bag[instanceId as string], todos: next }
   data.byInstance = bag
 }
 

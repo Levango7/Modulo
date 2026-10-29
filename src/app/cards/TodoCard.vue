@@ -2,17 +2,28 @@
 import { computed, inject, ref } from 'vue'
 import { ListChecks } from 'lucide-vue-next'
 import type { CardDataApi } from '../../vue/cardData'
+import { todosOf } from '../../vue/instanceData'
 
-const props = defineProps<{ variant: string; chromeless?: boolean }>()
+/**
+ * `moduleId` 是**模块** id、`instanceId` 是**实例** id（第二张待办卡是 `todo:2`）。
+ * 两者都要：判定"这是不是第二张"靠的是它们不相等（见 `instanceData.ts`）。
+ */
+const props = defineProps<{ variant: string; chromeless?: boolean; moduleId?: string; instanceId?: string }>()
 const cards = inject<CardDataApi>('cardData')!
 const draft = ref('')
-const open = computed(() => cards.state.todos.filter((t) => !t.done))
-const done = computed(() => cards.state.todos.filter((t) => t.done))
+/**
+ * 清单**按实例取**（F-01 阶段 2 第二个字段，2026-10-29）：两张待办卡各管各的清单。
+ * 判定在 `instanceData.ts`（纯函数、锁 100）；加/勾/删都把两个 id 原样传下去，
+ * 组件里不放"是不是第二张"的判断逻辑。
+ */
+const mine = computed(() => todosOf(cards.state, props.moduleId, props.instanceId))
+const open = computed(() => mine.value.filter((t) => !t.done))
+const done = computed(() => mine.value.filter((t) => t.done))
 const showDone = computed(() => props.variant !== 'compact')
 
 function submit(e: KeyboardEvent) {
   if (e.key !== 'Enter') return
-  cards.addTodo(draft.value)
+  cards.addTodo(draft.value, props.moduleId, props.instanceId)
   draft.value = ''
 }
 </script>
@@ -24,17 +35,17 @@ function submit(e: KeyboardEvent) {
       <ul class="list">
         <li v-for="t in open" :key="t.id">
           <label>
-            <input type="checkbox" :checked="t.done" @change="cards.toggleTodo(t.id)" />
+            <input type="checkbox" :checked="t.done" @change="cards.toggleTodo(t.id, moduleId, instanceId)" />
             <span>{{ t.text }}</span>
           </label>
-          <button class="del" :aria-label="`删除待办：${t.text}`" title="删除" @click="cards.removeTodo(t.id)">×</button>
+          <button class="del" :aria-label="`删除待办：${t.text}`" title="删除" @click="cards.removeTodo(t.id, moduleId, instanceId)">×</button>
         </li>
       </ul>
       <template v-if="showDone && done.length">
         <p class="done-title muted">已完成 {{ done.length }}</p>
         <ul class="list done">
           <li v-for="t in done" :key="t.id">
-            <label><input type="checkbox" checked @change="cards.toggleTodo(t.id)" /><span>{{ t.text }}</span></label>
+            <label><input type="checkbox" checked @change="cards.toggleTodo(t.id, moduleId, instanceId)" /><span>{{ t.text }}</span></label>
           </li>
         </ul>
       </template>

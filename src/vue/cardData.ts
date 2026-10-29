@@ -40,11 +40,12 @@ import {
 import { createFallbackCardData } from './cardDataFallback'
 import { browserStorage } from './store'
 import { QUADRANTS, type CardData, type Quadrant, type TimerKey } from './cardDataTypes'
+import { todosOf, writeTodos } from './instanceData'
 
 export * from './cardDataTypes'
 export { sanitizeCardData } from './cardDataSanitize'
 /** 按实例取数的判定层（F-01 阶段 2）：卡片组件直接拿它配 `state` 用，不绕一层 API */
-export { stickyOf, writeSticky } from './instanceData'
+export { stickyOf, writeSticky, todosOf, writeTodos } from './instanceData'
 
 const KEY = 'modulo.carddata.v1'
 
@@ -141,22 +142,39 @@ export function createCardData(storage = browserStorage()) {
     state,
     /** 立刻落盘（合并窗口内还没写的那一笔） */
     flush,
-    addTodo(text: string) {
+    /**
+     * 加一条待办。`moduleId` / `instanceId` 可选：不给就写顶层（= 第一实例 / 单实例，
+     * 与改造前逐字相同）；给了且是第二实例，写它自己那一份（判定在 `instanceData.ts`）。
+     */
+    addTodo(text: string, moduleId?: string, instanceId?: string) {
       const t = text.trim()
       if (!t) return
-      state.todos.push({ id: nextId('t'), text: t, done: false })
+      const list = todosOf(state, moduleId, instanceId)
+      writeTodos(state, moduleId, instanceId, [...list, { id: nextId('t'), text: t, done: false }])
     },
-    toggleTodo(id: string) {
-      const t = state.todos.find((x) => x.id === id)
+    /**
+     * 勾/取消勾。**改的是"读出来的那一份"**，改完整条写回 ——
+     * 待办条目可能是第二实例自己那份数组里的对象，改完必须写回才会触发写盘。
+     */
+    toggleTodo(id: string, moduleId?: string, instanceId?: string) {
+      const list = todosOf(state, moduleId, instanceId)
+      const t = list.find((x) => x.id === id)
       if (!t) return
       t.done = !t.done
       // 打勾记完成时刻，取消勾就抹掉 —— 否则"完成时间"会指向一个不再成立的过去，
       // 月度统计也会把这条算进一个它并没有完成的月份。
       if (t.done) t.doneAt = Date.now()
       else delete t.doneAt
+      writeTodos(state, moduleId, instanceId, [...list])
     },
-    removeTodo(id: string) {
-      state.todos = state.todos.filter((x) => x.id !== id)
+    removeTodo(id: string, moduleId?: string, instanceId?: string) {
+      const list = todosOf(state, moduleId, instanceId)
+      writeTodos(
+        state,
+        moduleId,
+        instanceId,
+        list.filter((x) => x.id !== id),
+      )
     },
     addNote(title: string, body: string) {
       state.notes.unshift({ id: nextId('n'), title: title.trim() || '无标题', body, at: Date.now() })
