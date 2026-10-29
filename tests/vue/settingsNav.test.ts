@@ -7,8 +7,8 @@ import { resolveGroup, SETTINGS_GROUPS, visibleGroups } from '../../src/vue/sett
  */
 
 describe('分组表本身', () => {
-  it('六组，顺序固定（外观 / 版面与方案 / 数据 / 提醒 / 桌面 / 关于）', () => {
-    expect(SETTINGS_GROUPS.map((g) => g.id)).toEqual(['appearance', 'layout', 'data', 'reminders', 'desktop', 'about'])
+  it('七组，顺序固定（外观 / 版面与方案 / 数据 / 提醒 / 桌面 / 实验室 / 关于）', () => {
+    expect(SETTINGS_GROUPS.map((g) => g.id)).toEqual(['appearance', 'layout', 'data', 'reminders', 'desktop', 'lab', 'about'])
   })
 
   it('id 两两不同（撞了就是两个导航项指向同一块内容）', () => {
@@ -23,19 +23,20 @@ describe('分组表本身', () => {
     }
   })
 
-  it('只有「桌面」一组是桌面专属', () => {
-    expect(SETTINGS_GROUPS.filter((g) => g.desktopOnly).map((g) => g.id)).toEqual(['desktop'])
+  it('桌面专属有两组：「桌面」与「实验室」（F-12 的 AI 配置要 Rust 出口与凭据库）', () => {
+    expect(SETTINGS_GROUPS.filter((g) => g.desktopOnly).map((g) => g.id)).toEqual(['desktop', 'lab'])
   })
 })
 
 describe('当前平台看得到哪些组', () => {
-  it('桌面六组，一个字不少', () => {
-    expect(visibleGroups(true).map((g) => g.id)).toEqual(['appearance', 'layout', 'data', 'reminders', 'desktop', 'about'])
+  it('桌面七组，一个字不少', () => {
+    expect(visibleGroups(true).map((g) => g.id)).toEqual(['appearance', 'layout', 'data', 'reminders', 'desktop', 'lab', 'about'])
   })
 
-  it('网页版五组：没有「桌面」，其余顺序不变', () => {
+  it('网页版五组：没有「桌面」与「实验室」，其余顺序不变', () => {
     const ids = visibleGroups(false).map((g) => g.id)
     expect(ids).not.toContain('desktop')
+    expect(ids).not.toContain('lab')
     expect(ids).toEqual(['appearance', 'layout', 'data', 'reminders', 'about'])
     // 顺序按「整张表去掉桌面组」来比，而不是另抄一份期望数组
     expect(ids).toEqual(SETTINGS_GROUPS.filter((g) => !g.desktopOnly).map((g) => g.id))

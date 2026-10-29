@@ -49,6 +49,9 @@ import { defineConfig } from 'vitest/config'
  * 引擎那半（`packages/engine/src/weather.ts`）有测试，不代表"发请求 + 存缓存"这半有。
  */
 const GATED_VUE_MODULES = [
+  // AI 配置（F-12 一期，2026-10-29）：地址判据 / 文档清洗 / 增删改 / 密钥草稿全是不碰 IO 的
+  // 判定，单独成文件才满足纳入判据。地址判据与 Rust 那张表同源，组件那半（invoke + 表单）留给 E2E。
+  'src/vue/aiSettings.ts',
   'src/vue/appearance.ts',
   'src/vue/backup.ts',
   'src/vue/cardData.ts',
@@ -149,6 +152,10 @@ export default defineConfig({
         // ── 逐文件棘轮：27 个受单测门禁的 src/vue 模块（其中 18 个锁 100）──────────
         // chord / keyboard 锁 100 才是那句话的本意：加一条没测到的分支，当场红。
         'src/vue/appearance.ts': { branches: 95 },
+        // AI 配置（F-12 一期）：表驱动覆盖地址判据七行 + 黑名单 + 本机豁免，文档清洗的
+        // 每一条丢弃分支（坏 JSON / 无 providers / 缺 id / 重复 id / 未知 kind）都有用例。
+        // 隔离跑实测分支 100%，同 chord/settingsNav 锁满。
+        'src/vue/aiSettings.ts': { branches: 100 },
         // backup.ts 原地板 95。P0-③（2026-10-20）把恢复改成整份回填、格式升 v2 并加了设置段清洗，
         // 补齐四条从未被执行过的分支（残缺包无版面段 / 导出时间读不懂 / settings 整段不是对象 /
         // template 显式为 null）—— 两个用例文件隔离跑实测**分支 100%**，棘轮只升不降，锁满。

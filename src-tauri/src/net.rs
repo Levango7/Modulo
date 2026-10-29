@@ -172,7 +172,11 @@ pub fn split_target(url: &str) -> Result<(String, String), String> {
 ///
 /// 域名本身**不查 DNS**，只按固定名字挡（见 `blocked_name_reason`）——
 /// rebinding 仍然不防，那个结论没变。
-fn blocked_reason(host: &str) -> Option<&'static str> {
+///
+/// `pub(crate)` 是因为 AI 线的模型服务地址（`ai::protocol::validate_base_url`）也要过
+/// 同一张表：那张表要是各抄一份，`10/8` 改宽一处、另一处就是洞。AI 那边只额外放行
+/// 本机三个写法（它的用途是连本地 Ollama），判据本身不复制。
+pub(crate) fn blocked_reason(host: &str) -> Option<&'static str> {
     if let Ok(ip) = host.parse::<std::net::Ipv4Addr>() {
         return blocked_v4(ip.octets());
     }
