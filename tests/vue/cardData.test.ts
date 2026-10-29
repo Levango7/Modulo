@@ -172,6 +172,49 @@ describe('sanitizeCardData：盘上数据先清洗再用', () => {
     expect(clean?.['sticky:2']?.sticky?.length).toBe(4000)
   })
 
+  /**
+   * 按实例的待办（F-01 阶段 2 第二个字段）：**走与顶层同一套条目清洗**。
+   * 共用一份实现是本笔的取舍 —— 两份实现意味着"修了顶层忘了第二张"，而这类分歧平时不响。
+   */
+  it('byInstance 的 todos 与顶层同一套规则：坏条目丢、id 去重、doneAt 只在已完成且合法时留', () => {
+    const clean = sanitizeCardData(
+      {
+        byInstance: {
+          'todo:2': {
+            todos: [
+              { id: 'a', text: '留着', done: true, doneAt: 123 },
+              { id: 'a', text: '撞号改号', done: false },
+              { text: '   ', done: false }, // 空文本丢掉
+              { id: 'b', text: '未完成却带 doneAt', done: false, doneAt: 999 },
+              { id: 'c', text: '完成但 doneAt 是坏值', done: true, doneAt: 'x' },
+            ],
+          },
+        },
+      },
+      fallback,
+    ).byInstance?.['todo:2']?.todos
+    expect(clean).toEqual([
+      { id: 'a', text: '留着', done: true, doneAt: 123 },
+      { id: 't1-0', text: '撞号改号', done: false },
+      { id: 'b', text: '未完成却带 doneAt', done: false },
+      { id: 'c', text: '完成但 doneAt 是坏值', done: true },
+    ])
+  })
+
+  it('第二张把待办全删光（空的 todos）⇒ 这个键不出现；只剩它时 byInstance 整段都不出现', () => {
+    expect(sanitizeCardData({ byInstance: { 'todo:2': { todos: [] } } }, fallback).byInstance).toBeUndefined()
+    expect(sanitizeCardData({ byInstance: { 'todo:2': { todos: '不是数组' } } }, fallback).byInstance).toBeUndefined()
+    // 同一实例里还有正文 ⇒ 只保留正文这个键（不因为 todos 是空的就先写一个空数组进去）
+    expect(sanitizeCardData({ byInstance: { 'todo:2': { sticky: '有字', todos: [] } } }, fallback).byInstance).toEqual({
+      'todo:2': { sticky: '有字' },
+    })
+  })
+
+  it('byInstance 的 todos 条目数同样夹到上限', () => {
+    const many = Array.from({ length: 5000 }, (_, i) => ({ id: `t${i}`, text: `第 ${i} 条` }))
+    expect(sanitizeCardData({ byInstance: { 'todo:2': { todos: many } } }, fallback).byInstance?.['todo:2']?.todos?.length).toBe(200)
+  })
+
   it('条目数夹到上限：几百 MB 的坏文件不该冻住首屏', () => {
     const many = Array.from({ length: 5000 }, (_, i) => ({ id: `t${i}`, text: `第 ${i} 条` }))
     expect(sanitizeCardData({ todos: many }, fallback).todos.length).toBe(200)

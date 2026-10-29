@@ -122,6 +122,16 @@ export function contentIndex(data: CardData): ContentEntry[] {
     if (typeof text === 'string' && text.trim()) {
       out.push({ id: `sticky:${instanceId}`, cardId: instanceId, title: '便签', text })
     }
+    // 第二张起的待办清单也在 `byInstance` 里（F-01 阶段 2 第二个字段），同样要能搜到 ——
+    // 否则"第二张待办卡里那条搜不到"是没人会报、只会觉得搜索不准的静默洞。
+    for (const [i, t] of (inst?.todos ?? []).entries()) {
+      out.push({
+        id: `todo:${instanceId}:${i}`,
+        cardId: instanceId,
+        title: `待办 · ${t.done ? '已完成' : '未完成'}`,
+        text: t.text,
+      })
+    }
   }
   data.todos.forEach((t, i) => out.push({ id: `todo:${i}`, cardId: 'todo', title: `待办 · ${t.done ? '已完成' : '未完成'}`, text: t.text }))
   data.matrix.forEach((m, i) => out.push({ id: `matrix:${i}`, cardId: 'matrix', title: '四象限待办', text: m.text }))

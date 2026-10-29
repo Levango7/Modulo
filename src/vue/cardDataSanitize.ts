@@ -52,11 +52,39 @@ const textOf = (v: unknown, max = MAX_TEXT): string => (typeof v === 'string' ? 
 /** id 必须唯一：toggleTodo / removeTodo 都是按 id find/filter，撞号会连坐改错条目 */
 
 /**
+ * 待办条目清洗。**顶层与按实例共用同一套**（F-01 阶段 2 第二个字段，2026-10-29）——
+ * 两份实现意味着"修了顶层忘了第二张"，而这类分歧平时根本不响。
+ *
+ * id 在同一份清单内必须唯一（`todoSeen` 每次新建）：`toggleTodo` / `removeTodo` 都按 id
+ * find/filter，撞号会连坐改错条目。
+ */
+function sanitizeTodos(raw: unknown): Todo[] {
+  const out: Todo[] = []
+  if (!Array.isArray(raw)) return out
+  const seen = new Set<string>()
+  for (const entry of raw.slice(0, MAX_ITEMS)) {
+    const e = entry as Partial<Todo> | null
+    if (!e || typeof e.text !== 'string' || !e.text.trim()) continue
+    // doneAt 只在"已完成且时间戳合法"时留下：未完成的条目带着一个完成时刻没有意义，
+    // 而一个坏时间戳会让月度统计按 NaN 比较，静默少算一条 —— 不如当作没有。
+    const doneAt = e.done === true && typeof e.doneAt === 'number' && Number.isFinite(e.doneAt) ? e.doneAt : undefined
+    out.push({
+      id: uniqueId(seen, e.id, 't', out.length),
+      text: textOf(e.text),
+      done: e.done === true,
+      ...(doneAt === undefined ? {} : { doneAt }),
+    })
+  }
+  return out
+}
+
+/**
  * 按实例的内容（F-01 阶段 2）。**这是读盘边界**，所以规则是"不认识的就丢"：
  *
  * - 键必须是非空字符串（实例 id）；值必须是朴素对象（数组不算）。
- * - 只收**认得的字段**（现阶段 `sticky`），且只收字符串 —— 其余一律丢掉，
- *   这样将来给 `InstanceData` 加字段时，旧备份读进来是"这一段没有"而不是"有一段看不懂的"。
+ * - 只收**认得的字段**（现阶段 `sticky` / `todos`）：`sticky` 只收字符串、`todos` 走
+ *   与顶层同一套条目清洗 —— 其余一律丢掉，这样将来给 `InstanceData` 加字段时，
+ *   旧备份读进来是"这一段没有"而不是"有一段看不懂的"。
  * - 一条都不剩 ⇒ 返回 **undefined**，让 `byInstance` 这个键**根本不出现** ——
  *   旧档、模板、单实例读出来的对象因此与今天逐字相同（备份的字节对账也靠这条）。
  * - 有上限：一份坏备份不该把几十万个键塞进内存与写盘路径。
@@ -73,6 +101,9 @@ function sanitizeByInstance(raw: unknown): Record<string, InstanceData> | undefi
     const entry: InstanceData = {}
     const sticky = (value as { sticky?: unknown }).sticky
     if (typeof sticky === 'string') entry.sticky = sticky.slice(0, MAX_INSTANCE_STICKY)
+    // 空清单不写这个键：全删光的第二张待办卡，读回来就该是"这个实例还没写过内容"
+    const todos = sanitizeTodos((value as { todos?: unknown }).todos)
+    if (todos.length) entry.todos = todos
     if (Object.keys(entry).length) out[key] = entry
   }
   return Object.keys(out).length ? out : undefined
@@ -99,23 +130,7 @@ export function sanitizeCardData(raw: unknown, fallback: CardData): CardData {
   if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) return fallback
   const o = raw as Record<string, unknown>
 
-  const todoSeen = new Set<string>()
-  const todos: Todo[] = []
-  if (Array.isArray(o.todos)) {
-    for (const entry of o.todos.slice(0, MAX_ITEMS)) {
-      const e = entry as Partial<Todo> | null
-      if (!e || typeof e.text !== 'string' || !e.text.trim()) continue
-      // doneAt 只在"已完成且时间戳合法"时留下：未完成的条目带着一个完成时刻没有意义，
-      // 而一个坏时间戳会让月度统计按 NaN 比较，静默少算一条 —— 不如当作没有。
-      const doneAt = e.done === true && typeof e.doneAt === 'number' && Number.isFinite(e.doneAt) ? e.doneAt : undefined
-      todos.push({
-        id: uniqueId(todoSeen, e.id, 't', todos.length),
-        text: textOf(e.text),
-        done: e.done === true,
-        ...(doneAt === undefined ? {} : { doneAt }),
-      })
-    }
-  }
+  const todos = sanitizeTodos(o.todos)
 
   const matrixSeen = new Set<string>()
   const matrix: MatrixTodo[] = []

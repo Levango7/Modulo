@@ -140,6 +140,19 @@ export function buildBackup(input: BackupInput): BackupPayload {
       htmlCards: input.cardData.htmlCards.map((c) => ({ ...c })),
       extCards: input.cardData.extCards.map((c) => ({ ...c, variants: c.variants.map((v) => ({ ...v })) })),
       extState: JSON.parse(JSON.stringify(input.cardData.extState)) as Record<string, unknown>,
+      // 按实例的内容（F-01 阶段 2）：**必须进包**。阶段 2 第一笔（便签，2026-10-28）只改了
+      // 读写路径，忘了这里 —— 第二张便签的正文因此换台机器恢复回来就没了，而界面上
+      // "备份成功"照样显示。2026-10-29 补上，待办一并带上（同一段，不必分两次）。
+      ...(input.cardData.byInstance
+        ? {
+            byInstance: Object.fromEntries(
+              Object.entries(input.cardData.byInstance).map(([k, v]) => [
+                k,
+                { ...v, ...(v.todos ? { todos: v.todos.map((t) => ({ ...t })) } : {}) },
+              ]),
+            ),
+          }
+        : {}),
   watch: input.cardData.watch.map((w) => ({ ...w })),
       fixed: { ...input.cardData.fixed },
       duty: { ...input.cardData.duty, roster: [...input.cardData.duty.roster] },
