@@ -45,6 +45,8 @@ export interface ChatTurn {
   status: 'streaming' | 'done' | 'error'
   /** 只在 `status === 'error'` 时有值；Rust 侧已经人话化过，直接展示 */
   error: string | null
+  /** 一次性摘要结果（三期）：不写历史、刷新即消失，界面据此标「不保存」 */
+  summary?: boolean
 }
 
 /** Rust `AiChunk`（camelCase，`error` 为 null 表示正常帧） */
@@ -274,6 +276,30 @@ export function contextBlock(
   // 总量条硬顶（含那句"被截断"）：超长上下文会让请求直接被服务端拒，留一半也没用
   const suffix = '\n（引用内容过长，已截断）'
   return block.slice(0, Math.max(0, max - suffix.length)) + suffix
+}
+
+/**
+ * 一次摘要请求的正文（三期的 `ai_summarize` 只吃一段 `text`，没有消息结构）。
+ *
+ * 引用块与对话共用同一条 `contextBlock` 预算（每卡 400 / 整块 2000 字）：
+ * 「喂给模型多少字」的定价不该因为入口不同而变。差别只在顺序 —— 卡片在前、
+ * 输入框那段在后，因为后者往往是对前者的指令（"只留待办"）。
+ *
+ * 返回 `null` = 没有任何可摘要的内容（按钮保持禁用）。
+ */
+export function summaryText(
+  chips: readonly CardChoice[],
+  draft: string,
+  excerptOf: (c: CardChoice) => string,
+  max: number = CONTEXT_MAX,
+): string | null {
+  const parts = [contextBlock(chips, excerptOf, max), draft.trim()].filter((s): s is string => !!s)
+  if (!parts.length) return null
+  const text = parts.join('\n\n')
+  if (text.length <= max) return text
+  // 卡片块可能已经贴着 max，再加输入框那段就超了：整段二次封顶，明说截断（理由同 contextBlock）
+  const suffix = '\n（内容过长，已截断）'
+  return text.slice(0, Math.max(0, max - suffix.length)) + suffix
 }
 
 /**

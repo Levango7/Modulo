@@ -32,6 +32,7 @@ import {
   historyWhen,
   mentionQuery,
   stripMention,
+  summaryText,
   turnsFromHistory,
   type CardChoice,
   type ChatChunk,
@@ -258,6 +259,50 @@ function sendFromBar(): void {
   void send()
 }
 
+/** 「摘要」可用条件：有引用卡片，或输入框里有字（与 `summaryText` 的空判定同源） */
+const canSummarize = computed(() => chips.value.length > 0 || draft.value.trim().length > 0)
+
+/**
+ * 一次性摘要（F-12 三期）：走 `ai_summarize` 的 `plain` 档，没有 Channel。
+ * 结果**不写历史**（只有 `ai_chat` 落盘）：气泡标「不保存」，刷新即消失。
+ */
+async function summarize(): Promise<void> {
+  if (busy.value || !canSummarize.value) return
+  if (missingProvider()) return
+  const text = summaryText(chips.value, draft.value, (c) => excerptFor(c, cardDataApi.state))
+  if (!text) return
+  const asked = draft.value.trim()
+  turns.value = [
+    ...turns.value,
+    ...(asked ? [{ role: 'user' as const, content: asked, status: 'done' as const, error: null }] : []),
+    { role: 'assistant' as const, content: '', status: 'streaming' as const, error: null, summary: true },
+  ]
+  draft.value = ''
+  chips.value = []
+  picker.value = []
+  notice.value = ''
+  busy.value = true
+  const token = ++streamToken
+  const idx = turns.value.length - 1
+  scrollDown()
+
+  try {
+    const r = await invoke<{ summary: string }>('ai_summarize', {
+      providerId: providerId.value,
+      text,
+      style: 'plain',
+    })
+    if (token !== streamToken) return
+    turns.value[idx] = { ...turns.value[idx], content: r.summary, status: 'done' }
+  } catch (err) {
+    if (token !== streamToken) return
+    turns.value[idx] = { ...turns.value[idx], status: 'error', error: String(err) }
+  } finally {
+    // 新对话/卸载会让 token 前移：那时这轮已作废，别再动 busy（它属于下一轮）
+    if (token === streamToken) busy.value = false
+  }
+}
+
 async function stop(): Promise<void> {
   const id = streamConv.value
   if (!id) return
@@ -382,10 +427,18 @@ onBeforeUnmount(() => {
         <p v-if="!turns.length && !historyOpen" class="empty" data-chat-empty>
           问点什么。输入 <code>@</code> 可以引用版面里的卡片，答案会带上那张卡的内容。
         </p>
-        <div v-for="(t, i) in turns" :key="i" class="msg" :data-role="t.role" :data-status="t.status">
+        <div
+          v-for="(t, i) in turns"
+          :key="i"
+          class="msg"
+          :data-role="t.role"
+          :data-status="t.status"
+          :data-kind="t.summary ? 'summary' : undefined"
+        >
           <p class="bubble">
+            <span v-if="t.summary" class="summary-tag" data-chat-summary-tag>摘要 · 不保存</span>
             <span v-if="t.content">{{ t.content }}</span>
-            <span v-else-if="t.status === 'streaming'" class="muted">…</span>
+            <span v-else-if="t.status === 'streaming'" class="muted">{{ t.summary ? '摘要中…' : '…' }}</span>
           </p>
           <p v-if="t.error" class="err" data-chat-error>{{ t.error }}</p>
         </div>
@@ -443,8 +496,21 @@ onBeforeUnmount(() => {
           @input="onInput"
           @keydown="onKey"
         />
-        <button v-if="busy" class="send stop" data-chat-stop @click="stop">停止</button>
-        <button v-else class="send" data-chat-send :disabled="!draft.trim()" @click="send">发送</button>
+        <template v-if="busy && streamConv">
+          <button class="send stop" data-chat-stop @click="stop">停止</button>
+        </template>
+        <template v-else>
+          <button
+            class="send secondary"
+            data-chat-summarize
+            :disabled="busy || !canSummarize"
+            title="把引用的卡片 / 这段文字总结成 3~5 句（不保存）"
+            @click="summarize"
+          >
+            {{ busy ? '摘要中…' : '摘要' }}
+          </button>
+          <button class="send" data-chat-send :disabled="busy || !draft.trim()" @click="send">发送</button>
+        </template>
       </div>
 
       <p v-if="notice" class="notice" data-chat-notice>
@@ -677,6 +743,18 @@ onBeforeUnmount(() => {
   background: none;
   color: var(--c-red);
   border-color: color-mix(in srgb, var(--c-red) 50%, transparent);
+}
+/* 三期：摘要是次要动作 —— 比「发送」轻一档，减少误点（误点 = 白花一次调用） */
+.send.secondary {
+  background: none;
+  color: var(--text-2);
+  border-color: var(--border-soft);
+}
+.summary-tag {
+  display: block;
+  margin-bottom: 2px;
+  font-size: 10px;
+  color: var(--text-3);
 }
 .picker {
   position: absolute;

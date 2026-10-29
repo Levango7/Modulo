@@ -1,11 +1,12 @@
-//! ai/history.rs —— 对话历史落盘（D-02 拆分；Spec §6：`ai/history.json` 原子写，进备份）。
+//! ai/history.rs —— 对话历史落盘（D-02 拆分；Spec §6：`ai/history.json` 原子写）。
 //!
 //! **谁写**：`ai_chat` 流式正常结束后 upsert（幂等，按 conversationId 覆盖）。
 //! ai_chat 入参就是全量消息，流式期间后端另行累积 assistant 增量——两侧合起来
 //! 才是完整一轮，历史由后端单点落盘，前端不需要自己存。
 //! **title**：取首条 user 消息前 24 字（确定性生成，不花一次 AI 调用，不假装智能）。
-//! 整包导出归备份面（history.json 进备份即覆盖）；一键清除已落地为
-//! `ai_history_clear`（D-11，Spec §6），幂等，与 delete 共用 HISTORY_LOCK。
+//! **不进备份、不进同步**（2026-10-30 定，与四决策第④条一致）：`backup.ts` 的包只带
+//! 版面 / 方案册 / 卡片内容与非敏感设置；历史含对话原文，体积与隐私都不该顺手带走。
+//! 一键清除已落地为 `ai_history_clear`（D-11，Spec §6），幂等，与 delete 共用 HISTORY_LOCK。
 
 use std::fs;
 use std::path::PathBuf;

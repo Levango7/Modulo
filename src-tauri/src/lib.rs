@@ -397,8 +397,10 @@ pub fn run() {
             ai::history::ai_history_get,
             ai::history::ai_history_delete,
             ai::history::ai_history_clear,
-            // 仍未接线的注册（F-11②，撤注册不删代码）：sysmon::proc_list、
-            // ai::openai_compat::ai_summarize（三期）、capture::shot::*。
+            // 一次性摘要（F-12 三期，2026-10-30）：调用点是对话坞的「摘要」动作，
+            // 传 style='plain'；会议速记走的是 Rust 内部直接调用同一条实现（不经 IPC）。
+            ai::openai_compat::ai_summarize,
+            // 仍未接线的注册（F-11②，撤注册不删代码）：sysmon::proc_list、capture::shot::*。
             capture::winlist::win_list,
             capture::preview::win_preview_start,
             capture::preview::win_preview_stop,

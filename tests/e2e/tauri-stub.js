@@ -331,6 +331,12 @@
         }
         return Promise.resolve(undefined)
       }
+      // —— 一次性摘要（F-12 三期）：形状照 Rust 的 `SummaryRef{summary}`。
+      //    **不落历史**（只有 ai_chat 会 upsert）—— 测试据此断言"摘要之后历史没变"。
+      case 'ai_summarize': {
+        const summary = String(window.__STUB_AI_SUMMARY__ ?? '桩摘要：这三句是要点。')
+        return Promise.resolve({ summary })
+      }
       case 'ai_history_list':
         return Promise.resolve(
           aiHist()
@@ -446,6 +452,8 @@
   /** AI 对话的回复正文与节奏成对出现：默认两帧推完；HANG = 只推半句、等 cancel */
   window.__STUB_AI_REPLY__ = '桩回复：收到。'
   window.__STUB_AI_HANG__ = false
+  /** 一次性摘要的返回正文（三期）：它与对话回复分开，测试才能区分"走的是哪条命令" */
+  window.__STUB_AI_SUMMARY__ = '桩摘要：这三句是要点。'
   /** 历史原文（测试预置 / 复核"真的写进去了"都走它，绕开界面） */
   window.__STUB_AI_HISTORY__ = aiHist
 })()

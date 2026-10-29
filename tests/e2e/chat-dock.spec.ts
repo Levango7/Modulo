@@ -289,4 +289,54 @@ describe.skipIf(skip)('F-12 二期：底部对话坞（桌面形态）', () => {
     expect(await exists(page, '[data-chat-panel]')).toBe(false)
     expect(errs, `页面不该有报错：${errs.join(' | ')}`).toEqual([])
   })
+
+  it('摘要（三期）：引用一张卡 → 走 ai_summarize 的 plain 档，气泡标「不保存」，不发 ai_chat', async () => {
+    const errs: string[] = []
+    const page = await open({}, errs)
+    await expand(page)
+    await page.type('[data-chat-input]', '@便')
+    await page.waitForSelector('[data-chat-picker] [data-pick]', { timeout: 10000 })
+    await click(page, '[data-pick="sticky"]')
+    await page.waitForSelector('[data-chip="sticky"]', { timeout: 10000 })
+
+    await click(page, '[data-chat-summarize]')
+    await page.waitForSelector('[data-kind="summary"][data-status="done"]', { timeout: 15000 })
+    expect(await text(page, '[data-role="assistant"][data-kind="summary"]')).toContain('桩摘要：这三句是要点。')
+    expect(await text(page, '[data-chat-summary-tag]')).toContain('不保存')
+
+    const seen = await calls(page)
+    expect(seen.filter((c) => c.cmd === 'ai_chat'), '摘要不是对话').toEqual([])
+    const sent = seen.filter((c) => c.cmd === 'ai_summarize')
+    expect(sent).toHaveLength(1)
+    const args = sent[0].args as { providerId: string; text: string; style: string }
+    expect(args.providerId).toBe('p1')
+    expect(args.style).toBe('plain')
+    expect(args.text).toContain('便签')
+    expect(args.text).toContain('周五前把周报发给老板')
+    // 摘要不落历史：只有 ai_chat 会 upsert history.json
+    const hist = await page.evaluate(
+      () => (window as unknown as { __STUB_AI_HISTORY__: () => unknown[] }).__STUB_AI_HISTORY__(),
+    )
+    expect(hist, '摘要不该写历史').toEqual([])
+    expect(errs, `页面不该有报错：${errs.join(' | ')}`).toEqual([])
+  })
+
+  it('摘要（三期）：输入框里的一段字也能摘要，正文就是那段字', async () => {
+    const errs: string[] = []
+    const page = await open({}, errs)
+    await expand(page)
+    await page.type('[data-chat-input]', '  下周交周报，周五前发老板  ')
+    await click(page, '[data-chat-summarize]')
+    await page.waitForSelector('[data-kind="summary"][data-status="done"]', { timeout: 15000 })
+
+    const sent = (await calls(page)).filter((c) => c.cmd === 'ai_summarize')
+    expect(sent).toHaveLength(1)
+    expect((sent[0].args as { text: string }).text).toBe('下周交周报，周五前发老板')
+    // 用户看得到自己给的那段字（知道自己摘要的是什么），输入框已清空
+    expect(await text(page, '[data-chat-thread]')).toContain('下周交周报，周五前发老板')
+    expect(
+      await page.evaluate(() => (document.querySelector('[data-chat-input]') as HTMLTextAreaElement).value),
+    ).toBe('')
+    expect(errs, `页面不该有报错：${errs.join(' | ')}`).toEqual([])
+  })
 })
