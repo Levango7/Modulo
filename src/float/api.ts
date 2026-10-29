@@ -60,6 +60,22 @@ export async function focusFloat(cardId: string): Promise<boolean> {
   }
 }
 
+/**
+ * 把某张卡的浮窗移到指定位置（F-08「按版面重摆」的搬运半，2026-10-29）。
+ *
+ * 坐标是**逻辑像素**，与浮窗创建时 `builder.position` 同一口径；落盘不在这里做 ——
+ * Rust 侧 `set_position` 触发 `Moved` 事件走既有的 `remember_geometry` 链（与手拖同路）。
+ * 返回 false = 那张窗已经不在了（与 `focusFloat` 同一种幂等，不是错误）；网页版恒 false。
+ */
+export async function moveFloat(cardId: string, x: number, y: number): Promise<boolean> {
+  if (!isDesktop) return false
+  try {
+    return await invoke<boolean>('move_float', { cardId, x, y })
+  } catch {
+    return false
+  }
+}
+
 /** 浮动清单变化（任意窗口触发都广播）：返回退订函数 */
 export function onFloatsChanged(cb: (floats: FloatEntry[]) => void): () => void {
   if (!isDesktop) return () => {}

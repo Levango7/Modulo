@@ -153,7 +153,8 @@ describe.skipIf(skip)('脱离浮窗：前端整链（Tauri 桩）', () => {
       `清单该显示标题而不是 id：${rows.map((r) => r.title).join(' / ')}`,
     ).toBe(false)
     const three = await menuItems()
-    expect(three, '三个标题 + 一条批量收回').toHaveLength(4)
+    expect(three, '三个标题 + 按版面重摆 + 一条批量收回').toHaveLength(5)
+    expect(three.at(-2), '重摆在批量收回之前（改位置轻于全关）').toBe('按版面重摆')
     expect(three.at(-1)).toBe('全部收回（3）')
 
     await page.keyboard.press('Escape')
@@ -193,6 +194,76 @@ describe.skipIf(skip)('脱离浮窗：前端整链（Tauri 桩）', () => {
     await wait(600)
     expect(await page.evaluate(() => document.querySelectorAll('.grid .cell').length), '五张全回工作台').toBe(5)
     expect(await wrapCount(), '没有浮窗了，按钮不占位').toBe(0)
+
+    expect(errs, `页面不该有报错：${errs.join(' | ')}`).toEqual([])
+    await page.close()
+  })
+
+  it('按版面重摆：两张浮窗各收到一条 move_float，坐标是屏内整数、清单不动（F-08「定位」收官）', async () => {
+    const page = await browser.newPage()
+    await page.setViewport({ width: 1440, height: 900, deviceScaleFactor: 1 })
+    await page.evaluateOnNewDocument((src: string) => {
+      new Function(src)()
+      localStorage.setItem('modulo.template.v1', 'general')
+    }, STUB_SOURCE)
+    const errs: string[] = []
+    page.on('pageerror', (e: unknown) => errs.push('PAGEERROR ' + String((e as Error).message).slice(0, 160)))
+    await page.goto(url, { waitUntil: 'networkidle2', timeout: 30000 })
+    await wait(900)
+
+    // 脱离第一张与最后一张（版面里相距最远的两格，重摆后坐标必须不同）
+    const ids = await page.evaluate(() => {
+      const cells = Array.from(document.querySelectorAll<HTMLElement>('.grid .cell'))
+      return [cells[0]!, cells[cells.length - 1]!].map((el) => el.getAttribute('data-module') ?? '')
+    })
+    expect(ids.every(Boolean), '出厂版面能取到首尾两张的卡 id').toBe(true)
+    for (const cardId of ids) {
+      await page.evaluate((id: string) => {
+        document.querySelector<HTMLElement>(`.grid .cell[data-module="${id}"] .detach`)!.click()
+      }, cardId)
+      await wait(320)
+    }
+    expect(await page.evaluate(() => document.querySelectorAll('.grid .cell').length), '两张已离开工作台').toBe(3)
+
+    // 打开清单 → 点「按版面重摆」
+    await page.evaluate(() => document.querySelector<HTMLElement>('.float-wrap > button')!.click())
+    await wait(220)
+    await page.evaluate(() => {
+      const btn = Array.from(document.querySelectorAll<HTMLElement>('.float-menu [role="menuitem"]')).find(
+        (b) => b.querySelector('.t')?.textContent?.trim() === '按版面重摆',
+      )
+      btn!.click()
+    })
+    await wait(320)
+
+    const calls = await page.evaluate(
+      () =>
+        ((window as unknown as { __STUB_CALLS__?: { cmd: string; args: Record<string, unknown> }[] })
+          .__STUB_CALLS__ ?? []).filter((c) => c.cmd === 'move_float'),
+    )
+    expect(calls, '两张浮窗各发一条 move_float').toHaveLength(2)
+    expect(
+      calls.map((c) => String(c.args?.cardId ?? '')).sort(),
+      '发命令的对象就是脱离的那两张',
+    ).toEqual([...ids].sort())
+    for (const c of calls) {
+      const x = Number(c.args?.x)
+      const y = Number(c.args?.y)
+      expect(Number.isInteger(x) && Number.isInteger(y), '坐标是取整后的像素').toBe(true)
+      expect(x, '落在屏幕工作区内').toBeGreaterThanOrEqual(0)
+      expect(x).toBeLessThan(1440)
+      expect(y).toBeGreaterThanOrEqual(0)
+      expect(y).toBeLessThan(900)
+    }
+    expect(
+      `${calls[0]!.args?.x},${calls[0]!.args?.y}`,
+      '两张的落点必须不同（否则"按版面"没有意义）',
+    ).not.toBe(`${calls[1]!.args?.x},${calls[1]!.args?.y}`)
+
+    // 清单没动：计数仍 2、菜单已收、卡片仍在浮窗里 —— 重摆只搬位置，不改登记
+    expect(await page.evaluate(() => document.querySelector('.float-wrap .tx-count')?.textContent?.trim() ?? '')).toBe('2')
+    expect(await page.evaluate(() => document.querySelectorAll('.float-menu').length), '菜单随之收起').toBe(0)
+    expect(await page.evaluate(() => document.querySelectorAll('.grid .cell').length), '卡片仍在浮窗里').toBe(3)
 
     expect(errs, `页面不该有报错：${errs.join(' | ')}`).toEqual([])
     await page.close()

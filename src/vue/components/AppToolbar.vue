@@ -60,6 +60,7 @@ const emit = defineEmits<{
   (e: 'focus', id: string): void
   (e: 'unfloat', id: string): void
   (e: 'unfloat-all'): void
+  (e: 'arrange-floats'): void
   (e: 'open-templates'): void
   (e: 'open-settings'): void
 }>()
@@ -196,6 +197,20 @@ const emit = defineEmits<{
                 <span class="v">收回</span>
               </button>
             </div>
+            <!--
+              「按版面重摆」（F-08「定位」的收官，2026-10-29）：把每张浮窗搬到它在版面里的
+              相对位置上。排在本批动作之后、全部收回之前 ——「改变位置」轻于「全部关掉」。
+              坐标映射是纯判定层 `floatList.ts` 旁边的 `floatArrange.ts`（受测层锁 100），
+              搬运是 Rust `move_float`；这里只是发起那一下。
+            -->
+            <button
+              role="menuitem"
+              :title="`按版面里的位置重新摆放这 ${floats.length} 张浮窗`"
+              @click="emit('arrange-floats')"
+            >
+              <span class="t">按版面重摆</span>
+              <span class="v">各回版面上对应的位置</span>
+            </button>
             <button
               v-if="floats.length > 1"
               role="menuitem"

@@ -128,6 +128,33 @@ pub fn focus_float(app: tauri::AppHandle, card_id: String) -> Result<bool, Strin
     Ok(true)
 }
 
+/// 把某张卡的浮窗移到指定位置（F-08 里「定位」的收官：按版面重摆窗口位置，2026-10-29）。
+///
+/// 坐标是**逻辑像素**，与 `float_card` 建窗时 `builder.position` 同一口径。
+/// 「摆到哪」的映射是纯函数 `src/vue/floatArrange.ts`（受测层锁 100）；
+/// 这里只做搬运 —— 纯前端拿不到别的窗口句柄，与 `focus_float` 同一条边界。
+///
+/// 语义与 `focus_float` 同款：
+/// - **窗口已经不在了 ⇒ `Ok(false)`，不报错**：点的是清单里的一行，而在它渲染到点击
+///   之间那张浮窗可能已经被关掉；
+/// - **落盘不在这里做**：`set_position` 会触发 `Moved` 事件，走既有的 `remember_geometry`
+///   链（与用户手拖同一条路），重启后回到重摆后的位置；
+/// - **不广播**：清单里"有哪些卡"没变（`list_floats` 的几何变了，但清单只消费 id 与标题），
+///   与"置顶不改登记"是同一条边界。
+///
+/// 本命令没有自己的单测：它 100% 是 Tauri 窗口 API 的胶水，唯一可测的那一半（label 映射）
+/// 由 `label_of` / `card_of_label` 的既有单测守着；前端的整链（点「按版面重摆」→ 逐张
+/// `move_float`）由 E2E 钉。
+#[tauri::command]
+pub fn move_float(app: tauri::AppHandle, card_id: String, x: f64, y: f64) -> Result<bool, String> {
+    let Some(win) = app.get_webview_window(&label_of(&card_id)) else {
+        return Ok(false);
+    };
+    win.set_position(tauri::LogicalPosition::new(x, y))
+        .map_err(|e| e.to_string())?;
+    Ok(true)
+}
+
 /// 把某张卡脱离成浮窗。已浮动则只 show + focus（幂等）。
 /// 返回 false 表示"没有创建新窗、只是聚焦了已有的"。
 #[tauri::command]

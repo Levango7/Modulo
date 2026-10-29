@@ -176,6 +176,17 @@
         const id = String(args?.cardId ?? '')
         return Promise.resolve(floats.some((f) => f.card_id === id))
       }
+      case 'move_float': {
+        // 搬运（F-08「按版面重摆」）：更新桩内几何即可（真 Rust 会经 Moved 事件落盘，
+        // 桩里没有那条链）。与 focus_float 同款幂等：窗不在 ⇒ false；调用由 __STUB_CALLS__
+        // 记账，测试据此断言「按版面重摆」逐张发了命令、坐标是屏内整数。
+        const id = String(args?.cardId ?? '')
+        const entry = floats.find((f) => f.card_id === id)
+        if (!entry) return Promise.resolve(false)
+        entry.x = Math.round(Number(args?.x ?? 0))
+        entry.y = Math.round(Number(args?.y ?? 0))
+        return Promise.resolve(true)
+      }
       case 'read_doc':
         return Promise.resolve(localStorage.getItem('modulo.__stubdoc.' + args?.name) ?? null)
       case 'write_doc':
