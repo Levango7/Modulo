@@ -16,6 +16,12 @@
  *   ⑤ 倒数日 / 正计时踩到一个 Vue 渲染时序的坑：点「设一个日子」切换编辑态后，不能在
  *      **同一个同步 evaluate** 里就查输入框 —— 重绘在微任务上才刷，查到的是空态那一帧。
  *      这两条用「先点 → 等一帧 → 再填」的两段 evaluate（详见 ARCHITECTURE §12.46）。
+ *   ⑥ 记账（第五个字段，2026-10-31）形状多一层：顶层是 `ledger: { symbol, entries }`，
+ *      按实例分的只是 **entries（条目）**，`symbol`（币种符号）仍留顶层 —— 它是偏好不是
+ *      内容，两张账本共用一种货币（§12.48）。所以这里除了「各自记、刷新还在」，另钉两点：
+ *      存储形状里切片**只有条目**（出现 `symbol` 就是写错了）；删一笔也按实例（第二张删掉
+ *      唯一一条，第一张那笔还在）。另外记账的「记一笔」按钮在金额非法时是 `:disabled` 的，
+ *      填完值不能在同一个同步块里就点 —— 渲染没刷，按钮还是灰的（同 ⑤ 的坑，两段 evaluate）。
  */
 import { describe, expect, it } from 'vitest'
 import puppeteer from 'puppeteer-core'
@@ -26,7 +32,7 @@ const skip = !EXE
 let url = 'http://localhost:1430'
 const wait = (ms: number) => new Promise((r) => setTimeout(r, ms))
 
-describe.skipIf(skip)('多实例内容（F-01 阶段 2）：两张卡各写各的（便签 / 待办 / 倒数日 / 正计时）', () => {
+describe.skipIf(skip)('多实例内容（F-01 阶段 2）：两张卡各写各的（便签 / 待办 / 倒数日 / 正计时 / 记账）', () => {
   it('第二张便签有自己的正文，刷新后各自还在，且存储形状对', async () => {
     url = process.env.MODULO_URL ?? url
     const browser = await puppeteer.launch({
@@ -499,6 +505,156 @@ describe.skipIf(skip)('多实例内容（F-01 阶段 2）：两张卡各写各�
       label: '入职',
       date: '2026-01-01',
     })
+
+    expect(errs, `页面不该有报错：${errs.join(' | ')}`).toEqual([])
+    await browser.close()
+  })
+
+  /**
+   * 第五个字段：**记账**（2026-10-31）。
+   *
+   * 与前四个同一条判据，但记账的顶层形状是 `ledger: { symbol, entries }` —— 按实例分的
+   * 只是 `entries`，`symbol` 留顶层共用（判据见 §12.48）。所以这条除了「各自记、刷新还在」，
+   * 额外钉两点：① 存储形状里切片**只有条目**，出现 `symbol` 就是写错了地方；② 删一笔也
+   * 按实例 —— `removeLedger` 的过滤器抄的是读出来的那份清单，读错份就删错份，这条单钉
+   * （第二张里删掉唯一一条，第一张那笔还得在）。
+   */
+  it('第二张记账卡有自己的账：各自记一笔、删除不连坐、刷新后各自还在，且存储形状对', async () => {
+    url = process.env.MODULO_URL ?? url
+    const browser = await puppeteer.launch({
+      executablePath: EXE!,
+      headless: true,
+      args: ['--no-sandbox', '--disable-gpu'],
+      userDataDir: `F:/tmp/pptr-profile-${Date.now()}`,
+    })
+    const page = await browser.newPage()
+    await page.setViewport({ width: 1440, height: 900, deviceScaleFactor: 1 })
+    const errs: string[] = []
+    page.on('pageerror', (e: unknown) => errs.push('PAGEERROR ' + String((e as Error).message).slice(0, 160)))
+    await page.evaluateOnNewDocument(() => localStorage.setItem('modulo.template.v1', 'general'))
+    await page.goto(url, { waitUntil: 'networkidle2', timeout: 30000 })
+    await wait(800)
+
+    /** 每张记账卡的本月总额（`.num`）、笔数行（`.cap` 里「N 笔」）、空态提示（`.hint`） */
+    const books = () =>
+      page.evaluate(() =>
+        [...document.querySelectorAll<HTMLElement>('.cell[data-module="ledger"]')].map((c) => ({
+          total: c.querySelector('.num')?.textContent?.trim() ?? '',
+          cap: c.querySelector('.cap')?.textContent?.trim() ?? '',
+          hint: c.querySelector('.hint')?.textContent?.trim() ?? '',
+        })),
+      )
+    const clickBar = (text: string) =>
+      page.evaluate((t) => {
+        const b = [...document.querySelectorAll<HTMLButtonElement>('.bar button')].find(
+          (e) => (e.textContent || '').trim().includes(t),
+        )
+        b?.click()
+        return !!b
+      }, text)
+
+    expect(await books(), '出厂版面里没有记账卡（general 模板不含它）').toHaveLength(0)
+
+    // 从目录加两张记账（菜单一 pick 就关，点第二张前要再开一次）
+    expect(await clickBar('布局编辑'), '顶栏上应有「布局编辑」').toBe(true)
+    await wait(500)
+    for (let n = 0; n < 2; n++) {
+      await page.evaluate(() => void document.querySelector<HTMLElement>('.add-cat')?.click())
+      await wait(350)
+      const added = await page.evaluate(() => {
+        const el = [...document.querySelectorAll<HTMLElement>('.add-menu [role=menuitem]')].find((x) =>
+          (x.querySelector('.t')?.textContent || '').trim().startsWith('记账'),
+        )
+        el?.click()
+        return !!el
+      })
+      expect(added, `目录里应能点出第 ${n + 1} 张「记账」`).toBe(true)
+      await wait(400)
+    }
+    await clickBar('保存')
+    await wait(600)
+
+    expect(await books(), '工作台上有两张记账卡').toHaveLength(2)
+
+    /**
+     * 给第 i 张记账卡记一笔：点空态「记一笔」出表单 → 填金额 + 备注 → 点「记一笔」提交。
+     * 日期由组件自己取「今天」，所以两笔都落本月，`monthSummary`（monthOffset=0）必看得见。
+     * **必须拆成两段**：提交按钮 `:disabled` 绑在金额合法性上，填完值 Vue 要等微任务才重渲染，
+     * 同一个同步块里点下去按钮还是灰的（`.click()` 对 disabled 按钮不派发事件）。
+     */
+    const spend = async (i: number, amount: string, note: string) => {
+      const opened = await page.evaluate((i) => {
+        const cell = [...document.querySelectorAll<HTMLElement>('.cell[data-module="ledger"]')][i]
+        cell?.querySelector<HTMLButtonElement>('.edit[aria-label="记一笔"]')?.click()
+        return !!cell
+      }, i)
+      expect(opened, `第 ${i + 1} 张空态应有「记一笔」`).toBe(true)
+      await wait(150)
+      await page.evaluate(
+        ({ i, amount, note }) => {
+          const cell = [...document.querySelectorAll<HTMLElement>('.cell[data-module="ledger"]')][i]
+          if (!cell) throw new Error(`找不到第 ${i + 1} 张记账卡`)
+          const amt = cell.querySelector<HTMLInputElement>('input.in[aria-label="金额"]')
+          const nte = cell.querySelector<HTMLInputElement>('input.in[aria-label="备注"]')
+          if (!amt || !nte) throw new Error(`第 ${i + 1} 张没进入记账表单`)
+          amt.value = amount
+          amt.dispatchEvent(new Event('input', { bubbles: true }))
+          nte.value = note
+          nte.dispatchEvent(new Event('input', { bubbles: true }))
+        },
+        { i, amount, note },
+      )
+      await wait(150)
+      await page.evaluate((i) => {
+        const cell = [...document.querySelectorAll<HTMLElement>('.cell[data-module="ledger"]')][i]
+        cell?.querySelector<HTMLButtonElement>('.acts .primary')?.click()
+      }, i)
+    }
+
+    await spend(0, '12.50', '第一张的午饭')
+    await wait(150)
+    await spend(1, '100', '第二张的晚饭')
+    await wait(600) // 写盘防抖 300ms，等它落进 localStorage
+
+    const now = await books()
+    expect(now[0].total, '第一张只算自己这一笔').toBe('¥12.50')
+    expect(now[1].total, '第二张只算自己这一笔（串账时两张都会是 ¥112.50）').toBe('¥100.00')
+    expect(now[0].cap, '第一张是一笔').toContain('1 笔')
+    expect(now[1].cap, '第二张也是一笔').toContain('1 笔')
+
+    // 刷新：写入必须落在对的那份上
+    await page.reload({ waitUntil: 'networkidle2' })
+    await wait(800)
+    const reloaded = await books()
+    expect(reloaded[0].total, '刷新后第一张还在').toBe('¥12.50')
+    expect(reloaded[1].total, '刷新后第二张还在，且没被第一张顶掉').toBe('¥100.00')
+
+    // 存储形状：第一实例写顶层 ledger.entries，第二实例写 byInstance['ledger:2'].ledger（只有条目）
+    const stored = await page.evaluate(() => JSON.parse(localStorage.getItem('modulo.carddata.v1') ?? '{}'))
+    expect(stored.ledger?.entries?.length, '顶层只多第一张那一笔').toBe(1)
+    expect(stored.ledger?.entries?.[0]?.note).toBe('第一张的午饭')
+    expect(stored.ledger?.symbol, '币种符号仍在顶层（旧档形状逐字不变）').toBe('¥')
+    expect(stored.byInstance?.['ledger:2']?.ledger?.length, '第二张写在自己的切片里').toBe(1)
+    expect(stored.byInstance?.['ledger:2']?.ledger?.[0]?.note).toBe('第二张的晚饭')
+    expect('symbol' in (stored.byInstance?.['ledger:2'] ?? {}), '切片里不该出现币种符号').toBe(false)
+
+    /**
+     * 删除也按实例：删掉第二张唯一那一笔，第一张那笔不能跟着没。
+     * `removeLedger` 的过滤器抄的是 `ledgerEntriesOf` 读出来的清单 —— 读错份就删错份。
+     */
+    const del = await page.evaluate(() => {
+      const cell = [...document.querySelectorAll<HTMLElement>('.cell[data-module="ledger"]')][1]
+      cell?.querySelector<HTMLButtonElement>('.rows .del')?.click()
+      return !!cell
+    })
+    expect(del, '第二张应有明细行可删').toBe(true)
+    await wait(600)
+    const afterDel = await books()
+    expect(afterDel[1].hint, '第二张回到空态（这个月还没记账）').toContain('这个月还没记账')
+    expect(afterDel[0].total, '第一张那笔不受影响').toBe('¥12.50')
+
+    const stored2 = await page.evaluate(() => JSON.parse(localStorage.getItem('modulo.carddata.v1') ?? '{}'))
+    expect(stored2.ledger?.entries?.length, '顶层那一笔还在').toBe(1)
 
     expect(errs, `页面不该有报错：${errs.join(' | ')}`).toEqual([])
     await browser.close()

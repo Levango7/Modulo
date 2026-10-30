@@ -197,6 +197,69 @@ describe('记账：宁可少记一条，也不记半条错账', () => {
   })
 })
 
+/**
+ * 记账按实例（F-01 阶段 2 第五个字段，2026-10-31）：与待办同一条纪律 ——
+ * 两个 id 带到底，币种符号永远留顶层。
+ */
+describe('记账按实例：记一笔 / 删一笔各自写对地方', () => {
+  /** 空账起步：默认示例内容里没有账，顶层 / 第二张都从零开始 */
+  const fresh = () => memStorage(JSON.stringify({ ledger: { symbol: '¥', entries: [] } })).api()
+  type Api = ReturnType<ReturnType<typeof memStorage>['api']>
+  const top = (d: Api) => d.state.ledger.entries.map((r) => r.cents)
+  const second = (d: Api) => d.state.byInstance?.['ledger:2']?.ledger?.map((r) => r.cents) ?? []
+
+  it('第二实例记一笔 ⇒ 进它自己的账本；顶层不多一笔，符号不分实例', () => {
+    const d = fresh()
+    d.addLedger('2026-10-31', 100, '餐饮', '午饭', 'ledger', 'ledger')
+    d.addLedger('2026-10-31', 200, '餐饮', '晚饭', 'ledger', 'ledger:2')
+    expect(top(d)).toEqual([100])
+    expect(second(d)).toEqual([200])
+    expect(Object.keys(d.state.byInstance ?? {})).toEqual(['ledger:2'])
+    expect(d.state.ledger.symbol, '符号是顶层共享的偏好').toBe('¥')
+    expect(Object.keys(d.state.byInstance!['ledger:2']), '切片里只有条目，没有符号').toEqual(['ledger'])
+  })
+
+  it('第二实例删一笔 ⇒ 只从自己的账本里删，顶层同 id 不受影响', () => {
+    const d = fresh()
+    d.addLedger('2026-10-31', 100, '餐饮', '', 'ledger', 'ledger')
+    d.addLedger('2026-10-31', 200, '餐饮', '', 'ledger', 'ledger:2')
+    const mine = d.state.byInstance!['ledger:2'].ledger![0].id
+    d.removeLedger(mine, 'ledger', 'ledger:2')
+    expect(second(d)).toEqual([])
+    expect(top(d)).toEqual([100])
+  })
+
+  it('拿第一张的 id 去第二张里删 ⇒ 撞不到号，什么都不改（id 只在各自账本里有效）', () => {
+    const d = fresh()
+    d.addLedger('2026-10-31', 100, '餐饮', '', 'ledger', 'ledger')
+    d.addLedger('2026-10-31', 200, '餐饮', '', 'ledger', 'ledger:2')
+    const before = JSON.stringify(d.state.byInstance)
+    d.removeLedger(d.state.ledger.entries[0].id, 'ledger', 'ledger:2')
+    expect(JSON.stringify(d.state.byInstance)).toBe(before)
+    expect(top(d)).toEqual([100])
+  })
+
+  it('第二张有自己独立的 2000 行额度：第一张顶到上限也不挡第二张记一笔', () => {
+    const seed = Array.from({ length: 2000 }, (_, i) => ({ id: `e${i}`, date: '2026-01-01', cents: 1, category: '餐饮' }))
+    const d = memStorage(JSON.stringify({ ledger: { symbol: '¥', entries: seed } })).api()
+    expect(d.state.ledger.entries.length).toBe(2000)
+    d.addLedger('2026-01-02', 1, '餐饮', '', 'ledger', 'ledger')
+    expect(d.state.ledger.entries.length, '顶层已满 ⇒ 静默拒').toBe(2000)
+    d.addLedger('2026-01-02', 1, '餐饮', '', 'ledger', 'ledger:2')
+    expect(second(d), '第二张的额度是它自己的').toEqual([1])
+    expect(d.state.ledger.entries.length).toBe(2000)
+  })
+
+  it('不传 id ⇒ 行为与改造前逐字相同（写顶层，不建 byInstance）', () => {
+    const d = fresh()
+    d.addLedger('2026-10-31', 100, '餐饮', '午饭')
+    expect(top(d)).toEqual([100])
+    expect(d.state.byInstance).toBeUndefined()
+    d.removeLedger(d.state.ledger.entries[0].id)
+    expect(top(d)).toEqual([])
+  })
+})
+
 describe('会议规划：最多四个城市', () => {
   it('已有的再点一次是移除，没满四个就加，第五个静默拒绝', () => {
     const d = memStorage().api()

@@ -331,6 +331,7 @@ describe('按实例的内容进出备份包（第二张便签 / 待办卡不能�
       'todo:2': { todos: [{ id: 't9', text: '第二张的待办', done: false }] },
       'countdown:2': { countdown: { label: '第二张的倒数日', date: '2027-01-01' } },
       'elapsed:2': { elapsed: { label: '第二张的正计时', date: '2026-01-01' } },
+      'ledger:2': { ledger: [{ id: 'e9', date: '2026-10-31', cents: 200, category: '餐饮', note: '第二张的晚饭' }] },
     },
   }
 
@@ -341,6 +342,14 @@ describe('按实例的内容进出备份包（第二张便签 / 待办卡不能�
     twoInstances.byInstance!['todo:2'].todos![0].text = '导出后才改的'
     expect(p.cardData.byInstance?.['todo:2']?.todos?.[0].text, '包里必须是导出那一刻的').toBe('第二张的待办')
     twoInstances.byInstance!['todo:2'].todos![0].text = '第二张的待办' // 还原，别污染后面的用例
+  })
+
+  it('ledger 的条目也是深拷贝（与待办同款：数组里装的是对象，改一条会连坐）', () => {
+    const p = buildBackup({ layout, schemes: book, cardData: twoInstances, app: '0.8.8' })
+    expect(p.cardData.byInstance?.['ledger:2']?.ledger?.[0]?.note).toBe('第二张的晚饭')
+    twoInstances.byInstance!['ledger:2'].ledger![0].note = '导出后才改的'
+    expect(p.cardData.byInstance?.['ledger:2']?.ledger?.[0]?.note, '包里必须是导出那一刻的').toBe('第二张的晚饭')
+    twoInstances.byInstance!['ledger:2'].ledger![0].note = '第二张的晚饭' // 还原
   })
 
   it('countdown / elapsed 的嵌套对象也是深拷贝（`{...v}` 只抄一层，日子会被连坐改掉）', () => {
@@ -366,6 +375,7 @@ describe('按实例的内容进出备份包（第二张便签 / 待办卡不能�
     expect(target.byInstance?.['sticky:2']?.sticky).toBe('第二张的正文')
     expect(target.byInstance?.['countdown:2']?.countdown).toEqual({ label: '第二张的倒数日', date: '2027-01-01' })
     expect(target.byInstance?.['elapsed:2']?.elapsed).toEqual({ label: '第二张的正计时', date: '2026-01-01' })
+    expect(target.byInstance?.['ledger:2']?.ledger?.[0]?.note).toBe('第二张的晚饭')
   })
 
   it('没有第二实例时包里根本不出现这个键（旧档形状逐字不变）', () => {

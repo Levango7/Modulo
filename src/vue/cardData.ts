@@ -40,7 +40,7 @@ import {
 import { createFallbackCardData } from './cardDataFallback'
 import { browserStorage } from './store'
 import { QUADRANTS, type CardData, type Quadrant, type TimerKey } from './cardDataTypes'
-import { todosOf, writeTodos } from './instanceData'
+import { ledgerEntriesOf, todosOf, writeLedgerEntries, writeTodos } from './instanceData'
 
 export * from './cardDataTypes'
 export { sanitizeCardData } from './cardDataSanitize'
@@ -206,20 +206,36 @@ export function createCardData(storage = browserStorage()) {
     removePick(id: string) {
       state.pickList = state.pickList.filter((p) => p.id !== id)
     },
-    addLedger(date: string, cents: number, category: string, note: string) {
+    /**
+     * 记一笔。`moduleId` / `instanceId` 可选，口径与 `addTodo` 相同：不给写顶层
+     * （= 第一实例 / 单实例，与改造前逐字相同）；给了且是第二实例，写它自己那一份。
+     * 上限按"读出来的那一份"算 —— 第二张账本有自己的 2000 行额度，不会被第一张顶掉。
+     */
+    addLedger(date: string, cents: number, category: string, note: string, moduleId?: string, instanceId?: string) {
       if (!isValidDate(date)) return
       if (!Number.isSafeInteger(cents) || cents < 0 || cents > MAX_CENTS) return
-      if (state.ledger.entries.length >= MAX_LEDGER_ROWS) return
-      state.ledger.entries.push({
-        id: nextId('e'),
-        date,
-        cents,
-        category: knownCategory(category),
-        note: note.trim().slice(0, 40),
-      })
+      const rows = ledgerEntriesOf(state, moduleId, instanceId)
+      if (rows.length >= MAX_LEDGER_ROWS) return
+      writeLedgerEntries(state, moduleId, instanceId, [
+        ...rows,
+        {
+          id: nextId('e'),
+          date,
+          cents,
+          category: knownCategory(category),
+          note: note.trim().slice(0, 40),
+        },
+      ])
     },
-    removeLedger(id: string) {
-      state.ledger.entries = state.ledger.entries.filter((r) => r.id !== id)
+    /** 删一条：改的是"读出来的那一份"，改完整条写回（与 `removeTodo` 同一条理由） */
+    removeLedger(id: string, moduleId?: string, instanceId?: string) {
+      const rows = ledgerEntriesOf(state, moduleId, instanceId)
+      writeLedgerEntries(
+        state,
+        moduleId,
+        instanceId,
+        rows.filter((r) => r.id !== id),
+      )
     },
     toggleMeetingCity(id: string) {
       const list = state.meeting.cityIds

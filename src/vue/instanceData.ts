@@ -23,13 +23,22 @@
  *
  * - **不解析 `:2` 后缀**：是不是"第二实例"由"实例 id ≠ 模块 id"判定，不靠字符串形状
  *   （与 `moduleIdOf` 只认 `p.module ?? p.id` 同一条纪律）。
- * - 按实例分的字段：`sticky` / `todos` / `countdown` / `elapsed`。其余字段（速记 / 记账 /
- *   四象限 / 习惯……）仍是按模块共享，那是它们各自的下一笔。
+ * - 按实例分的字段：`sticky` / `todos` / `countdown` / `elapsed` / `ledger`（记账的**条目**）。
+ *   其余字段（速记 / 四象限 / 习惯……）仍是按模块共享，那是它们各自的下一笔。记账的币种
+ *   符号也留顶层：它是偏好不是内容（`LedgerCard.vue` 文件头自己这么写），两条账本共用一种货币。
  */
-import type { CardData, CountdownSetting, ElapsedSetting, Todo } from './cardDataTypes'
+import type { CardData, CountdownSetting, ElapsedSetting, LedgerRow, Todo } from './cardDataTypes'
 
-/** 取数只需要这五个字段，测试不必造一整份 `CardData` */
-export type InstanceSource = Pick<CardData, 'sticky' | 'todos' | 'countdown' | 'elapsed' | 'byInstance'>
+/**
+ * 取数只需要这六个字段，测试不必造一整份 `CardData`。
+ *
+ * `ledger` 不直接 `Pick<CardData, 'ledger'>`：`entries` 在别的取数来源（如 AI 摘录的
+ * `ExcerptSource`）是**只读数组**，判定层只读不写，放宽到 `readonly` 才能共用同一个入口。
+ * 字段可选 —— 形状不对 / 没有这个字段的来源一律按空账处理（读路径 `?? []`）。
+ */
+export type InstanceSource = Pick<CardData, 'sticky' | 'todos' | 'countdown' | 'elapsed' | 'byInstance'> & {
+  ledger?: { symbol?: string; entries?: readonly LedgerRow[] }
+}
 
 /** 空"名字 + 日子"：与顶层那个空形状（`emptyCardData`）逐字相同，渲染侧不必为实例分叉判空 */
 const BLANK_DAY = { label: '', date: '' }
@@ -145,6 +154,38 @@ export function writeElapsed(
   }
   const bag = data.byInstance ?? {}
   bag[instanceId as string] = { ...bag[instanceId as string], elapsed: next }
+  data.byInstance = bag
+}
+
+/**
+ * 记账条目：按实例读。第五个字段（2026-10-31），口径与前四个**完全相同** ——
+ * 差别只有一处：**币种符号不算内容、不分实例**。卡片文件头写的就是"币种符号是一个偏好"，
+ * 偏好跟着模块走（顶层那份），两条账本共用一种货币；分实例的是用户一笔一笔敲进去的条目。
+ * 所以这里返回的只是条目数组，符号由调用方自己读顶层（`LedgerCard.vue`）。
+ */
+export function ledgerEntriesOf(data: InstanceSource, moduleId?: string, instanceId?: string): readonly LedgerRow[] {
+  if (!isSecondInstance(moduleId, instanceId)) return data.ledger?.entries ?? []
+  return data.byInstance?.[instanceId as string]?.ledger ?? []
+}
+
+/**
+ * 记账条目：按实例写（整条替换，理由同 `writeTodos`：深层 watch 靠"值变了"才触发写盘）。
+ *
+ * 顶层那一侧替换的是**条目数组**，但外壳得展开一层（`{ ...data.ledger }`）——
+ * 直接整体赋值会把币种符号弄丢，符号是顶层共享的偏好，不该跟着条目一起被换掉。
+ */
+export function writeLedgerEntries(
+  data: InstanceSource,
+  moduleId: string | undefined,
+  instanceId: string | undefined,
+  rows: LedgerRow[],
+): void {
+  if (!isSecondInstance(moduleId, instanceId)) {
+    data.ledger = { ...data.ledger, entries: rows }
+    return
+  }
+  const bag = data.byInstance ?? {}
+  bag[instanceId as string] = { ...bag[instanceId as string], ledger: rows }
   data.byInstance = bag
 }
 

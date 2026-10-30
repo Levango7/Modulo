@@ -247,6 +247,51 @@ describe('sanitizeCardData：盘上数据先清洗再用', () => {
     expect(slice).toEqual(top)
   })
 
+  /**
+   * 按实例的记账条目（F-01 阶段 2 第五个字段，2026-10-31）：**走与顶层同一套
+   * `sanitizeLedgerRows`** —— 坏日期 / 非整数分 / 负数的条目在第二张里同样丢掉，
+   * 乱写的类目同样归「其他」。币种符号不属于切片：出现在切片里也会被丢掉
+   * （它是顶层共享的偏好，两张账本共用一种货币）。
+   */
+  it('byInstance 的 ledger：坏条目丢、乱写类目归其他、符号字段不收', () => {
+    const clean = sanitizeCardData(
+      {
+        byInstance: {
+          'ledger:2': {
+            ledger: [
+              { id: 'e1', date: '2026-10-31', cents: 100, category: '餐饮', note: '午饭' },
+              { id: 'e2', date: '不是日期', cents: 1, category: '餐饮', note: '' },
+              { id: 'e3', date: '2026-10-31', cents: 10.5, category: '餐饮', note: '' },
+              { id: 'e4', date: '2026-10-31', cents: -1, category: '餐饮', note: '' },
+              { id: 'e5', date: '2026-10-31', cents: 1, category: '乱写的', note: '' },
+            ],
+            symbol: '不该出现在切片里',
+          },
+        },
+      },
+      fallback,
+    ).byInstance?.['ledger:2']
+    expect(clean?.ledger).toEqual([
+      { id: 'e1', date: '2026-10-31', cents: 100, category: '餐饮', note: '午饭' },
+      { id: 'e5', date: '2026-10-31', cents: 1, category: '其他', note: '' },
+    ])
+    expect('symbol' in (clean ?? {}), '符号是顶层共享的，切片里出现了也丢').toBe(false)
+  })
+
+  it('byInstance 的 ledger 一条都不剩 ⇒ 这个键不出现（全删光的第二张账本读回来是"还没写过"）', () => {
+    expect(sanitizeCardData({ byInstance: { 'ledger:2': { ledger: [] } } }, fallback).byInstance).toBeUndefined()
+    expect(sanitizeCardData({ byInstance: { 'ledger:2': { ledger: '不是数组' } } }, fallback).byInstance).toBeUndefined()
+    // 同一实例里还有别的字段 ⇒ 那些字段照留
+    expect(sanitizeCardData({ byInstance: { 'ledger:2': { sticky: '有字', ledger: [] } } }, fallback).byInstance).toEqual({
+      'ledger:2': { sticky: '有字' },
+    })
+  })
+
+  it('byInstance 的 ledger 条目数同样夹到上限（与顶层同一个 2000 行）', () => {
+    const many = Array.from({ length: 2100 }, (_, i) => ({ id: `e${i}`, date: '2026-01-01', cents: 1, category: '餐饮', note: '' }))
+    expect(sanitizeCardData({ byInstance: { 'ledger:2': { ledger: many } } }, fallback).byInstance?.['ledger:2']?.ledger?.length).toBe(2000)
+  })
+
   it('条目数夹到上限：几百 MB 的坏文件不该冻住首屏', () => {
     const many = Array.from({ length: 5000 }, (_, i) => ({ id: `t${i}`, text: `第 ${i} 条` }))
     expect(sanitizeCardData({ todos: many }, fallback).todos.length).toBe(200)

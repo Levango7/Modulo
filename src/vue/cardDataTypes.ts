@@ -192,6 +192,13 @@ export interface InstanceData {
   countdown?: CountdownSetting
   /** 正计时（2026-10-30 起按实例分）。与倒数日同形状、同清洗，差别只在"往前算还是往后算" */
   elapsed?: ElapsedSetting
+  /**
+   * 记账条目（2026-10-31 起按实例分）。第五个字段，形状与顶层 `ledger.entries` 逐字相同，
+   * 清洗也共用同一条（`sanitizeCardData` 里的 `sanitizeLedgerRows`）。**币种符号不在这里**：
+   * 它是偏好（顶层 `ledger.symbol`），两条账本共用一种货币 —— 见 `instanceData.ts`
+   * 的 `ledgerEntriesOf`。
+   */
+  ledger?: LedgerRow[]
 }
 
 export interface CardData {
