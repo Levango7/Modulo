@@ -13,15 +13,17 @@ import {
   allCountdowns,
   countdownOf,
   elapsedOf,
+  ledgerEntriesOf,
   stickyOf,
   todosOf,
   writeCountdown,
   writeElapsed,
+  writeLedgerEntries,
   writeSticky,
   writeTodos,
   type InstanceSource,
 } from '../../src/vue/instanceData'
-import type { CountdownSetting, ElapsedSetting, Todo } from '../../src/vue/cardDataTypes'
+import type { CountdownSetting, ElapsedSetting, LedgerRow, Todo } from '../../src/vue/cardDataTypes'
 
 /** 空的"名字 + 日子"：与顶层 `emptyCardData` 那一份逐字相同 */
 const blankDay = (): { label: string; date: string } => ({ label: '', date: '' })
@@ -306,5 +308,81 @@ describe('allCountdowns：提醒那一路要的是全部', () => {
       byInstance: { 'countdown:2': { countdown: day('只有第二张', '2027-02-02') } },
     }
     expect(allCountdowns(d)).toEqual([blankDay(), day('只有第二张', '2027-02-02')])
+  })
+})
+
+describe('ledgerEntriesOf / writeLedgerEntries：读哪一份账、写哪一份账', () => {
+  /** 一条记账：id 只要唯一，日期/类目固定，本层只看读哪一份 */
+  const row = (id: string, cents: number, note = ''): LedgerRow => ({ id, date: '2026-10-31', cents, category: '餐饮', note })
+
+  it('单实例（实例 id 就是模块 id）读顶层那一份', () => {
+    const d = src('')
+    d.ledger = { symbol: '¥', entries: [row('e1', 100)] }
+    expect(ledgerEntriesOf(d, 'ledger', 'ledger')).toEqual([row('e1', 100)])
+  })
+
+  it('第二实例有自己的账 ⇒ 读自己的，不串账', () => {
+    const d = src('')
+    d.ledger = { symbol: '¥', entries: [row('e1', 100)] }
+    d.byInstance = { 'ledger:2': { ledger: [row('e2', 200)] } }
+    expect(ledgerEntriesOf(d, 'ledger', 'ledger:2')).toEqual([row('e2', 200)])
+  })
+
+  it('第二实例还没写过 ⇒ 空账，不继承顶层（第二条口径）', () => {
+    const d = src('')
+    d.ledger = { symbol: '¥', entries: [row('e1', 100)] }
+    expect(ledgerEntriesOf(d, 'ledger', 'ledger:2')).toEqual([])
+  })
+
+  it('byInstance 里那一份没有 ledger 字段 ⇒ 空账', () => {
+    const d = src('', { 'ledger:2': {} })
+    d.ledger = { symbol: '¥', entries: [row('e1', 100)] }
+    expect(ledgerEntriesOf(d, 'ledger', 'ledger:2')).toEqual([])
+  })
+
+  it('顶层没有 ledger 字段（坏数据 / 形状更窄的取数来源）⇒ 空账，不抛', () => {
+    const d = src('')
+    expect(ledgerEntriesOf(d, 'ledger', 'ledger')).toEqual([])
+  })
+
+  it('写第一实例 ⇒ 写顶层条目、**符号保住**，不建 byInstance', () => {
+    const d = src('')
+    d.ledger = { symbol: '¥', entries: [] }
+    writeLedgerEntries(d, 'ledger', 'ledger', [row('e1', 100)])
+    expect(d.ledger).toEqual({ symbol: '¥', entries: [row('e1', 100)] })
+    expect(d.byInstance).toBeUndefined()
+  })
+
+  it('写第二实例 ⇒ 建自己的账本，顶层账不动；符号仍在顶层（不分实例）', () => {
+    const d = src('')
+    d.ledger = { symbol: '¥', entries: [row('e1', 100)] }
+    writeLedgerEntries(d, 'ledger', 'ledger:2', [row('e2', 200)])
+    expect(d.ledger).toEqual({ symbol: '¥', entries: [row('e1', 100)] })
+    expect(d.byInstance).toEqual({ 'ledger:2': { ledger: [row('e2', 200)] } })
+    expect(ledgerEntriesOf(d, 'ledger', 'ledger:2')).toEqual([row('e2', 200)])
+  })
+
+  it('同一实例里记账与待办互不覆盖（两张卡可能摆在一起）', () => {
+    const d = src('')
+    writeTodos(d, 'm', 'm:2', [todo('t1', '第二张的待办')])
+    writeLedgerEntries(d, 'm', 'm:2', [row('e1', 100)])
+    expect(d.byInstance?.['m:2']).toEqual({ todos: [todo('t1', '第二张的待办')], ledger: [row('e1', 100)] })
+  })
+
+  it('写第二实例不动同模块的第三张账本', () => {
+    const d = src('')
+    writeLedgerEntries(d, 'ledger', 'ledger:2', [row('e2', 200)])
+    writeLedgerEntries(d, 'ledger', 'ledger:3', [row('e3', 300)])
+    expect(d.byInstance?.['ledger:2']).toEqual({ ledger: [row('e2', 200)] })
+    expect(d.byInstance?.['ledger:3']).toEqual({ ledger: [row('e3', 300)] })
+  })
+
+  it('拿不到模块 id 时读 / 写都回落顶层（不静默变空）', () => {
+    const d = src('')
+    d.ledger = { symbol: '¥', entries: [] }
+    writeLedgerEntries(d, undefined, 'ledger:2', [row('e1', 100)])
+    expect(d.ledger.entries).toEqual([row('e1', 100)])
+    expect(ledgerEntriesOf(d, undefined, 'ledger:2')).toEqual([row('e1', 100)])
+    expect(d.byInstance).toBeUndefined()
   })
 })

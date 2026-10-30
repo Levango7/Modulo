@@ -98,13 +98,42 @@ function sanitizeDaySetting(raw: unknown): { label: string; date: string } | und
 }
 
 /**
+ * 记账条目清洗。**顶层与按实例共用同一套**（F-01 阶段 2 第五个字段，2026-10-31）——
+ * 与 `sanitizeTodos` 同一条理由：两份实现意味着"修了顶层忘了第二张"，而这种分歧平时根本不响。
+ *
+ * id 在同一份清单内必须唯一：`removeLedger` 按 id 删，撞号会连坐删错条目。
+ * 上限也是同一份：第二张账本有自己独立的 2000 行额度（存储层按"读出来的那一份"拦）。
+ */
+function sanitizeLedgerRows(raw: unknown): LedgerRow[] {
+  const out: LedgerRow[] = []
+  if (!Array.isArray(raw)) return out
+  const seen = new Set<string>()
+  for (const entry of raw.slice(0, MAX_LEDGER_ROWS)) {
+    const e = entry as Partial<LedgerRow> | null
+    if (!e || typeof e.date !== 'string' || !isValidDate(e.date)) continue
+    // 金额必须是**非负整数分**。小数 / NaN / 负数 / 字符串一律丢这条 ——
+    // 半条账比错账更危险：错账能看出来，半条账会让"总额"悄悄少一块。
+    if (typeof e.cents !== 'number' || !Number.isSafeInteger(e.cents) || e.cents < 0 || e.cents > MAX_CENTS) continue
+    out.push({
+      id: uniqueId(seen, e.id, 'e', out.length),
+      date: e.date,
+      cents: e.cents,
+      category: knownCategory(e.category),
+      note: textOf(e.note, 40).trim(),
+    })
+  }
+  return out
+}
+
+/**
  * 按实例的内容（F-01 阶段 2）。**这是读盘边界**，所以规则是"不认识的就丢"：
  *
  * - 键必须是非空字符串（实例 id）；值必须是朴素对象（数组不算）。
- * - 只收**认得的字段**（现阶段 `sticky` / `todos` / `countdown` / `elapsed`）：
- *   `sticky` 只收字符串、`todos` 走与顶层同一套条目清洗、`countdown` / `elapsed` 走
- *   `sanitizeDaySetting` —— 其余一律丢掉，这样将来给 `InstanceData` 加字段时，
+ * - 只收**认得的字段**（现阶段 `sticky` / `todos` / `countdown` / `elapsed` / `ledger`）：
+ *   `sticky` 只收字符串、`todos` 与 `ledger` 走与顶层同一套条目清洗、`countdown` / `elapsed`
+ *   走 `sanitizeDaySetting` —— 其余一律丢掉，这样将来给 `InstanceData` 加字段时，
  *   旧备份读进来是"这一段没有"而不是"有一段看不懂的"。
+ *   记账只收**条目**：币种符号是顶层共享的偏好，切片里出现也会被丢掉。
  * - 一条都不剩 ⇒ 返回 **undefined**，让 `byInstance` 这个键**根本不出现** ——
  *   旧档、模板、单实例读出来的对象因此与今天逐字相同（备份的字节对账也靠这条）。
  * - 有上限：一份坏备份不该把几十万个键塞进内存与写盘路径。
@@ -130,6 +159,10 @@ function sanitizeByInstance(raw: unknown): Record<string, InstanceData> | undefi
     if (countdown) entry.countdown = countdown
     const elapsed = sanitizeDaySetting((value as { elapsed?: unknown }).elapsed)
     if (elapsed) entry.elapsed = elapsed
+    // 一条都没剩下不写这个键（与空清单同一条理由）：全删光的第二张账本，
+    // 读回来就该是"这个实例还没写过内容"
+    const ledger = sanitizeLedgerRows((value as { ledger?: unknown }).ledger)
+    if (ledger.length) entry.ledger = ledger
     if (Object.keys(entry).length) out[key] = entry
   }
   return Object.keys(out).length ? out : undefined
@@ -222,27 +255,11 @@ export function sanitizeCardData(raw: unknown, fallback: CardData): CardData {
     }
   }
 
-  const rowSeen = new Set<string>()
-  const entries: LedgerRow[] = []
   const ledRaw =
     typeof o.ledger === 'object' && o.ledger !== null && !Array.isArray(o.ledger)
       ? (o.ledger as { symbol?: unknown; entries?: unknown })
       : undefined
-  const ledEntries = Array.isArray(ledRaw?.entries) ? (ledRaw.entries as unknown[]) : []
-  for (const entry of ledEntries.slice(0, MAX_LEDGER_ROWS)) {
-    const e = entry as Partial<LedgerRow> | null
-    if (!e || typeof e.date !== 'string' || !isValidDate(e.date)) continue
-    // 金额必须是**非负整数分**。小数 / NaN / 负数 / 字符串一律丢这条 ——
-    // 半条账比错账更危险：错账能看出来，半条账会让"总额"悄悄少一块。
-    if (typeof e.cents !== 'number' || !Number.isSafeInteger(e.cents) || e.cents < 0 || e.cents > MAX_CENTS) continue
-    entries.push({
-      id: uniqueId(rowSeen, e.id, 'e', entries.length),
-      date: e.date,
-      cents: e.cents,
-      category: knownCategory(e.category),
-      note: textOf(e.note, 40).trim(),
-    })
-  }
+  const entries = sanitizeLedgerRows(ledRaw?.entries)
 
   const mtRaw = o.meeting as Partial<MeetingSetting> | undefined
   const meeting: MeetingSetting =

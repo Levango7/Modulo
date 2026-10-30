@@ -5,16 +5,26 @@
  * **金额全程是「分」的整数**（引擎 `ledger.ts` 的口径），这条卡一处都不碰小数 ——
  * 显示时才除以 100。求和、比较、百分比都在整数域里做完。
  *
- * 用户写的每一条都进 `cardData.ledger`（跟着完整备份走）；币种符号是一个偏好，但也跟着走 ——
- * 换机器时不必再问一次"这里的钱是哪种"。
+ * 用户写的每一条都按实例分（2026-10-31 起，判定在 `instanceData.ts`）：第一张账本写
+ * 顶层那一份、第二张写自己的切片，互不串账。**币种符号仍是顶层共享的** ——
+ * 它是偏好不是内容，两条账本共用一种货币，换机器时不必再问一次"这里的钱是哪种"。
  */
 import { computed, inject, ref } from 'vue'
 import { categoryTotals, dailyTotals, formatMoney, formatMoneyShort, LEDGER_CATEGORIES, monthSummary, parseAmount } from '@levango7/engine/ledger'
 import { ChevronRight, Plus, Trash2, Wallet } from 'lucide-vue-next'
 import type { CardDataApi } from '../../vue/cardData'
+import { ledgerEntriesOf } from '../../vue/instanceData'
 
-const props = defineProps<{ variant: string }>()
+const props = defineProps<{ variant: string; moduleId?: string; instanceId?: string }>()
 const cards = inject<CardDataApi>('cardData')!
+
+/**
+ * 本实例的条目：第一实例（或不传 id）读顶层那一份，第二实例读自己的切片 ——
+ * 切片不存在就是空账（不回落顶层，口径与其余四个按实例字段相同）。
+ */
+const entries = computed(() => ledgerEntriesOf(cards.state, props.moduleId, props.instanceId))
+/** 币种符号不分实例：顶层共享的偏好，两张账本共用一种货币 */
+const symbol = computed(() => cards.state.ledger.symbol)
 
 const now = ref(new Date())
 // 月份可以翻：只显示"本月"的话，月底想回头看上个月就得等
@@ -22,10 +32,10 @@ const monthOffset = ref(0)
 
 /** `monthOffset` 是"往回推几个月"，`-1` = 上个月 */
 const cursor = computed(() => new Date(now.value.getFullYear(), now.value.getMonth() + monthOffset.value, 1))
-const sum = computed(() => monthSummary(cards.state.ledger.entries, cursor.value))
+const sum = computed(() => monthSummary(entries.value, cursor.value))
 const totals = computed(() => categoryTotals(sum.value.entries))
 const maxTotal = computed(() => totals.value.reduce((m, t) => Math.max(m, t.cents), 0))
-const trend = computed(() => (props.variant === 'panel' ? dailyTotals(cards.state.ledger.entries, cursor.value, 14) : []))
+const trend = computed(() => (props.variant === 'panel' ? dailyTotals(entries.value, cursor.value, 14) : []))
 const trendMax = computed(() => trend.value.reduce((m, d) => Math.max(m, d.cents), 0))
 
 const adding = ref(false)
@@ -41,7 +51,7 @@ function save(): void {
   const cents = parseAmount(draftAmount.value)
   // 金额敲不进去就不提交、不报错、不清空输入 —— 用户多半是还没敲完
   if (cents === null) return
-  cards.addLedger(today(), cents, draftCat.value, draftNote.value)
+  cards.addLedger(today(), cents, draftCat.value, draftNote.value, props.moduleId, props.instanceId)
   draftAmount.value = ''
   draftNote.value = ''
   adding.value = false
@@ -72,11 +82,11 @@ function save(): void {
       </template>
 
       <template v-else-if="sum.total > 0">
-        <div class="num">{{ formatMoney(sum.total, cards.state.ledger.symbol) }}</div>
+        <div class="num">{{ formatMoney(sum.total, symbol) }}</div>
         <p class="cap">
-          {{ sum.entries.length }} 笔 · 日均 {{ formatMoneyShort(sum.dailyAvg, cards.state.ledger.symbol) }}
+          {{ sum.entries.length }} 笔 · 日均 {{ formatMoneyShort(sum.dailyAvg, symbol) }}
           <template v-if="sum.dayOfMonth < sum.daysInMonth">
-            · 整月约 {{ formatMoneyShort(sum.projected, cards.state.ledger.symbol) }}
+            · 整月约 {{ formatMoneyShort(sum.projected, symbol) }}
           </template>
         </p>
 
@@ -84,9 +94,9 @@ function save(): void {
           <li v-for="t in totals.slice(0, variant === 'panel' ? 6 : 3)" :key="t.category">
             <div class="crow">
               <span class="cn">{{ t.category }}</span>
-              <span class="cv">{{ formatMoneyShort(t.cents, cards.state.ledger.symbol) }}</span>
+              <span class="cv">{{ formatMoneyShort(t.cents, symbol) }}</span>
             </div>
-            <div class="bar" role="img" :aria-label="`${t.category} ${formatMoney(t.cents, cards.state.ledger.symbol)}`">
+            <div class="bar" role="img" :aria-label="`${t.category} ${formatMoney(t.cents, symbol)}`">
               <span class="fill" :style="{ inlineSize: maxTotal ? `${Math.round((t.cents / maxTotal) * 100)}%` : '0%' }" />
             </div>
           </li>
@@ -111,8 +121,8 @@ function save(): void {
           <li v-for="r in sum.entries.slice(0, 8)" :key="r.id">
             <span class="rd">{{ r.date.slice(5) }} {{ r.category }}</span>
             <span class="rn">{{ r.note }}</span>
-            <span class="rv">{{ formatMoneyShort(r.cents, cards.state.ledger.symbol) }}</span>
-            <button class="del" :aria-label="`删除 ${r.date} 的 ${r.cents} 分`" @click="cards.removeLedger(r.id)"><Trash2 :size="10" /></button>
+            <span class="rv">{{ formatMoneyShort(r.cents, symbol) }}</span>
+            <button class="del" :aria-label="`删除 ${r.date} 的 ${r.cents} 分`" @click="cards.removeLedger(r.id, moduleId, instanceId)"><Trash2 :size="10" /></button>
           </li>
         </ul>
       </div>

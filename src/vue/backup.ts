@@ -146,6 +146,8 @@ export function buildBackup(input: BackupInput): BackupPayload {
       // 2026-10-30 倒数日 / 正计时跟上：这两个是**对象**，`{...v}` 只复制了外层 ——
       // 包里第二张的日子会与界面那份共享引用，导出期间用户改一个字就跟着进包
       // （待办犯过的同一个坑，这次一并堵上）。
+      // 2026-10-31 记账条目跟上：与待办同类，数组里装的是对象 ——
+      // 同一个坑，第二张账本的一笔在导出期间被改会跟着进包。
       ...(input.cardData.byInstance
         ? {
             byInstance: Object.fromEntries(
@@ -156,6 +158,7 @@ export function buildBackup(input: BackupInput): BackupPayload {
                   ...(v.todos ? { todos: v.todos.map((t) => ({ ...t })) } : {}),
                   ...(v.countdown ? { countdown: { ...v.countdown } } : {}),
                   ...(v.elapsed ? { elapsed: { ...v.elapsed } } : {}),
+                  ...(v.ledger ? { ledger: v.ledger.map((r) => ({ ...r })) } : {}),
                 },
               ]),
             ),
