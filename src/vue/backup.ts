@@ -146,6 +146,9 @@ export function buildBackup(input: BackupInput): BackupPayload {
       // 2026-10-30 倒数日 / 正计时跟上：这两个是**对象**，`{...v}` 只复制了外层 ——
       // 包里第二张的日子会与界面那份共享引用，导出期间用户改一个字就跟着进包
       // （待办犯过的同一个坑，这次一并堵上）。
+      // 同一个月四象限（数组）也跟上：数组字段（todos / matrix）必须**逐条浅拷** ——
+      // `{ ...v }` 只拷到引用，导出之后本地再改会跟着进包，包里就不是"导出那一刻"的了。
+      // 每一次发作都是同一个病：**这是一份手写白名单，加字段时得自己想起来**。
       ...(input.cardData.byInstance
         ? {
             byInstance: Object.fromEntries(
@@ -156,6 +159,7 @@ export function buildBackup(input: BackupInput): BackupPayload {
                   ...(v.todos ? { todos: v.todos.map((t) => ({ ...t })) } : {}),
                   ...(v.countdown ? { countdown: { ...v.countdown } } : {}),
                   ...(v.elapsed ? { elapsed: { ...v.elapsed } } : {}),
+                  ...(v.matrix ? { matrix: v.matrix.map((m) => ({ ...m })) } : {}),
                 },
               ]),
             ),

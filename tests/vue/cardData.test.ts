@@ -247,6 +247,45 @@ describe('sanitizeCardData：盘上数据先清洗再用', () => {
     expect(slice).toEqual(top)
   })
 
+  it('byInstance 的 matrix 与顶层同一套规则：坏条目丢、id 去重、坏象限归位 do、doneAt 只在已完成且合法时留', () => {
+    const clean = sanitizeCardData(
+      {
+        byInstance: {
+          'matrix:2': {
+            matrix: [
+              { id: 'a', text: '留着', q: 'plan', done: true, doneAt: 123 },
+              { id: 'a', text: '撞号改号', q: 'do', done: false },
+              { text: '   ', q: 'do', done: false }, // 空文本丢掉
+              { id: 'b', text: '坏象限归位', q: '不存在的象限', done: false },
+              { id: 'c', text: '完成但 doneAt 是坏值', q: 'drop', done: true, doneAt: 'x' },
+            ],
+          },
+        },
+      },
+      fallback,
+    ).byInstance?.['matrix:2']?.matrix
+    expect(clean).toEqual([
+      { id: 'a', text: '留着', q: 'plan', done: true, doneAt: 123 },
+      { id: 'm1-0', text: '撞号改号', q: 'do', done: false },
+      { id: 'b', text: '坏象限归位', q: 'do', done: false },
+      { id: 'c', text: '完成但 doneAt 是坏值', q: 'drop', done: true },
+    ])
+  })
+
+  it('第二张把四象限全删光 ⇒ 这个键不出现；同一实例里还有别的字段时只留那些', () => {
+    expect(sanitizeCardData({ byInstance: { 'matrix:2': { matrix: [] } } }, fallback).byInstance).toBeUndefined()
+    expect(sanitizeCardData({ byInstance: { 'matrix:2': { matrix: '不是数组' } } }, fallback).byInstance).toBeUndefined()
+    expect(
+      sanitizeCardData({ byInstance: { 'matrix:2': { todos: [{ id: 't1', text: '有字' }], matrix: [] } } }, fallback)
+        .byInstance,
+    ).toEqual({ 'matrix:2': { todos: [{ id: 't1', text: '有字', done: false }] } })
+  })
+
+  it('byInstance 的 matrix 条目数同样夹到上限', () => {
+    const many = Array.from({ length: 5000 }, (_, i) => ({ id: `m${i}`, text: `第 ${i} 条`, q: 'do' }))
+    expect(sanitizeCardData({ byInstance: { 'matrix:2': { matrix: many } } }, fallback).byInstance?.['matrix:2']?.matrix?.length).toBe(200)
+  })
+
   it('条目数夹到上限：几百 MB 的坏文件不该冻住首屏', () => {
     const many = Array.from({ length: 5000 }, (_, i) => ({ id: `t${i}`, text: `第 ${i} 条` }))
     expect(sanitizeCardData({ todos: many }, fallback).todos.length).toBe(200)

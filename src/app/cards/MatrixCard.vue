@@ -8,13 +8,17 @@
  *
  * `grid` 形态画整张 2×2；`focus` 形态只画上半区（重要两象限纵排）——
  * "重要不紧急" quadrant 是最值得常驻屏幕的那一格（它防止重要的事被紧急的事挤掉）。
+ *
+ * `moduleId` 是**模块** id、`instanceId` 是**实例** id（第二张四象限卡是 `matrix:2`）。
+ * 两者都要：判定"这是不是第二张"靠的是它们不相等（见 `instanceData.ts`）——
+ * 两个实例各有一份清单，加 / 勾 / 挪 / 删四个动作都得把两个 id 带到底。
  */
 import { computed, inject, ref } from 'vue'
 import { ChevronLeft, ChevronRight, Plus, Trash2 } from 'lucide-vue-next'
 import type { CardDataApi, Quadrant } from '../../vue/cardData'
-import { QUADRANTS } from '../../vue/cardData'
+import { matrixOf, QUADRANTS } from '../../vue/cardData'
 
-const props = defineProps<{ variant: string }>()
+const props = defineProps<{ variant: string; moduleId?: string; instanceId?: string }>()
 const cards = inject<CardDataApi>('cardData')!
 
 const QMETA: Record<Quadrant, { label: string; sub: string }> = {
@@ -25,14 +29,15 @@ const QMETA: Record<Quadrant, { label: string; sub: string }> = {
 }
 
 const drafts = ref<Record<string, string>>({})
-const items = computed(() => cards.state.matrix)
+// 按实例取：第二张读自己那一份（`instanceData.ts`，锁 100）
+const items = computed(() => matrixOf(cards.state, props.moduleId, props.instanceId))
 const inQuadrant = (q: Quadrant) => items.value.filter((t) => t.q === q && (props.variant !== 'focus' || q === 'do' || q === 'plan'))
 const quadrants = computed<Quadrant[]>(() => (props.variant === 'focus' ? ['do', 'plan'] : [...QUADRANTS]))
 
 function add(q: Quadrant): void {
   const text = drafts.value[q]?.trim()
   if (!text) return
-  cards.addMatrixTodo(text, q)
+  cards.addMatrixTodo(text, q, props.moduleId, props.instanceId)
   drafts.value[q] = ''
 }
 /** 在四个象限间循环挪动：右按钮正序、左按钮逆序 —— 挪到目标格比拖拽省事 */
@@ -40,7 +45,7 @@ function shift(id: string, dir: 1 | -1): void {
   const t = items.value.find((x) => x.id === id)
   if (!t) return
   const i = QUADRANTS.indexOf(t.q)
-  cards.moveMatrixTodo(id, QUADRANTS[(i + dir + QUADRANTS.length) % QUADRANTS.length])
+  cards.moveMatrixTodo(id, QUADRANTS[(i + dir + QUADRANTS.length) % QUADRANTS.length], props.moduleId, props.instanceId)
 }
 </script>
 
@@ -60,13 +65,13 @@ function shift(id: string, dir: 1 | -1): void {
                 type="checkbox"
                 :checked="t.done"
                 :aria-label="`完成 ${t.text}`"
-                @change="cards.toggleMatrixTodo(t.id)"
+                @change="cards.toggleMatrixTodo(t.id, moduleId, instanceId)"
               />
               <label :for="`mx-${t.id}`" class="txt">{{ t.text }}</label>
               <span class="ops">
                 <button title="挪到左邻象限" :aria-label="`挪动 ${t.text}`" @click="shift(t.id, -1)"><ChevronLeft :size="10" /></button>
                 <button title="挪到右邻象限" :aria-label="`挪动 ${t.text}`" @click="shift(t.id, 1)"><ChevronRight :size="10" /></button>
-                <button title="删除" :aria-label="`删除 ${t.text}`" @click="cards.removeMatrixTodo(t.id)"><Trash2 :size="10" /></button>
+                <button title="删除" :aria-label="`删除 ${t.text}`" @click="cards.removeMatrixTodo(t.id, moduleId, instanceId)"><Trash2 :size="10" /></button>
               </span>
             </li>
           </ul>

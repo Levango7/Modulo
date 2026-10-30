@@ -432,6 +432,18 @@ describe('命令层：补上棘轮咬出来的缺口', () => {
     expect(new Set(ids).size).toBe(ids.length)
   })
 
+  it('索引：第二张四象限卡的条目也搜得到，且 cardId 指到那个实例（F-01 阶段 2 第三个字段）', async () => {
+    const { contentIndex, searchContent } = await import('../../src/vue/paletteIndex')
+    const data = (await import('../../src/vue/cardData')).createCardData(memoryStorage())
+    data.addMatrixTodo('第一张的四象限', 'do')
+    data.addMatrixTodo('第二张的四象限买牛奶', 'plan', 'matrix', 'matrix:2')
+    const hits = searchContent(data.state, '买牛奶')
+    expect(hits.length, '第二张里的那条必须能搜到').toBe(1)
+    expect(hits[0].cardId).toBe('matrix:2')
+    const ids = contentIndex(data.state).map((e) => e.id)
+    expect(new Set(ids).size).toBe(ids.length)
+  })
+
   it('索引：内容域的 id 两两不同（这条不变量守的是"以后新增条目类型"）', async () => {
     const { contentIndex } = await import('../../src/vue/paletteIndex')
     const data = (await import('../../src/vue/cardData')).createCardData(memoryStorage())

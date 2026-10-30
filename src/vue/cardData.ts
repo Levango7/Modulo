@@ -40,12 +40,12 @@ import {
 import { createFallbackCardData } from './cardDataFallback'
 import { browserStorage } from './store'
 import { QUADRANTS, type CardData, type Quadrant, type TimerKey } from './cardDataTypes'
-import { todosOf, writeTodos } from './instanceData'
+import { matrixOf, todosOf, writeMatrix, writeTodos } from './instanceData'
 
 export * from './cardDataTypes'
 export { sanitizeCardData } from './cardDataSanitize'
 /** 按实例取数的判定层（F-01 阶段 2）：卡片组件直接拿它配 `state` 用，不绕一层 API */
-export { stickyOf, writeSticky, todosOf, writeTodos } from './instanceData'
+export { matrixOf, stickyOf, todosOf, writeMatrix, writeSticky, writeTodos } from './instanceData'
 
 const KEY = 'modulo.carddata.v1'
 
@@ -296,25 +296,44 @@ export function createCardData(storage = browserStorage()) {
     removeCommand(id: string) {
       state.commands = state.commands.filter((c) => c.id !== id)
     },
-    /** 四象限待办：加一条（带象限）；勾/挪/删。与 todos 同一套 doneAt 语义 */
-    addMatrixTodo(text: string, q: Quadrant) {
+    /**
+     * 四象限待办：加一条（带象限）；勾/挪/删。与 todos 同一套 doneAt 语义。
+     *
+     * `moduleId` / `instanceId` 可选（2026-10-30 起，与待办同一条口径）：不给就写顶层，
+     * 给了且是第二实例就写它自己那一份。四个动作都得把两个 id 带到底 —— 漏一个
+     * 就会静默写进第一张的清单，而界面上看着"加进去了"。
+     */
+    addMatrixTodo(text: string, q: Quadrant, moduleId?: string, instanceId?: string) {
       const t = text.trim()
-      if (!t || state.matrix.length >= MAX_ITEMS) return
-      state.matrix.push({ id: nextId('m'), text: t, done: false, q: QUADRANTS.includes(q) ? q : 'do' })
+      const list = matrixOf(state, moduleId, instanceId)
+      if (!t || list.length >= MAX_ITEMS) return
+      writeMatrix(state, moduleId, instanceId, [
+        ...list,
+        { id: nextId('m'), text: t, done: false, q: QUADRANTS.includes(q) ? q : 'do' },
+      ])
     },
-    toggleMatrixTodo(id: string) {
-      const t = state.matrix.find((x) => x.id === id)
+    toggleMatrixTodo(id: string, moduleId?: string, instanceId?: string) {
+      const list = matrixOf(state, moduleId, instanceId)
+      const t = list.find((x) => x.id === id)
       if (!t) return
       t.done = !t.done
       if (t.done) t.doneAt = Date.now()
       else delete t.doneAt
+      // 整条写回：第二实例那条是 `byInstance` 里的对象，改完不写回就既不变界面也不落盘
+      writeMatrix(state, moduleId, instanceId, [...list])
     },
-    moveMatrixTodo(id: string, q: Quadrant) {
-      const t = state.matrix.find((x) => x.id === id)
-      if (t && QUADRANTS.includes(q)) t.q = q
+    moveMatrixTodo(id: string, q: Quadrant, moduleId?: string, instanceId?: string) {
+      const list = matrixOf(state, moduleId, instanceId)
+      const t = list.find((x) => x.id === id)
+      // 坏象限不改：归位到 `do` 是**读盘**那道的规则（字是用户写的，不该丢），
+      // 动作层拿到不认识的象限意味着调用方传错了，静默改写会掩盖它。
+      if (!t || !QUADRANTS.includes(q)) return
+      t.q = q
+      writeMatrix(state, moduleId, instanceId, [...list])
     },
-    removeMatrixTodo(id: string) {
-      state.matrix = state.matrix.filter((x) => x.id !== id)
+    removeMatrixTodo(id: string, moduleId?: string, instanceId?: string) {
+      const list = matrixOf(state, moduleId, instanceId)
+      writeMatrix(state, moduleId, instanceId, list.filter((x) => x.id !== id))
     },
     /** 连通性探测：端点名单与 watch 同一条边界（sanitizeProbes 走 normalizeUrl） */
     addProbe(label: string, url: string) {

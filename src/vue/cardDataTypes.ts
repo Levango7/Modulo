@@ -171,7 +171,8 @@ export interface DutySetting {
  * 这就是阶段 2 的形状，也是它为什么分几笔做。
  *
  * 已经搬过来的：`sticky`（便签，2026-10-28）、`todos`（待办，2026-10-29）、
- * `countdown`（倒数日）/ `elapsed`（正计时）（2026-10-30，第三、四个字段）。
+ * `countdown`（倒数日）/ `elapsed`（正计时）（2026-10-30，第三、四个字段）、
+ * `matrix`（四象限，2026-10-30，第五个字段）。
  *
  * 字段一律**可选**：缺省表示"这个实例还没写过自己的内容"，读取口径见 `instanceData.ts`。
  */
@@ -192,6 +193,11 @@ export interface InstanceData {
   countdown?: CountdownSetting
   /** 正计时（2026-10-30 起按实例分）。与倒数日同形状、同清洗，差别只在"往前算还是往后算" */
   elapsed?: ElapsedSetting
+  /**
+   * 四象限清单（2026-10-30 起按实例分）。第五个字段，形状与顶层 `matrix` 逐字相同 ——
+   * 不另造结构，读盘那道直接复用同一套条目清洗（`sanitizeCardData` 里的 `sanitizeMatrix`）。
+   */
+  matrix?: MatrixTodo[]
 }
 
 export interface CardData {

@@ -28,7 +28,7 @@ import type {
   StoredBirthday,
   Todo,
 } from './cardDataTypes'
-import { stickyOf, todosOf } from './instanceData'
+import { matrixOf, stickyOf, todosOf } from './instanceData'
 
 export type ChatRole = 'user' | 'assistant'
 
@@ -186,7 +186,8 @@ export interface ExcerptSource {
   sticky: string
   /** 按实例取数（todosOf）要的是可变数组 —— 这里与 cardData 的真实形状一致 */
   todos: Todo[]
-  matrix: readonly MatrixTodo[]
+  /** 与 `todos` 同一条理由：按实例取数（`matrixOf`）要的是可变数组 */
+  matrix: MatrixTodo[]
   notes: readonly Note[]
   ledger: { symbol: string; entries: readonly LedgerRow[] }
   links: readonly { label: string; href: string }[]
@@ -221,7 +222,10 @@ export function excerptFor(choice: CardChoice, data: ExcerptSource): string {
       return cut(doneCount ? `${head}（另有 ${doneCount} 条已完成）` : head, EXCERPT_MAX)
     }
     case 'matrix': {
-      const open = data.matrix.filter((t) => !t.done).map((t) => t.text.trim()).filter(Boolean)
+      // 按实例取（F-01 阶段 2 第三个字段）：第二张四象限卡读的是它自己那份清单 ——
+      // 不这么取，引用第二张卡喂给模型的是第一张的条目，而界面上看着"引用成功了"。
+      const list = matrixOf(data, choice.module, choice.id)
+      const open = list.filter((t) => !t.done).map((t) => t.text.trim()).filter(Boolean)
       return cut(open.length ? `未完成：${open.slice(0, 8).join('、')}` : '', EXCERPT_MAX)
     }
     case 'notes': {

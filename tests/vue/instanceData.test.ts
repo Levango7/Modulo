@@ -13,29 +13,40 @@ import {
   allCountdowns,
   countdownOf,
   elapsedOf,
+  matrixOf,
   stickyOf,
   todosOf,
   writeCountdown,
   writeElapsed,
+  writeMatrix,
   writeSticky,
   writeTodos,
   type InstanceSource,
 } from '../../src/vue/instanceData'
-import type { CountdownSetting, ElapsedSetting, Todo } from '../../src/vue/cardDataTypes'
+import type { CountdownSetting, ElapsedSetting, MatrixTodo, Todo } from '../../src/vue/cardDataTypes'
 
 /** 空的"名字 + 日子"：与顶层 `emptyCardData` 那一份逐字相同 */
 const blankDay = (): { label: string; date: string } => ({ label: '', date: '' })
 
-const src = (sticky: string, byInstance?: InstanceSource['byInstance'], todos: Todo[] = []): InstanceSource => ({
+const src = (
+  sticky: string,
+  byInstance?: InstanceSource['byInstance'],
+  todos: Todo[] = [],
+  matrix: MatrixTodo[] = [],
+): InstanceSource => ({
   sticky,
   todos,
   countdown: blankDay(),
   elapsed: blankDay(),
+  matrix,
   ...(byInstance ? { byInstance } : {}),
 })
 
 /** 一条待办的最简形状（id 只要唯一，本层不看它怎么生成） */
 const todo = (id: string, text: string, done = false): Todo => ({ id, text, done })
+
+/** 一条四象限待办的最简形状（`q` 是本层唯一多出来的维度） */
+const mx = (id: string, text: string, q: MatrixTodo['q'] = 'do'): MatrixTodo => ({ id, text, q, done: false })
 
 describe('stickyOf：读哪一份', () => {
   it('单实例（实例 id 就是模块 id）读顶层那一份', () => {
@@ -64,7 +75,7 @@ describe('stickyOf：读哪一份', () => {
 
   it('顶层那一份本身没内容 ⇒ 空串（防御，不返回 undefined）', () => {
     expect(
-      stickyOf({ sticky: undefined as unknown as string, todos: [], countdown: blankDay(), elapsed: blankDay() }, 'sticky', 'sticky'),
+      stickyOf({ sticky: undefined as unknown as string, todos: [], countdown: blankDay(), elapsed: blankDay(), matrix: [] }, 'sticky', 'sticky'),
     ).toBe('')
   })
 
@@ -135,7 +146,7 @@ describe('todosOf：读哪一份清单', () => {
 
   it('顶层那一份本身没有 todos（坏数据）⇒ 空数组，不返回 undefined', () => {
     expect(
-      todosOf({ sticky: '', todos: undefined as unknown as Todo[], countdown: blankDay(), elapsed: blankDay() }, 'todo', 'todo'),
+      todosOf({ sticky: '', todos: undefined as unknown as Todo[], countdown: blankDay(), elapsed: blankDay(), matrix: [] }, 'todo', 'todo'),
     ).toEqual([])
   })
 })
@@ -192,7 +203,7 @@ describe('countdownOf / writeCountdown：读哪一份、写哪一份', () => {
   })
 
   it('第一实例读、但顶层这份本身没设过（坏数据）⇒ 空"名字 + 日子"，不抛', () => {
-    const d: InstanceSource = { sticky: '', todos: [], countdown: undefined as unknown as CountdownSetting, elapsed: blankDay() }
+    const d: InstanceSource = { sticky: '', todos: [], countdown: undefined as unknown as CountdownSetting, elapsed: blankDay(), matrix: [] }
     expect(countdownOf(d, 'countdown', 'countdown')).toEqual(blankDay())
   })
 
@@ -251,7 +262,7 @@ describe('elapsedOf / writeElapsed：与倒数日同形状、同口径', () => {
   })
 
   it('第一实例读、但顶层这份本身没设过（坏数据）⇒ 空，不抛', () => {
-    const d: InstanceSource = { sticky: '', todos: [], countdown: blankDay(), elapsed: undefined as unknown as ElapsedSetting }
+    const d: InstanceSource = { sticky: '', todos: [], countdown: blankDay(), elapsed: undefined as unknown as ElapsedSetting, matrix: [] }
     expect(elapsedOf(d, 'elapsed', 'elapsed')).toEqual(blankDay())
   })
 
@@ -303,8 +314,92 @@ describe('allCountdowns：提醒那一路要的是全部', () => {
       todos: [],
       countdown: undefined as unknown as CountdownSetting,
       elapsed: blankDay(),
+      matrix: [],
       byInstance: { 'countdown:2': { countdown: day('只有第二张', '2027-02-02') } },
     }
     expect(allCountdowns(d)).toEqual([blankDay(), day('只有第二张', '2027-02-02')])
+  })
+})
+
+describe('matrixOf：读哪一份清单', () => {
+  it('单实例（实例 id 就是模块 id）读顶层那一份', () => {
+    const top = [mx('m1', '写周报')]
+    expect(matrixOf(src('', undefined, [], top), 'matrix', 'matrix')).toEqual(top)
+  })
+
+  it('第二实例有自己的清单 ⇒ 读自己的', () => {
+    const d = src('', { 'matrix:2': { matrix: [mx('m9', '第二张的')] } }, [], [mx('m1', '第一张的')])
+    expect(matrixOf(d, 'matrix', 'matrix:2')).toEqual([mx('m9', '第二张的')])
+  })
+
+  it('第二实例还没写过 ⇒ 空清单，不继承顶层（与便签 / 待办同一条口径）', () => {
+    const d = src('', undefined, [], [mx('m1', '第一张的')])
+    expect(matrixOf(d, 'matrix', 'matrix:2')).toEqual([])
+  })
+
+  it('byInstance 里那一份没有 matrix 字段 ⇒ 空清单', () => {
+    const d = src('', { 'matrix:2': {} }, [], [mx('m1', '第一张的')])
+    expect(matrixOf(d, 'matrix', 'matrix:2')).toEqual([])
+  })
+
+  it('只拿到实例 id、拿不到模块 id ⇒ 读顶层（不静默变空）', () => {
+    const d = src('', { 'matrix:2': { matrix: [mx('m9', '第二张的')] } }, [], [mx('m1', '第一张的')])
+    expect(matrixOf(d, undefined, 'matrix:2')).toEqual([mx('m1', '第一张的')])
+  })
+
+  it('顶层那一份本身没有 matrix（坏数据）⇒ 空数组，不返回 undefined', () => {
+    expect(matrixOf({ sticky: '', todos: [], countdown: blankDay(), elapsed: blankDay(), matrix: undefined as unknown as MatrixTodo[] }, 'matrix', 'matrix')).toEqual(
+      [],
+    )
+  })
+})
+
+describe('writeMatrix：写哪一份清单', () => {
+  it('写第一实例 ⇒ 仍写顶层，不建 byInstance', () => {
+    const d = src('', undefined, [], [])
+    writeMatrix(d, 'matrix', 'matrix', [mx('m1', '新加的')])
+    expect(d.matrix).toEqual([mx('m1', '新加的')])
+    expect(d.byInstance).toBeUndefined()
+  })
+
+  it('写第二实例 ⇒ 建自己的一份，顶层不动', () => {
+    const d = src('', undefined, [], [mx('m1', '第一张的')])
+    writeMatrix(d, 'matrix', 'matrix:2', [mx('m9', '第二张的')])
+    expect(d.matrix).toEqual([mx('m1', '第一张的')])
+    expect(d.byInstance).toEqual({ 'matrix:2': { matrix: [mx('m9', '第二张的')] } })
+  })
+
+  it('同一实例里四象限与待办、便签互不覆盖（三段内容各走各的字段）', () => {
+    const d = src('')
+    writeSticky(d, 'matrix', 'matrix:2', '第二张的正文')
+    writeTodos(d, 'matrix', 'matrix:2', [todo('t9', '第二张的待办')])
+    writeMatrix(d, 'matrix', 'matrix:2', [mx('m9', '第二张的四象限')])
+    expect(d.byInstance?.['matrix:2']).toEqual({
+      sticky: '第二张的正文',
+      todos: [todo('t9', '第二张的待办')],
+      matrix: [mx('m9', '第二张的四象限')],
+    })
+    // 反向：再写一次四象限，前两段都还在
+    writeMatrix(d, 'matrix', 'matrix:2', [mx('m9', '改过的'), mx('m10', '新加的')])
+    expect(d.byInstance?.['matrix:2']).toEqual({
+      sticky: '第二张的正文',
+      todos: [todo('t9', '第二张的待办')],
+      matrix: [mx('m9', '改过的'), mx('m10', '新加的')],
+    })
+  })
+
+  it('写第二实例的四象限不动同模块的第三张', () => {
+    const d = src('', undefined, [], [])
+    writeMatrix(d, 'matrix', 'matrix:2', [mx('m2', '甲')])
+    writeMatrix(d, 'matrix', 'matrix:3', [mx('m3', '乙')])
+    expect(d.byInstance?.['matrix:2']).toEqual({ matrix: [mx('m2', '甲')] })
+    expect(d.byInstance?.['matrix:3']).toEqual({ matrix: [mx('m3', '乙')] })
+  })
+
+  it('拿不到模块 id 时写 ⇒ 写顶层（与读的回落同一条口径）', () => {
+    const d = src('', undefined, [], [mx('m1', '旧的')])
+    writeMatrix(d, undefined, 'matrix:2', [mx('m2', '新的')])
+    expect(d.matrix).toEqual([mx('m2', '新的')])
+    expect(d.byInstance).toBeUndefined()
   })
 })
