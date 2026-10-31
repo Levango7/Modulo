@@ -38,6 +38,24 @@ const CARD = {
   todos: [{ id: 't1', text: '交周报', done: false }],
   sticky: '周五前把周报发给老板',
 }
+/**
+ * `twins: true` 时额外摆**两张倒数日 + 两张记账**（各含一个第二实例）：引用块要报的是
+ * 被选中的那一张自己的内容。两个实例的字段都取得出，测试才分得开"读对了那张"与"回落成第一张"。
+ */
+const TWIN_ITEMS = [
+  { id: 'countdown', module: 'countdown', variant: 'days', x: 0, y: 3, w: 4, h: 2 },
+  { id: 'countdown:2', module: 'countdown', variant: 'days', x: 4, y: 3, w: 4, h: 2 },
+  { id: 'ledger', module: 'ledger', variant: 'panel', x: 0, y: 5, w: 4, h: 4 },
+  { id: 'ledger:2', module: 'ledger', variant: 'panel', x: 4, y: 5, w: 4, h: 4 },
+]
+const TWIN_CARD = {
+  countdown: { label: '发版', date: '2026-11-01' },
+  ledger: { symbol: '¥', entries: [{ id: 'l1', date: '2026-10-28', cents: 1250, category: '餐饮', note: '团建餐' }] },
+  byInstance: {
+    'countdown:2': { countdown: { label: '体检', date: '2026-12-20' } },
+    'ledger:2': { ledger: [{ id: 'l2', date: '2026-10-29', cents: 3900, category: '医疗', note: '体检挂号' }] },
+  },
+}
 const AI = {
   providers: [{ id: 'p1', kind: 'openai-compatible', baseUrl: 'https://api.example.com/v1', model: 'gpt-4o-mini' }],
 }
@@ -61,6 +79,8 @@ interface Seed {
   history?: unknown[]
   hang?: boolean
   reply?: string
+  /** 版面上再加两张倒数日 + 两张记账（见 `TWIN_ITEMS`） */
+  twins?: boolean
 }
 
 /** 开一张桌面形态的页面。`ai: false` = 没配任何模型服务（空态那条路） */
@@ -69,6 +89,8 @@ async function open(seed: Seed = {}, errs?: string[]): Promise<Page> {
   const page = await ctx.newPage()
   if (errs) page.on('pageerror', (e: unknown) => errs.push(String((e as Error).message).slice(0, 160)))
   await page.setViewport({ width: 1440, height: 900, deviceScaleFactor: 1 })
+  const doc = seed.twins ? { ...DOC, items: [...DOC.items, ...TWIN_ITEMS] } : DOC
+  const card = seed.twins ? { ...CARD, ...TWIN_CARD } : CARD
   await page.evaluateOnNewDocument(
     (src: string, docJson: string, cardJson: string, aiJson: string | null, histJson: string | null, hang: boolean, reply: string | null) => {
       new Function(src)()
@@ -81,8 +103,8 @@ async function open(seed: Seed = {}, errs?: string[]): Promise<Page> {
       if (reply) (window as unknown as { __STUB_AI_REPLY__: string }).__STUB_AI_REPLY__ = reply
     },
     STUB_SOURCE,
-    JSON.stringify(DOC),
-    JSON.stringify(CARD),
+    JSON.stringify(doc),
+    JSON.stringify(card),
     seed.ai === false ? null : JSON.stringify(AI),
     seed.history ? JSON.stringify(seed.history) : null,
     seed.hang === true,
@@ -232,6 +254,34 @@ describe.skipIf(skip)('F-12 二期：底部对话坞（桌面形态）', () => {
     expect(messages[0].content).toContain('便签')
     expect(messages[0].content).toContain('周五前把周报发给老板')
     expect(messages.at(-1)?.content).toBe('这张便签写的啥')
+    expect(errs, `页面不该有报错：${errs.join(' | ')}`).toEqual([])
+  })
+
+  it('@第二张卡：chip 带的是实例 id，喂给模型的是它自己的内容（倒数日 / 记账各一条）', async () => {
+    const errs: string[] = []
+    const page = await open({ twins: true }, errs)
+    await expand(page)
+    // 倒数日：选第二张
+    await page.type('[data-chat-input]', '@倒数')
+    await page.waitForSelector('[data-chat-picker] [data-pick="countdown:2"]', { timeout: 10000 })
+    // 候选里两张都在，且带序号 —— 只有一张的话，用户根本选不到第二张
+    expect(await text(page, '[data-chat-picker]')).toContain('倒数日（2）')
+    await click(page, '[data-pick="countdown:2"]')
+    await page.waitForSelector('[data-chip="countdown:2"]', { timeout: 10000 })
+    // 记账：也选第二张
+    await page.type('[data-chat-input]', '@记账')
+    await page.waitForSelector('[data-chat-picker] [data-pick="ledger:2"]', { timeout: 10000 })
+    await click(page, '[data-pick="ledger:2"]')
+    await page.waitForSelector('[data-chip="ledger:2"]', { timeout: 10000 })
+
+    await ask(page, '这两张各是什么')
+    await page.waitForSelector('[data-role="assistant"][data-status="done"]', { timeout: 15000 })
+    const sent = (await calls(page)).filter((c) => c.cmd === 'ai_chat')
+    const messages = (sent[0].args as { messages: { role: string; content: string }[] }).messages
+    expect(messages[0].content).toContain('体检：2026-12-20')
+    expect(messages[0].content).toContain('体检挂号')
+    expect(messages[0].content, '不许把第一张的内容混进来').not.toContain('发版')
+    expect(messages[0].content, '不许把第一张的账混进来').not.toContain('团建餐')
     expect(errs, `页面不该有报错：${errs.join(' | ')}`).toEqual([])
   })
 
