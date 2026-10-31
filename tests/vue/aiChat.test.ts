@@ -290,12 +290,13 @@ describe('卡片正文摘录（只读用户真写进去的字）', () => {
   })
 
   it('倒数日 / 正计时 / 习惯 / 生日 / 抽签', () => {
-    expect(excerptFor(choice({ module: 'countdown' }), source({ countdown: { label: '发版', date: '2026-11-01' } }))).toBe(
-      '发版：2026-11-01',
-    )
-    expect(excerptFor(choice({ module: 'elapsed' }), source({ elapsed: { label: '戒烟', date: '2026-01-01' } }))).toBe(
-      '戒烟：从 2026-01-01 起',
-    )
+    // id 要与 module 配对（`choice` 默认给的是 todo）：不配对就等于"第二实例"，读的是切片不是顶层
+    expect(
+      excerptFor(choice({ module: 'countdown', id: 'countdown' }), source({ countdown: { label: '发版', date: '2026-11-01' } })),
+    ).toBe('发版：2026-11-01')
+    expect(
+      excerptFor(choice({ module: 'elapsed', id: 'elapsed' }), source({ elapsed: { label: '戒烟', date: '2026-01-01' } })),
+    ).toBe('戒烟：从 2026-01-01 起')
     expect(excerptFor(choice({ module: 'habit' }), source({ habit: { name: '跑步', days: ['2026-10-27', '2026-10-28'] } }))).toBe(
       '跑步：已打卡 2 天',
     )
@@ -305,9 +306,32 @@ describe('卡片正文摘录（只读用户真写进去的字）', () => {
     expect(excerptFor(choice({ module: 'pick' }), source({ pickList: [{ id: 'p', label: '小红', weight: 1 }] }))).toBe('小红')
   })
 
+  it('倒数日按实例取：第二张报自己的日子，没设日子时不拿第一张的', () => {
+    const first = { countdown: { label: '发版', date: '2026-11-01' } }
+    expect(
+      excerptFor(
+        choice({ module: 'countdown', id: 'countdown:2' }),
+        source({ ...first, byInstance: { 'countdown:2': { countdown: { label: '体检', date: '2026-12-20' } } } }),
+      ),
+    ).toBe('体检：2026-12-20')
+    // 第二张还没设日子 ⇒ 空串，**不回落顶层**（口径与便签 / 待办逐字相同：回落就是把阶段 1 那个缺陷请回来）
+    expect(excerptFor(choice({ module: 'countdown', id: 'countdown:2' }), source(first))).toBe('')
+  })
+
+  it('正计时按实例取：第二张报自己的起点，没设起点时不拿第一张的', () => {
+    const first = { elapsed: { label: '戒烟', date: '2026-01-01' } }
+    expect(
+      excerptFor(
+        choice({ module: 'elapsed', id: 'elapsed:2' }),
+        source({ ...first, byInstance: { 'elapsed:2': { elapsed: { label: '健身', date: '2026-05-01' } } } }),
+      ),
+    ).toBe('健身：从 2026-05-01 起')
+    expect(excerptFor(choice({ module: 'elapsed', id: 'elapsed:2' }), source(first))).toBe('')
+  })
+
   it('没写内容 / 不认识的模块一律空串（联网卡与计算卡不喂）', () => {
-    expect(excerptFor(choice({ module: 'countdown' }), source())).toBe('')
-    expect(excerptFor(choice({ module: 'elapsed' }), source())).toBe('')
+    expect(excerptFor(choice({ module: 'countdown', id: 'countdown' }), source())).toBe('')
+    expect(excerptFor(choice({ module: 'elapsed', id: 'elapsed' }), source())).toBe('')
     expect(excerptFor(choice({ module: 'habit' }), source())).toBe('')
     expect(excerptFor(choice({ module: 'notes' }), source())).toBe('')
     expect(excerptFor(choice({ module: 'ledger' }), source())).toBe('')

@@ -28,7 +28,7 @@ import type {
   StoredBirthday,
   Todo,
 } from './cardDataTypes'
-import { stickyOf, todosOf } from './instanceData'
+import { countdownOf, elapsedOf, stickyOf, todosOf } from './instanceData'
 
 export type ChatRole = 'user' | 'assistant'
 
@@ -195,6 +195,7 @@ export interface ExcerptSource {
   habit: HabitSetting
   birthdays: readonly StoredBirthday[]
   pickList: readonly PickItem[]
+  /** 按实例分的那四个字段（便签 / 待办 / 倒数日 / 正计时）的第二实例内容都在这张表里 */
   byInstance?: Record<string, InstanceData>
 }
 
@@ -240,10 +241,16 @@ export function excerptFor(choice: CardChoice, data: ExcerptSource): string {
     }
     case 'links':
       return cut(data.links.slice(0, 8).map((l) => `${l.label} ${l.href}`).join('\n'), EXCERPT_MAX)
-    case 'countdown':
-      return cut(data.countdown.label && data.countdown.date ? `${data.countdown.label}：${data.countdown.date}` : '', EXCERPT_MAX)
-    case 'elapsed':
-      return cut(data.elapsed.label && data.elapsed.date ? `${data.elapsed.label}：从 ${data.elapsed.date} 起` : '', EXCERPT_MAX)
+    case 'countdown': {
+      // 按实例取（与便签 / 待办同一条口径）：第二张倒数日卡报的是它自己的日子，
+      // 不是第一张的 —— 读顶层的话，用户问"这个日子是什么时候"会拿到错的那张。
+      const c = countdownOf(data, choice.module, choice.id)
+      return cut(c.label && c.date ? `${c.label}：${c.date}` : '', EXCERPT_MAX)
+    }
+    case 'elapsed': {
+      const e = elapsedOf(data, choice.module, choice.id)
+      return cut(e.label && e.date ? `${e.label}：从 ${e.date} 起` : '', EXCERPT_MAX)
+    }
     case 'habit':
       return cut(data.habit.name ? `${data.habit.name}：已打卡 ${data.habit.days.length} 天` : '', EXCERPT_MAX)
     case 'birthday':
