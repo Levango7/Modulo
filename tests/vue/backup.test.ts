@@ -332,6 +332,7 @@ describe('按实例的内容进出备份包（第二张便签 / 待办卡不能�
       'countdown:2': { countdown: { label: '第二张的倒数日', date: '2027-01-01' } },
       'elapsed:2': { elapsed: { label: '第二张的正计时', date: '2026-01-01' } },
       'ledger:2': { ledger: [{ id: 'e9', date: '2026-10-31', cents: 200, category: '餐饮', note: '第二张的晚饭' }] },
+      'habit:2': { habit: { name: '第二张的冥想', days: ['2026-10-30', '2026-10-31'] } },
     },
   }
 
@@ -364,6 +365,17 @@ describe('按实例的内容进出备份包（第二张便签 / 待办卡不能�
     twoInstances.byInstance!['elapsed:2'].elapsed!.label = '第二张的正计时'
   })
 
+  it('habit 的 days 数组也是深拷贝（与 countdown / elapsed 同款：嵌一层会被连坐改掉）', () => {
+    const p = buildBackup({ layout, schemes: book, cardData: twoInstances, app: '0.8.8' })
+    expect(p.cardData.byInstance?.['habit:2']?.habit).toEqual({ name: '第二张的冥想', days: ['2026-10-30', '2026-10-31'] })
+    twoInstances.byInstance!['habit:2'].habit!.days.push('导出后才改的')
+    twoInstances.byInstance!['habit:2'].habit!.name = '也被改了'
+    expect(p.cardData.byInstance?.['habit:2']?.habit?.days, '包里必须是导出那一刻的').toEqual(['2026-10-30', '2026-10-31'])
+    expect(p.cardData.byInstance?.['habit:2']?.habit?.name).toBe('第二张的冥想')
+    twoInstances.byInstance!['habit:2'].habit!.days.pop()
+    twoInstances.byInstance!['habit:2'].habit!.name = '第二张的冥想' // 还原
+  })
+
   it('round-trip：导出 → 序列化 → 解析 → 回填，两张卡的内容都还在', () => {
     const json = backupToJson(buildBackup({ layout, schemes: book, cardData: twoInstances, app: '0.8.8' }))
     const parsed = parseBackup(json, REGISTRY)
@@ -376,6 +388,7 @@ describe('按实例的内容进出备份包（第二张便签 / 待办卡不能�
     expect(target.byInstance?.['countdown:2']?.countdown).toEqual({ label: '第二张的倒数日', date: '2027-01-01' })
     expect(target.byInstance?.['elapsed:2']?.elapsed).toEqual({ label: '第二张的正计时', date: '2026-01-01' })
     expect(target.byInstance?.['ledger:2']?.ledger?.[0]?.note).toBe('第二张的晚饭')
+    expect(target.byInstance?.['habit:2']?.habit).toEqual({ name: '第二张的冥想', days: ['2026-10-30', '2026-10-31'] })
   })
 
   it('没有第二实例时包里根本不出现这个键（旧档形状逐字不变）', () => {

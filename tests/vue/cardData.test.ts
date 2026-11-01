@@ -292,6 +292,36 @@ describe('sanitizeCardData：盘上数据先清洗再用', () => {
     expect(sanitizeCardData({ byInstance: { 'ledger:2': { ledger: many } } }, fallback).byInstance?.['ledger:2']?.ledger?.length).toBe(2000)
   })
 
+  /**
+   * 习惯按实例（F-01 阶段 2 第六个、也是最后一个字段，2026-11-01）：与顶层共用同一条
+   * `sanitizeHabit` —— 名字去空白截 16、日子去重 + 真值 + 夹上限。"名字和日子都空"
+   * 就是"还没写过"，键不出现（与 countdown / ledger 的空判同一语义）。
+   */
+  it('byInstance 的 habit：坏日子过滤、去重、截上限；名字与日子都空 ⇒ 键不出现', () => {
+    const clean = sanitizeCardData(
+      { byInstance: { 'habit:2': { habit: { name: ' 冥想 ', days: ['2026-01-01', 'garbage', '2026-01-01', '2026-02-30'] } } } },
+      fallback,
+    ).byInstance?.['habit:2']
+    expect(clean?.habit).toEqual({ name: '冥想', days: ['2026-01-01'] })
+    // 名字和日子都空 = 还没写过
+    expect(sanitizeCardData({ byInstance: { 'habit:2': { habit: { name: '', days: [] } } } }, fallback).byInstance).toBeUndefined()
+    expect(sanitizeCardData({ byInstance: { 'habit:2': { habit: '不是对象' } } }, fallback).byInstance).toBeUndefined()
+    // 同一实例里还有别的字段 ⇒ 那些字段照留
+    expect(sanitizeCardData({ byInstance: { 'habit:2': { sticky: '有字', habit: { name: '', days: [] } } } }, fallback).byInstance).toEqual({
+      'habit:2': { sticky: '有字' },
+    })
+  })
+
+  it('byInstance 的 habit 日子数同样夹到上限（与顶层同一个 1000 天）', () => {
+    // 逐日 +1：1200 个互不重复的合法日子（随机生成会先被去重砍掉，量不到上限）
+    const many = Array.from({ length: 1200 }, (_, i) => {
+      const d = new Date(2020, 0, 1 + i)
+      return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+    })
+    expect(new Set(many).size, '前置：fixture 本身没有重复').toBe(1200)
+    expect(sanitizeCardData({ byInstance: { 'habit:2': { habit: { name: '跑步', days: many } } } }, fallback).byInstance?.['habit:2']?.habit?.days?.length).toBe(1000)
+  })
+
   it('条目数夹到上限：几百 MB 的坏文件不该冻住首屏', () => {
     const many = Array.from({ length: 5000 }, (_, i) => ({ id: `t${i}`, text: `第 ${i} 条` }))
     expect(sanitizeCardData({ todos: many }, fallback).todos.length).toBe(200)

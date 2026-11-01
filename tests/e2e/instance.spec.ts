@@ -1,6 +1,7 @@
 /**
  * F-01 阶段 2：同种卡多实例的**内容**各自独立 —— 便签打通全链（2026-10-28），
- * 待办接着做第二个字段（2026-10-29），倒数日 / 正计时收尾第三、四个字段（2026-10-30）。
+ * 待办接着做第二个字段（2026-10-29），倒数日 / 正计时收尾第三、四个字段（2026-10-30），
+ * 记账第五个（2026-10-31），**习惯**第六个、也是阶段 2 最后一个（2026-11-01）。
  *
  * 阶段 1（#127）只分开了 **id**（第二张是 `sticky:2`），两个实例仍共享同一份内容：
  * 在第二张里打字，第一张跟着变。这一笔把内容也分开，判据抽在 `src/vue/instanceData.ts`
@@ -22,6 +23,10 @@
  *      存储形状里切片**只有条目**（出现 `symbol` 就是写错了）；删一笔也按实例（第二张删掉
  *      唯一一条，第一张那笔还在）。另外记账的「记一笔」按钮在金额非法时是 `:disabled` 的，
  *      填完值不能在同一个同步块里就点 —— 渲染没刷，按钮还是灰的（同 ⑤ 的坑，两段 evaluate）。
+ *   ⑦ 习惯（第六个、也是最后一个字段，2026-11-01）：**整份都是内容**，没有留顶层的一半，
+ *      存储形状断言因此最直白（顶层 `habit` vs `byInstance['habit:2'].habit`）。另钉一条
+ *      只有界面抓得到的：两张卡共享同一份 `days` 时**连续天数必然相同** —— 这里各打不同
+ *      天数（2 天 vs 1 天），刷新后仍不同才是真分开。点格子是同步切换，不用拆两段 evaluate。
  */
 import { describe, expect, it } from 'vitest'
 import puppeteer from 'puppeteer-core'
@@ -32,7 +37,7 @@ const skip = !EXE
 let url = 'http://localhost:1430'
 const wait = (ms: number) => new Promise((r) => setTimeout(r, ms))
 
-describe.skipIf(skip)('多实例内容（F-01 阶段 2）：两张卡各写各的（便签 / 待办 / 倒数日 / 正计时 / 记账）', () => {
+describe.skipIf(skip)('多实例内容（F-01 阶段 2）：两张卡各写各的（便签 / 待办 / 倒数日 / 正计时 / 记账 / 习惯）', () => {
   it('第二张便签有自己的正文，刷新后各自还在，且存储形状对', async () => {
     url = process.env.MODULO_URL ?? url
     const browser = await puppeteer.launch({
@@ -655,6 +660,156 @@ describe.skipIf(skip)('多实例内容（F-01 阶段 2）：两张卡各写各�
 
     const stored2 = await page.evaluate(() => JSON.parse(localStorage.getItem('modulo.carddata.v1') ?? '{}'))
     expect(stored2.ledger?.entries?.length, '顶层那一笔还在').toBe(1)
+
+    expect(errs, `页面不该有报错：${errs.join(' | ')}`).toEqual([])
+    await browser.close()
+  })
+
+  /**
+   * 第六个、也是阶段 2 的**最后一个**字段：**习惯**（2026-11-01）。与记账不同，
+   * 习惯**整份都是内容**（名字 + 打卡日子），没有"留顶层共用"的那一半 —— 所以存储形状
+   * 断言也最直白：第一实例写顶层 `habit`，第二实例写 `byInstance['habit:2'].habit`。
+   *
+   * 另钉一条只有 E2E 抓得到的：两张卡共享同一份 `days` 时，**连续天数必然相同** ——
+   * 各自打不同天数（第一张今天 + 昨天、第二张只今天），刷新后仍是「2 天 / 1 天」，
+   * 才是真的分开了。写法上注意：点格子是同步切换且「保存」不绑 :disabled，
+   * 不用像记账 / 倒数日那样拆两段 evaluate；但起名要走 `v-if="editing"` 那一帧，
+   * 点笔之后仍要等一帧再填（同 ⑤ 的坑）。
+   */
+  it('第二张习惯卡有自己的打卡：各自起名 / 打卡不连坐、刷新后各自还在，且存储形状对', async () => {
+    url = process.env.MODULO_URL ?? url
+    const browser = await puppeteer.launch({
+      executablePath: EXE!,
+      headless: true,
+      args: ['--no-sandbox', '--disable-gpu'],
+      userDataDir: `F:/tmp/pptr-profile-${Date.now()}`,
+    })
+    const page = await browser.newPage()
+    await page.setViewport({ width: 1440, height: 900, deviceScaleFactor: 1 })
+    const errs: string[] = []
+    page.on('pageerror', (e: unknown) => errs.push('PAGEERROR ' + String((e as Error).message).slice(0, 160)))
+    await page.evaluateOnNewDocument(() => localStorage.setItem('modulo.template.v1', 'general'))
+    await page.goto(url, { waitUntil: 'networkidle2', timeout: 30000 })
+    await wait(800)
+
+    /** 每张习惯卡的名字、连续天数、今天那格是否已打卡 */
+    const cards = () =>
+      page.evaluate(() =>
+        [...document.querySelectorAll<HTMLElement>('.cell[data-module="habit"]')].map((c) => ({
+          name: c.querySelector('.name')?.textContent?.trim() ?? '',
+          streak: c.querySelector('.streak')?.textContent?.trim() ?? '',
+          todayDone: !!c.querySelector('.week .d:last-child.done'),
+        })),
+      )
+    const clickBar = (text: string) =>
+      page.evaluate((t) => {
+        const b = [...document.querySelectorAll<HTMLButtonElement>('.bar button')].find(
+          (e) => (e.textContent || '').trim().includes(t),
+        )
+        b?.click()
+        return !!b
+      }, text)
+
+    expect(await cards(), '出厂版面里没有习惯卡（general 模板不含它）').toHaveLength(0)
+
+    // 从目录加两张习惯打卡（菜单一 pick 就关，点第二张前要再开一次）
+    expect(await clickBar('布局编辑'), '顶栏上应有「布局编辑」').toBe(true)
+    await wait(500)
+    for (let n = 0; n < 2; n++) {
+      await page.evaluate(() => void document.querySelector<HTMLElement>('.add-cat')?.click())
+      await wait(350)
+      const added = await page.evaluate(() => {
+        const el = [...document.querySelectorAll<HTMLElement>('.add-menu [role=menuitem]')].find((x) =>
+          (x.querySelector('.t')?.textContent || '').trim().startsWith('习惯打卡'),
+        )
+        el?.click()
+        return !!el
+      })
+      expect(added, `目录里应能点出第 ${n + 1} 张「习惯打卡」`).toBe(true)
+      await wait(400)
+    }
+    await clickBar('保存')
+    await wait(600)
+
+    expect(await cards(), '工作台上有两张习惯卡').toHaveLength(2)
+
+    /**
+     * 给第 i 张习惯卡起名：点笔形编辑 → 填名字 → 点「保存」。「保存」不绑 :disabled，
+     * 填完同一个同步块里就能点；但 `v-if="editing"` 那一帧重绘在微任务上 ——
+     * 点笔之后要等一帧再填（同 ⑤ 的坑）。
+     */
+    const rename = async (i: number, name: string) => {
+      await page.evaluate((i) => {
+        const cell = [...document.querySelectorAll<HTMLElement>('.cell[data-module="habit"]')][i]
+        cell?.querySelector<HTMLButtonElement>('.edit[aria-label="编辑习惯名字"]')?.click()
+      }, i)
+      await wait(150)
+      await page.evaluate(
+        ({ i, name }) => {
+          const cell = [...document.querySelectorAll<HTMLElement>('.cell[data-module="habit"]')][i]
+          if (!cell) throw new Error(`找不到第 ${i + 1} 张习惯卡`)
+          const input = cell.querySelector<HTMLInputElement>('input.in[aria-label="习惯名字"]')
+          if (!input) throw new Error(`第 ${i + 1} 张没进入起名编辑态`)
+          input.value = name
+          input.dispatchEvent(new Event('input', { bubbles: true }))
+          cell.querySelector<HTMLButtonElement>('.acts .primary')?.click()
+        },
+        { i, name },
+      )
+    }
+
+    await rename(0, '第一张的跑步')
+    await wait(150)
+    await rename(1, '第二张的冥想')
+    await wait(300)
+
+    const named = await cards()
+    expect(named[0].name, '第一张显示自己的名字').toBe('第一张的跑步')
+    expect(named[1].name, '第二张显示自己的名字（串卡时这里会显示第一张的名字）').toBe('第二张的冥想')
+
+    /**
+     * 打卡：第 0 张打今天 + 昨天（连续 2 天），第 1 张只打今天（连续 1 天）。
+     * 七个格子从左到右是"最近七天"，最后一个是今天；两次点击之间状态是**整条替换**
+     * （writeHabit），留一帧余量给计算属性刷新。
+     */
+    const tapCell = (i: number, idxFromEnd: number) =>
+      page.evaluate(
+        ({ i, idxFromEnd }) => {
+          const cell = [...document.querySelectorAll<HTMLElement>('.cell[data-module="habit"]')][i]
+          const days = [...(cell?.querySelectorAll<HTMLButtonElement>('.week .d') ?? [])]
+          days[days.length - 1 - idxFromEnd]?.click()
+        },
+        { i, idxFromEnd },
+      )
+
+    await tapCell(0, 0) // 今天
+    await wait(150)
+    await tapCell(0, 1) // 昨天
+    await wait(150)
+    await tapCell(1, 0) // 今天
+    await wait(600) // 写盘防抖 300ms，等它落进 localStorage
+
+    const marked = await cards()
+    expect(marked[0].streak, '第一张连续 2 天').toBe('连续 2 天')
+    expect(marked[1].streak, '第二张连续 1 天（共享同一份 days 时这里也会是 2 天）').toBe('连续 1 天')
+
+    // 刷新：写入必须落在对的那份上
+    await page.reload({ waitUntil: 'networkidle2' })
+    await wait(800)
+    const reloaded = await cards()
+    expect(reloaded[0].name, '刷新后第一张名字还在').toBe('第一张的跑步')
+    expect(reloaded[1].name, '刷新后第二张名字还在').toBe('第二张的冥想')
+    expect(reloaded[0].streak, '刷新后第一张仍是连续 2 天').toBe('连续 2 天')
+    expect(reloaded[1].streak, '刷新后第二张仍是连续 1 天').toBe('连续 1 天')
+    expect(reloaded[0].todayDone, '刷新后第一张今天仍打着卡').toBe(true)
+    expect(reloaded[1].todayDone, '刷新后第二张今天仍打着卡').toBe(true)
+
+    // 存储形状：第一实例写顶层 habit，第二实例写 byInstance['habit:2'].habit
+    const stored = await page.evaluate(() => JSON.parse(localStorage.getItem('modulo.carddata.v1') ?? '{}'))
+    expect(stored.habit?.name, '顶层是第一张的名字').toBe('第一张的跑步')
+    expect(stored.habit?.days?.length, '顶层有昨天 + 今天两天').toBe(2)
+    expect(stored.byInstance?.['habit:2']?.habit?.name, '第二张写在自己的切片里').toBe('第二张的冥想')
+    expect(stored.byInstance?.['habit:2']?.habit?.days?.length, '第二张只有今天一天').toBe(1)
 
     expect(errs, `页面不该有报错：${errs.join(' | ')}`).toEqual([])
     await browser.close()

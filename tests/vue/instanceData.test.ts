@@ -11,19 +11,22 @@
 import { describe, expect, it } from 'vitest'
 import {
   allCountdowns,
+  allHabits,
   countdownOf,
   elapsedOf,
+  habitOf,
   ledgerEntriesOf,
   stickyOf,
   todosOf,
   writeCountdown,
   writeElapsed,
+  writeHabit,
   writeLedgerEntries,
   writeSticky,
   writeTodos,
   type InstanceSource,
 } from '../../src/vue/instanceData'
-import type { CountdownSetting, ElapsedSetting, LedgerRow, Todo } from '../../src/vue/cardDataTypes'
+import type { CountdownSetting, ElapsedSetting, HabitSetting, LedgerRow, Todo } from '../../src/vue/cardDataTypes'
 
 /** 空的"名字 + 日子"：与顶层 `emptyCardData` 那一份逐字相同 */
 const blankDay = (): { label: string; date: string } => ({ label: '', date: '' })
@@ -384,5 +387,123 @@ describe('ledgerEntriesOf / writeLedgerEntries：读哪一份账、写哪一份�
     expect(d.ledger.entries).toEqual([row('e1', 100)])
     expect(ledgerEntriesOf(d, undefined, 'ledger:2')).toEqual([row('e1', 100)])
     expect(d.byInstance).toBeUndefined()
+  })
+})
+
+describe('habitOf / writeHabit：读哪一份习惯、写哪一份习惯', () => {
+  /** 一份习惯：名字 + 打过卡的日子，与顶层同形状 */
+  const habit = (name: string, days: string[]): HabitSetting => ({ name, days })
+
+  it('单实例（实例 id 就是模块 id）读顶层那一份', () => {
+    const d = src('')
+    d.habit = habit('跑步', ['2026-10-20'])
+    expect(habitOf(d, 'habit', 'habit')).toEqual(habit('跑步', ['2026-10-20']))
+  })
+
+  it('第二实例有自己的习惯 ⇒ 读自己的，不串卡', () => {
+    const d = src('')
+    d.habit = habit('跑步', ['2026-10-20'])
+    d.byInstance = { 'habit:2': { habit: habit('冥想', ['2026-10-21']) } }
+    expect(habitOf(d, 'habit', 'habit:2')).toEqual(habit('冥想', ['2026-10-21']))
+  })
+
+  it('第二实例还没写过 ⇒ 空习惯，不继承顶层（第二条口径）', () => {
+    const d = src('')
+    d.habit = habit('跑步', ['2026-10-20'])
+    expect(habitOf(d, 'habit', 'habit:2')).toEqual({ name: '', days: [] })
+  })
+
+  it('byInstance 里那一份没有 habit 字段 ⇒ 空习惯', () => {
+    const d = src('', { 'habit:2': {} })
+    d.habit = habit('跑步', [])
+    expect(habitOf(d, 'habit', 'habit:2')).toEqual({ name: '', days: [] })
+  })
+
+  it('顶层没有 habit 字段（坏数据 / 形状更窄的取数来源）⇒ 空习惯，不抛', () => {
+    const d = src('')
+    expect(habitOf(d, 'habit', 'habit')).toEqual({ name: '', days: [] })
+    expect(habitOf(d, 'habit', 'habit:2')).toEqual({ name: '', days: [] })
+  })
+
+  it('写第一实例 ⇒ 仍写顶层，不建 byInstance（旧档形状逐字不变）', () => {
+    const d = src('')
+    writeHabit(d, 'habit', 'habit', habit('跑步', []))
+    expect(d.habit).toEqual(habit('跑步', []))
+    expect(d.byInstance).toBeUndefined()
+  })
+
+  it('写第二实例 ⇒ 建自己的那一份，顶层习惯不动', () => {
+    const d = src('')
+    d.habit = habit('跑步', ['2026-10-20'])
+    writeHabit(d, 'habit', 'habit:2', habit('冥想', ['2026-10-21']))
+    expect(d.habit).toEqual(habit('跑步', ['2026-10-20']))
+    expect(d.byInstance).toEqual({ 'habit:2': { habit: habit('冥想', ['2026-10-21']) } })
+    expect(habitOf(d, 'habit', 'habit:2')).toEqual(habit('冥想', ['2026-10-21']))
+  })
+
+  it('写第二实例不动同模块的第三张', () => {
+    const d = src('')
+    writeHabit(d, 'habit', 'habit:2', habit('甲', []))
+    writeHabit(d, 'habit', 'habit:3', habit('乙', []))
+    expect(d.byInstance?.['habit:2']?.habit).toEqual(habit('甲', []))
+    expect(d.byInstance?.['habit:3']?.habit).toEqual(habit('乙', []))
+  })
+
+  it('同一实例里习惯与记账互不覆盖（两张卡可能摆在一起）', () => {
+    const d = src('')
+    writeHabit(d, 'm', 'm:2', habit('跑步', []))
+    writeLedgerEntries(d, 'm', 'm:2', [{ id: 'e1', date: '2026-10-31', cents: 100, category: '餐饮', note: '' }])
+    expect(d.byInstance?.['m:2']).toEqual({
+      habit: habit('跑步', []),
+      ledger: [{ id: 'e1', date: '2026-10-31', cents: 100, category: '餐饮', note: '' }],
+    })
+  })
+
+  it('拿不到模块 id 时读 / 写都回落顶层（不静默变空）', () => {
+    const d = src('')
+    writeHabit(d, undefined, 'habit:2', habit('跑步', []))
+    expect(d.habit).toEqual(habit('跑步', []))
+    expect(habitOf(d, undefined, 'habit:2')).toEqual(habit('跑步', []))
+    expect(d.byInstance).toBeUndefined()
+  })
+})
+
+describe('allHabits：提醒那一路要的是全部', () => {
+  const habit = (name: string, days: string[]): HabitSetting => ({ name, days })
+
+  it('没有 byInstance ⇒ 只有顶层那一份（id 为 null）', () => {
+    const d = src('')
+    d.habit = habit('跑步', [])
+    expect(allHabits(d)).toEqual([{ id: null, habit: habit('跑步', []) }])
+  })
+
+  it('实例切片里设过习惯的都铺平进来；没设的切片不出现在结果里', () => {
+    const d = src('')
+    d.habit = habit('跑步', [])
+    d.byInstance = {
+      'habit:2': { habit: habit('冥想', ['2026-10-20']) },
+      'habit:3': {},
+      'sticky:4': { sticky: '我不是习惯' },
+    }
+    expect(allHabits(d)).toEqual([
+      { id: null, habit: habit('跑步', []) },
+      { id: 'habit:2', habit: habit('冥想', ['2026-10-20']) },
+    ])
+  })
+
+  it('顶层空（第一张没起名）时也不少：第二张的仍然在结果里（判空名字是提醒那一路的事）', () => {
+    const d = src('', { 'habit:2': { habit: habit('冥想', []) } })
+    expect(allHabits(d)).toEqual([{ id: null, habit: { name: '', days: [] } }, { id: 'habit:2', habit: habit('冥想', []) }])
+  })
+
+  it('顶层这份本身没设过（坏数据）⇒ 结果里仍有它的位置（第一项是空），实例切片照常铺平', () => {
+    const d: InstanceSource = {
+      sticky: '',
+      todos: [],
+      countdown: blankDay(),
+      elapsed: blankDay(),
+      byInstance: { 'habit:2': { habit: habit('冥想', []) } },
+    }
+    expect(allHabits(d)).toEqual([{ id: null, habit: { name: '', days: [] } }, { id: 'habit:2', habit: habit('冥想', []) }])
   })
 })

@@ -21,7 +21,7 @@ import {
   type ReminderSettings,
 } from './reminders'
 import type { CardData } from './cardData'
-import { allCountdowns } from './instanceData'
+import { allCountdowns, allHabits } from './instanceData'
 import type { StorageAdapter } from './store'
 
 export const REMINDERS_KEY = 'modulo.reminders.v1'
@@ -94,7 +94,8 @@ export function useReminders(cardData: () => CardData, opts: RemindersOptions = 
       // 全部倒数日（顶层 + 各实例）：倒数日按实例分之后只看顶层，第二张到期会静默不提醒
       countdowns: allCountdowns(cardData()),
       birthdays: cardData().birthdays,
-      habit: cardData().habit,
+      // 全部习惯（顶层 + 各实例）：同一条理由 —— 只看顶层会让第二张的"今天还没打卡"静默吞掉
+      habits: allHabits(cardData()),
       settings: state.settings,
     })
     const fired = new Set(state.day === localDay(now.value) ? state.fired : [])
