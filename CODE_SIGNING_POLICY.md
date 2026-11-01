@@ -19,7 +19,7 @@ that will apply once signing is active, and are marked where that is the case.
 
 ## What is signed
 
-- **Nothing is Authenticode-signed today** (baseline: v0.8.9, 2026-10-31; see Current status).
+- **Nothing is Authenticode-signed today** (baseline: v0.8.10, 2026-11-02; see Current status).
 - Once the SignPath program is active, the artifact to be signed will be the Windows installer
   published on GitHub Releases: `Modulo_<version>_x64-setup.exe` (an NSIS installer containing
   the application binary `modulo.exe`).
@@ -89,10 +89,23 @@ on the GitHub account and on the SignPath account used for review and approval.
 
 ## Current status
 
-As of **2026-10-31** (baseline release: **v0.8.9**), releases are **not yet Authenticode-signed**.
-Evidence (2026-10-31 / 2026-10-29 / 2026-10-27 / 2026-10-25 / 2026-10-22 / 2026-10-18, maintainer machine):
+As of **2026-11-02** (baseline release: **v0.8.10**), releases are **not yet Authenticode-signed**.
+Evidence (2026-11-02 / 2026-10-31 / 2026-10-29 / 2026-10-27 / 2026-10-25 / 2026-10-22 / 2026-10-18, maintainer machine):
 
-- The v0.8.9 installer was downloaded from its GitHub Release (draft stage) in full: **10,031,735 bytes**,
+- The v0.8.10 installer was downloaded from its GitHub Release (draft stage) in full: **10,031,694 bytes**,
+  sha256 **`6b2ae7b9d74f27106d511b71befc747b83ed1df5ec89ad65a00a7728d24e3f1a`** — matching the GitHub release
+  asset digest and `release-manifest.json` (three independent sources, all read 2026-11-02).
+  `Get-AuthenticodeSignature` on it reports **NotSigned**; control: the same command on
+  `C:\Windows\System32\cmd.exe` reports **Valid** on the same machine. Checked 2026-11-02 during the
+  pre-release drill (hard step 5 of the release process). The installer's `FileVersion` / `ProductVersion` both
+  read `0.8.10`, and so do the `modulo.exe` / `uninstall.exe` installed from it (silent upgrade to
+  `D:\Program Files (x86)\Modulo`, exit 0, four sherpa/onnxruntime DLLs present; the installed `modulo.exe` is
+  15,562,240 bytes / sha256 `caeb02e936e8afb1dd4f4b0fc646745b930aa7fd850edc8f84e0ef453e374aa6`).
+  The official desktop probe ran against that installed binary: **56/56** (`2026-11-01T18:26:04.823Z`,
+  `PROBE_NET=1`). Two earlier rounds of the same probe reported 0/2 — the cause was this machine's reserved
+  TCP port range (9276-9375 per `netsh int ipv4 show excludedportrange protocol=tcp`) swallowing the debug port,
+  not the artifact; the probe's default port moved from 9223 to 10333 accordingly.
+- The v0.8.9 baseline (2026-10-31): installer downloaded in full, **NotSigned**, 10,031,735 bytes,
   sha256 **`b42f6b89797a253e291827da97a468bc0a243cad3a111b94d97b2a72f675d0a5`** — matching the GitHub
   release asset digest and `release-manifest.json` (three independent sources).
   `Get-AuthenticodeSignature` on it reports **NotSigned**; control: the same command on
