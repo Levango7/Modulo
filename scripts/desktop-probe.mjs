@@ -14,7 +14,14 @@ import puppeteer from 'puppeteer-core'
  * 只用 page.evaluate，不用 addScriptTag：应用有 default-src 'self' 的 CSP，注入 <script> 会被拦，
  * 而 Runtime.evaluate 不受页面 CSP 约束。
  */
-const PORT = Number(process.env.PROBE_PORT ?? 9223)
+/**
+ * CDP 默认口 10333。
+ *
+ * 不用 9223 / 9333 那一段：本机 `netsh int ipv4 show excludedportrange protocol=tcp` 把
+ * **9276–9375 整段留给系统**（2026-11-02 实测），WebView2 绑不上调试口时**不报错、只是不启用远调**，
+ * 于是探针只会报「30 秒没等到 tauri.localhost 的页面」，看着像应用的错。`PROBE_PORT` 可覆盖。
+ */
+const PORT = Number(process.env.PROBE_PORT ?? 10333)
 const EXE = resolve(process.env.MODULO_EXE ?? 'src-tauri/target/release/modulo.exe')
 const OUT = 'evidence/desktop'
 const PS = 'scripts/shot-window.ps1'
