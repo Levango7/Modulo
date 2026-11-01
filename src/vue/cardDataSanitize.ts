@@ -98,6 +98,27 @@ function sanitizeDaySetting(raw: unknown): { label: string; date: string } | und
 }
 
 /**
+ * 习惯打卡清洗（名字 + 打卡日期集合）。**顶层与按实例共用同一条**（F-01 阶段 2 第六个
+ * 字段，2026-11-01）—— 与 `sanitizeTodos` 同一条理由：两份实现意味着"修了顶层忘了第二张"，
+ * 而这类分歧平时根本不响。
+ *
+ * 名字截短到 16（卡片上只有一行，再长也看不全）；日期去重、只收真实存在的日子、
+ * 上限 1000 条（约三年，远超"连续打卡"的可信尺度）。名字与日子**都没了**时返回 undefined：
+ * 按实例那一侧因此**不落键**（清空的第二张习惯卡读回来就是"这个实例还没写过"）；
+ * 顶层那一侧由调用方回落到 fallback（那里必须给出必填字段），两侧语义不同，
+ * 所以由调用方各自处理这个空 —— 与 `sanitizeDaySetting` 同一条约定。
+ */
+function sanitizeHabit(raw: unknown): HabitSetting | undefined {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return undefined
+  const r = raw as Partial<HabitSetting>
+  const name = textOf(r.name, 16).trim()
+  const days = Array.isArray(r.days)
+    ? [...new Set(r.days.filter((x): x is string => typeof x === 'string' && isValidDate(x)))].slice(0, 1000)
+    : []
+  return name || days.length ? { name, days } : undefined
+}
+
+/**
  * 记账条目清洗。**顶层与按实例共用同一套**（F-01 阶段 2 第五个字段，2026-10-31）——
  * 与 `sanitizeTodos` 同一条理由：两份实现意味着"修了顶层忘了第二张"，而这种分歧平时根本不响。
  *
@@ -129,10 +150,10 @@ function sanitizeLedgerRows(raw: unknown): LedgerRow[] {
  * 按实例的内容（F-01 阶段 2）。**这是读盘边界**，所以规则是"不认识的就丢"：
  *
  * - 键必须是非空字符串（实例 id）；值必须是朴素对象（数组不算）。
- * - 只收**认得的字段**（现阶段 `sticky` / `todos` / `countdown` / `elapsed` / `ledger`）：
+ * - 只收**认得的字段**（现阶段 `sticky` / `todos` / `countdown` / `elapsed` / `ledger` / `habit`）：
  *   `sticky` 只收字符串、`todos` 与 `ledger` 走与顶层同一套条目清洗、`countdown` / `elapsed`
- *   走 `sanitizeDaySetting` —— 其余一律丢掉，这样将来给 `InstanceData` 加字段时，
- *   旧备份读进来是"这一段没有"而不是"有一段看不懂的"。
+ *   走 `sanitizeDaySetting`、`habit` 走 `sanitizeHabit` —— 其余一律丢掉，这样将来给
+ *   `InstanceData` 加字段时，旧备份读进来是"这一段没有"而不是"有一段看不懂的"。
  *   记账只收**条目**：币种符号是顶层共享的偏好，切片里出现也会被丢掉。
  * - 一条都不剩 ⇒ 返回 **undefined**，让 `byInstance` 这个键**根本不出现** ——
  *   旧档、模板、单实例读出来的对象因此与今天逐字相同（备份的字节对账也靠这条）。
@@ -163,6 +184,10 @@ function sanitizeByInstance(raw: unknown): Record<string, InstanceData> | undefi
     // 读回来就该是"这个实例还没写过内容"
     const ledger = sanitizeLedgerRows((value as { ledger?: unknown }).ledger)
     if (ledger.length) entry.ledger = ledger
+    // 名字与打卡记录都没了也不写这个键（与空清单同一条理由）：清空回空态的第二张习惯卡，
+    // 读回来就该是"这个实例还没写过内容"
+    const habit = sanitizeHabit((value as { habit?: unknown }).habit)
+    if (habit) entry.habit = habit
     if (Object.keys(entry).length) out[key] = entry
   }
   return Object.keys(out).length ? out : undefined
@@ -227,15 +252,8 @@ export function sanitizeCardData(raw: unknown, fallback: CardData): CardData {
   const countdown: CountdownSetting = sanitizeDaySetting(o.countdown) ?? fallback.countdown
   const elapsed: ElapsedSetting = sanitizeDaySetting(o.elapsed) ?? fallback.elapsed
 
-  const hbRaw = o.habit as Partial<HabitSetting> | undefined
-  const habit: HabitSetting = hbRaw && typeof hbRaw === 'object' && !Array.isArray(hbRaw)
-    ? {
-        name: textOf(hbRaw.name, 16).trim(),
-        days: Array.isArray(hbRaw.days)
-          ? [...new Set(hbRaw.days.filter((x): x is string => typeof x === 'string' && isValidDate(x)))].slice(0, 1000)
-          : fallback.habit.days,
-      }
-    : fallback.habit
+  // 习惯：与 byInstance 共用同一条清洗（`sanitizeHabit`）；空了回落 fallback 那一份
+  const habit: HabitSetting = sanitizeHabit(o.habit) ?? fallback.habit
 
   const bdSeen = new Set<string>()
   const birthdays: StoredBirthday[] = []

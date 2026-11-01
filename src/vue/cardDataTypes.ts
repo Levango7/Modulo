@@ -171,7 +171,9 @@ export interface DutySetting {
  * 这就是阶段 2 的形状，也是它为什么分几笔做。
  *
  * 已经搬过来的：`sticky`（便签，2026-10-28）、`todos`（待办，2026-10-29）、
- * `countdown`（倒数日）/ `elapsed`（正计时）（2026-10-30，第三、四个字段）。
+ * `countdown`（倒数日）/ `elapsed`（正计时）（2026-10-30，第三、四个字段）、
+ * `ledger`（记账条目，2026-10-31，第五个字段）、`habit`（习惯，2026-11-01，第六个、
+ * 也是阶段 2 的**最后一个**字段 —— 搬完它，阶段 2 的字段清单就空了）。
  *
  * 字段一律**可选**：缺省表示"这个实例还没写过自己的内容"，读取口径见 `instanceData.ts`。
  */
@@ -199,6 +201,13 @@ export interface InstanceData {
    * 的 `ledgerEntriesOf`。
    */
   ledger?: LedgerRow[]
+  /**
+   * 习惯打卡（2026-11-01 起按实例分）。第六个、也是 F-01 阶段 2 的**最后一个**字段 ——
+   * 形状与顶层 `habit` 逐字相同（名字 + 打卡日期集合），清洗也共用同一条
+   * （`sanitizeCardData` 里的 `sanitizeHabit`）。与记账不同：习惯**整份都是内容**，
+   * 没有像币种符号那样"留顶层共用"的一半。
+   */
+  habit?: HabitSetting
 }
 
 export interface CardData {

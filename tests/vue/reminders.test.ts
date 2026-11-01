@@ -25,7 +25,8 @@ function input(over: Partial<ReminderInput> = {}): ReminderInput {
     now: at(2026, 10, 21, 9, 0),
     countdowns: [],
     birthdays: [],
-    habit: { name: '', days: [] },
+    // 按 F-01 阶段 2（2026-11-01）：习惯按实例分，入口收的是 HabitEntry[]（顶层 + 各实例）
+    habits: [],
     settings: { ...DEFAULT_REMINDER_SETTINGS },
     ...over,
   }
@@ -167,18 +168,18 @@ describe('dueReminders：今天有什么', () => {
 
   it('习惯：到点前不出，到点后没打卡才出，打过就不出', () => {
     const habit = { name: '跑步', days: <string[]>[] }
-    expect(dueReminders(input({ now: at(2026, 10, 21, 19, 59), habit }))).toEqual([])
-    const after = dueReminders(input({ now: at(2026, 10, 21, 20, 0), habit }))
+    expect(dueReminders(input({ now: at(2026, 10, 21, 19, 59), habits: [{ id: null, habit }] }))).toEqual([])
+    const after = dueReminders(input({ now: at(2026, 10, 21, 20, 0), habits: [{ id: null, habit }] }))
     expect(after.map((x) => x.kind)).toEqual(['habit'])
     expect(after[0].body).toBe('今天还差一次。')
 
-    const checked = dueReminders(input({ now: at(2026, 10, 21, 21, 0), habit: { name: '跑步', days: ['2026-10-20', '2026-10-21'] } }))
+    const checked = dueReminders(input({ now: at(2026, 10, 21, 21, 0), habits: [{ id: null, habit: { name: '跑步', days: ['2026-10-20', '2026-10-21'] } }] }))
     expect(checked).toEqual([])
-    expect(dueReminders(input({ now: at(2026, 10, 21, 21, 0), habit: { name: '  ', days: [] } }))).toEqual([])
+    expect(dueReminders(input({ now: at(2026, 10, 21, 21, 0), habits: [{ id: null, habit: { name: '  ', days: [] } }] }))).toEqual([])
   })
 
   it('习惯有连续天数时，话术带上它', () => {
-    const r = dueReminders(input({ now: at(2026, 10, 21, 21, 0), habit: { name: '跑步', days: ['2026-10-19', '2026-10-20'] } }))
+    const r = dueReminders(input({ now: at(2026, 10, 21, 21, 0), habits: [{ id: null, habit: { name: '跑步', days: ['2026-10-19', '2026-10-20'] } }] }))
     expect(r[0].body).toBe('连续 2 天，今天还差一次。')
   })
 
@@ -188,10 +189,46 @@ describe('dueReminders：今天有什么', () => {
         now: at(2026, 10, 21, 21, 0),
         countdowns: [{ label: '发布', date: '2026-10-21' }],
         birthdays: [{ id: 'b1', name: '妈妈', month: 10, day: 21 }],
-        habit: { name: '跑步', days: [] },
+        habits: [{ id: null, habit: { name: '跑步', days: [] } }],
       }),
     )
     expect(r.map((x) => x.kind)).toEqual(['countdown', 'birthday', 'habit'])
+  })
+
+  it('习惯按实例分（F-01 阶段 2）：顶层 key 逐字不变，实例 key 带实例身份', () => {
+    // 顶层那一份仍是 `habit:日子` —— 升级前"今天已提醒过"的记录逐字有效，不会重弹一遍
+    const top = dueReminders(input({ now: at(2026, 10, 21, 21, 0), habits: [{ id: null, habit: { name: '跑步', days: [] } }] }))
+    expect(top[0].key).toBe('habit:2026-10-21')
+    // 第二张起带上实例 id —— key 撞了会互相吃掉对方的"今天还没打卡"
+    const second = dueReminders(input({ now: at(2026, 10, 21, 21, 0), habits: [{ id: 'habit:2', habit: { name: '冥想', days: [] } }] }))
+    expect(second[0].key).toBe('habit:habit:2:2026-10-21')
+  })
+
+  it('两张习惯卡都欠 ⇒ 各出一条，key 不互相吃掉；一张打过了只出另一张', () => {
+    const both = dueReminders(
+      input({
+        now: at(2026, 10, 21, 21, 0),
+        habits: [
+          { id: null, habit: { name: '跑步', days: [] } },
+          { id: 'habit:2', habit: { name: '冥想', days: [] } },
+        ],
+      }),
+    )
+    expect(both.map((x) => x.title)).toEqual(['今天还没打卡：跑步', '今天还没打卡：冥想'])
+    expect(both.map((x) => x.key)).toEqual(['habit:2026-10-21', 'habit:habit:2:2026-10-21'])
+    expect(new Set(both.map((x) => x.key)).size).toBe(2)
+
+    const one = dueReminders(
+      input({
+        now: at(2026, 10, 21, 21, 0),
+        habits: [
+          { id: null, habit: { name: '跑步', days: [] } },
+          { id: 'habit:2', habit: { name: '冥想', days: ['2026-10-21'] } },
+        ],
+      }),
+    )
+    expect(one).toHaveLength(1)
+    expect(one[0].title).toBe('今天还没打卡：跑步')
   })
 
   it('key 稳定：同一时刻算两次结果逐字相同（去重靠它）', () => {

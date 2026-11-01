@@ -148,6 +148,8 @@ export function buildBackup(input: BackupInput): BackupPayload {
       // （待办犯过的同一个坑，这次一并堵上）。
       // 2026-10-31 记账条目跟上：与待办同类，数组里装的是对象 ——
       // 同一个坑，第二张账本的一笔在导出期间被改会跟着进包。
+      // 2026-11-01 习惯跟上：里面嵌着 days 数组，`{...v.habit}` 只复制外层 ——
+      // 第二张的打卡记录会与界面那份共享引用（倒数日 / 记账犯过同一个坑）。
       ...(input.cardData.byInstance
         ? {
             byInstance: Object.fromEntries(
@@ -159,6 +161,7 @@ export function buildBackup(input: BackupInput): BackupPayload {
                   ...(v.countdown ? { countdown: { ...v.countdown } } : {}),
                   ...(v.elapsed ? { elapsed: { ...v.elapsed } } : {}),
                   ...(v.ledger ? { ledger: v.ledger.map((r) => ({ ...r })) } : {}),
+                  ...(v.habit ? { habit: { ...v.habit, days: [...v.habit.days] } } : {}),
                 },
               ]),
             ),

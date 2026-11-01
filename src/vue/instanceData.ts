@@ -23,25 +23,31 @@
  *
  * - **不解析 `:2` 后缀**：是不是"第二实例"由"实例 id ≠ 模块 id"判定，不靠字符串形状
  *   （与 `moduleIdOf` 只认 `p.module ?? p.id` 同一条纪律）。
- * - 按实例分的字段：`sticky` / `todos` / `countdown` / `elapsed` / `ledger`（记账的**条目**）。
- *   其余字段（速记 / 四象限 / 习惯……）仍是按模块共享，那是它们各自的下一笔。记账的币种
+ * - 按实例分的字段：`sticky` / `todos` / `countdown` / `elapsed` / `ledger`（记账的**条目**）
+ *   / `habit`（习惯，2026-11-01，阶段 2 的**最后一个**字段）。
+ *   其余字段（速记 / 四象限……）仍是按模块共享，那是它们各自的下一笔。记账的币种
  *   符号也留顶层：它是偏好不是内容（`LedgerCard.vue` 文件头自己这么写），两条账本共用一种货币。
  */
-import type { CardData, CountdownSetting, ElapsedSetting, LedgerRow, Todo } from './cardDataTypes'
+import type { CardData, CountdownSetting, ElapsedSetting, HabitSetting, LedgerRow, Todo } from './cardDataTypes'
 
 /**
- * 取数只需要这六个字段，测试不必造一整份 `CardData`。
+ * 取数只需要这七个字段，测试不必造一整份 `CardData`。
  *
  * `ledger` 不直接 `Pick<CardData, 'ledger'>`：`entries` 在别的取数来源（如 AI 摘录的
  * `ExcerptSource`）是**只读数组**，判定层只读不写，放宽到 `readonly` 才能共用同一个入口。
  * 字段可选 —— 形状不对 / 没有这个字段的来源一律按空账处理（读路径 `?? []`）。
+ * `habit` 没有第二个取数来源共用这个入口，按 `HabitSetting` 原样即可（同样可选）。
  */
 export type InstanceSource = Pick<CardData, 'sticky' | 'todos' | 'countdown' | 'elapsed' | 'byInstance'> & {
   ledger?: { symbol?: string; entries?: readonly LedgerRow[] }
+  habit?: HabitSetting
 }
 
 /** 空"名字 + 日子"：与顶层那个空形状（`emptyCardData`）逐字相同，渲染侧不必为实例分叉判空 */
 const BLANK_DAY = { label: '', date: '' }
+
+/** 空习惯：与顶层那个空形状（`emptyCardData`）逐字相同 —— 第二张还没写过时读出来的就是这个 */
+const BLANK_HABIT: HabitSetting = { name: '', days: [] }
 
 /**
  * 便签正文：按实例读。
@@ -190,6 +196,33 @@ export function writeLedgerEntries(
 }
 
 /**
+ * 习惯打卡（名字 + 打卡记录）：按实例读。第六个字段，也是 F-01 阶段 2 的**最后一个**
+ * （2026-11-01），口径与前五个**完全相同** —— 差别只有"空"的形状：空名字 + 空日子数组
+ * （与顶层同一个空形状，渲染侧不必为实例分叉判空）。与记账不同：习惯**整份都是内容**
+ * （名字是用户起的、日子是用户点的），没有"哪一半留顶层"的切法。
+ */
+export function habitOf(data: InstanceSource, moduleId?: string, instanceId?: string): HabitSetting {
+  if (!isSecondInstance(moduleId, instanceId)) return data.habit ?? BLANK_HABIT
+  return data.byInstance?.[instanceId as string]?.habit ?? BLANK_HABIT
+}
+
+/** 习惯打卡：按实例写（整条替换，理由同 `writeTodos`：深层 watch 靠"值变了"才触发写盘） */
+export function writeHabit(
+  data: InstanceSource,
+  moduleId: string | undefined,
+  instanceId: string | undefined,
+  next: HabitSetting,
+): void {
+  if (!isSecondInstance(moduleId, instanceId)) {
+    data.habit = next
+    return
+  }
+  const bag = data.byInstance ?? {}
+  bag[instanceId as string] = { ...bag[instanceId as string], habit: next }
+  data.byInstance = bag
+}
+
+/**
  * **所有**倒数日（顶层那一份 + 各实例自己的那一份），给提醒那一路用。
  *
  * 为什么提醒要换这个口径：倒数日按实例分之前，提醒只看顶层没问题；分了之后还只看
@@ -206,6 +239,30 @@ export function allCountdowns(data: InstanceSource): CountdownSetting[] {
     .map((slice) => slice?.countdown)
     .filter((c): c is CountdownSetting => !!c)
   return [data.countdown ?? BLANK_DAY, ...mine]
+}
+
+/**
+ * **所有**习惯（顶层那一份 + 各实例自己的那一份），给提醒那一路用 —— 与 `allCountdowns`
+ * 同一条理由：习惯按实例分之后还只看顶层，第二张的"今天还没打卡"就会静默吞掉。
+ *
+ * 与倒数日的差别：`allCountdowns` 不带 id，因为同一天到站的几张**合一条提醒**（标题把
+ * 名字都列上）；习惯不合 —— 两张习惯名字不同、各欠各的，每张各自一条，所以 key 必须
+ * 带实例身份（`reminders.ts` 用 `id` 拼它），否则两张互相吃掉对方的"今天还没打卡"。
+ * 空的（没起名的）也原样返回，判要不要提醒由 `reminders.ts` 自己做（它本来就要判空名字）。
+ */
+export interface HabitEntry {
+  /** null = 顶层那一份（第一实例）；否则是实例 id（`byInstance` 的键） */
+  id: string | null
+  habit: HabitSetting
+}
+
+export function allHabits(data: InstanceSource): HabitEntry[] {
+  const mine: HabitEntry[] = []
+  for (const [id, slice] of Object.entries(data.byInstance ?? {})) {
+    const habit = slice?.habit
+    if (habit) mine.push({ id, habit })
+  }
+  return [{ id: null, habit: data.habit ?? BLANK_HABIT }, ...mine]
 }
 
 /**

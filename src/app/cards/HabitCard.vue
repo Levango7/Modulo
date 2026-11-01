@@ -2,20 +2,26 @@
 /**
  * 习惯打卡：一周格子 + 连续天数。**内容（名字 + 打卡记录）存 `cardData`，跟着完整备份走。**
  * streak 口径在引擎（`habit.ts`）：今天没打卡不归零，锚点取"今天或昨天"里更晚的那个。
+ *
+ * F-01 阶段 2（2026-11-01）：内容按实例分（第六个、也是阶段 2 最后一个字段）——
+ * 读用 `habitOf`、写用 `writeHabit` **整条替换**：原地改 `habit.value.days` 既触发不了
+ * 深层 watch（写盘不动），第二张读出来的还可能是共用的空形状、原地改会污染它。
+ * 单实例 / 第一实例仍读写顶层那一份，与改造前逐字相同。
  */
 import { computed, inject, onBeforeUnmount, ref } from 'vue'
 import { lastNDays, streakDays } from '@levango7/engine/habit'
 import { Pencil } from 'lucide-vue-next'
 import type { CardDataApi } from '../../vue/cardData'
+import { habitOf, writeHabit } from '../../vue/instanceData'
 
-const props = defineProps<{ variant: string }>()
+const props = defineProps<{ variant: string; moduleId?: string; instanceId?: string }>()
 const cardData = inject<CardDataApi>('cardData')!
 
 const now = ref(new Date())
 const tick = window.setInterval(() => (now.value = new Date()), 60_000)
 onBeforeUnmount(() => window.clearInterval(tick))
 
-const habit = computed(() => cardData.state.habit)
+const habit = computed(() => habitOf(cardData.state, props.moduleId, props.instanceId))
 const editing = ref(false)
 const draftName = ref('')
 
@@ -28,7 +34,7 @@ function toggle(date: string): void {
   const set = new Set(habit.value.days)
   if (set.has(date)) set.delete(date)
   else set.add(date)
-  habit.value.days = [...set].sort()
+  writeHabit(cardData.state, props.moduleId, props.instanceId, { name: habit.value.name, days: [...set].sort() })
 }
 
 function openEdit(): void {
@@ -37,7 +43,10 @@ function openEdit(): void {
 }
 
 function saveName(): void {
-  habit.value.name = draftName.value.trim().slice(0, 16)
+  writeHabit(cardData.state, props.moduleId, props.instanceId, {
+    name: draftName.value.trim().slice(0, 16),
+    days: habit.value.days,
+  })
   editing.value = false
 }
 </script>

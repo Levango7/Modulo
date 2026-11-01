@@ -13,8 +13,9 @@
  * "今天有没有这条事实"与"此刻要不要弹出来"是两件事，混在一起会让"静默结束后补弹"没法实现。
  */
 
-import { daysUntil, streakDays, upcomingBirthdays, type Birthday, type HabitState } from '@levango7/engine'
+import { daysUntil, streakDays, upcomingBirthdays, type Birthday } from '@levango7/engine'
 import type { CountdownSetting } from './cardDataTypes'
+import type { HabitEntry } from './instanceData'
 
 export type ReminderKind = 'countdown' | 'birthday' | 'habit'
 
@@ -56,7 +57,12 @@ export interface ReminderInput {
    */
   countdowns: readonly CountdownSetting[]
   birthdays: readonly Birthday[]
-  habit: HabitState
+  /**
+   * **所有**习惯（顶层 + 各实例自己的那一份）。F-01 阶段 2（2026-11-01）起习惯按实例分，
+   * 只传第一张会让第二张的"今天还没打卡"静默不提醒 —— 与倒数日同一条理由：这类
+   * "看着对、实际漏"的缝最危险。由 `instanceData.allHabits` 铺平；`id` 用来给 key 带实例身份。
+   */
+  habits: readonly HabitEntry[]
   settings: ReminderSettings
 }
 
@@ -93,7 +99,7 @@ export function inQuietHours(now: Date, start: string, end: string): boolean {
  * 不看静默时段，也不管"今天已经提醒过" —— 那两件属于投递层。
  */
 export function dueReminders(input: ReminderInput): Reminder[] {
-  const { now, countdowns, birthdays, habit, settings } = input
+  const { now, countdowns, birthdays, habits, settings } = input
   if (!settings.enabled) return []
   const out: Reminder[] = []
   const today = localDay(now)
@@ -127,10 +133,16 @@ export function dueReminders(input: ReminderInput): Reminder[] {
   const after = hmToMinutes(settings.habitAfter)
   const nowMin = now.getHours() * 60 + now.getMinutes()
   const dueHour = after !== null && nowMin >= after
-  if (habit.name.trim() && dueHour && !habit.days.includes(today)) {
+  // 习惯：每张到点没打卡的习惯各出一条（与倒数日不同 —— 倒数日按日子合并成一条）。
+  // key 带实例身份：顶层那一份仍是 `habit:日子`，与既有 fired 记录**逐字兼容**
+  // （升级不会让"今天已提醒过"的那一天重弹一遍）；第二张起带上实例 id ——
+  // 两张习惯卡 key 撞了就会互相吃掉对方的"今天还没打卡"。
+  for (const entry of habits) {
+    const habit = entry.habit
+    if (!habit.name.trim() || !dueHour || habit.days.includes(today)) continue
     const streak = streakDays(habit.days, now)
     out.push({
-      key: `habit:${today}`,
+      key: `habit:${entry.id ? `${entry.id}:${today}` : today}`,
       kind: 'habit',
       title: `今天还没打卡：${habit.name.trim()}`,
       body: streak > 0 ? `连续 ${streak} 天，今天还差一次。` : '今天还差一次。',
