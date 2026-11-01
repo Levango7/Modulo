@@ -270,7 +270,7 @@ describe('卡片正文摘录（只读用户真写进去的字）', () => {
     ).toBe('周会：三件事')
     expect(
       excerptFor(
-        choice({ module: 'ledger' }),
+        choice({ module: 'ledger', id: 'ledger' }),
         source({ ledger: { symbol: '¥', entries: [{ id: 'l', date: '2026-10-28', cents: 1250, category: '餐饮', note: '午饭' }] } }),
       ),
     ).toBe('2026-10-28 餐饮 午饭 12.50¥')
@@ -283,19 +283,37 @@ describe('卡片正文摘录（只读用户真写进去的字）', () => {
     ).toBe('无标题：没有标题')
     expect(
       excerptFor(
-        choice({ module: 'ledger' }),
+        choice({ module: 'ledger', id: 'ledger' }),
         source({ ledger: { symbol: '', entries: [{ id: 'l', date: '2026-10-28', cents: 100, category: '', note: '早饭' }] } }),
       ),
     ).toBe('2026-10-28 未分类 早饭 1.00')
   })
 
+  it('记账按实例取：第二张报自己的条目，符号仍共用顶层那个（§12.48 的口径）', () => {
+    const first = { ledger: { symbol: '¥', entries: [{ id: 'l1', date: '2026-10-28', cents: 1250, category: '餐饮', note: '午饭' }] } }
+    expect(
+      excerptFor(
+        choice({ module: 'ledger', id: 'ledger:2' }),
+        source({
+          ...first,
+          byInstance: {
+            'ledger:2': { ledger: [{ id: 'l2', date: '2026-10-29', cents: 3900, category: '医疗', note: '体检挂号' }] },
+          },
+        }),
+      ),
+    ).toBe('2026-10-29 医疗 体检挂号 39.00¥')
+    // 第二张还没记 ⇒ 空串，不拿第一张的条目（口径与前四个字段逐字相同）
+    expect(excerptFor(choice({ module: 'ledger', id: 'ledger:2' }), source(first))).toBe('')
+  })
+
   it('倒数日 / 正计时 / 习惯 / 生日 / 抽签', () => {
-    expect(excerptFor(choice({ module: 'countdown' }), source({ countdown: { label: '发版', date: '2026-11-01' } }))).toBe(
-      '发版：2026-11-01',
-    )
-    expect(excerptFor(choice({ module: 'elapsed' }), source({ elapsed: { label: '戒烟', date: '2026-01-01' } }))).toBe(
-      '戒烟：从 2026-01-01 起',
-    )
+    // id 要与 module 配对（`choice` 默认给的是 todo）：不配对就等于"第二实例"，读的是切片不是顶层
+    expect(
+      excerptFor(choice({ module: 'countdown', id: 'countdown' }), source({ countdown: { label: '发版', date: '2026-11-01' } })),
+    ).toBe('发版：2026-11-01')
+    expect(
+      excerptFor(choice({ module: 'elapsed', id: 'elapsed' }), source({ elapsed: { label: '戒烟', date: '2026-01-01' } })),
+    ).toBe('戒烟：从 2026-01-01 起')
     expect(excerptFor(choice({ module: 'habit' }), source({ habit: { name: '跑步', days: ['2026-10-27', '2026-10-28'] } }))).toBe(
       '跑步：已打卡 2 天',
     )
@@ -305,12 +323,35 @@ describe('卡片正文摘录（只读用户真写进去的字）', () => {
     expect(excerptFor(choice({ module: 'pick' }), source({ pickList: [{ id: 'p', label: '小红', weight: 1 }] }))).toBe('小红')
   })
 
+  it('倒数日按实例取：第二张报自己的日子，没设日子时不拿第一张的', () => {
+    const first = { countdown: { label: '发版', date: '2026-11-01' } }
+    expect(
+      excerptFor(
+        choice({ module: 'countdown', id: 'countdown:2' }),
+        source({ ...first, byInstance: { 'countdown:2': { countdown: { label: '体检', date: '2026-12-20' } } } }),
+      ),
+    ).toBe('体检：2026-12-20')
+    // 第二张还没设日子 ⇒ 空串，**不回落顶层**（口径与便签 / 待办逐字相同：回落就是把阶段 1 那个缺陷请回来）
+    expect(excerptFor(choice({ module: 'countdown', id: 'countdown:2' }), source(first))).toBe('')
+  })
+
+  it('正计时按实例取：第二张报自己的起点，没设起点时不拿第一张的', () => {
+    const first = { elapsed: { label: '戒烟', date: '2026-01-01' } }
+    expect(
+      excerptFor(
+        choice({ module: 'elapsed', id: 'elapsed:2' }),
+        source({ ...first, byInstance: { 'elapsed:2': { elapsed: { label: '健身', date: '2026-05-01' } } } }),
+      ),
+    ).toBe('健身：从 2026-05-01 起')
+    expect(excerptFor(choice({ module: 'elapsed', id: 'elapsed:2' }), source(first))).toBe('')
+  })
+
   it('没写内容 / 不认识的模块一律空串（联网卡与计算卡不喂）', () => {
-    expect(excerptFor(choice({ module: 'countdown' }), source())).toBe('')
-    expect(excerptFor(choice({ module: 'elapsed' }), source())).toBe('')
+    expect(excerptFor(choice({ module: 'countdown', id: 'countdown' }), source())).toBe('')
+    expect(excerptFor(choice({ module: 'elapsed', id: 'elapsed' }), source())).toBe('')
     expect(excerptFor(choice({ module: 'habit' }), source())).toBe('')
     expect(excerptFor(choice({ module: 'notes' }), source())).toBe('')
-    expect(excerptFor(choice({ module: 'ledger' }), source())).toBe('')
+    expect(excerptFor(choice({ module: 'ledger', id: 'ledger' }), source())).toBe('')
     expect(excerptFor(choice({ module: 'birthday' }), source())).toBe('')
     expect(excerptFor(choice({ module: 'pick' }), source())).toBe('')
     expect(excerptFor(choice({ module: 'weather' }), source())).toBe('')
