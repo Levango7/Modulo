@@ -4,6 +4,8 @@
  *
  * 这张卡不新增任何数据结构 —— 它读的是待办卡同一份 `cardData.todos`，算术在
  * `@levango7/engine/focus`。所以它天然与待办卡一致：在待办卡里打勾，这里立刻换下一条。
+ * 2026-11-01：读**全部实例的待办**（`allTodos`）—— 两张待办卡时"下一件要紧事"要
+ * 在两块里一起挑，只认第一张会把第二块里更早到期的漏掉。
  *
  * 为什么不给"排序 / 优先级 / 智能挑一条"：待办是用户自己排的顺序，替他重排等于替他做决定。
  * 想重排就让他在待办卡里拖 —— 这张卡的职责是把第一件顶到眼前，不是当任务管理器。
@@ -12,13 +14,15 @@ import { computed, inject } from 'vue'
 import { focusToday, nextUp } from '@levango7/engine/focus'
 import { CheckCheck, ListTodo } from 'lucide-vue-next'
 import type { CardDataApi } from '../../vue/cardData'
+import { allTodos } from '../../vue/instanceData'
 
 const props = defineProps<{ variant: string }>()
 const cards = inject<CardDataApi>('cardData')!
 
 // 不订阅"每分钟刷新"：这张卡的内容只在待办变动时变，绑一个定时器只会白跑
-const next = computed(() => nextUp(cards.state.todos))
-const stat = computed(() => focusToday(cards.state.todos, new Date()))
+const all = computed(() => allTodos(cards.state))
+const next = computed(() => nextUp(all.value))
+const stat = computed(() => focusToday(all.value, new Date()))
 </script>
 
 <template>

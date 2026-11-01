@@ -6,6 +6,10 @@
  * 读记账（`ledger.entries`）与打卡（`habit.days`）的同源 cardData。好处是
  * 图永远和源卡一致，且删掉图表卡不动任何数据。
  *
+ * 2026-11-01：读的是**全部实例的合集** —— 两张记账卡的条目合成总额（币种本来就共用一种），
+ * 两张习惯卡的打卡日取**并集**（打卡位是 0/1，同一天都打过仍然是一个点）。聚合视图要的是
+ * "这块板"，只认第一张会让第二张的内容"界面上看得见、图里算不进"。
+ *
  * 图形是纯 SVG（viewBox 0 0 100 100 + preserveAspectRatio none 随卡面拉伸），
  * 几何全在引擎 `chart.ts`（可单测）；线条加 non-scaling-stroke 防拉伸变粗。
  * 没有引入任何图表库 —— 这个体量的迷你图，一个 polyline / 几个 rect 就够，
@@ -16,6 +20,7 @@ import { barSlots, linePoints, scaleSeries } from '@levango7/engine/chart'
 import { dailyTotals, formatMoneyShort } from '@levango7/engine/ledger'
 import { lastNDays, streakDays } from '@levango7/engine/habit'
 import type { CardDataApi } from '../../vue/cardData'
+import { allHabitDays, allLedgerEntries, habitLabel } from '../../vue/instanceData'
 
 const props = defineProps<{ variant: string }>()
 const cards = inject<CardDataApi>('cardData')!
@@ -29,17 +34,21 @@ const HABIT_DAYS = 28
 
 const ledger = computed(() => {
   if (props.variant !== 'ledger') return null
-  const pts = dailyTotals(cards.state.ledger.entries, now.value, LEDGER_DAYS)
+  const pts = dailyTotals(allLedgerEntries(cards.state), now.value, LEDGER_DAYS)
   const scale = scaleSeries(pts.map((p) => p.cents))
   return { pts, scale, slots: barSlots(pts.length), total: pts.reduce((s, p) => s + p.cents, 0) }
 })
 
 const habit = computed(() => {
   if (props.variant !== 'habit') return null
-  const days = lastNDays(cards.state.habit.days, now.value, HABIT_DAYS)
+  const done = allHabitDays(cards.state)
+  const days = lastNDays(done, now.value, HABIT_DAYS)
   const scale = scaleSeries(days.map((d) => (d.done ? 1 : 0)))
-  return { days, scale, streak: streakDays(cards.state.habit.days, now.value), doneCount: days.filter((d) => d.done).length }
+  return { days, scale, streak: streakDays(done, now.value), doneCount: days.filter((d) => d.done).length }
 })
+
+/** 抬头的名字：一张卡报名字，几张卡报张数（拼名字在标题栏那种宽度里会被截掉） */
+const habitName = computed(() => habitLabel(cards.state))
 
 /** 柱高：值越大越高的条形；0 值给一条 0.6 单位的基线痕，看得出"这一天存在但没花" */
 const barY = (frac: number) => 100 - 6 - frac * 88
@@ -74,7 +83,7 @@ const barH = (frac: number) => Math.max(frac * 88, 0.6)
       <template v-else-if="variant === 'habit' && habit">
         <div class="top">
           <span class="label">近 {{ HABIT_DAYS }} 天打卡</span>
-          <span class="sum" v-if="cards.state.habit.name">{{ cards.state.habit.name }}</span>
+          <span class="sum" v-if="habitName">{{ habitName }}</span>
         </div>
         <svg v-if="habit.scale.max > 0" viewBox="0 0 100 100" preserveAspectRatio="none" class="chart" aria-hidden="true">
           <polyline :points="linePoints(habit.scale.fracs)" class="line" />

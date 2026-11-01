@@ -10,13 +10,17 @@ import { computed, inject } from 'vue'
 import { monthStat } from '@levango7/engine/focus'
 import { CalendarRange } from 'lucide-vue-next'
 import type { CardDataApi } from '../../vue/cardData'
+import { allTodos } from '../../vue/instanceData'
 
 const props = defineProps<{ variant: string }>()
 const cards = inject<CardDataApi>('cardData')!
 
-const stat = computed(() => monthStat(cards.state.todos, new Date()))
+// 2026-11-01：统计**全部实例的待办**（两张待办卡是这个月一起完成的总量，
+// 只认第一张会把这个月的完成数报低 —— 这正是用户据此判断"这个月干了多少"的那个数）
+const all = computed(() => allTodos(cards.state))
+const stat = computed(() => monthStat(all.value, new Date()))
 /** 没有 `doneAt` 的已完成条目：它们不知道自己属于哪个月，不进统计，但要在卡上说明 */
-const undated = computed(() => cards.state.todos.filter((t) => t.done && typeof t.doneAt !== 'number').length)
+const undated = computed(() => all.value.filter((t) => t.done && typeof t.doneAt !== 'number').length)
 const pct = computed(() => `${Math.round(stat.value.ratio * 100)}%`)
 </script>
 
