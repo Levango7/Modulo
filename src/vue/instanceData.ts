@@ -27,6 +27,12 @@
  *   / `habit`（习惯，2026-11-01，阶段 2 的**最后一个**字段）。
  *   其余字段（速记 / 四象限……）仍是按模块共享，那是它们各自的下一笔。记账的币种
  *   符号也留顶层：它是偏好不是内容（`LedgerCard.vue` 文件头自己这么写），两条账本共用一种货币。
+ * - **聚合视图那一路**（2026-11-01）：`allHabits` / `allLedgers` 给"自己不存数据的视图"
+ *   （图表卡 / 热力图卡 / 备份摘要）提供"全部实例"的清单，`pickSource` 负责选中那一份 ——
+ *   提醒要"全部"（漏一条有后果），汇总视图要"选一份"（默认第一份，与单实例时逐字相同），
+ *   两者都从同一张 `byInstance` 表里读，但口径不同，所以分写成两组入口。
+ *   另有 `allTodoCount`：恢复摘要那句"给人报的总数"只需要个数、不需要"选哪份"，
+ *   所以它不像记账那样给源清单，直接数。
  */
 import type { CardData, CountdownSetting, ElapsedSetting, HabitSetting, LedgerRow, Todo } from './cardDataTypes'
 
@@ -263,6 +269,64 @@ export function allHabits(data: InstanceSource): HabitEntry[] {
     if (habit) mine.push({ id, habit })
   }
   return [{ id: null, habit: data.habit ?? BLANK_HABIT }, ...mine]
+}
+
+/**
+ * **所有**记账条目（顶层那一份 + 各实例自己的那一份），给"汇总给人看"的视图用 ——
+ * 图表卡的记账柱、备份恢复摘要的「N 笔账」。与 `allHabits` 同一条理由：记账按实例
+ * 分之后还只看顶层，第二本账的条目就不进这些"汇总"的眼，而汇总的功能恰恰是
+ * "给用户报个总数"。与 `allHabits` 的差别只有一点：**记账的切片只有条目**（币种
+ * 符号是偏好、留顶层，见 `writeLedgerEntries`），所以这里也只给条目，调用方要
+ * 符号自己去读顶层。
+ */
+export interface LedgerSource {
+  /** null = 顶层那一份（第一实例）；否则是实例 id（`byInstance` 的键） */
+  id: string | null
+  entries: readonly LedgerRow[]
+}
+
+export function allLedgers(data: InstanceSource): LedgerSource[] {
+  const mine: LedgerSource[] = []
+  for (const [id, slice] of Object.entries(data.byInstance ?? {})) {
+    const entries = slice?.ledger
+    if (entries) mine.push({ id, entries })
+  }
+  return [{ id: null, entries: data.ledger?.entries ?? [] }, ...mine]
+}
+
+/**
+ * 从 `allHabits` / `allLedgers` 这样的**源清单**里取出当前选中的那一份。
+ *
+ * 为什么单独抽成纯函数：图表卡 / 热力图卡是**聚合视图**，自己一行数据都不存，
+ * "挑哪份源"是它们唯一的状态（与热力图翻月份的 `shift` 同样是**会话内**状态、不落盘 ——
+ * 存储形状因此零变更）。判定留在这里，组件就只剩"把 select 绑到 ref 上"这一行接线
+ * （本仓没有组件测试设施，判定嵌在组件里就只剩 E2E 一层兜底，见文件顶部）。
+ *
+ * 口径（保守）：`pick` 为 null / undefined，或在清单里**找不到**（源被清空过），
+ * 一律回落**第一份** —— 与"第一实例仍用顶层那一份"同一条纪律：单源时行为与改造前
+ * 逐字相同，切到第二份之后源消失也不至于让界面空白。
+ *
+ * 清单调用方负责保证至少一份（`allHabits` / `allLedgers` 的返回必然含顶层那一份，
+ * 空账 / 空习惯也照列）。
+ */
+export function pickSource<S extends { id: string | null }>(sources: readonly S[], pick?: string | null): S {
+  return sources.find((s) => s.id === pick) ?? sources[0]
+}
+
+/**
+ * **所有**待办条目（顶层那一份 + 各实例自己的那一份）的**总条数**，给"汇总给人看"
+ * 的视图用 —— 目前只有备份恢复摘要「N 条待办」这一处。
+ *
+ * 与 `allLedgers` 同一条理由：待办按实例分（§12.42）之后摘要还只数顶层，第二张
+ * 待办卡的条目就消失在这句"给人报的总数"里。与 `allLedgers` 的差别只有一点：
+ * 汇总场景里待办不需要"选哪一份"（没有图表那样的逐源视图），所以直接给个数，
+ * 不必返回带 id 的源清单。速记（`notes`）按 F-01 结论**不**按实例分，
+ * 仍是全局一份，调用方照数顶层即可。
+ */
+export function allTodoCount(data: InstanceSource): number {
+  let n = data.todos?.length ?? 0
+  for (const slice of Object.values(data.byInstance ?? {})) n += slice?.todos?.length ?? 0
+  return n
 }
 
 /**

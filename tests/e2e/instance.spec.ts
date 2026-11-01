@@ -814,4 +814,299 @@ describe.skipIf(skip)('多实例内容（F-01 阶段 2）：两张卡各写各�
     expect(errs, `页面不该有报错：${errs.join(' | ')}`).toEqual([])
     await browser.close()
   })
+
+  /**
+   * 聚合视图收尾（2026-11-01，F-01 阶段 2 之后）：图表卡 / 热力图卡**自己不存数据**，
+   * 读的是记账 / 习惯的同源 cardData —— 内容按实例分之后，它们只读顶层就回到"第二张
+   * 不进这些视图的眼"。这一笔在视图侧补一个会话内 `<select>`（默认仍是第一实例）。
+   *
+   * 与前七个 it 的差别：**种 localStorage**（版面 + 内容一起种）而不是走目录添加 ——
+   * "写"的链路已被前七条钉死，这里验的是"读"的视图，种数据最直接。钉四条：
+   *
+   *   ① 默认仍是第一实例：两份习惯 / 两本账都在时，下拉出现且默认显示第一份的数；
+   *   ② 切到第二份看到的是**第二份自己的内容**（空就是空，不回落顶层 —— 口径第二条）；
+   *   ③ 图表与热力图的下拉彼此独立（各自一个会话 ref，不是全局共享状态）；
+   *   ④ 切换不落盘：localStorage 一字不动，刷新后回到第一实例。
+   *
+   * 另注：习惯第二份这里故意**留空**（days: []）—— 正好用视图侧再钉一次口径第二条
+   * （聚合视图也不回落），同时避开"昨天是否在本月"的月初边界。记账两份都有今天
+   * 的条目（30 天窗口必含今天），所以记账柱那一路验的是"真数据切换"。
+   */
+  it('图表 / 热力图在两个源之间切换：默认第一份、切到第二份看第二份的、刷新回到第一份', async () => {
+    url = process.env.MODULO_URL ?? url
+    const browser = await puppeteer.launch({
+      executablePath: EXE!,
+      headless: true,
+      args: ['--no-sandbox', '--disable-gpu'],
+      userDataDir: `F:/tmp/pptr-profile-${Date.now()}`,
+    })
+    const page = await browser.newPage()
+    await page.setViewport({ width: 1440, height: 900, deviceScaleFactor: 1 })
+    const errs: string[] = []
+    page.on('pageerror', (e: unknown) => errs.push('PAGEERROR ' + String((e as Error).message).slice(0, 160)))
+
+    /** 本地日期串（习惯 / 记账都按本地日子比，不用 UTC，免得跨午夜翻车） */
+    const localDay = (d: Date) =>
+      `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+    const today = localDay(new Date())
+
+    await page.evaluateOnNewDocument(
+      (seed: { today: string }) => {
+        localStorage.setItem('modulo.template.v1', 'general')
+        localStorage.setItem(
+          'modulo.layout.v1',
+          JSON.stringify({
+            schemaVersion: 1,
+            cols: 12,
+            items: [
+              { id: 'habit', variant: 'week', x: 0, y: 0, w: 3, h: 3 },
+              // 第二实例的条目必须显式带 `module`：moduleIdOf 是 `p.module ?? p.id`（不剥 :2），
+              // 漏了它这条就被当"未知模块"清洗掉 —— 种数据时按存储形状来，别按直觉
+              { id: 'habit:2', module: 'habit', variant: 'week', x: 3, y: 0, w: 3, h: 3 },
+              { id: 'chart', variant: 'habit', x: 6, y: 0, w: 3, h: 3 },
+              { id: 'chart:2', module: 'chart', variant: 'ledger', x: 9, y: 0, w: 3, h: 3 },
+              { id: 'heatmap', variant: 'grid', x: 0, y: 3, w: 4, h: 4 },
+            ],
+          }),
+        )
+        localStorage.setItem(
+          'modulo.carddata.v1',
+          JSON.stringify({
+            sticky: '',
+            todos: [],
+            notes: [],
+            countdown: { label: '', date: '' },
+            elapsed: { label: '', date: '' },
+            // 习惯：第一份今天有打卡（连续 1 天）；第二份**故意留空**——视图侧再钉一次"不回落"
+            habit: { name: '第一张的跑步', days: [seed.today] },
+            ledger: {
+              symbol: '¥',
+              entries: [{ id: 'e1', date: seed.today, cents: 1250, category: '餐饮', note: '午饭' }],
+            },
+            byInstance: {
+              'habit:2': { habit: { name: '第二张的冥想', days: [] } },
+              'ledger:2': { ledger: [{ id: 'e2', date: seed.today, cents: 10000, category: '餐饮', note: '晚饭' }] },
+            },
+          }),
+        )
+      },
+      { today },
+    )
+    await page.goto(url, { waitUntil: 'networkidle2', timeout: 30000 })
+    await wait(900)
+
+    /** 打卡趋势图（chart 卡 habit 形态）：下拉选项 / 当前选中的源 / 连续天数或空态提示 */
+    const habitChart = () =>
+      page.evaluate(() => {
+        const c = document.querySelector<HTMLElement>('.cell[data-module="chart"] .chart[data-v="habit"]')
+        const sel = c?.querySelector<HTMLSelectElement>('select.src')
+        return {
+          options: [...(sel?.options ?? [])].map((o) => o.textContent?.trim() ?? ''),
+          picked: sel?.value ?? null,
+          sum: c?.querySelector('.sum')?.textContent?.trim() ?? '',
+          cap: c?.querySelector('.cap')?.textContent?.trim() ?? '',
+          hint: c?.querySelector('.hint')?.textContent?.trim() ?? '',
+        }
+      })
+    /** 记账柱图（chart 卡 ledger 形态）：当前选中的源与合计金额 */
+    const ledgerChart = () =>
+      page.evaluate(() => {
+        const c = document.querySelector<HTMLElement>('.cell[data-module="chart"] .chart[data-v="ledger"]')
+        const sel = c?.querySelector<HTMLSelectElement>('select.src')
+        return {
+          picked: sel?.value ?? null,
+          sum: c?.querySelector('.sum')?.textContent?.trim() ?? '',
+        }
+      })
+    /** 热力图：当前选中的源与「本月 N 天」/ 空态提示 */
+    const heat = () =>
+      page.evaluate(() => {
+        const c = document.querySelector<HTMLElement>('.cell[data-module="heatmap"] .heat')
+        const sel = c?.querySelector<HTMLSelectElement>('select.src')
+        return {
+          picked: sel?.value ?? null,
+          cap: c?.querySelector('.cap')?.textContent?.trim() ?? '',
+          hint: c?.querySelector('.hint')?.textContent?.trim() ?? '',
+        }
+      })
+    /** 两张习惯卡自己的名字 —— 种进去的两份数据有没有被各自读到 */
+    const habitCards = () =>
+      page.evaluate(() =>
+        [...document.querySelectorAll<HTMLElement>('.cell[data-module="habit"]')].map(
+          (c) => c.querySelector('.name')?.textContent?.trim() ?? '',
+        ),
+      )
+    /** 在某个视图卡的下拉里选一份（value: '' = 顶层第一份，'habit:2' / 'ledger:2' = 第二份） */
+    const pick = (sel: string, value: string) =>
+      page.evaluate(
+        ({ sel, value }) => {
+          const s = document.querySelector<HTMLSelectElement>(sel)
+          if (!s) throw new Error(`页面里没有 ${sel} 这个下拉`)
+          s.value = value
+          s.dispatchEvent(new Event('change', { bubbles: true }))
+        },
+        { sel, value },
+      )
+
+    const names = await habitCards()
+    expect(names, '种进去的两份习惯被各张卡读到（第一张读顶层 / 第二张读自己的切片）').toEqual([
+      '第一张的跑步',
+      '第二张的冥想',
+    ])
+
+    // —— ① 默认第一份 ——
+    const hc0 = await habitChart()
+    expect(hc0.options, '下拉里两份习惯按序排列（没可能会写成 `习惯打卡（2）` 而 ≤1 时无括号）').toEqual([
+      '第一张的跑步',
+      '第二张的冥想',
+    ])
+    expect(hc0.picked, '默认选第一份（option 的 value 是空串）').toBe('')
+    expect(hc0.cap, '默认看第一份：今天打过卡 ⇒ 连续 1 天').toBe('打卡 1 / 28 天 · 连续 1 天')
+
+    const lc0 = await ledgerChart()
+    expect(lc0.picked, '记账柱图也默认第一份').toBe('')
+    expect(lc0.sum, '默认看第一本账：¥12.50').toBe('¥12.50')
+
+    const ht0 = await heat()
+    expect(ht0.picked, '热力图也默认第一份').toBe('')
+    expect(ht0.cap, '默认看第一份：本月 1 天').toContain('1 天')
+
+    // 切换前留个底：待会儿要证"切换不落盘"
+    const cardBefore = await page.evaluate(() => localStorage.getItem('modulo.carddata.v1'))
+    const keysBefore = await page.evaluate(() => JSON.stringify(Object.keys(localStorage).sort()))
+
+    // —— ② 切到第二份：看的是第二份自己的内容（空就是空，不回落顶层）——
+    await pick('.cell[data-module="chart"] .chart[data-v="habit"] select.src', 'habit:2')
+    await wait(200)
+    const hc1 = await habitChart()
+    expect(hc1.picked, '现在选的是第二份').toBe('habit:2')
+    expect(hc1.hint, '第二份没打卡 ⇒ 空态提示，而不是回落第一份的线').toBe('在打卡卡上勾一天，这里就有趋势线')
+    expect(hc1.cap, '空源没有趋势线 ⇒ 没有 cap').toBe('')
+
+    await pick('.cell[data-module="chart"] .chart[data-v="ledger"] select.src', 'ledger:2')
+    await wait(200)
+    const lc1 = await ledgerChart()
+    expect(lc1.picked, '记账柱图切到第二本账').toBe('ledger:2')
+    expect(lc1.sum, '第二本账是 ¥100（串账时会显示 ¥112.50）').toBe('¥100')
+
+    // —— ③ 图表与热力图的下拉彼此独立（各自一个会话状态，不是全局）——
+    const htStill = await heat()
+    expect(htStill.picked, '图表切了不影响热力图').toBe('')
+    expect(htStill.cap, '热力图仍在第一份：本月 1 天').toContain('1 天')
+
+    await pick('.cell[data-module="heatmap"] .heat select.src', 'habit:2')
+    await wait(200)
+    const ht1 = await heat()
+    expect(ht1.picked, '热力图也切到第二份').toBe('habit:2')
+    expect(ht1.hint, '第二份本月没打卡 ⇒ 空态提示').toContain('这个月还没有打卡记录')
+    const hcStill = await habitChart()
+    expect(hcStill.picked, '热力图切了也不影响图表').toBe('habit:2')
+
+    // —— ④ 切换不落盘：localStorage 一字不动，刷新后回到第一份 ——
+    const cardAfter = await page.evaluate(() => localStorage.getItem('modulo.carddata.v1'))
+    const keysAfter = await page.evaluate(() => JSON.stringify(Object.keys(localStorage).sort()))
+    expect(cardAfter, '切换源不写盘（cardData 一字不动）').toBe(cardBefore)
+    expect(keysAfter, '也没有新增任何键').toBe(keysBefore)
+
+    await page.reload({ waitUntil: 'networkidle2' })
+    await wait(900)
+    const hc2 = await habitChart()
+    const lc2 = await ledgerChart()
+    const ht2 = await heat()
+    expect(hc2.picked, '刷新后回到第一份（会话内状态，不落盘）').toBe('')
+    expect(hc2.cap, '刷新后仍是第一份的连续 1 天').toBe('打卡 1 / 28 天 · 连续 1 天')
+    expect(lc2.sum, '记账柱图也回到第一本账').toBe('¥12.50')
+    expect(ht2.picked, '热力图也回到第一份').toBe('')
+    expect(ht2.cap).toContain('1 天')
+
+    expect(errs, `页面不该有报错：${errs.join(' | ')}`).toEqual([])
+    await browser.close()
+  })
+
+  /**
+   * 单源逐字不变（上一个 it 的另一面）：只有一份习惯 / 一本账时，图表 / 热力图
+   * **不出下拉** —— 习惯名仍是那一行 `.sum`、合计仍是那个数。这是"不引入回归"的
+   * 机械证据：改造前的老档打开来，看到的与以前一模一样。
+   */
+  it('只有一个习惯源 / 一本账时，图表 / 热力图没有下拉（单源逐字不变）', async () => {
+    url = process.env.MODULO_URL ?? url
+    const browser = await puppeteer.launch({
+      executablePath: EXE!,
+      headless: true,
+      args: ['--no-sandbox', '--disable-gpu'],
+      userDataDir: `F:/tmp/pptr-profile-${Date.now()}`,
+    })
+    const page = await browser.newPage()
+    await page.setViewport({ width: 1440, height: 900, deviceScaleFactor: 1 })
+    const errs: string[] = []
+    page.on('pageerror', (e: unknown) => errs.push('PAGEERROR ' + String((e as Error).message).slice(0, 160)))
+
+    const localDay = (d: Date) =>
+      `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+    const today = localDay(new Date())
+
+    await page.evaluateOnNewDocument(
+      (seed: { today: string }) => {
+        localStorage.setItem('modulo.template.v1', 'general')
+        localStorage.setItem(
+          'modulo.layout.v1',
+          JSON.stringify({
+            schemaVersion: 1,
+            cols: 12,
+            items: [
+              { id: 'habit', variant: 'week', x: 0, y: 0, w: 3, h: 3 },
+              { id: 'chart', variant: 'habit', x: 3, y: 0, w: 3, h: 3 },
+              { id: 'chart:2', module: 'chart', variant: 'ledger', x: 6, y: 0, w: 3, h: 3 },
+              { id: 'heatmap', variant: 'grid', x: 0, y: 3, w: 4, h: 4 },
+            ],
+          }),
+        )
+        localStorage.setItem(
+          'modulo.carddata.v1',
+          JSON.stringify({
+            sticky: '',
+            todos: [],
+            notes: [],
+            countdown: { label: '', date: '' },
+            elapsed: { label: '', date: '' },
+            habit: { name: '第一张的跑步', days: [seed.today] },
+            ledger: {
+              symbol: '¥',
+              entries: [{ id: 'e1', date: seed.today, cents: 1250, category: '餐饮', note: '午饭' }],
+            },
+          }),
+        )
+      },
+      { today },
+    )
+    await page.goto(url, { waitUntil: 'networkidle2', timeout: 30000 })
+    await wait(900)
+
+    const noSelect = async (sel: string, what: string) => {
+      const has = await page.evaluate((s) => !!document.querySelector<HTMLSelectElement>(s), sel)
+      expect(has, `${what}：单源不该出现下拉`).toBe(false)
+    }
+    await noSelect('.cell[data-module="chart"] .chart[data-v="habit"] select.src', '打卡趋势图')
+    await noSelect('.cell[data-module="chart"] .chart[data-v="ledger"] select.src', '记账柱图')
+    await noSelect('.cell[data-module="heatmap"] .heat select.src', '热力图')
+
+    const single = await page.evaluate(() => {
+      const habit = document.querySelector<HTMLElement>('.cell[data-module="chart"] .chart[data-v="habit"]')
+      const ledger = document.querySelector<HTMLElement>('.cell[data-module="chart"] .chart[data-v="ledger"]')
+      const heat = document.querySelector<HTMLElement>('.cell[data-module="heatmap"] .heat')
+      return {
+        habitName: habit?.querySelector('.sum')?.textContent?.trim() ?? '',
+        habitCap: habit?.querySelector('.cap')?.textContent?.trim() ?? '',
+        ledgerSum: ledger?.querySelector('.sum')?.textContent?.trim() ?? '',
+        heatCap: heat?.querySelector('.cap')?.textContent?.trim() ?? '',
+      }
+    })
+    expect(single.habitName, '单源时习惯名仍是那一行字（与改造前相同）').toBe('第一张的跑步')
+    expect(single.habitCap).toBe('打卡 1 / 28 天 · 连续 1 天')
+    expect(single.ledgerSum, '单本账时合计仍是那个数').toBe('¥12.50')
+    expect(single.heatCap).toContain('1 天')
+
+    expect(errs, `页面不该有报错：${errs.join(' | ')}`).toEqual([])
+    await browser.close()
+  })
 })

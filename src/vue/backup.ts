@@ -11,6 +11,7 @@
 
 import { parseBook, parseLayout, type LayoutDoc, type ModuleRegistry, type SchemeBook } from '@levango7/engine'
 import { sanitizeCardData, type CardData } from './cardData'
+import { allCountdowns, allTodoCount } from './instanceData'
 
 export const BACKUP_KIND = 'modulo.backup'
 export const BACKUP_VERSION = 2
@@ -215,13 +216,14 @@ export interface ParsedBackup {
 const EMPTY_SUMMARY: BackupSummary = { modules: 0, todos: 0, notes: 0, sticky: false, schemes: 0, countdown: false }
 
 function summarize(layout: LayoutDoc | null, schemes: SchemeBook | null, cardData: CardData | null): BackupSummary {
+  // 2026-11-01：待办 / 倒数日都按实例分了，这句"报总数"得数**全部**实例（速记不按实例分，照旧）
   return {
     modules: layout?.items.length ?? 0,
-    todos: cardData?.todos.length ?? 0,
+    todos: cardData ? allTodoCount(cardData) : 0,
     notes: cardData?.notes.length ?? 0,
     sticky: Boolean(cardData?.sticky.trim()),
     schemes: schemes?.schemes.length ?? 0,
-    countdown: Boolean(cardData?.countdown.date),
+    countdown: cardData ? allCountdowns(cardData).some((c) => c.date) : false,
   }
 }
 

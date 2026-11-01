@@ -9,7 +9,7 @@
  * 另外守自动备份：环形 7 份、24h 判定、版本变化判定、恢复前留现场。
  * `desktop: true` 是给这几条用的测试缝（生产走 `isDesktop`，node 环境里是 false）。
  */
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { reactive } from 'vue'
 import { REGISTRY } from '../../src/vue/cardRegistry'
 import { createFallbackCardData } from '../../src/vue/cardDataFallback'
@@ -18,6 +18,15 @@ import { createLayoutStore, memoryStorage, type StorageAdapter } from '../../src
 import { useBackup, APP_VERSION, AUTO_INDEX_KEY, autoSlotKey, type AutoBackupMeta } from '../../src/vue/useBackup'
 import { createFileStorage, hydrateData } from '../../src/vue/fileStorage'
 import { useSchemes } from '../../src/vue/useSchemes'
+
+/**
+ * 导出确认那一句要走到文案断言，`downloadText` 依赖 DOM（node 环境没有），
+ * 挡掉它一个函数即可 —— 本文件其余用例都不走导出。
+ */
+vi.mock('../../src/vue/fileIo', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../src/vue/fileIo')>()
+  return { ...actual, downloadText: () => {} }
+})
 
 const AUTO_INDEX = AUTO_INDEX_KEY
 const slotKey = autoSlotKey
@@ -118,6 +127,44 @@ describe('confirmRestore：整份恢复（旧实现只回填四个字段）', ()
     backup.confirmRestore()
     state.ledger.entries.push({ id: 'e2', date: '2026-10-02', cents: 1, category: '其他', note: '' })
     expect(source.ledger.entries).toHaveLength(1)
+  })
+
+  it('摘要那句报总数按全部实例：第二张的待办 / 账也进「N 条待办 / N 笔账」（F-01，2026-11-01）', () => {
+    const { storage, store, backup } = setup()
+    const source = richCardData()
+    source.byInstance = {
+      'todo:2': { todos: [{ id: 't9', text: '第二张的待办', done: false }] },
+      'ledger:2': { ledger: [{ id: 'e9', date: '2026-10-02', cents: 500, category: '餐饮', note: '' }] },
+    }
+    seedSlot(storage, store, source, meta(0))
+    backup.restoreAuto(meta(0))
+    backup.confirmRestore()
+    expect(backup.notices.value.some((n) => n.includes('2 条待办') && n.includes('2 笔账'))).toBe(true)
+  })
+})
+
+describe('exportBackup：导出确认那句报总数（F-01，2026-11-01）', () => {
+  it('第二张的待办也进「N 条待办」，不只数顶层', () => {
+    const { state, backup } = setup()
+    state.todos = [] // 兜底模板自带几条，清掉让"只有第二张那一条"可判
+    state.byInstance = { 'todo:2': { todos: [{ id: 't9', text: '第二张的待办', done: false }] } }
+    backup.exportBackup()
+    expect(backup.notices.value[0]).toContain('1 条待办')
+  })
+
+  it('顶层没设倒数日、只有第二张设了 ⇒ 确认句仍然带上「、倒数日」', () => {
+    const { state, backup } = setup()
+    expect(state.countdown.date, '顶层这份没设过').toBe('')
+    state.byInstance = { 'countdown:2': { countdown: { label: '第二张的', date: '2027-01-01' } } }
+    backup.exportBackup()
+    expect(backup.notices.value[0]).toContain('倒数日')
+  })
+
+  it('哪一张都没设 ⇒ 不带「、倒数日」（不让确认句凭空多一段）', () => {
+    const { state, backup } = setup()
+    expect(state.countdown.date).toBe('')
+    backup.exportBackup()
+    expect(backup.notices.value[0]).not.toContain('倒数日')
   })
 })
 

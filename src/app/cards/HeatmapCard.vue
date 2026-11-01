@@ -7,11 +7,16 @@
  *
  * 颜色是**相对深浅**：引擎按本月最大值归一，图例上明写着这一句。
  * 颜色带评价色彩，而"这天打了三次卡"既不是好也不是坏 —— 那个评价不该由一张卡替用户下。
+ *
+ * F-01 阶段 2 之后（2026-11-01）：习惯内容按实例分，这张热力图也回到"只画第一张"。
+ * 与图表卡同一条保守口径：源 ≥2 时出 `<select>` 切换，**会话内**状态（与本卡 `shift`
+ * 翻月份同一个 ref 先例，不落盘），默认第一实例，单源逐字不变。
  */
 import { computed, inject, onBeforeUnmount, ref } from 'vue'
 import { HEAT_LEGEND, monthHeatmap } from '@levango7/engine/heatmap'
 import { ChevronLeft, ChevronRight, Flame } from 'lucide-vue-next'
 import type { CardDataApi } from '../../vue/cardData'
+import { allHabits, pickSource } from '../../vue/instanceData'
 
 const props = defineProps<{ variant: string }>()
 const cards = inject<CardDataApi>('cardData')!
@@ -21,8 +26,20 @@ const tick = window.setInterval(() => (now.value = new Date()), 60_000)
 onBeforeUnmount(() => window.clearInterval(tick))
 
 const shift = ref(0)
+/** 看哪份习惯：会话内状态，语义同 `shift`（"这张卡现在看哪个月 / 哪份"），不落盘 */
+const habitPick = ref<string | null>(null)
+const habitPickModel = computed<string>({
+  get: () => habitPick.value ?? '',
+  set: (v) => {
+    habitPick.value = v || null
+  },
+})
+const habitSources = computed(() => allHabits(cards.state))
+
 /** 打卡集合直接当「日期 → 1」用：习惯卡存的就是"打过哪些天"，次数语义留给未来的别的卡 */
-const counts = computed<Record<string, number>>(() => Object.fromEntries(cards.state.habit.days.map((d) => [d, 1])))
+const counts = computed<Record<string, number>>(() =>
+  Object.fromEntries(pickSource(habitSources.value, habitPick.value).habit.days.map((d) => [d, 1])),
+)
 const m = computed(() => monthHeatmap(counts.value, now.value, shift.value))
 
 function step(delta: number): void {
@@ -38,6 +55,16 @@ function step(delta: number): void {
     <div class="card-body">
       <div class="top">
         <span class="label">{{ m.label }}</span>
+        <select
+          v-if="habitSources.length > 1"
+          v-model="habitPickModel"
+          class="src"
+          aria-label="选择习惯实例"
+        >
+          <option v-for="(s, i) in habitSources" :key="s.id ?? 'first'" :value="s.id ?? ''">
+            {{ s.habit.name || `习惯打卡（${i + 1}）` }}
+          </option>
+        </select>
         <div class="tools">
           <button class="nav" aria-label="上一月" @click="step(-1)"><ChevronLeft :size="12" /></button>
           <button class="nav" :data-off="shift >= 0" aria-label="下一月" :disabled="shift >= 0" @click="step(1)"><ChevronRight :size="12" /></button>
@@ -92,6 +119,23 @@ function step(delta: number): void {
 .label {
   font-size: clamp(11px, 2.6cqw, 13px);
   color: var(--text-2);
+}
+/* 源切换下拉：样式照 HttpCard 的 `.whead select`（同一条 select 皮肤）；
+   顶行有 label + select + 翻页钮三组，这里收紧到 40% */
+.src {
+  font: inherit;
+  font-size: clamp(11px, 2.4cqw, 12px);
+  font-weight: 600;
+  color: var(--text-2);
+  background: var(--input-bg);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-sm);
+  max-width: 40%;
+  min-width: 0;
+  margin-right: auto;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .tools {
   display: flex;

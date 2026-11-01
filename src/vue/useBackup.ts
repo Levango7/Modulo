@@ -10,6 +10,10 @@
  *     习惯、生日、链接、订阅、自选、自定卡……）静默丢失 —— 导出是全的、恢复是残的。
  *  ② **自动备份**：每日首次启动 / 恢复前 / 版本变化后的首启各留一份，环形 7 份。
  *     只存桌面（网页版 localStorage 有配额，不适合放 7 份整包）。
+ *
+ * 2026-11-01（F-01 阶段 2 收尾）：恢复摘要的「N 条待办 / N 笔账」与导出确认的
+ * 「设过倒数日」改按**全部实例**聚合 —— 待办 / 记账 / 倒数日按实例分之后，这些
+ * "给人报总数"的句子还只读顶层，就是第二张上的内容凭空消失在摘要里。
  */
 
 import { computed, ref } from 'vue'
@@ -26,6 +30,7 @@ import {
 } from './backup'
 import { downloadText, pickTextFile, stamp } from './fileIo'
 import type { CardData } from './cardData'
+import { allCountdowns, allLedgers, allTodoCount } from './instanceData'
 import type { LayoutStore, StorageAdapter } from './store'
 import type { SchemesApi } from './useSchemes'
 import { isDesktop } from './useShell'
@@ -122,8 +127,11 @@ export function applyParsedSections(parsed: ParsedBackup, t: ApplyTargets): stri
   if (parsed.cardData) {
     // 2026-10-20：整份回填（此前只回填四个字段，其余静默丢失）
     applyCardData(t.cardData, parsed.cardData)
+    // 2026-11-01：账本 / 待办都按实例分了（§12.42 / §12.48），摘要这句"报总数"
+    // 得数**全部**实例，否则第二张上的条目在这句里凭空消失（速记不按实例分，照旧）
+    const ledgerRows = allLedgers(parsed.cardData).reduce((sum, s) => sum + s.entries.length, 0)
     done.push(
-      `内容 ${parsed.cardData.todos.length} 条待办 / ${parsed.cardData.notes.length} 条速记 / ${parsed.cardData.ledger.entries.length} 笔账`,
+      `内容 ${allTodoCount(parsed.cardData)} 条待办 / ${parsed.cardData.notes.length} 条速记 / ${ledgerRows} 笔账`,
     )
   }
   if (parsed.settings && t.settings) {
@@ -164,8 +172,11 @@ export function useBackup(store: LayoutStore, schemes: SchemesApi, cardData: () 
   function exportBackup(): void {
     const payload = snapshot()
     downloadText(`modulo-backup-${stamp()}.json`, backupToJson(payload))
+    // 2026-11-01：倒数日按实例分（§12.46）后，「设过倒数日」得看**任一**实例设过；
+    // 待办（§12.42）同句报总数，也得数全部实例（速记不按实例分，照旧）
+    const hasCountdown = allCountdowns(payload.cardData).some((c) => c.date)
     notices.value = [
-      `已导出：${payload.layout.items.length} 个模块、${payload.cardData.todos.length} 条待办、${payload.cardData.notes.length} 条速记${payload.cardData.countdown.date ? '、倒数日' : ''}${payload.settings ? '、外观设置' : ''}`,
+      `已导出：${payload.layout.items.length} 个模块、${allTodoCount(payload.cardData)} 条待办、${payload.cardData.notes.length} 条速记${hasCountdown ? '、倒数日' : ''}${payload.settings ? '、外观设置' : ''}`,
     ]
   }
 

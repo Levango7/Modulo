@@ -12,10 +12,13 @@ import { describe, expect, it } from 'vitest'
 import {
   allCountdowns,
   allHabits,
+  allLedgers,
+  allTodoCount,
   countdownOf,
   elapsedOf,
   habitOf,
   ledgerEntriesOf,
+  pickSource,
   stickyOf,
   todosOf,
   writeCountdown,
@@ -505,5 +508,110 @@ describe('allHabits：提醒那一路要的是全部', () => {
       byInstance: { 'habit:2': { habit: habit('冥想', []) } },
     }
     expect(allHabits(d)).toEqual([{ id: null, habit: { name: '', days: [] } }, { id: 'habit:2', habit: habit('冥想', []) }])
+  })
+})
+
+describe('allLedgers：汇总视图那一路要的是"全部账本"', () => {
+  /** 一条记账：与 `ledgerEntriesOf` 那组同形状，本层只看读哪一份 */
+  const row = (id: string, cents: number): LedgerRow => ({ id, date: '2026-11-01', cents, category: '餐饮', note: '' })
+
+  it('没有 byInstance ⇒ 只有顶层那一份（id 为 null）', () => {
+    const d = src('')
+    d.ledger = { symbol: '¥', entries: [row('e1', 100)] }
+    expect(allLedgers(d)).toEqual([{ id: null, entries: [row('e1', 100)] }])
+  })
+
+  it('实例切片里设过账的都铺平进来；没设的不出现在结果里（与 allHabits 同一条"写才建立"）', () => {
+    const d = src('')
+    d.ledger = { symbol: '¥', entries: [row('e1', 100)] }
+    d.byInstance = {
+      'ledger:2': { ledger: [row('e2', 200)] },
+      'ledger:3': {},
+      'habit:4': { habit: { name: '跑步', days: [] } },
+    }
+    expect(allLedgers(d)).toEqual([
+      { id: null, entries: [row('e1', 100)] },
+      { id: 'ledger:2', entries: [row('e2', 200)] },
+    ])
+  })
+
+  it('顶层可以没有 ledger 字段（形状更窄的取数来源）⇒ 结果里仍有它的位置（第一项空数组），切片照常铺平', () => {
+    const d: InstanceSource = {
+      sticky: '',
+      todos: [],
+      countdown: blankDay(),
+      elapsed: blankDay(),
+      byInstance: { 'ledger:2': { ledger: [row('e2', 200)] } },
+    }
+    expect(allLedgers(d)).toEqual([{ id: null, entries: [] }, { id: 'ledger:2', entries: [row('e2', 200)] }])
+  })
+
+  it('只给条目、不给符号：汇总视图要符号自己去读顶层（`ledgerEntriesOf` 的同一口径）', () => {
+    const d = src('')
+    d.ledger = { symbol: '¥', entries: [row('e1', 100)] }
+    expect(allLedgers(d)[0]).not.toHaveProperty('symbol')
+  })
+})
+
+describe('pickSource：汇总视图"选哪一份"的判定', () => {
+  type Src = { id: string | null; n: number }
+  const two: Src[] = [
+    { id: null, n: 1 },
+    { id: 'b', n: 2 },
+  ]
+
+  it('不传 pick（单源 / 刚打开）⇒ 第一份，与"第一实例仍用顶层"同一条口径', () => {
+    expect(pickSource(two)).toBe(two[0])
+  })
+
+  it('pick 命中第二份 ⇒ 给第二份（同一对象，不复制）', () => {
+    expect(pickSource(two, 'b')).toBe(two[1])
+  })
+
+  it('pick 指向已消失的源（用户切过去之后那本被清空 / 卡被删）⇒ 回落第一份，界面不至于空白', () => {
+    expect(pickSource(two, 'gone')).toBe(two[0])
+  })
+
+  it('pick 传空串：select 那侧用空串表示"顶层那一份"，判得回来', () => {
+    expect(pickSource(two, '')).toBe(two[0])
+  })
+
+  it('泛型不绑死记账：习惯的源清单（HabitEntry）也走同一个入口', () => {
+    const habits = [
+      { id: null, habit: { name: '跑步', days: [] } },
+      { id: 'habit:2', habit: { name: '冥想', days: ['2026-11-01'] } },
+    ]
+    expect(pickSource(habits, 'habit:2').habit.name).toBe('冥想')
+  })
+})
+
+describe('allTodoCount：汇总摘要那一路要的是"全部条数"', () => {
+  it('没有 byInstance ⇒ 顶层条数', () => {
+    const d = src('', undefined, [todo('t1', '买奶'), todo('t2', '买菜')])
+    expect(allTodoCount(d)).toBe(2)
+  })
+
+  it('顶层 + 各实例切片逐个相加；没有 todos 字段的切片不加', () => {
+    const d = src(
+      '',
+      {
+        'todo:2': { todos: [todo('t3', '第二张的待办')] },
+        'todo:3': {},
+        'sticky:4': { sticky: '别把我算进去' },
+      },
+      [todo('t1', '第一张的待办')],
+    )
+    expect(allTodoCount(d)).toBe(2)
+  })
+
+  it('顶层本身没设过（坏数据，敲必选字段的空分支）⇒ 只算切片里的，不抛', () => {
+    const d: InstanceSource = {
+      sticky: '',
+      todos: undefined as unknown as Todo[],
+      countdown: blankDay(),
+      elapsed: blankDay(),
+      byInstance: { 'todo:2': { todos: [todo('t3', '只有第二张')] } },
+    }
+    expect(allTodoCount(d)).toBe(1)
   })
 })
