@@ -27,6 +27,12 @@
  *   / `habit`（习惯，2026-11-01，阶段 2 的**最后一个**字段）。
  *   其余字段（速记 / 四象限……）仍是按模块共享，那是它们各自的下一笔。记账的币种
  *   符号也留顶层：它是偏好不是内容（`LedgerCard.vue` 文件头自己这么写），两条账本共用一种货币。
+ *
+ * ## 单卡取数 vs 聚合取数（2026-11-01 补）
+ *
+ * 上面那些 `*Of` 回答的是「**这张卡**有什么」；文件末尾的 `all*` / `any*` 回答的是
+ * 「**这块板**一共有什么」。前者第二张没有就返回空、**不回落**顶层；后者把顶层与每个
+ * 切片加在一起、**一张都不漏**。两种问法方向相反，各自都对 —— 混用才是错的。
  */
 import type { CardData, CountdownSetting, ElapsedSetting, HabitSetting, LedgerRow, Todo } from './cardDataTypes'
 
@@ -263,6 +269,78 @@ export function allHabits(data: InstanceSource): HabitEntry[] {
     if (habit) mine.push({ id, habit })
   }
   return [{ id: null, habit: data.habit ?? BLANK_HABIT }, ...mine]
+}
+
+/**
+ * **聚合口径**（2026-11-01，阶段 2 收尾）：把这块板当整体看的那些视图（图表卡 / 热力图 /
+ * 今日聚焦 / 月度统计 / 备份文案）要的是"所有实例加起来"，不是"第一张写了什么"。
+ *
+ * 与 `allCountdowns` 同一条纪律：不解析 `:2` 后缀 —— 切片里出现哪个字段，就说明是哪张卡写的
+ * （`writeTodos` / `writeLedgerEntries` / `writeHabit` / `writeSticky` 是唯一写入点，
+ * 读盘那道只收白名单字段）。第一实例本来就在顶层，所以两边不会重复计数。
+ *
+ * 为什么不是"回落第一张"：那是阶段 1 的缺陷本身 —— 摆两张卡，聚合视图只报第一张，
+ * 第二张的内容在界面上"看得见、算不进"，比报错更难被发现。
+ */
+export function allTodos(data: InstanceSource): Todo[] {
+  const out: Todo[] = [...(data.todos ?? [])]
+  for (const slice of Object.values(data.byInstance ?? {})) {
+    if (slice?.todos) out.push(...slice.todos)
+  }
+  return out
+}
+
+/** 记账条目：顶层 + 各实例。**币种符号不在里面** —— 它是偏好只有顶层那一份（见 `ledgerEntriesOf`） */
+export function allLedgerEntries(data: InstanceSource): LedgerRow[] {
+  const out: LedgerRow[] = [...(data.ledger?.entries ?? [])]
+  for (const slice of Object.values(data.byInstance ?? {})) {
+    if (slice?.ledger) out.push(...slice.ledger)
+  }
+  return out
+}
+
+/**
+ * 打卡日期的**并集**。为什么不是拼接：打卡位是"这天打过没有"（0/1），两张习惯卡在同一天
+ * 都打过，图上仍然是那一天一个点；拼起来同一天会出现两条，"几天打过卡"与连续天数都会变得说不清。
+ * 并集是这个形状下唯一诚实的"求和"。
+ */
+export function allHabitDays(data: InstanceSource): string[] {
+  const set = new Set<string>(data.habit?.days ?? [])
+  for (const slice of Object.values(data.byInstance ?? {})) {
+    for (const day of slice?.habit?.days ?? []) set.add(day)
+  }
+  return [...set]
+}
+
+/**
+ * 习惯名字的合并标签（图表卡抬头用）：一张卡报它的名字，几张卡报张数。
+ * 不拼接名字 —— 两张卡叫「喝水」「跑步」，拼成「喝水、跑步」在标题栏那种宽度里会被截掉。
+ */
+export function habitLabel(data: InstanceSource): string {
+  const names = new Set<string>()
+  const top = (data.habit?.name ?? '').trim()
+  if (top) names.add(top)
+  for (const slice of Object.values(data.byInstance ?? {})) {
+    const name = (slice?.habit?.name ?? '').trim()
+    if (name) names.add(name)
+  }
+  if (names.size === 0) return ''
+  if (names.size === 1) return [...names][0]
+  return `${names.size} 张习惯卡`
+}
+
+/** 有没有**任何一张**卡设过倒数日（备份确认框「设过倒数日」那句） */
+export function anyCountdownSet(data: InstanceSource): boolean {
+  return allCountdowns(data).some((c) => !!c.date)
+}
+
+/** 有没有**任何一张**便签写过正文（备份确认框「有便签正文」那句） */
+export function anySticky(data: InstanceSource): boolean {
+  if ((data.sticky ?? '').trim() !== '') return true
+  for (const slice of Object.values(data.byInstance ?? {})) {
+    if ((slice?.sticky ?? '').trim() !== '') return true
+  }
+  return false
 }
 
 /**

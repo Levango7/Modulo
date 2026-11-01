@@ -11,9 +11,15 @@
 import { describe, expect, it } from 'vitest'
 import {
   allCountdowns,
+  allHabitDays,
   allHabits,
+  allLedgerEntries,
+  allTodos,
+  anyCountdownSet,
+  anySticky,
   countdownOf,
   elapsedOf,
+  habitLabel,
   habitOf,
   ledgerEntriesOf,
   stickyOf,
@@ -26,7 +32,7 @@ import {
   writeTodos,
   type InstanceSource,
 } from '../../src/vue/instanceData'
-import type { CountdownSetting, ElapsedSetting, HabitSetting, LedgerRow, Todo } from '../../src/vue/cardDataTypes'
+import type { CountdownSetting, ElapsedSetting, HabitSetting, InstanceData, LedgerRow, Todo } from '../../src/vue/cardDataTypes'
 
 /** 空的"名字 + 日子"：与顶层 `emptyCardData` 那一份逐字相同 */
 const blankDay = (): { label: string; date: string } => ({ label: '', date: '' })
@@ -505,5 +511,162 @@ describe('allHabits：提醒那一路要的是全部', () => {
       byInstance: { 'habit:2': { habit: habit('冥想', []) } },
     }
     expect(allHabits(d)).toEqual([{ id: null, habit: { name: '', days: [] } }, { id: 'habit:2', habit: habit('冥想', []) }])
+  })
+})
+
+/**
+ * 聚合口径（2026-11-01）：把这块板当整体看的读点 —— 图表卡 / 热力图 / 今日聚焦 /
+ * 月度统计 / 备份文案。与上面那些 `*Of` **方向相反**：那些问"这张卡有什么"（第二张没写
+ * 就是空，不回落），这些问"这块板一共有什么"（一张都不能漏）。
+ *
+ * 这里钉的正是两种问法的分界：同样的 `byInstance`，`todosOf` 只看一张，`allTodos` 全算。
+ */
+describe('聚合取数：顶层 + 每个实例切片（求和 / 并集 / 任一）', () => {
+  const row = (id: string, date: string, cents: number): LedgerRow => ({ id, date, cents, category: '餐饮', note: id })
+  const dayOf = (label: string, date: string): CountdownSetting => ({ label, date })
+  const habitOf2 = (name: string, days: string[]): HabitSetting => ({ name, days })
+
+  it('allTodos：顶层在前，各实例接着排；没有 byInstance 就是顶层那一份', () => {
+    const d = src('', undefined, [todo('a', '第一张的'), todo('b', '第一张的第二条')])
+    expect(allTodos(d).map((t) => t.id)).toEqual(['a', 'b'])
+    d.byInstance = {
+      'todo:2': { todos: [todo('c', '第二张的')] },
+      'todo:3': { todos: [todo('d', '第三张的'), todo('e', '第三张的另一条')] },
+      'sticky:4': { sticky: '我不是待办' },
+    }
+    expect(allTodos(d).map((t) => t.id)).toEqual(['a', 'b', 'c', 'd', 'e'])
+  })
+
+  it('allTodos：顶层空、只有第二张有 ⇒ 照样拿到第二张的（这正是"只认第一张"漏掉的那些）', () => {
+    const d = src('', { 'todo:2': { todos: [todo('c', '第二张的')] } })
+    expect(allTodos(d)).toEqual([todo('c', '第二张的')])
+    // 对照：单卡口径读第一张 ⇒ 空。两种问法都各自对，混着用才是错的
+    expect(todosOf(d, 'todo', 'todo')).toEqual([])
+  })
+
+  it('allTodos：两份都空 ⇒ 空数组（不给 null，渲染侧直接 filter）', () => {
+    expect(allTodos(src(''))).toEqual([])
+  })
+
+  it('allLedgerEntries：顶层条目 + 各实例条目，币种符号不在结果里（它是偏好，只有顶层那份）', () => {
+    const d = src('')
+    d.ledger = { symbol: '¥', entries: [row('l1', '2026-10-28', 1250)] }
+    d.byInstance = {
+      'ledger:2': { ledger: [row('l2', '2026-10-29', 3900)] },
+      'ledger:3': { ledger: [row('l3', '2026-10-30', 100)] },
+      'sticky:4': { sticky: '我不是账本' },
+    }
+    const all = allLedgerEntries(d)
+    expect(all.map((r) => r.id)).toEqual(['l1', 'l2', 'l3'])
+    expect(all.reduce((sum, r) => sum + r.cents, 0)).toBe(5250)
+    expect(all.every((r) => !('symbol' in r))).toBe(true)
+  })
+
+  it('allLedgerEntries：第二张有账、第一张空 ⇒ 只拿到第二张的', () => {
+    const d = src('')
+    d.ledger = { symbol: '¥', entries: [] }
+    d.byInstance = { 'ledger:2': { ledger: [row('l2', '2026-10-29', 3900)] } }
+    expect(allLedgerEntries(d).map((r) => r.id)).toEqual(['l2'])
+    expect(ledgerEntriesOf(d, 'ledger', 'ledger')).toEqual([])
+  })
+
+  it('allHabitDays：两张卡打过的日子取**并集**（同一天都打过只算一天）', () => {
+    const d = src('')
+    d.habit = habitOf2('跑步', ['2026-10-01', '2026-10-02'])
+    d.byInstance = {
+      'habit:2': { habit: habitOf2('冥想', ['2026-10-02', '2026-10-03']) },
+      'habit:3': { habit: habitOf2('早睡', []) },
+      'sticky:4': { sticky: '我不是习惯' },
+    }
+    expect([...allHabitDays(d)].sort()).toEqual(['2026-10-01', '2026-10-02', '2026-10-03'])
+    expect(allHabitDays(d)).toHaveLength(3)
+  })
+
+  it('allHabitDays：同一天在两张卡里都出现 —— 不能变成两条（打卡位是 0/1，不是次数）', () => {
+    const d = src('')
+    d.habit = habitOf2('跑步', ['2026-10-05'])
+    d.byInstance = { 'habit:2': { habit: habitOf2('冥想', ['2026-10-05']) } }
+    expect(allHabitDays(d)).toEqual(['2026-10-05'])
+  })
+
+  it('habitLabel：一张卡报名字，几张卡报张数，同名不重复数', () => {
+    expect(habitLabel(src(''))).toBe('')
+    const one = src('')
+    one.habit = habitOf2('跑步', [])
+    expect(habitLabel(one), '只有一张 ⇒ 报它的名字').toBe('跑步')
+
+    const two = src('')
+    two.habit = habitOf2('跑步', [])
+    two.byInstance = { 'habit:2': { habit: habitOf2('冥想', []) } }
+    expect(habitLabel(two)).toBe('2 张习惯卡')
+
+    const same = src('')
+    same.habit = habitOf2('跑步', [])
+    same.byInstance = { 'habit:2': { habit: habitOf2('跑步', []) } }
+    expect(habitLabel(same), '两张都叫「跑步」⇒ 不写 2 张，写名字').toBe('跑步')
+
+    const second = src('')
+    second.byInstance = { 'habit:2': { habit: habitOf2('冥想', []) } }
+    expect(habitLabel(second), '第一张没起名、第二张起了 ⇒ 报第二张的名字').toBe('冥想')
+  })
+
+  it('anyCountdownSet：只要有一张设过日子就算设过（不只看第一张）', () => {
+    const d = src('')
+    d.countdown = dayOf('', '')
+    d.byInstance = { 'countdown:2': { countdown: dayOf('体检', '2026-12-20') } }
+    expect(anyCountdownSet(d)).toBe(true)
+    const onlyLabel = src('')
+    onlyLabel.countdown = dayOf('体检', '')
+    expect(anyCountdownSet(onlyLabel)).toBe(false)
+    expect(anyCountdownSet(src(''))).toBe(false)
+  })
+
+  /**
+   * 缺字段 / 空切片：来源形状不可信时（AI 摘录那种只读来源、旧档里少字段）一律按"没有"处理。
+   * 这几条同时把每个 `?.` / `??` 的另一半走一遍 —— 判定层锁 100，不覆盖就等于没验证过坏输入。
+   */
+  it('缺字段 / 空切片：一律按"没有"处理，不抛也不编', () => {
+    // 连 `ledger` / `habit` 字段都没有的来源（`InstanceSource` 里这两个是可选）
+    const bare: InstanceSource = {
+      sticky: '',
+      todos: [],
+      countdown: { label: '', date: '' },
+      elapsed: { label: '', date: '' },
+    }
+    expect(allTodos(bare)).toEqual([])
+    expect(allLedgerEntries(bare)).toEqual([])
+    expect(allHabitDays(bare)).toEqual([])
+    expect(habitLabel(bare)).toBe('')
+    expect(anySticky(bare)).toBe(false)
+    expect(anyCountdownSet(bare)).toBe(false)
+
+    // 切片里混进 undefined / 空名字的习惯 / 空正文的便签：跳过它们，不数成东西
+    const messy: InstanceSource = {
+      ...bare,
+      // 类型上 `sticky` / `todos` 是必填，但运行时来源不可信（AI 摘录那种只读来源、坏档）——
+      // 字段真的不在时走的是 `?? ''` / `?? []` 那一半，不覆盖就等于没验过坏输入
+      sticky: undefined as unknown as string,
+      todos: undefined as unknown as Todo[],
+      byInstance: {
+        'todo:9': undefined as unknown as InstanceData,
+        'habit:9': { habit: { name: '   ', days: [] } },
+        'sticky:9': { sticky: '' },
+      },
+    }
+    expect(allTodos(messy)).toEqual([])
+    expect(allLedgerEntries(messy)).toEqual([])
+    expect(allHabitDays(messy)).toEqual([])
+    expect(habitLabel(messy), '名字只有空白 ⇒ 不算起了名').toBe('')
+    expect(anySticky(messy), '第二张只有空白 ⇒ 没有正文').toBe(false)
+  })
+
+  it('anySticky：第二张写了字就算有便签正文；只有空白不算', () => {
+    expect(anySticky(src('第一张的字')), '第一张有正文 ⇒ 直接真（早退那一半）').toBe(true)
+    const d = src('')
+    d.byInstance = { 'sticky:2': { sticky: '第二张的字' } }
+    expect(anySticky(d), '第一张空、第二张有 ⇒ 也要真').toBe(true)
+    const blank = src('', { 'sticky:2': { sticky: '   ' } })
+    expect(anySticky(blank), '全是空白 ⇒ 没有正文').toBe(false)
+    expect(anySticky(src(''))).toBe(false)
   })
 })

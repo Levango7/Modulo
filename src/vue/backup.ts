@@ -11,6 +11,7 @@
 
 import { parseBook, parseLayout, type LayoutDoc, type ModuleRegistry, type SchemeBook } from '@levango7/engine'
 import { sanitizeCardData, type CardData } from './cardData'
+import { allTodos, anyCountdownSet, anySticky } from './instanceData'
 
 export const BACKUP_KIND = 'modulo.backup'
 export const BACKUP_VERSION = 2
@@ -217,11 +218,13 @@ const EMPTY_SUMMARY: BackupSummary = { modules: 0, todos: 0, notes: 0, sticky: f
 function summarize(layout: LayoutDoc | null, schemes: SchemeBook | null, cardData: CardData | null): BackupSummary {
   return {
     modules: layout?.items.length ?? 0,
-    todos: cardData?.todos.length ?? 0,
+    // 2026-11-01：待办 / 便签 / 倒数日都已按实例分，摘要要报**整块板**的数 —— 只认第一张的话，
+    // 第二张里摆着的内容在确认框里"界面上看得见、这里算不进"，用户据此判断要不要覆盖就会判错。
+    todos: cardData ? allTodos(cardData).length : 0,
     notes: cardData?.notes.length ?? 0,
-    sticky: Boolean(cardData?.sticky.trim()),
+    sticky: cardData ? anySticky(cardData) : false,
     schemes: schemes?.schemes.length ?? 0,
-    countdown: Boolean(cardData?.countdown.date),
+    countdown: cardData ? anyCountdownSet(cardData) : false,
   }
 }
 

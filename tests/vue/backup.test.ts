@@ -122,6 +122,42 @@ describe('buildBackup：三样东西必须都在里面', () => {
     expect(back.summary.countdown).toBe(false)
   })
 
+  /**
+   * 2026-11-01：待办 / 便签 / 倒数日都已按实例分，摘要要报**整块板**的数。
+   * 只认第一张的话，第二张摆着的内容在确认框里"界面上看得见、这里算不进" ——
+   * 用户据此判断"要不要拿这份包覆盖现在的数据"就会判错。
+   */
+  it('summary 把第二实例的内容也算进去：待办求和，便签 / 倒数日取「任一有」', () => {
+    const withTwins: CardData = {
+      ...cardData,
+      byInstance: {
+        'todo:2': { todos: [{ id: 't9', text: '第二张的待办', done: false }] },
+        'sticky:2': { sticky: '第二张的字' },
+        'countdown:2': { countdown: { label: '体检', date: '2026-12-20' } },
+      },
+    }
+    const back = parseBackup(backupToJson(makePayload({ cardData: withTwins })), REGISTRY)
+    expect(back.summary.todos, '第一张 2 条 + 第二张 1 条').toBe(3)
+    expect(back.summary.sticky).toBe(true)
+    expect(back.summary.countdown).toBe(true)
+  })
+
+  it('第一张空、第二张有 ⇒ summary 照样报「有」（这正是只认第一张会漏掉的情形）', () => {
+    const secondOnly: CardData = {
+      ...cardData,
+      todos: [],
+      sticky: '',
+      countdown: { label: '', date: '' },
+      byInstance: {
+        'todo:2': { todos: [{ id: 't9', text: '第二张的待办', done: false }] },
+        'sticky:2': { sticky: '第二张的字' },
+        'countdown:2': { countdown: { label: '体检', date: '2026-12-20' } },
+      },
+    }
+    const back = parseBackup(backupToJson(makePayload({ cardData: secondOnly })), REGISTRY)
+    expect(back.summary).toMatchObject({ todos: 1, sticky: true, countdown: true })
+  })
+
   it('深拷贝：导出后用户新敲的字不会跟着进包', () => {
     const live: CardData = {
       sticky: '原样',

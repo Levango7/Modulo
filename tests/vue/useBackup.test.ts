@@ -110,6 +110,32 @@ describe('confirmRestore：整份恢复（旧实现只回填四个字段）', ()
     expect(backup.autoBackups.value.some((m) => m.reason === 'pre-restore')).toBe(true)
   })
 
+  /**
+   * 2026-11-01：恢复成功后那句「内容 N 条待办 / N 笔账」要报**整块板**的合计。
+   * 待办与记账条目都已按实例分，只认第一张会把第二张里的条目漏掉 ——
+   * 而恢复完用户核对"东西都回来了没"，靠的就是这一行。
+   */
+  it('恢复提示的「N 条待办 / N 笔账」是全部实例加起来（不是只数第一张）', () => {
+    const { storage, store, backup } = setup()
+    const d = richCardData()
+    d.byInstance = {
+      'todo:2': {
+        todos: [
+          { id: 't2', text: '第二张的待办', done: false },
+          { id: 't3', text: '第二张的另一条', done: true },
+        ],
+      },
+      'ledger:2': { ledger: [{ id: 'e2', date: '2026-10-02', cents: 500, category: '交通', note: '地铁' }] },
+    }
+    seedSlot(storage, store, d, meta(0))
+    backup.restoreAuto(meta(0))
+    backup.confirmRestore()
+
+    const text = backup.notices.value.join(' | ')
+    expect(text, '第一张 1 条 + 第二张 2 条').toContain('3 条待办')
+    expect(text, '第一张 1 笔 + 第二张 1 笔').toContain('2 笔账')
+  })
+
   it('整份回填是深拷贝：改回填后的数组不会污染来源对象', () => {
     const { storage, store, state, backup } = setup()
     const source = richCardData()

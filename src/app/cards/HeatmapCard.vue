@@ -12,6 +12,7 @@ import { computed, inject, onBeforeUnmount, ref } from 'vue'
 import { HEAT_LEGEND, monthHeatmap } from '@levango7/engine/heatmap'
 import { ChevronLeft, ChevronRight, Flame } from 'lucide-vue-next'
 import type { CardDataApi } from '../../vue/cardData'
+import { allHabitDays } from '../../vue/instanceData'
 
 const props = defineProps<{ variant: string }>()
 const cards = inject<CardDataApi>('cardData')!
@@ -22,7 +23,8 @@ onBeforeUnmount(() => window.clearInterval(tick))
 
 const shift = ref(0)
 /** 打卡集合直接当「日期 → 1」用：习惯卡存的就是"打过哪些天"，次数语义留给未来的别的卡 */
-const counts = computed<Record<string, number>>(() => Object.fromEntries(cards.state.habit.days.map((d) => [d, 1])))
+// 2026-11-01：打卡日取**全部实例的并集**（同一天两张卡都打过仍然只算一天 —— 这是 0/1 的形状）
+const counts = computed<Record<string, number>>(() => Object.fromEntries(allHabitDays(cards.state).map((d) => [d, 1])))
 const m = computed(() => monthHeatmap(counts.value, now.value, shift.value))
 
 function step(delta: number): void {
