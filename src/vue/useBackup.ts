@@ -32,7 +32,7 @@ import type { SchemesApi } from './useSchemes'
 import { isDesktop } from './useShell'
 
 /** 与 package.json / Cargo.toml / Cargo.lock / tauri.conf.json 同源；发布时四处一起对齐 */
-export const APP_VERSION = '0.8.9'
+export const APP_VERSION = '0.8.10'
 
 export interface PendingRestore extends BackupSummary {
   parsed: ParsedBackup
