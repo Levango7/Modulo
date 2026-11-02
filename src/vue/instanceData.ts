@@ -23,9 +23,11 @@
  *
  * - **不解析 `:2` 后缀**：是不是"第二实例"由"实例 id ≠ 模块 id"判定，不靠字符串形状
  *   （与 `moduleIdOf` 只认 `p.module ?? p.id` 同一条纪律）。
- * - 按实例分的字段：`sticky` / `todos` / `countdown` / `elapsed` / `ledger`（记账的**条目**）
- *   / `habit`（习惯，2026-11-01，阶段 2 的**最后一个**字段）。
- *   其余字段（速记 / 四象限……）仍是按模块共享，那是它们各自的下一笔。记账的币种
+ * - 按实例分的字段：`sticky` / `todos` / `countdown` / `elapsed` / `matrix`（四象限，
+ *   **合并序第七个字段**）/ `ledger`（记账的**条目**，第五个字段）/ `habit`（习惯，
+ *   2026-11-01，第六个字段）。序数按**合并序**排 —— master 那两笔先合入，故本笔排其后，
+ *   口径见 ARCHITECTURE §12.51。
+ *   其余字段（速记……）仍是按模块共享，那是它们各自的下一笔。记账的币种
  *   符号也留顶层：它是偏好不是内容（`LedgerCard.vue` 文件头自己这么写），两条账本共用一种货币。
  *
  * ## 单卡取数 vs 聚合取数（2026-11-01 补）
@@ -34,10 +36,10 @@
  * 「**这块板**一共有什么」。前者第二张没有就返回空、**不回落**顶层；后者把顶层与每个
  * 切片加在一起、**一张都不漏**。两种问法方向相反，各自都对 —— 混用才是错的。
  */
-import type { CardData, CountdownSetting, ElapsedSetting, HabitSetting, LedgerRow, Todo } from './cardDataTypes'
+import type { CardData, CountdownSetting, ElapsedSetting, HabitSetting, LedgerRow, MatrixTodo, Todo } from './cardDataTypes'
 
 /**
- * 取数只需要这七个字段，测试不必造一整份 `CardData`。
+ * 取数只需要这些字段，测试不必造一整份 `CardData`。
  *
  * `ledger` 不直接 `Pick<CardData, 'ledger'>`：`entries` 在别的取数来源（如 AI 摘录的
  * `ExcerptSource`）是**只读数组**，判定层只读不写，放宽到 `readonly` 才能共用同一个入口。
@@ -47,6 +49,8 @@ import type { CardData, CountdownSetting, ElapsedSetting, HabitSetting, LedgerRo
 export type InstanceSource = Pick<CardData, 'sticky' | 'todos' | 'countdown' | 'elapsed' | 'byInstance'> & {
   ledger?: { symbol?: string; entries?: readonly LedgerRow[] }
   habit?: HabitSetting
+  /** 四象限：顶层那份在 `CardData` 里是**必填**，但取数来源未必带它（测试夹具、旧档）⇒ 放宽成可选 */
+  matrix?: MatrixTodo[]
 }
 
 /** 空"名字 + 日子"：与顶层那个空形状（`emptyCardData`）逐字相同，渲染侧不必为实例分叉判空 */
@@ -170,6 +174,37 @@ export function writeElapsed(
 }
 
 /**
+ * 四象限清单：按实例读。**合并序第七个字段**（2026-10-30 撰写；master 的
+ * 记账 / 习惯两笔先合入，故本笔排其后，口径见 ARCHITECTURE §12.51），
+ * 口径与前六个**完全相同** ——
+ * 差别只有"空"的形状：便签是空串、待办与四象限是空数组、倒数日 / 正计时是空"名字 + 日子"。
+ * 不回落顶层 —— 回落会让新拖出来的第二张四象限卡显示第一张的条目。
+ */
+export function matrixOf(data: InstanceSource, moduleId?: string, instanceId?: string): MatrixTodo[] {
+  if (!isSecondInstance(moduleId, instanceId)) return data.matrix ?? []
+  return data.byInstance?.[instanceId as string]?.matrix ?? []
+}
+
+/**
+ * 四象限清单：按实例写。**只决定写在哪，不改语义** —— 加/勾/挪/删由调用方先在数组上做，
+ * 这里整条替换回去（与 `writeSticky` / `writeTodos` 同一条理由：深层 watch 靠"值变了"才触发写盘）。
+ */
+export function writeMatrix(
+  data: InstanceSource,
+  moduleId: string | undefined,
+  instanceId: string | undefined,
+  next: MatrixTodo[],
+): void {
+  if (!isSecondInstance(moduleId, instanceId)) {
+    data.matrix = next
+    return
+  }
+  const bag = data.byInstance ?? {}
+  bag[instanceId as string] = { ...bag[instanceId as string], matrix: next }
+  data.byInstance = bag
+}
+
+/**
  * 记账条目：按实例读。第五个字段（2026-10-31），口径与前四个**完全相同** ——
  * 差别只有一处：**币种符号不算内容、不分实例**。卡片文件头写的就是"币种符号是一个偏好"，
  * 偏好跟着模块走（顶层那份），两条账本共用一种货币；分实例的是用户一笔一笔敲进去的条目。
@@ -202,8 +237,8 @@ export function writeLedgerEntries(
 }
 
 /**
- * 习惯打卡（名字 + 打卡记录）：按实例读。第六个字段，也是 F-01 阶段 2 的**最后一个**
- * （2026-11-01），口径与前五个**完全相同** —— 差别只有"空"的形状：空名字 + 空日子数组
+ * 习惯打卡（名字 + 打卡记录）：按实例读。第六个字段（2026-11-01），
+ * 口径与前五个**完全相同** —— 差别只有"空"的形状：空名字 + 空日子数组
  * （与顶层同一个空形状，渲染侧不必为实例分叉判空）。与记账不同：习惯**整份都是内容**
  * （名字是用户起的、日子是用户点的），没有"哪一半留顶层"的切法。
  */

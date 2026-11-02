@@ -98,6 +98,33 @@ function sanitizeDaySetting(raw: unknown): { label: string; date: string } | und
 }
 
 /**
+ * 四象限条目清洗。**顶层与按实例共用同一套**（F-01 阶段 2 合并序第七个字段，2026-10-30）——
+ * 与 `sanitizeTodos` 同一条理由：两份实现意味着"修了顶层忘了第二张"。
+ *
+ * 与待办唯一的两处差别：
+ * - 多一个 `q`（象限）：**坏象限归位 `do` 而不是丢条目** —— 字是用户写的，象限是元数据。
+ * - id 前缀是 `m`，`uniqueId` 的去重仍在同一份清单内做（`moveMatrixTodo` 按 id 定点）。
+ */
+function sanitizeMatrix(raw: unknown): MatrixTodo[] {
+  const out: MatrixTodo[] = []
+  if (!Array.isArray(raw)) return out
+  const seen = new Set<string>()
+  for (const entry of raw.slice(0, MAX_ITEMS)) {
+    const e = entry as Partial<MatrixTodo> | null
+    if (!e || typeof e.text !== 'string' || !e.text.trim()) continue
+    const doneAt = e.done === true && typeof e.doneAt === 'number' && Number.isFinite(e.doneAt) ? e.doneAt : undefined
+    out.push({
+      id: uniqueId(seen, e.id, 'm', out.length),
+      text: textOf(e.text),
+      q: QUADRANTS.includes(e.q as Quadrant) ? (e.q as Quadrant) : 'do', // 坏象限归位而不是丢条目：字是用户写的
+      done: e.done === true,
+      ...(doneAt === undefined ? {} : { doneAt }),
+    })
+  }
+  return out
+}
+
+/**
  * 习惯打卡清洗（名字 + 打卡日期集合）。**顶层与按实例共用同一条**（F-01 阶段 2 第六个
  * 字段，2026-11-01）—— 与 `sanitizeTodos` 同一条理由：两份实现意味着"修了顶层忘了第二张"，
  * 而这类分歧平时根本不响。
@@ -150,8 +177,10 @@ function sanitizeLedgerRows(raw: unknown): LedgerRow[] {
  * 按实例的内容（F-01 阶段 2）。**这是读盘边界**，所以规则是"不认识的就丢"：
  *
  * - 键必须是非空字符串（实例 id）；值必须是朴素对象（数组不算）。
- * - 只收**认得的字段**（现阶段 `sticky` / `todos` / `countdown` / `elapsed` / `ledger` / `habit`）：
- *   `sticky` 只收字符串、`todos` 与 `ledger` 走与顶层同一套条目清洗、`countdown` / `elapsed`
+ * - 只收**认得的字段**（现阶段 `sticky` / `todos` / `countdown` / `elapsed` / `matrix` /
+ *   `ledger` / `habit`）：
+ *   `sticky` 只收字符串、`todos` / `matrix` / `ledger` 各走与顶层同一套条目清洗
+ *   （`sanitizeTodos` / `sanitizeMatrix` / `sanitizeLedgerRows`）、`countdown` / `elapsed`
  *   走 `sanitizeDaySetting`、`habit` 走 `sanitizeHabit` —— 其余一律丢掉，这样将来给
  *   `InstanceData` 加字段时，旧备份读进来是"这一段没有"而不是"有一段看不懂的"。
  *   记账只收**条目**：币种符号是顶层共享的偏好，切片里出现也会被丢掉。
@@ -180,6 +209,9 @@ function sanitizeByInstance(raw: unknown): Record<string, InstanceData> | undefi
     if (countdown) entry.countdown = countdown
     const elapsed = sanitizeDaySetting((value as { elapsed?: unknown }).elapsed)
     if (elapsed) entry.elapsed = elapsed
+    // 空清单不写这个键：全删光的第二张四象限卡，读回来就该是"这个实例还没写过内容"
+    const matrix = sanitizeMatrix((value as { matrix?: unknown }).matrix)
+    if (matrix.length) entry.matrix = matrix
     // 一条都没剩下不写这个键（与空清单同一条理由）：全删光的第二张账本，
     // 读回来就该是"这个实例还没写过内容"
     const ledger = sanitizeLedgerRows((value as { ledger?: unknown }).ledger)
@@ -216,22 +248,9 @@ export function sanitizeCardData(raw: unknown, fallback: CardData): CardData {
 
   const todos = sanitizeTodos(o.todos)
 
-  const matrixSeen = new Set<string>()
-  const matrix: MatrixTodo[] = []
-  if (Array.isArray(o.matrix)) {
-    for (const entry of o.matrix.slice(0, MAX_ITEMS)) {
-      const e = entry as Partial<MatrixTodo> | null
-      if (!e || typeof e.text !== 'string' || !e.text.trim()) continue
-      const doneAt = e.done === true && typeof e.doneAt === 'number' && Number.isFinite(e.doneAt) ? e.doneAt : undefined
-      matrix.push({
-        id: uniqueId(matrixSeen, e.id, 'm', matrix.length),
-        text: textOf(e.text),
-        q: QUADRANTS.includes(e.q as Quadrant) ? (e.q as Quadrant) : 'do', // 坏象限归位而不是丢条目：字是用户写的
-        done: e.done === true,
-        ...(doneAt === undefined ? {} : { doneAt }),
-      })
-    }
-  }
+  // 四象限：与 byInstance 共用同一条清洗（`sanitizeMatrix`）—— 顶层与第二张同一套规则，
+  // 不留两份实现（"改了顶层忘了第二张"这类分歧平时根本不响）
+  const matrix: MatrixTodo[] = sanitizeMatrix(o.matrix)
 
   const noteSeen = new Set<string>()
   const notes: Note[] = []
