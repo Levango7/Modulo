@@ -172,8 +172,10 @@ export interface DutySetting {
  *
  * 已经搬过来的：`sticky`（便签，2026-10-28）、`todos`（待办，2026-10-29）、
  * `countdown`（倒数日）/ `elapsed`（正计时）（2026-10-30，第三、四个字段）、
- * `ledger`（记账条目，2026-10-31，第五个字段）、`habit`（习惯，2026-11-01，第六个、
- * 也是阶段 2 的**最后一个**字段 —— 搬完它，阶段 2 的字段清单就空了）。
+ * `ledger`（记账条目，2026-10-31，第五个字段）、`habit`（习惯，2026-11-01，第六个字段）、
+ * `matrix`（四象限，2026-10-30 撰写，**合并序第七个字段** —— master 那两笔先合入，
+ * 故本笔排其后，序数口径见 ARCHITECTURE §12.51）。
+ * 速记仍未搬（它今天只有读、没有写入口，见 §12.51）。
  *
  * 字段一律**可选**：缺省表示"这个实例还没写过自己的内容"，读取口径见 `instanceData.ts`。
  */
@@ -195,6 +197,11 @@ export interface InstanceData {
   /** 正计时（2026-10-30 起按实例分）。与倒数日同形状、同清洗，差别只在"往前算还是往后算" */
   elapsed?: ElapsedSetting
   /**
+   * 四象限清单（2026-10-30 起按实例分）。**合并序第七个字段**，形状与顶层 `matrix` 逐字相同 ——
+   * 不另造结构，读盘那道直接复用同一套条目清洗（`sanitizeCardData` 里的 `sanitizeMatrix`）。
+   */
+  matrix?: MatrixTodo[]
+  /**
    * 记账条目（2026-10-31 起按实例分）。第五个字段，形状与顶层 `ledger.entries` 逐字相同，
    * 清洗也共用同一条（`sanitizeCardData` 里的 `sanitizeLedgerRows`）。**币种符号不在这里**：
    * 它是偏好（顶层 `ledger.symbol`），两条账本共用一种货币 —— 见 `instanceData.ts`
@@ -202,7 +209,7 @@ export interface InstanceData {
    */
   ledger?: LedgerRow[]
   /**
-   * 习惯打卡（2026-11-01 起按实例分）。第六个、也是 F-01 阶段 2 的**最后一个**字段 ——
+   * 习惯打卡（2026-11-01 起按实例分）。第六个字段 ——
    * 形状与顶层 `habit` 逐字相同（名字 + 打卡日期集合），清洗也共用同一条
    * （`sanitizeCardData` 里的 `sanitizeHabit`）。与记账不同：习惯**整份都是内容**，
    * 没有像币种符号那样"留顶层共用"的一半。
