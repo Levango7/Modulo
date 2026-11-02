@@ -332,9 +332,11 @@ describe('卡片正文摘录（只读用户真写进去的字）', () => {
     expect(
       excerptFor(choice({ module: 'elapsed', id: 'elapsed' }), source({ elapsed: { label: '戒烟', date: '2026-01-01' } })),
     ).toBe('戒烟：从 2026-01-01 起')
-    expect(excerptFor(choice({ module: 'habit' }), source({ habit: { name: '跑步', days: ['2026-10-27', '2026-10-28'] } }))).toBe(
-      '跑步：已打卡 2 天',
-    )
+    // 习惯与哥哥们一样：id 要与 module 配对，不配对（`choice` 默认 id 是 'todo'）等于
+    // 声称"第二实例"，读的是切片 —— 那条路在下面的按实例用例里单独钉
+    expect(
+      excerptFor(choice({ module: 'habit', id: 'habit' }), source({ habit: { name: '跑步', days: ['2026-10-27', '2026-10-28'] } })),
+    ).toBe('跑步：已打卡 2 天')
     expect(
       excerptFor(choice({ module: 'birthday' }), source({ birthdays: [{ id: 'b', name: '小王', month: 3, day: 5 }] })),
     ).toBe('小王：3 月 5 日')
@@ -364,10 +366,22 @@ describe('卡片正文摘录（只读用户真写进去的字）', () => {
     expect(excerptFor(choice({ module: 'elapsed', id: 'elapsed:2' }), source(first))).toBe('')
   })
 
+  it('习惯按实例取：第二张报自己的名字和天数，没设时不拿第一张的', () => {
+    const first = { habit: { name: '跑步', days: ['2026-10-27', '2026-10-28'] } }
+    expect(
+      excerptFor(
+        choice({ module: 'habit', id: 'habit:2' }),
+        source({ ...first, byInstance: { 'habit:2': { habit: { name: '冥想', days: ['2026-11-01', '2026-11-02', '2026-11-03'] } } } }),
+      ),
+    ).toBe('冥想：已打卡 3 天')
+    // 第二张还没设 ⇒ 空串，**不回落顶层**（口径与哥哥们逐字相同：回落就是把阶段 1 那个缺陷请回来）
+    expect(excerptFor(choice({ module: 'habit', id: 'habit:2' }), source(first))).toBe('')
+  })
+
   it('没写内容 / 不认识的模块一律空串（联网卡与计算卡不喂）', () => {
     expect(excerptFor(choice({ module: 'countdown', id: 'countdown' }), source())).toBe('')
     expect(excerptFor(choice({ module: 'elapsed', id: 'elapsed' }), source())).toBe('')
-    expect(excerptFor(choice({ module: 'habit' }), source())).toBe('')
+    expect(excerptFor(choice({ module: 'habit', id: 'habit' }), source())).toBe('')
     expect(excerptFor(choice({ module: 'notes' }), source())).toBe('')
     expect(excerptFor(choice({ module: 'ledger', id: 'ledger' }), source())).toBe('')
     expect(excerptFor(choice({ module: 'birthday' }), source())).toBe('')
