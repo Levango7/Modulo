@@ -1,7 +1,7 @@
 import { spawn, spawnSync } from 'node:child_process'
 import { appendFileSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { join, resolve } from 'node:path'
-import { connect } from 'node:net'
+import { connect, createServer } from 'node:net'
 import puppeteer from 'puppeteer-core'
 
 /**
@@ -17,9 +17,12 @@ import puppeteer from 'puppeteer-core'
 /**
  * CDP 默认口 10333。
  *
- * 不用 9223 / 9333 那一段：本机 `netsh int ipv4 show excludedportrange protocol=tcp` 把
- * **9276–9375 整段留给系统**（2026-11-02 实测），WebView2 绑不上调试口时**不报错、只是不启用远调**，
- * 于是探针只会报「30 秒没等到 tauri.localhost 的页面」，看着像应用的错。`PROBE_PORT` 可覆盖。
+ * 避开 9223 / 9333 那一段的理由有两条、都不是"这个号永远安全"：
+ *   ① 2026-10-15 实测 `:9223` 被本机另一个应用（CatPawAI）占着，探针连上去读到了别人的页面；
+ *   ② 2026-11-02 沿用 0.8.1 先例的 `PROBE_PORT=9333` 落进 Windows 的系统保留段。
+ * **保留段会轮换**（同一天两次实测：02:24 是 9276–9375，03:5x 已换成 3999–4098 / 5762–5861 / 11317–11416），
+ * 所以默认号只是"一个更好的猜测"，判据在下面的 `portBind` —— 每次跑前**现绑一次**。
+ * `PROBE_PORT` 仍可覆盖。
  */
 const PORT = Number(process.env.PROBE_PORT ?? 10333)
 const EXE = resolve(process.env.MODULO_EXE ?? 'src-tauri/target/release/modulo.exe')
@@ -50,6 +53,89 @@ const portOpen = (timeoutMs = 700) =>
     s.on('timeout', () => done(false))
     s.on('error', () => done(false))
   })
+
+/**
+ * 目标调试口现在能不能绑。三种答案必须分开报 —— 混成一句就会把人指偏
+ * （2026-11-02 那次 0.8.10 的 0/2，现场只有「等不到 tauri.localhost」，被读成了"应用起不来"）：
+ *   FREE     空闲，能绑
+ *   IN_USE   EADDRINUSE：有进程听着（上一轮探针 / 应用 / 别人的探针）
+ *   BLOCKED  EACCES：Windows 把这一段留给了系统。**保留段会轮换**，别记端口号
+ *   UNKNOWN  其它错误 —— 不拦，但要如实说「没查出来」，不能当成 FREE
+ *
+ * 为什么用试绑而不是解析 `netsh … excludedportrange`：保留段是运行时状态、随服务重启轮换，
+ * 而 netsh 的输出随系统语言变。试绑是同一件事的直接观测（2026-11-02 实测：段内 4000 / 5800 / 11400
+ * 在 127.0.0.1 与 0.0.0.0 上都是 EACCES，段外 10333 是 FREE）。
+ */
+const portBind = (port) =>
+  new Promise((res) => {
+    const s = createServer()
+    const finish = (verdict, detail) => {
+      s.removeAllListeners()
+      if (!s.listening) return res({ verdict, detail })
+      s.close(() => res({ verdict, detail }))
+    }
+    s.once('error', (e) =>
+      finish(e.code === 'EADDRINUSE' ? 'IN_USE' : e.code === 'EACCES' ? 'BLOCKED' : 'UNKNOWN', e.code || String(e)),
+    )
+    s.listen({ port, host: '127.0.0.1' }, () => finish('FREE', ''))
+  })
+
+/**
+ * 测试缝：`PROBE_PRECHECK_FORCE` 给 JSON（如 `{"verdict":"BLOCKED","detail":"EACCES"}`）。
+ *
+ * 保留段会轮换、各机器也不一样，用例不能靠"本机恰好在保留段里"起红 —— 与 coord-gate 的
+ * `COORD_PORT_OWNER` 同一个理由：把外部现况做成注入点，断言才在任何机器上算得出同一个数。
+ */
+const VERDICTS = new Set(['FREE', 'IN_USE', 'BLOCKED', 'UNKNOWN'])
+
+const forcedPreflight = () => {
+  const raw = process.env.PROBE_PRECHECK_FORCE
+  if (!raw) return null
+  try {
+    const v = JSON.parse(raw)
+    return v && VERDICTS.has(v.verdict) ? v : null
+  } catch {
+    return null
+  }
+}
+
+const explainPreflight = ({ verdict, detail }) => {
+  if (verdict === 'BLOCKED') {
+    return (
+      `调试口 :${PORT} 绑不上（EACCES）—— Windows 把这一段留给了系统（保留段）。\n` +
+      `  保留段**会轮换**（2026-11-02 一天内两次实测：02:24 是 9276–9375，03:5x 换成 3999–4098 / 5762–5861 / 11317–11416），\n` +
+      `  所以别记端口号：现查 \`netsh int ipv4 show excludedportrange protocol=tcp\`，或换一个段外的号 \`PROBE_PORT=…\`。\n` +
+      `  为什么不接着跑：WebView2 绑不上调试口时**不报错、只是不启用远调**，跑下去只会把「端口被系统占了」\n` +
+      `  报成「WebView2 没起来」—— 2026-11-02 那两轮 0/2 就是这么误判的。`
+    )
+  }
+  if (verdict === 'IN_USE') {
+    return (
+      `调试口 :${PORT} 已经被别的进程听着（EADDRINUSE）。\n` +
+      `  常见来源：上一轮探针 / 应用没退干净，或别人的探针用着同一个号。\n` +
+      `  处置：先清残留（tasklist 里找 modulo.exe 与 msedgewebview2.exe），或换号 \`PROBE_PORT=…\`。`
+    )
+  }
+  return (
+    `调试口 :${PORT} 能不能绑没查出来（${detail || '无错误码'}）—— 不拦，继续跑；\n` +
+    `  但下面若报「等不到 tauri.localhost」，这一条本身也存疑（端口现况未知）。`
+  )
+}
+
+const preflight = forcedPreflight() ?? (await portBind(PORT))
+
+if (process.argv.includes('--preflight-only')) {
+  // 先机读的一行（stdout），再人看的处置（stderr）：两件事混在一行会把 JSON 弄坏
+  console.log(JSON.stringify({ port: PORT, ...preflight }))
+  if (preflight.verdict !== 'FREE') console.error(explainPreflight(preflight))
+  process.exit(preflight.verdict === 'FREE' || preflight.verdict === 'UNKNOWN' ? 0 : 2)
+}
+if (preflight.verdict === 'BLOCKED' || preflight.verdict === 'IN_USE') {
+  // 提前失败：这个口压根绑不上，再 spawn 也只会等 30 秒、然后把原因指错
+  console.error(`PREFLIGHT  ${explainPreflight(preflight)}`)
+  process.exit(2)
+}
+if (preflight.verdict === 'UNKNOWN') console.log(`PREFLIGHT  ${explainPreflight(preflight)}`)
 
 /** 按镜像名数进程：回答"应用起来了没""WebView2 的浏览器进程派生了没" */
 const countBy = (image) => {
@@ -236,9 +322,20 @@ async function launchOnce(extraEnv = {}) {
           `  现场：${JSON.stringify(diag)}`,
       )
     }
+    /**
+     * 这一句里的分流是 2026-11-02 那笔账的余额：`portOpen`（现查有没有人听）与启动前的 `preflight`
+     * （能不能绑）合起来才分得清「端口的问题」和「WebView2 的问题」。只报前半句就会把人指偏。
+     */
+    const where =
+      preflight.verdict === 'FREE'
+        ? `  spawn 前试绑过这个口是 FREE ⇒ **不是端口被占**，是 WebView2 没把远调参数带上或没起来：\n` +
+          `  ① WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS 被外部环境覆盖了；② 复用了已存在的 EBWebView 浏览器进程\n` +
+          `  （上一轮残留的 app / webview 没退干净，新进程并进那个不带参数的浏览器进程）；③ 应用起不来（看 childExit / moduloProcs）。\n`
+        : `  这个口能不能绑没查出来（${preflight.detail || '无错误码'}）⇒「端口被占」与「WebView2 没起来」两种都可能。\n`
     throw new Error(
       `CDP 端口 ${PORT} 等了 30 秒没等到 tauri.localhost 的页面。\n` +
         `  pageUrls 为空 ⇒ WebView2 没起来或远调参数没生效；先确认 ${EXE} 能手工启动。\n` +
+        where +
         `  现场：${JSON.stringify(diag)}`,
     )
   }
