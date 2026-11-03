@@ -200,7 +200,12 @@ const newestInput = (dir, acc = { path: '', mtime: 0 }) => {
 const warnIfStale = () => {
   if (!existsSync(EXE)) {
     console.log(`STALE-NOTE  没有可探测的二进制：${EXE}（先 npm run tauri:build）`)
-    return
+    /**
+     * 这里必须**停**，不能只 warn。以前它 warn 完继续往下走，`spawn` 一颗不存在的路径会发出
+     * 'error' 事件而没人接，Node 把它抛成未处理异常 —— 整屏堆栈、退出码 1，看着像探针自己坏了。
+     * 退出码 2 与启动前那道预检同档：**前置条件不成立（压根没跑）**，不是被测对象红（那是 1）。
+     */
+    process.exit(2)
   }
   const exeMtime = statSync(EXE).mtimeMs
   // 覆盖「改了会重编」的那些输入：tauri 配置（build script 读它）、Cargo 清单、Rust 源码
@@ -278,16 +283,33 @@ const state = () => {
 
 async function launchOnce(extraEnv = {}) {
   const browserArgs = `--remote-debugging-port=${PORT}`
-  const child = spawn(EXE, [], {
-    env: { ...process.env, WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS: browserArgs, ...extraEnv },
-    /**
-     * 必须是 'ignore'，不能是 'pipe'：本轮加诊断时改成 pipe 想收 stderr，结果应用以 101 崩了
-     * （Rust 的 print!/eprintln! 在写端坏掉时是 panic，而不是静默丢），49/49 直接掉到 33/35。
-     * 测量手段不该改动被测对象 —— 想看死因就靠下面的 childExit + 进程计数，别接管它的 stdout。
-     */
-    stdio: 'ignore',
+  /**
+   * spawn 的失败形状有两种，实测都必须接住（本机 node v26.8.2，2026-11-03）：
+   *   ① **同步 throw** —— 路径存在但不是可执行文件（`EFTYPE`）；
+   *   ② **'error' 事件** —— 路径不存在 / 是个目录（`ENOENT`）。
+   * 这两种以前都没人接：未处理的 `'error'` 被 Node 抛成异常 ⇒ 整屏堆栈 + 退出码 1，
+   * 看着像探针自己坏了。现在统一收成一句 `SPAWN-FAIL` 并**立刻**退出 2（与启动前那道预检同档：
+   * 前置条件不成立 = 压根没跑，不是被测对象红 = 1），也不再白等那 30 秒。
+   */
+  let spawnError = ''
+  let child = null
+  try {
+    child = spawn(EXE, [], {
+      env: { ...process.env, WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS: browserArgs, ...extraEnv },
+      /**
+       * 必须是 'ignore'，不能是 'pipe'：本轮加诊断时改成 pipe 想收 stderr，结果应用以 101 崩了
+       * （Rust 的 print!/eprintln! 在写端坏掉时是 panic，而不是静默丢），49/49 直接掉到 33/35。
+       * 测量手段不该改动被测对象 —— 想看死因就靠下面的 childExit + 进程计数，别接管它的 stdout。
+       */
+      stdio: 'ignore',
+    })
+  } catch (e) {
+    spawnError = e?.code || String(e)
+  }
+  child?.on('error', (e) => {
+    spawnError ||= e?.code || String(e)
   })
-  pid = child.pid ?? 0
+  pid = child?.pid ?? 0
   /**
    * 句柄必须在每次 launch 前清零。hwnd 是模块级变量，而「夹取分支」会在第一个实例还开着
    * 的时候再 launch 一次 —— 沿用上一个实例的句柄时，state() 会去读**前一个**窗口
@@ -297,7 +319,7 @@ async function launchOnce(extraEnv = {}) {
    */
   hwnd = 0
   let ready = false
-  for (let i = 0; i < 60 && !ready; i++) {
+  for (let i = 0; i < 60 && !ready && !spawnError; i++) {
     await sleep(500)
     try {
       const list = await (await fetch(`http://127.0.0.1:${PORT}/json/list`)).json()
@@ -305,6 +327,15 @@ async function launchOnce(extraEnv = {}) {
     } catch {
       /* WebView2 还没起来 */
     }
+  }
+  if (spawnError) {
+    console.error(
+      `SPAWN-FAIL  ${EXE} 起不来（${spawnError}）—— 进程压根没创建，与 WebView2 / 远调参数无关。\n` +
+        `  处置：① 先 \`npm run tauri:build\` 产出 src-tauri/target/release/modulo.exe；\n` +
+        `  ② 或把 \`MODULO_EXE\` 指到已装的那颗（默认 \`D:\\Program Files (x86)\\Modulo\\modulo.exe\`）。\n` +
+        `  两种失败形状都归到这里：路径不存在 / 是目录 ⇒ ENOENT（'error' 事件），路径存在但不可执行 ⇒ EFTYPE（同步抛出）。`,
+    )
+    process.exit(2)
   }
   if (!ready) {
     const diag = await diagnose(child, browserArgs)
