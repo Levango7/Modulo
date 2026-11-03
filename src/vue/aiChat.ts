@@ -28,7 +28,7 @@ import type {
   StoredBirthday,
   Todo,
 } from './cardDataTypes'
-import { countdownOf, elapsedOf, ledgerEntriesOf, matrixOf, stickyOf, todosOf } from './instanceData'
+import { countdownOf, elapsedOf, habitOf, ledgerEntriesOf, matrixOf, stickyOf, todosOf } from './instanceData'
 
 export type ChatRole = 'user' | 'assistant'
 
@@ -257,8 +257,13 @@ export function excerptFor(choice: CardChoice, data: ExcerptSource): string {
       const e = elapsedOf(data, choice.module, choice.id)
       return cut(e.label && e.date ? `${e.label}：从 ${e.date} 起` : '', EXCERPT_MAX)
     }
-    case 'habit':
-      return cut(data.habit.name ? `${data.habit.name}：已打卡 ${data.habit.days.length} 天` : '', EXCERPT_MAX)
+    case 'habit': {
+      // 按实例取（与便签 / 待办 / 倒数日 / 正计时 / 记账条目同一条口径）：第二张习惯卡报的是
+      // 它自己的名字和天数。**不取 §12.50 的求和口径** —— 求和是给图表那种"看全部"的视图
+      // 用的；`@` 的是具体某一张卡，用户问"这个习惯打了几天"要的是这张，不是两张之和。
+      const h = habitOf(data, choice.module, choice.id)
+      return cut(h.name ? `${h.name}：已打卡 ${h.days.length} 天` : '', EXCERPT_MAX)
+    }
     case 'birthday':
       return cut(data.birthdays.slice(0, 8).map((b) => `${b.name}：${b.month} 月 ${b.day} 日`).join('\n'), EXCERPT_MAX)
     case 'pick':
