@@ -7,10 +7,13 @@
 //! - **体积实测推翻了原估**（R-02 红线）：SenseVoice fp32 **999MB** / int8 **155MB**，
 //!   标点 fp32 **266MB** / int8 **61.7MB**，Silero VAD int8 **0.2MB**。
 //!   → **本批全量选 int8**。按 fp32 走，首次运行要下 1.2GB，MVP 不现实。
-//! - **diarization 本批不做**：`speaker-segmentation-models` release **没有 checksum
-//!   文件**，pyannote 分割模型（6.6MB）无权威校验源。按 R-01「不无校验下载」的口径
-//!   剥离，留到 session 批另议（已登记 D-14，契约 `meeting_stop` 的 D7 回填条款
-//!   因此顺延）。
+//! - **diarization 的校验源分两级（2026-11-04 复测，见 `model-checksums.json`）**：
+//!   `speaker-segmentation-models` release **至今没有 checksum 文件**（`curl --fail` 仍 404），
+//!   pyannote 分割包（6.6MB）因此没有权威校验源可抄 ⇒ 走**自证基线**（两次独立传输实测
+//!   同值 + 记时间/机器/工具，R-01 的分级版）。嵌入模型那边不用自证：
+//!   `speaker-recongition-models` release 带官方 `checksum.txt`，中英 campplus 那行今天
+//!   按真下载的字节核过。两样都还**没接进 `all()`**（引擎还没接线），所以首次运行
+//!   下载量一分不变。
 //! - **解压后不硬编码模型文件名**：官方示例里 SenseVoice 是 `model.int8.onnx`、
 //!   标点档是 `model.onnx`，两档命名不一致且 int8 档可能改名 —— 统一改成
 //!   **扫描目录找 `.onnx`**，猜错一个字符就白下 155MB，不冒这个险。
@@ -20,6 +23,8 @@ use std::io::{BufReader, Read};
 use std::path::{Path, PathBuf};
 
 use sha2::{Digest, Sha256};
+
+use super::model_trust::Trust;
 
 /// `asr-models` release 的下载地址前缀（模型与 VAD 都挂在这个 tag 下）
 const BASE_ASR: &str = "https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models";
@@ -34,7 +39,9 @@ pub enum Kind {
     Single,
 }
 
-/// 一个模型制品。`sha256` 必须与官方 `checksum.txt` 逐字符一致。
+/// 一个模型制品。`sha256` 必须与 [`model-checksums.json`](../../../model-checksums.json)
+/// 台账里那条逐字符一致 —— 这句话说的是**两份都改对了才算数**，对账由
+/// `model_trust.rs` 的 `台账与清单逐条对账` 用例做（双向），运行时判据仍然是这里这份常量。
 #[derive(Clone, Copy, Debug)]
 pub struct ModelSpec {
     /// 本地目录名 / 标识
@@ -44,6 +51,8 @@ pub struct ModelSpec {
     pub base: &'static str,
     pub sha256: &'static str,
     pub kind: Kind,
+    /// 这个 sha256 从哪来（R-01 分级）
+    pub trust: Trust,
 }
 
 /// Silero VAD（int8，0.2MB）—— 断句用
@@ -53,6 +62,9 @@ pub const VAD: ModelSpec = ModelSpec {
     base: BASE_ASR,
     sha256: "c36d490aff5ab924ca6c7aeec4d8f6bd3d22db6fa17611b9c5b17eae58ac3a20",
     kind: Kind::Single,
+    trust: Trust::Official {
+        release: "asr-models",
+    },
 };
 
 /// SenseVoice-Small 中英日韩粤（int8，155MB）—— 转写用
@@ -62,6 +74,9 @@ pub const ASR: ModelSpec = ModelSpec {
     base: BASE_ASR,
     sha256: "7305f7905bfcf77fa0b39388a313f3da35c68d971661a65475b56fb2162c8e63",
     kind: Kind::Archive,
+    trust: Trust::Official {
+        release: "asr-models",
+    },
 };
 
 /// CT-Transformer 中英标点（int8，61.7MB）—— 给转写结果补标点
@@ -71,9 +86,15 @@ pub const PUNC: ModelSpec = ModelSpec {
     base: BASE_PUNC,
     sha256: "c0d5aa5f8eeb686032345e180bedf39319dc2e0556781c6264bcadba8328a6e1",
     kind: Kind::Archive,
+    trust: Trust::Official {
+        release: "punctuation-models",
+    },
 };
 
 /// 本批要管的三件。`vad` 排第一：它最小（0.2MB），先就绪先可用。
+///
+/// 另有两件「已核过出处、尚未接线」的说话人制品在 `model_trust.rs`，
+/// 不进这份下载清单（首次运行下载量因此一分不变）。
 pub fn all() -> [ModelSpec; 3] {
     [VAD, ASR, PUNC]
 }

@@ -41,13 +41,20 @@ pub fn humanize_transport(msg: &str) -> String {
 
 /// 校验和不匹配。**这是最要紧的一条**——说明拿到的不是官方那份，
 /// 必须明确告诉用户「已丢弃」，避免他以为装好了。
-pub fn verify_mismatch(id: &str, expected: &str, actual: &str) -> String {
+///
+/// `trust` 是这份基线的**出处**（`asr_models::ModelSpec::trust` 的 `label()`），
+/// 不是装饰：两档基线的排查方向相反 —— 官方的不符 ⇒ 先看传输/网关；自证的不符
+/// ⇒ 先看上游是不是重新打过包。少给这一行，报错就把人往反方向指。
+pub fn verify_mismatch(id: &str, expected: &str, actual: &str, trust: &str) -> String {
     format!(
         "{id} 模型校验失败，已丢弃下载内容（防篡改/防损坏）。\n\
          期望 sha256：{expected}\n\
          实际 sha256：{actual}\n\
+         基线出处：{trust}\n\
          常见原因：下载被代理截断、或上游更新了模型文件。请重试；\
-         反复失败请检查网络代理。"
+         反复失败请检查网络代理（基线若是自证的，先跑 \
+         `node scripts/model-checksum-check.mjs --fetch` 复核上游有没有换包，\
+         别直接改基线）。"
     )
 }
 
@@ -112,9 +119,28 @@ mod tests {
 
     #[test]
     fn 校验失败文案带上两个值且说清已丢弃() {
-        let s = verify_mismatch("asr", "a".repeat(64).as_str(), "b".repeat(64).as_str());
+        let s = verify_mismatch(
+            "asr",
+            "a".repeat(64).as_str(),
+            "b".repeat(64).as_str(),
+            "官方 checksum.txt（release asr-models）",
+        );
         assert!(s.contains("已丢弃"));
         assert!(s.contains(&"a".repeat(64)));
         assert!(s.contains(&"b".repeat(64)));
+        // 基线出处必须原样带上 —— 排查方向由它决定，不是可省的装饰
+        assert!(s.contains("基线出处：官方 checksum.txt（release asr-models）"));
+    }
+
+    #[test]
+    fn 自证基线的不符指向复核而不是改基线() {
+        let s = verify_mismatch(
+            "diar-seg",
+            "a".repeat(64).as_str(),
+            "b".repeat(64).as_str(),
+            "自证基线（2 次独立实测，2026-11-04；release speaker-segmentation-models 至今无 checksum.txt）",
+        );
+        assert!(s.contains("model-checksum-check.mjs --fetch"), "{s}");
+        assert!(s.contains("别直接改基线"), "{s}");
     }
 }

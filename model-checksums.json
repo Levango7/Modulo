@@ -1,0 +1,91 @@
+{
+  "schema": "modulo.model-checksums.v1",
+  "note": "模型制品的校验和**出处**台账。Rust 侧 `src-tauri/src/meeting/asr_models.rs` 的常量是运行时唯一判据，这份文件记的是「那个 digest 从哪来、什么时候核过」。两份必须一致，由 `cargo test`（双向逐条对账）与 `node scripts/model-checksum-check.mjs`（本文件的内部诚实 + 上游漂移）两道门守着。",
+  "red_line": "R-01：不无校验下载。官方 checksum.txt 里有这一行的，照抄；没有的，走 self-attested（≥2 次独立传输实测同值 + 记时间/机器/工具），且一旦上游发布 checksum.txt 就以它为准并推翻自证基线。",
+  "self_attested_budget": 1,
+  "budget_note": "自证基线的包数上限。要加第二个自证制品，先改这个数并重新拍板 —— 门禁比的是「实际条数 == 预算」，悄悄多一条记录会当场红。2026-11-04 的答案是 1（只有 pyannote 分包没有官方校验源）。",
+  "artifacts": [
+    {
+      "id": "vad",
+      "file": "silero_vad.int8.onnx",
+      "sha256": "c36d490aff5ab924ca6c7aeec4d8f6bd3d22db6fa17611b9c5b17eae58ac3a20",
+      "wired": true,
+      "trust": "official-checksum-txt",
+      "release": "asr-models",
+      "source_url": "https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/silero_vad.int8.onnx",
+      "checksum_url": "https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/checksum.txt",
+      "official_line": "silero_vad.int8.onnx\tc36d490aff5ab924ca6c7aeec4d8f6bd3d22db6fa17611b9c5b17eae58ac3a20",
+      "checked_at": "2026-11-04"
+    },
+    {
+      "id": "asr",
+      "file": "sherpa-onnx-sense-voice-zh-en-ja-ko-yue-int8-2025-09-09.tar.bz2",
+      "sha256": "7305f7905bfcf77fa0b39388a313f3da35c68d971661a65475b56fb2162c8e63",
+      "wired": true,
+      "trust": "official-checksum-txt",
+      "release": "asr-models",
+      "source_url": "https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-sense-voice-zh-en-ja-ko-yue-int8-2025-09-09.tar.bz2",
+      "checksum_url": "https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/checksum.txt",
+      "official_line": "sherpa-onnx-sense-voice-zh-en-ja-ko-yue-int8-2025-09-09.tar.bz2\t7305f7905bfcf77fa0b39388a313f3da35c68d971661a65475b56fb2162c8e63",
+      "checked_at": "2026-11-04"
+    },
+    {
+      "id": "punc",
+      "file": "sherpa-onnx-punct-ct-transformer-zh-en-vocab272727-2024-04-12-int8.tar.bz2",
+      "sha256": "c0d5aa5f8eeb686032345e180bedf39319dc2e0556781c6264bcadba8328a6e1",
+      "wired": true,
+      "trust": "official-checksum-txt",
+      "release": "punctuation-models",
+      "source_url": "https://github.com/k2-fsa/sherpa-onnx/releases/download/punctuation-models/sherpa-onnx-punct-ct-transformer-zh-en-vocab272727-2024-04-12-int8.tar.bz2",
+      "checksum_url": "https://github.com/k2-fsa/sherpa-onnx/releases/download/punctuation-models/checksum.txt",
+      "official_line": "sherpa-onnx-punct-ct-transformer-zh-en-vocab272727-2024-04-12-int8.tar.bz2\tc0d5aa5f8eeb686032345e180bedf39319dc2e0556781c6264bcadba8328a6e1",
+      "checked_at": "2026-11-04"
+    },
+    {
+      "id": "diar-emb",
+      "file": "3dspeaker_speech_campplus_sv_zh_en_16k-common_advanced.onnx",
+      "sha256": "aa3cfc16963a10586a9393f5035d6d6b57e98d358b347f80c2a30bf4f00ceba2",
+      "wired": false,
+      "trust": "official-checksum-txt",
+      "release": "speaker-recongition-models",
+      "source_url": "https://github.com/k2-fsa/sherpa-onnx/releases/download/speaker-recongition-models/3dspeaker_speech_campplus_sv_zh_en_16k-common_advanced.onnx",
+      "checksum_url": "https://github.com/k2-fsa/sherpa-onnx/releases/download/speaker-recongition-models/checksum.txt",
+      "official_line": "3dspeaker_speech_campplus_sv_zh_en_16k-common_advanced.onnx\taa3cfc16963a10586a9393f5035d6d6b57e98d358b347f80c2a30bf4f00ceba2",
+      "checked_at": "2026-11-04"
+    },
+    {
+      "id": "diar-seg",
+      "file": "sherpa-onnx-pyannote-segmentation-3-0.tar.bz2",
+      "sha256": "24615ee884c897d9d2ba09bb4d30da6bb1b15e685065962db5b02e76e4996488",
+      "wired": false,
+      "trust": "self-attested",
+      "release": "speaker-segmentation-models",
+      "source_url": "https://github.com/k2-fsa/sherpa-onnx/releases/download/speaker-segmentation-models/sherpa-onnx-pyannote-segmentation-3-0.tar.bz2",
+      "checksum_url": "https://github.com/k2-fsa/sherpa-onnx/releases/download/speaker-segmentation-models/checksum.txt",
+      "checked_at": "2026-11-04",
+      "why_self_attested": "该 release 只提供模型归档，2026-11-04 实测 `curl --fail .../checksum.txt` 仍 404 —— 没有任何官方 digest 可抄。",
+      "measurements": [
+        {
+          "at": "2026-11-04T17:21:24Z",
+          "machine": "VANGUARDLEA",
+          "tool": "coreutils sha256sum",
+          "bytes": 6958444,
+          "sha256": "24615ee884c897d9d2ba09bb4d30da6bb1b15e685065962db5b02e76e4996488"
+        },
+        {
+          "at": "2026-11-04T17:21:36Z",
+          "machine": "VANGUARDLEA",
+          "tool": "coreutils sha256sum",
+          "bytes": 6958444,
+          "sha256": "24615ee884c897d9d2ba09bb4d30da6bb1b15e685065962db5b02e76e4996488"
+        }
+      ],
+      "cross_checked_by": [
+        "certutil -hashfile SHA256",
+        "node crypto sha256"
+      ],
+      "independent_of": "两次是各自重新发起的 HTTPS 传输（非断点续传、非同一次落盘复读），并且 digest 用三种工具各算过一遍（coreutils sha256sum / certutil / node crypto），全部同值。同一台机器 = 只独立了传输路径，没独立硬件信任根 —— 这就是它标 self-attested 而不是 official 的原因。",
+      "overturnable": "上游哪天补出 checksum.txt，门禁立刻拿那行和本基线比；不等就红。"
+    }
+  ]
+}
