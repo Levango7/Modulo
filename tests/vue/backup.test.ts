@@ -158,6 +158,35 @@ describe('buildBackup：三样东西必须都在里面', () => {
     expect(back.summary).toMatchObject({ todos: 1, sticky: true, countdown: true })
   })
 
+  /**
+   * 2026-11-05：速记按实例分（F-01 阶段 2 第八个、也是最后一个字段）后，
+   * 摘要的「N 条速记」同一个口径 —— 顶层 1 条 + 第二张 1 条 = 2。
+   * 速记今天没有 UI 写入入口，这条是"第二张真有了内容时确认框不判错"的钉子。
+   */
+  it('summary 的速记数把第二实例的也算进去（整块板口径）', () => {
+    const withTwin: CardData = {
+      ...cardData,
+      byInstance: { 'notes:2': { notes: [{ id: 'n9', title: '第二张的速记', body: '内容', at: 9 }] } },
+    }
+    const back = parseBackup(backupToJson(makePayload({ cardData: withTwin })), REGISTRY)
+    expect(back.summary.notes, '第一张 1 条 + 第二张 1 条').toBe(2)
+  })
+
+  it('byInstance 里的速记进包：导出后本地再改不会跟着进包', () => {
+    const live: CardData = {
+      ...cardData,
+      byInstance: { 'notes:2': { notes: [{ id: 'n9', title: '第二张的', body: '导出一刻', at: 9 }] } },
+    }
+    const built = buildBackup(makePayload({ cardData: live }))
+    expect(built.cardData.byInstance?.['notes:2']?.notes?.map((n) => n.title)).toEqual(['第二张的'])
+    // 导出之后原地改顶层那份切片对象：包里必须是"导出一刻"，不是改后的字
+    live.byInstance!['notes:2']!.notes![0]!.body = '导出后改的'
+    expect(built.cardData.byInstance?.['notes:2']?.notes?.[0]?.body).toBe('导出一刻')
+    // 恢复 roundtrip：包里那条读回来还在第二张名下
+    const back = parseBackup(backupToJson(built), REGISTRY)
+    expect(back.cardData?.byInstance?.['notes:2']?.notes?.map((n) => n.title)).toEqual(['第二张的'])
+  })
+
   it('深拷贝：导出后用户新敲的字不会跟着进包', () => {
     const live: CardData = {
       sticky: '原样',

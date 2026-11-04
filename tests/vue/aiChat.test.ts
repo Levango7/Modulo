@@ -282,7 +282,7 @@ describe('卡片正文摘录（只读用户真写进去的字）', () => {
     ).toBe('')
     expect(
       excerptFor(
-        choice({ module: 'notes' }),
+        choice({ module: 'notes', id: 'notes' }),
         source({ notes: [{ id: 'n', title: '周会', body: '三件事', at: 0 }] }),
       ),
     ).toBe('周会：三件事')
@@ -297,7 +297,7 @@ describe('卡片正文摘录（只读用户真写进去的字）', () => {
     ).toBe('文档 https://x.y')
     // 无标题 / 未分类 / 没设币种：给中性兜底，不出「：」开头的半截行
     expect(
-      excerptFor(choice({ module: 'notes' }), source({ notes: [{ id: 'n', title: '', body: '没有标题', at: 0 }] })),
+      excerptFor(choice({ module: 'notes', id: 'notes' }), source({ notes: [{ id: 'n', title: '', body: '没有标题', at: 0 }] })),
     ).toBe('无标题：没有标题')
     expect(
       excerptFor(
@@ -376,6 +376,18 @@ describe('卡片正文摘录（只读用户真写进去的字）', () => {
     ).toBe('冥想：已打卡 3 天')
     // 第二张还没设 ⇒ 空串，**不回落顶层**（口径与哥哥们逐字相同：回落就是把阶段 1 那个缺陷请回来）
     expect(excerptFor(choice({ module: 'habit', id: 'habit:2' }), source(first))).toBe('')
+  })
+
+  it('速记按实例取：第二张报自己的那几条，没写时不拿第一张的', () => {
+    const first = { notes: [{ id: 'n1', title: '第一张的', body: '顶层那份', at: 1 }] }
+    expect(
+      excerptFor(
+        choice({ module: 'notes', id: 'notes:2' }),
+        source({ ...first, byInstance: { 'notes:2': { notes: [{ id: 'n2', title: '第二张的', body: '切片那份', at: 2 }] } } }),
+      ),
+    ).toBe('第二张的：切片那份')
+    // 第二张还没写 ⇒ 空串，不回落顶层（§12.52 习惯同一条口径）
+    expect(excerptFor(choice({ module: 'notes', id: 'notes:2' }), source(first))).toBe('')
   })
 
   it('没写内容 / 不认识的模块一律空串（联网卡与计算卡不喂）', () => {

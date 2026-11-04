@@ -114,8 +114,9 @@ describe('confirmRestore：整份恢复（旧实现只回填四个字段）', ()
    * 2026-11-01：恢复成功后那句「内容 N 条待办 / N 笔账」要报**整块板**的合计。
    * 待办与记账条目都已按实例分，只认第一张会把第二张里的条目漏掉 ——
    * 而恢复完用户核对"东西都回来了没"，靠的就是这一行。
+   * 2026-11-05：速记按实例分（第八个字段）后，「N 条速记」同一个口径。
    */
-  it('恢复提示的「N 条待办 / N 笔账」是全部实例加起来（不是只数第一张）', () => {
+  it('恢复提示的「N 条待办 / N 条速记 / N 笔账」是全部实例加起来（不是只数第一张）', () => {
     const { storage, store, backup } = setup()
     const d = richCardData()
     d.byInstance = {
@@ -126,6 +127,7 @@ describe('confirmRestore：整份恢复（旧实现只回填四个字段）', ()
         ],
       },
       'ledger:2': { ledger: [{ id: 'e2', date: '2026-10-02', cents: 500, category: '交通', note: '地铁' }] },
+      'notes:2': { notes: [{ id: 'n2', title: '第二张的速记', body: '正文', at: 2 }] },
     }
     seedSlot(storage, store, d, meta(0))
     backup.restoreAuto(meta(0))
@@ -133,6 +135,7 @@ describe('confirmRestore：整份恢复（旧实现只回填四个字段）', ()
 
     const text = backup.notices.value.join(' | ')
     expect(text, '第一张 1 条 + 第二张 2 条').toContain('3 条待办')
+    expect(text, '第一张 1 条 + 第二张 1 条').toContain('2 条速记')
     expect(text, '第一张 1 笔 + 第二张 1 笔').toContain('2 笔账')
   })
 

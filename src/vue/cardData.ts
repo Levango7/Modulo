@@ -40,12 +40,12 @@ import {
 import { createFallbackCardData } from './cardDataFallback'
 import { browserStorage } from './store'
 import { QUADRANTS, type CardData, type Quadrant, type TimerKey } from './cardDataTypes'
-import { ledgerEntriesOf, matrixOf, todosOf, writeLedgerEntries, writeMatrix, writeTodos } from './instanceData'
+import { ledgerEntriesOf, matrixOf, notesOf, todosOf, writeLedgerEntries, writeMatrix, writeNotes, writeTodos } from './instanceData'
 
 export * from './cardDataTypes'
 export { sanitizeCardData } from './cardDataSanitize'
 /** 按实例取数的判定层（F-01 阶段 2）：卡片组件直接拿它配 `state` 用，不绕一层 API */
-export { matrixOf, stickyOf, todosOf, writeMatrix, writeSticky, writeTodos } from './instanceData'
+export { matrixOf, notesOf, stickyOf, todosOf, writeMatrix, writeNotes, writeSticky, writeTodos } from './instanceData'
 
 const KEY = 'modulo.carddata.v1'
 
@@ -176,8 +176,20 @@ export function createCardData(storage = browserStorage()) {
         list.filter((x) => x.id !== id),
       )
     },
-    addNote(title: string, body: string) {
-      state.notes.unshift({ id: nextId('n'), title: title.trim() || '无标题', body, at: Date.now() })
+    /**
+     * 加一条速记。`moduleId` / `instanceId` 可选：不给就写顶层（= 第一实例 / 单实例，
+     * 与改造前逐字相同）；给了且是第二实例，写它自己那一份（判定在 `instanceData.ts`）。
+     *
+     * 与待办同形但方向相反：待办是「读出来那份末尾追加」，速记的语义是**最新在前**
+     * （界面按 `at` 新的在上），所以是 `[新条目, ...读出来那份]`。整条写回而不原地
+     * unshift —— 原地改触发不了深层 watch（写盘不动），界面还不刷新。
+     */
+    addNote(title: string, body: string, moduleId?: string, instanceId?: string) {
+      const list = notesOf(state, moduleId, instanceId)
+      writeNotes(state, moduleId, instanceId, [
+        { id: nextId('n'), title: title.trim() || '无标题', body, at: Date.now() },
+        ...list,
+      ])
     },
     addBirthday(name: string, month: number, day: number, year?: number) {
       const n = name.trim()

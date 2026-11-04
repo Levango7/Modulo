@@ -1,12 +1,30 @@
 <script setup lang="ts">
+/**
+ * 速记卡：最近几条速记。**内容（标题 + 正文 + 时间戳）存 `cardData`，跟着完整备份走。**
+ *
+ * F-01 阶段 2（2026-11-05）：内容按实例分（第八个、也是阶段 2 最后一个字段）——
+ * 读用 `notesOf`：第二张速记卡读的是它自己那份（没有就是空白），不再是跟着第一张显示。
+ * `recent`（最近改动）模块反过来按**聚合**口径（`allNotes`）：它的语义本来就是
+ * "这块板最近动过的内容"，只看顶层会把第二张的速记漏掉（§12.50 同一条纪律）。
+ * 单实例 / 第一实例仍读顶层那一份，与改造前逐字相同。
+ *
+ * 如实记：本卡今天**没有写入入口**（`addNote` 在 `cardData.ts` 里有，自初始提交起
+ * 只有测试在调）—— 本笔只改读路径，写入入口补不补留给产品裁决。
+ */
 import { computed, inject } from 'vue'
 import { FileText, History } from 'lucide-vue-next'
 import type { CardDataApi } from '../../vue/cardData'
+import { allNotes, notesOf } from '../../vue/instanceData'
 
-const props = defineProps<{ variant: string; moduleId?: string; chromeless?: boolean }>()
+const props = defineProps<{ variant: string; moduleId?: string; instanceId?: string; chromeless?: boolean }>()
 const cards = inject<CardDataApi>('cardData')!
 const limit = computed(() => (props.variant === 'tall' ? 20 : props.variant === 'bar' ? 6 : 4))
-const items = computed(() => cards.state.notes.slice(0, limit.value))
+const items = computed(() => {
+  const list = props.moduleId === 'recent'
+    ? allNotes(cards.state)
+    : notesOf(cards.state, props.moduleId, props.instanceId)
+  return list.slice(0, limit.value)
+})
 
 function when(at: number): string {
   const d = Math.floor((Date.now() - at) / 60000)

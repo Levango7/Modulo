@@ -2,7 +2,9 @@
  * F-01 阶段 2：同种卡多实例的**内容**各自独立 —— 便签打通全链（2026-10-28），
  * 待办接着做第二个字段（2026-10-29），倒数日 / 正计时收尾第三、四个字段（2026-10-30），
  * 记账第五个（2026-10-31），**习惯**第六个（2026-11-01），
- * **四象限**第七个（2026-10-30 撰写，合并序第七 —— master 那两笔先合入，故本笔排其后）。
+ * **四象限**第七个（2026-10-30 撰写，合并序第七 —— master 那两笔先合入，故本笔排其后），
+ * **速记**第八个、也是阶段 2 最后一个字段（2026-11-05 —— 它今天没有 UI 写入入口，
+ * 这条因此只钉读路径隔离，判定层在单测锁 100）。
  *
  * 阶段 1（#127）只分开了 **id**（第二张是 `sticky:2`），两个实例仍共享同一份内容：
  * 在第二张里打字，第一张跟着变。这一笔把内容也分开，判据抽在 `src/vue/instanceData.ts`
@@ -44,7 +46,7 @@ const skip = !EXE
 let url = 'http://localhost:1430'
 const wait = (ms: number) => new Promise((r) => setTimeout(r, ms))
 
-describe.skipIf(skip)('多实例内容（F-01 阶段 2）：两张卡各写各的（便签 / 待办 / 倒数日 / 正计时 / 记账 / 习惯 / 四象限）', () => {
+describe.skipIf(skip)('多实例内容（F-01 阶段 2）：两张卡各写各的（便签 / 待办 / 倒数日 / 正计时 / 记账 / 习惯 / 四象限 / 速记）', () => {
   it('第二张便签有自己的正文，刷新后各自还在，且存储形状对', async () => {
     url = process.env.MODULO_URL ?? url
     const browser = await puppeteer.launch({
@@ -955,6 +957,152 @@ describe.skipIf(skip)('多实例内容（F-01 阶段 2）：两张卡各写各�
       (stored.matrix as { text: string }[]).map((m) => m.text),
       '顶层（第一实例）不该出现第二张的任何一条',
     ).toEqual(['两张都叫这条'])
+
+    expect(errs, `页面不该有报错：${errs.join(' | ')}`).toEqual([])
+    await browser.close()
+  })
+
+  /**
+   * ⑧ 速记（第八个、也是阶段 2 最后一个字段，2026-11-05）。
+   *
+   * 与哥哥们**唯一的不同**：速记今天没有 UI 写入入口（`addNote` 自初始提交起只有测试
+   * 在调），所以"各自写"那半没法用真点击完成 —— 这条钉的是**读路径隔离**：种一份
+   * 顶层 + 一份 byInstance 的速记，两张卡必须各显示各的标题；刷新后仍各是各的
+   * （读的不是"当时恰好相同"的同一份）。判定层那一半（读写口径）在
+   * `instanceData.test.ts` 锁 100；写入入口补上后，这条再加"各自写"不迟。
+   */
+  it('第二张速记卡只看自己那份：顶层与 byInstance 各显示各的，刷新后仍隔离', async () => {
+    url = process.env.MODULO_URL ?? url
+    const browser = await puppeteer.launch({
+      executablePath: EXE!,
+      headless: true,
+      args: ['--no-sandbox', '--disable-gpu'],
+      userDataDir: `F:/tmp/pptr-profile-${Date.now()}`,
+    })
+    const page = await browser.newPage()
+    await page.setViewport({ width: 1440, height: 900, deviceScaleFactor: 1 })
+    const errs: string[] = []
+    await page.evaluateOnNewDocument(() => {
+      localStorage.setItem('modulo.template.v1', 'general')
+      // general 出厂模板已带一张速记；这里**预置**两种来源的速记（顶层的 + 第二实例自己的），
+      // 再 runtime 里加第二张速记卡 —— 两张各读各的才算分开。
+      const seed = {
+        sticky: '',
+        todos: [],
+        notes: [{ id: 'n1', title: '第一张的速记', body: '顶层那份', at: 1 }],
+        countdown: { label: '', date: '' },
+        elapsed: { label: '', date: '' },
+        habit: { name: '', days: [] },
+        birthdays: [],
+        pickList: [],
+        ledger: { symbol: '¥', entries: [] },
+        meeting: { cityIds: [], at: '09:00', minutes: 30, title: '' },
+        timers: {
+          stopwatch: { accumulatedMs: 0, startedAt: null },
+          countdown: { minutes: 5, accumulatedMs: 0, startedAt: null },
+          interval: { presetId: 'pomodoro', completedFocus: 0, phaseIndex: 0, accumulatedMs: 0, startedAt: null },
+          breath: { patternId: 'box', accumulatedMs: 0, startedAt: null },
+        },
+        links: [],
+        commands: [],
+        matrix: [],
+        probes: [],
+        stocks: [],
+        feeds: [],
+        watch: [],
+        endpoints: [],
+        launch: [],
+        htmlCards: [],
+        extCards: [],
+        extState: {},
+        fixed: { base: '', rate: '', symbol: '' },
+        duty: { roster: [] },
+        byInstance: { 'notes:2': { notes: [{ id: 'n2', title: '第二张的速记', body: '切片那份', at: 2 }] } },
+      }
+      localStorage.setItem('modulo.carddata.v1', JSON.stringify(seed))
+    })
+    await page.goto(url, { waitUntil: 'networkidle2', timeout: 30000 })
+    await wait(800)
+
+    /**
+     * 每张速记卡当前显示的标题列表（overview 变体看标题行 .t）。
+     * selector 用 `[data-module^="notes"]` 而不是 `="notes"`：第二实例的 data-module 是
+     * `notes:2`（实例 id），精确等于 "notes" 会把它漏掉 —— 偏偏漏的正是要钉的那张。
+     */
+    const titles = () =>
+      page.evaluate(() =>
+        [...document.querySelectorAll<HTMLElement>('.cell[data-module^="notes"]')].map((cell) =>
+          [...cell.querySelectorAll<HTMLElement>('.list .t')].map((el) => (el.textContent || '').trim()),
+        ),
+      )
+
+
+    const first = await titles()
+    expect(first, '出厂模板里那张速记卡读的是顶层那份').toEqual([['第一张的速记']])
+
+    // 从目录再加一张速记（阶段 1 的验收之一：目录不过滤已放置的模块）
+    expect(await page.evaluate(() => !!document.querySelector<HTMLElement>('.bar button')), '顶栏应在').toBe(true)
+    const clickBar = (text: string) =>
+      page.evaluate((t) => {
+        const b = [...document.querySelectorAll<HTMLButtonElement>('.bar button')].find(
+          (e) => (e.textContent || '').trim().includes(t),
+        )
+        b?.click()
+        return !!b
+      }, text)
+    expect(await clickBar('布局编辑'), '顶栏上应有「布局编辑」').toBe(true)
+    await wait(500)
+    await page.evaluate(() => void document.querySelector<HTMLElement>('.add-cat')?.click())
+    await wait(350)
+    const added = await page.evaluate(() => {
+      const el = [...document.querySelectorAll<HTMLElement>('.add-menu [role=menuitem]')].find((x) =>
+        (x.querySelector('.t')?.textContent || '').includes('速记'),
+      )
+      el?.click()
+      return !!el
+    })
+    expect(added, '目录里应能加第二张速记').toBe(true)
+    await wait(500)
+    expect(await clickBar('工作台'), '顶栏上应有「工作台」').toBe(true)
+    await wait(800)
+
+    const two = await titles()
+    expect(two, '两张速记卡：第一张读顶层、第二张读自己那份（不跟着第一张显示）').toEqual([
+      ['第一张的速记'],
+      ['第二张的速记'],
+    ])
+
+    /**
+     * 布局编辑态（CanvasEditor 的渲染路径，`App.vue` 的 #default 插槽）也要各读各的 ——
+     * 2026-11-05 修：那条路径此前只传 module-id 不传 instance-id，多开的第二张卡在编辑态
+     * 一律按"第一实例"读内容（界面看着就是"编辑态里两张速记显示同一份"）。这里钉的就是它。
+     */
+    expect(await clickBar('布局编辑'), '再进「布局编辑」').toBe(true)
+    await wait(800)
+    expect(await titles(), '编辑态里两张也各读各的（instance-id 漏传会让第二张显示顶层那份）').toEqual([
+      ['第一张的速记'],
+      ['第二张的速记'],
+    ])
+
+
+    // 刷新：读的还是自己那份（不是"当时恰好相同"的同一份）
+    await page.reload({ waitUntil: 'networkidle2' })
+    await wait(800)
+    expect(await titles(), '刷新后仍然各读各的').toEqual([
+      ['第一张的速记'],
+      ['第二张的速记'],
+    ])
+
+    // 存储形状：预置的那份切片没被动过（本卡只读；写入入口缺失如实记）
+    const stored = await page.evaluate(() => JSON.parse(localStorage.getItem('modulo.carddata.v1') ?? '{}'))
+    expect(
+      ((stored.byInstance?.['notes:2']?.notes ?? []) as { title: string }[]).map((n) => n.title),
+      '第二实例那份速记原样在盘上',
+    ).toEqual(['第二张的速记'])
+    expect(
+      (stored.notes as { title: string }[]).map((n) => n.title),
+      '顶层那份速记原样在盘上',
+    ).toEqual(['第一张的速记'])
 
     expect(errs, `页面不该有报错：${errs.join(' | ')}`).toEqual([])
     await browser.close()

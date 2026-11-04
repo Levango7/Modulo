@@ -138,6 +138,12 @@ export function contentIndex(data: CardData): ContentEntry[] {
     for (const [i, m] of (inst?.matrix ?? []).entries()) {
       out.push({ id: `matrix:${instanceId}:${i}`, cardId: instanceId, title: '四象限待办', text: m.text })
     }
+    // 第二张起的速记也在 `byInstance` 里（F-01 阶段 2 第八个、也是最后一个字段，
+    // 2026-11-05），同上。速记今天没有 UI 写入入口，这段是"第二张速记将来真有了
+    // 内容时搜得到"的那颗钉子。id 同样带实例 id 与下标（标题是每条各自起的）。
+    for (const [i, n] of (inst?.notes ?? []).entries()) {
+      out.push({ id: `notes:${instanceId}:${i}`, cardId: instanceId, title: `速记 · ${n.title || '无标题'}`, text: `${n.title} ${n.body}` })
+    }
   }
   data.todos.forEach((t, i) => out.push({ id: `todo:${i}`, cardId: 'todo', title: `待办 · ${t.done ? '已完成' : '未完成'}`, text: t.text }))
   data.matrix.forEach((m, i) => out.push({ id: `matrix:${i}`, cardId: 'matrix', title: '四象限待办', text: m.text }))
