@@ -30,7 +30,7 @@ import { execSync } from 'node:child_process';
 import { readFileSync, readdirSync, statSync, existsSync } from 'node:fs';
 import { join, resolve, relative } from 'node:path';
 import { checkArtifactLine, latestArtifact } from './release-artifact-facts.mjs';
-import { claimRe, e2eItCount, fileLineClaims } from './docs-check-claims.mjs';
+import { claimRe, e2eItCount, fileLineClaims, VERSION_PLACES, versionPlaces, versionVerdict } from './docs-check-claims.mjs';
 
 const root = resolve(process.cwd());
 const MARK = '<!-- facts -->';
@@ -272,30 +272,17 @@ const facts = {
 };
 
 /**
- * 版本号同源：版本现在散在 7 个文件里（抽 `@levango7/engine` 包之后又多一处），
- * 人手同步必然漂 —— 历史上就漂过一次（CHANGELOG 0.1.0：「版本号三处不一致」）。
- * 这里逐个读出来比，加一处只需往 VERSION_PLACES 里加一条。
+ * 版本号同源：名录与判据都在 `docs-check-claims.mjs`（抽出去是为了能被单测喂坏样本 ——
+ * 这个文件一跑就把整个单测集跑一遍，用它验"某一处读不到"等于在测试里递归跑测试）。
+ * 消费点还是这里：`--print` 打逐处读数，末尾把「读不到」和「两个号」各判一次红。
+ *
+ * 2026-11-05 之前这里是**本文件自带**的 7 条 `[文件, 正则]`，两处失效形状都由那 7 条造成，
+ * 现在都在抽出去的那份里修掉了：① `package-lock.json` 只有一条 ⇒ `match` 取第一个匹配，
+ * 于是永远读到顶层那一格，而 lock 里属于我们自己的另外两格（`packages[""]` 根包条目、
+ * `packages["packages/engine"]`）没人看 —— 根包条目实测停在 `0.8.4`、应用已是 `0.8.10`；
+ * ② 读不到的那一处被 `filter` 掉 ⇒ 名录静默少一处、剩下的照样同号、门绿。
  */
-const VERSION_PLACES = [
-  ['package.json', /"version":\s*"([^"]+)"/],
-  ['package-lock.json', /^\s*"version":\s*"([^"]+)"/m],
-  ['src-tauri/Cargo.toml', /^version\s*=\s*"([^"]+)"/m],
-  ['src-tauri/Cargo.lock', /name = "modulo"\nversion = "([^"]+)"/],
-  ['src-tauri/tauri.conf.json', /"version":\s*"([^"]+)"/],
-  ['src/vue/useBackup.ts', /APP_VERSION\s*=\s*'([^']+)'/],
-  ['packages/engine/package.json', /"version":\s*"([^"]+)"/],
-];
-
-function versionFacts() {
-  return VERSION_PLACES.map(([file, re]) => {
-    const p = resolve(root, file);
-    if (!existsSync(p)) return { file, version: null };
-    const m = readFileSync(p, 'utf8').match(re);
-    return { file, version: m ? m[1] : null };
-  });
-}
-
-const versions = versionFacts();
+const versions = versionPlaces(root);
 
 if (process.argv.includes('--print')) {
   console.log(JSON.stringify({ ...facts, versions }, null, 2));
@@ -505,19 +492,25 @@ for (const file of TARGETS) {
   });
 }
 
-// 版本号同源：不一致就是发布事故的前一步（漏对齐一处 = 装完的人看到两套版本号）
-const versionSet = new Set(versions.filter((v) => v.version).map((v) => v.version));
-if (versionSet.size > 1) {
+// 版本号同源：不一致就是发布事故的前一步（漏对齐一处 = 装完的人看到两套版本号）。
+// 两条红分开判：**值不一致**与**某一处压根读不到**是两件事 —— 后者原先被 `filter` 掉，
+// 于是"名录少了一处"这种失效形状静默通过（见 `docs-check-claims.mjs` 里那段来历）。
+const verdict = versionVerdict(versions);
+for (const p of verdict.unreadable) {
   bad++;
-  console.error(`✗ 版本号不一致：${[...versionSet].join(' vs ')}`);
-  for (const { file, version } of versions) console.error(`    ${version ?? '(读不到)'}  ${file}`);
+  console.error(`✗ 版本号这一处读不到：${p.label}\n    ${p.why} —— 名录上的九处少一处，就等于那一处从此没人守`);
+}
+if (verdict.distinct.length > 1) {
+  bad++;
+  console.error(`✗ 版本号不一致：${verdict.distinct.join(' vs ')}`);
+  for (const { version, label } of versions) console.error(`    ${version ?? '(读不到)'}  ${label}`);
 }
 
 console.log(
   `实跑事实：${facts.tests} 单测 / ${facts.files} 文件 · E2E ${facts.e2e} 条 · 受测层分支覆盖 ${facts.coverage?.toFixed(2) ?? '?'}%` +
     `${facts.jsKB ? ` · JS ${facts.jsKB} kB` : ''} · ${facts.cards} 种卡 · CI ${facts.jobs} 个 job` +
     ` · Rust ${facts.rust} 单测（另有 ${facts.rustIgnored} 条 #[ignore]，CI 不跑）` +
-    ` · 版本 ${[...versionSet][0] ?? '?'}（${versions.length} 处同源）`,
+    ` · 版本 ${verdict.distinct[0] ?? '?'}（${VERSION_PLACES.length} 处同源）`,
 );
 if (bad) {
   console.error(`\n${bad} 处对不上。改文档或改代码都算修，但别让两个数字长期各说各话。`);

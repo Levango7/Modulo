@@ -74,6 +74,93 @@ export function e2eItCount(src) {
 }
 
 /**
+ * 版本号散落的**九处**名录 + 「每一处都读得到吗、读到的是不是同一个号」。
+ *
+ * 为什么从 `docs-check.mjs` 抽到这里（本文件的既有职责就是"可测的纯判据"）：`docs-check.mjs`
+ * 一跑就把整个单测集跑一遍（它的真值就是从那儿来的），用它验"某一处读不到会怎样"
+ * 等于在测试里递归跑测试。
+ *
+ * ## 来历：同一份文件里「被扫过」与「每个副本都被扫过」是两件事
+ * `package-lock.json` 里有**三格**属于我们自己的版本号：顶层 `version`、`packages[""]`
+ * （根包条目 —— 真正描述这个包的那一格）、`packages["packages/engine"]`（workspace 里
+ * `@levango7/engine` 那一格，它和 `packages/engine/package.json` 是两个独立副本）。
+ * 原先的名录只有 `['package-lock.json', /^\s*"version":…/m]` 一条，而 `String.match` 只回
+ * **第一个**匹配 ⇒ 永远读到顶层那一格，另两格没人看。2026-11-05 实测 master：顶层 `0.8.10`、
+ * 根包条目 `0.8.4` —— 差着六个发布版，门一直是绿的。
+ *
+ * 第三格是**修完前两格之后**才发现的：并行会话（WorkBuddy）报切版落点是「9 处」，而当时
+ * 这道门只数出 8 处；对上一版切版提交 `e0d155f` 的说明才看清 —— 它把 lock 写成
+ * 「根条目 + `packages/engine` 条目」两格（那一笔确实改了两行），可名录里只有一条正则，
+ * 谁也没真的读到第二行。**同一种失效形状在同一次修复里剩了一份**，所以这里记下来：
+ * 数出来的处数与别人手里的清单不一致时，先去翻上一笔切版的实际改动面，别先假定对方数错了。
+ *
+ * ## 两条口径上的收紧
+ * 1. **JSON 文件按结构读，不按子串读**：缩进、键的顺序、"另一格同样的键"都能骗过子串判据；
+ *    `JSON.parse` 之后点名取哪一格是写死的，骗不过。
+ * 2. **「读不到」算红，不算跳过**：老判据是 `versions.filter((v) => v.version)` 之后再比大小，
+ *    于是文件改名 / 正则漂了会让那一格**静默消失**，剩下的照样同号 ⇒ 绿。九处名录少一处
+ *    就等于那一处从此没人守，而它看起来一直在跑。所以这里同时要求
+ *    「九处都读得到」与「读到的只有一个号」。
+ */
+export const VERSION_PLACES = [
+  { label: 'package.json → version', file: 'package.json', read: byJson((j) => j.version) },
+  { label: 'package-lock.json → 顶层 version', file: 'package-lock.json', read: byJson((j) => j.version) },
+  { label: 'package-lock.json → packages[""] 根包条目 version', file: 'package-lock.json', read: byJson((j) => j.packages?.['']?.version) },
+  {
+    // workspace 里 `@levango7/engine` 在 lock 中的那一格。它与 `packages/engine/package.json`
+    // 是**两个独立副本**（`npm install` 时由前者同步过来），所以两处都要点名读 ——
+    // 少读一处就等于"改了 package.json 忘了跑 install"这种漂没人守。
+    label: 'package-lock.json → packages["packages/engine"] version',
+    file: 'package-lock.json',
+    read: byJson((j) => j.packages?.['packages/engine']?.version),
+  },
+  { label: 'src-tauri/Cargo.toml → version', file: 'src-tauri/Cargo.toml', read: byRegex(/^version\s*=\s*"([^"]+)"/m) },
+  { label: 'src-tauri/Cargo.lock → modulo 那一格', file: 'src-tauri/Cargo.lock', read: byRegex(/name\s*=\s*"modulo"\r?\nversion\s*=\s*"([^"]+)"/) },
+  { label: 'src-tauri/tauri.conf.json → version', file: 'src-tauri/tauri.conf.json', read: byJson((j) => j.version) },
+  { label: 'src/vue/useBackup.ts → APP_VERSION', file: 'src/vue/useBackup.ts', read: byRegex(/APP_VERSION\s*=\s*['"]([^'"]+)['"]/) },
+  { label: 'packages/engine/package.json → version', file: 'packages/engine/package.json', read: byJson((j) => j.version) },
+];
+
+/** 子串型读法：只给**非 JSON** 的文件用（TOML / TS 源码里的常量）。 */
+function byRegex(re) {
+  return (text) => re.exec(text)?.[1] ?? null;
+}
+
+/** 结构化读法：`pick` 里点名的那一格读不到就是读不到，不做"退而求其次找第一个"。 */
+function byJson(pick) {
+  return (text) => pick(JSON.parse(text)) ?? null;
+}
+
+/**
+ * 逐处读出来。返回 `[{ label, file, version, why }]` —— 读不到时 `version` 是 `null`
+ * 而 `why` 一定给原因：「查不到」和「查到了但值不同」是两种红，混成一种就没法修。
+ */
+export function versionPlaces(root) {
+  return VERSION_PLACES.map(({ label, file, read }) => {
+    const p = resolve(root, file);
+    if (!existsSync(p)) return { label, file, version: null, why: '文件不存在' };
+    try {
+      const version = read(readFileSync(p, 'utf8'));
+      return { label, file, version, why: version === null ? '这一格读不到值' : null };
+    } catch (e) {
+      return { label, file, version: null, why: e instanceof SyntaxError ? '不是合法 JSON' : `读取失败：${e.message}` };
+    }
+  });
+}
+
+/**
+ * @returns {{ unreadable: object[], distinct: string[], ok: boolean }}
+ *   `ok` 要求**两件事**：没有读不到的那一处，且读到的只剩一个号。
+ *   `distinct.length === 1` 而不是 `<= 1`：九处全读不到时 `distinct` 是空的，
+ *   那种情况必须红 —— 让"一个都没读到"通过是这道门最坏的失效形状。
+ */
+export function versionVerdict(places) {
+  const unreadable = places.filter((p) => !p.version);
+  const distinct = [...new Set(places.filter((p) => p.version).map((p) => p.version))];
+  return { unreadable, distinct, ok: unreadable.length === 0 && distinct.length === 1 };
+}
+
+/**
  * 命令行口（给测试用，也给人自查一句写法）。
  *
  * 为什么要有这张口而不是让测试 `import`：`tsconfig.json` 没开 `allowJs`，
@@ -111,6 +198,20 @@ function main(argv) {
     }
     console.log(e2eItCount(readFileSync(file, 'utf8')));
     return 0;
+  }
+  // 版本号九处读数口：打印 JSON（{dir, places, unreadable, distinct, ok}）。
+  // 退出码沿用本仓定齐的三档：0 = 九处同值且都读得到 / 1 = 有红（值不一致或有格子读不到）/ 2 = 压根没跑。
+  // 为什么也做成 CLI 而不是让测试 import：同 `claimRe`（`tsconfig` 没开 `allowJs`）。
+  if (argv.includes('--version-places')) {
+    const dir = get('--version-places') ?? '.';
+    if (!existsSync(dir)) {
+      console.error(`目录不存在：${dir}`);
+      return 2;
+    }
+    const places = versionPlaces(dir);
+    const v = versionVerdict(places);
+    console.log(JSON.stringify({ dir, places, ...v }, null, 2));
+    return v.ok ? 0 : 1;
   }
   const digits = get('--digits');
   const unit = get('--unit');
