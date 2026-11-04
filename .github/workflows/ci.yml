@@ -98,6 +98,12 @@ jobs:
       # 只读源文件，排在构建之前先红。
       - name: IPC 命令面一致性（注册 == 前端调用点，F-11②）
         run: node scripts/cmd-surface.mjs
+      # 模型制品的 sha256 是运行时的唯一判据，而「这个数从哪来」此前只由注释维系。
+      # 这一步查台账自身的诚实度 + 它与 Rust 常量/文档的接线（**默认离线**：
+      # 比对上游 checksum.txt 的那半是 `npm run models:check -- --fetch`，手动跑 ——
+      # 本仓的绿灯不挂在别人的网络上，否则上游一改资产就能锁住 CI）。判据见 §12.55。
+      - name: 模型校验和台账（出处分级 + 例外预算 + 接线一致）
+        run: npm run models:check
       - name: 类型检查
         run: npm run typecheck
       - name: 单测 + 投影属性测试（受测层分支覆盖 ≥90% 门禁）

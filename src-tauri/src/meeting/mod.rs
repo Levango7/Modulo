@@ -14,6 +14,7 @@ pub mod asr_models;
 pub mod audio;
 pub mod audio_errors;
 pub mod audio_resample;
+pub mod model_trust;
 pub mod session;
 pub mod session_live;
 pub mod session_store;

@@ -224,7 +224,7 @@ async fn fetch_one(
     let actual = asr_models::sha256_file(&part)?;
     if actual != spec.sha256 {
         let _ = fs::remove_file(&part);
-        let err = verify_mismatch(spec.id, spec.sha256, &actual);
+        let err = verify_mismatch(spec.id, spec.sha256, &actual, &spec.trust.label());
         set_status(AsrState::Failed, 1.0, total, Some(err.clone()));
         return Err(err);
     }
