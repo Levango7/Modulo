@@ -57,12 +57,22 @@ ci: 摘掉桌面自检那一步 —— 它在 runner 上量不到任何东西
 
 ## 发版
 
-### 版本号有七处，别手改
+### 版本号有九处，别手改
 
-`package.json`、`package-lock.json`、`src-tauri/Cargo.toml`、`src-tauri/Cargo.lock`、
+`package.json`、`package-lock.json`（**三格**：顶层 `version`、`packages[""]` 根包条目、
+`packages["packages/engine"]`）、`src-tauri/Cargo.toml`、`src-tauri/Cargo.lock`、
 `src-tauri/tauri.conf.json`、`src/vue/useBackup.ts`（`APP_VERSION`）、`packages/engine/package.json`。
 
-`npm run docs:check` 会把它们逐个读出来比 —— 漏一处它直接报 `✗ 版本号不一致`。
+处数从七涨到九，涨的都是同一件事：**一个文件里可能有不止一个版本号副本**。
+`package-lock.json` 的顶层那一格只是元信息，真正描述根包的是 `packages[""]`；而 workspace 里的
+`@levango7/engine` 在 lock 中**还有一格**，它和 `packages/engine/package.json` 是两个独立副本
+（改了后者忘了跑 `npm install --package-lock-only`，两格就各说各话）。2026-11-05 之前名录里只给
+lock 写了一条，而读法是 `text.match(re)` —— 只回**第一个**匹配，于是永远看到顶层那一格。
+实测：顶层 `0.8.10`、根包条目 `0.8.4`，差着六个发布版而门一直是绿的。现在按结构逐格点名读。
+
+`npm run docs:check` 会把九处逐个读出来比。两种红分开：
+`✗ 版本号不一致`（读到两个号）与 `✗ 版本号这一处读不到`（文件改名 / 那一格没了 / JSON 坏掉）。
+后者从前被 `filter` 掉、静默把名录缩成八处还判绿 —— 名录少一处就等于那一处从此没人守。
 另外两条工具命令：`npm run release:ledger` 校验发布点、`npm run release:ledger:update` 在发版后刷新台账。
 
 **不要用字符串全局替换改版本号。** 出过一次事故：`replace('0.6.0','0.7.0')` 把依赖

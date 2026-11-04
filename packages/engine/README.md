@@ -65,7 +65,7 @@ const fixed = project(doc, registry, 12)
 
 ## 版本与发布
 
-版本**与应用同源**（`scripts/docs-check.mjs` 的 `VERSION_PLACES` 机器核对），
+版本**与应用同源**（`scripts/docs-check-claims.mjs` 的 `VERSION_PLACES` 机器核对，8 处），
 所以每个应用版本都会同时发一次这个包 —— 打 `v*` tag 时 CI 的 `release` job 里那条
 `npm run engine:publish` 负责，仓库 secret 里没配 `NPM_TOKEN` 就跳过。
 **代价要认下来**：引擎自己没改动时也会发一个新版本号（npm 上会有一串版本差异很小的条目），
