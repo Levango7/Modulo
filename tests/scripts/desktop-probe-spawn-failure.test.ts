@@ -21,6 +21,8 @@ const SCRIPT = join(REPO, 'scripts', 'desktop-probe.mjs')
 
 const TIMEOUT = 30_000
 
+// 每条都起一个 node 子进程：全量跑（`docs:check` 内部那一跑）会把默认 5s 顶穿——
+// 11-03 本机就红过一次 6.3s，所以显式给到与 spawnSync 同档的 30s（与 §12.53 那组同一条纪律）。
 // spawnSync 而不是 execFileSync：处置走 stderr，execFileSync 成功时只回 stdout（与 §12.53 那组同一个理由）
 const runProbe = (env: Record<string, string>) => {
   const at = Date.now()
@@ -56,7 +58,7 @@ describe('探针起不来时：干净退出，不崩堆栈', () => {
     // 关键的反例：以前这里会跟着 spawn 一起崩
     expect(r.out).not.toContain('SPAWN-FAIL')
     expectCleanGiveUp(r)
-  })
+  }, TIMEOUT)
 
   it('路径是个目录（spawn 发 ENOENT 事件）→ SPAWN-FAIL 带错误码，退 2', () => {
     const r = runProbe({ ...FREE, MODULO_EXE: 'tests' })
@@ -64,12 +66,12 @@ describe('探针起不来时：干净退出，不崩堆栈', () => {
     expect(r.out).toContain('ENOENT')
     expect(r.out).toContain('进程压根没创建')
     expectCleanGiveUp(r)
-  })
+  }, TIMEOUT)
 
   it('路径存在但不可执行（spawn 同步抛 EFTYPE）→ 同样收成 SPAWN-FAIL，退 2', () => {
     const r = runProbe({ ...FREE, MODULO_EXE: 'package.json' })
     expect(r.out).toContain('SPAWN-FAIL')
     expect(r.out).toContain('EFTYPE')
     expectCleanGiveUp(r)
-  })
+  }, TIMEOUT)
 })
