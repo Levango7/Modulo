@@ -151,7 +151,7 @@ mod tests {
                 Some(s.sha256),
                 "{} 的 digest 两份不一致（台账 {} / 常量 {}）",
                 s.id,
-                &row["sha256"],
+                row["sha256"],
                 s.sha256
             );
             assert_eq!(
