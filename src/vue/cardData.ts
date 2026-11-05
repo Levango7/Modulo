@@ -183,11 +183,15 @@ export function createCardData(storage = browserStorage()) {
      * 与待办同形但方向相反：待办是「读出来那份末尾追加」，速记的语义是**最新在前**
      * （界面按 `at` 新的在上），所以是 `[新条目, ...读出来那份]`。整条写回而不原地
      * unshift —— 原地改触发不了深层 watch（写盘不动），界面还不刷新。
+     *
+     * 标题正文**都空**时直接返回（与 `addTodo` 同一条纪律：一条「无标题 + 空正文」的
+     * 速记是纯噪音，用户误触回车不该给列表里留一条点不开的东西）。
      */
     addNote(title: string, body: string, moduleId?: string, instanceId?: string) {
+      if (!title.trim() && !body.trim()) return
       const list = notesOf(state, moduleId, instanceId)
       writeNotes(state, moduleId, instanceId, [
-        { id: nextId('n'), title: title.trim() || '无标题', body, at: Date.now() },
+        { id: nextId('n'), title: title.trim() || '无标题', body: body.trim(), at: Date.now() },
         ...list,
       ])
     },

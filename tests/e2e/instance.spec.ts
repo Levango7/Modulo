@@ -3,8 +3,8 @@
  * 待办接着做第二个字段（2026-10-29），倒数日 / 正计时收尾第三、四个字段（2026-10-30），
  * 记账第五个（2026-10-31），**习惯**第六个（2026-11-01），
  * **四象限**第七个（2026-10-30 撰写，合并序第七 —— master 那两笔先合入，故本笔排其后），
- * **速记**第八个、也是阶段 2 最后一个字段（2026-11-05 —— 它今天没有 UI 写入入口，
- * 这条因此只钉读路径隔离，判定层在单测锁 100）。
+ * **速记**第八个、也是阶段 2 最后一个字段（2026-11-05 数据层；同日 §12.58 补上界面
+ * 写入入口，这条因此从"只钉读路径隔离"升级为写-读-刷新全链）。
  *
  * 阶段 1（#127）只分开了 **id**（第二张是 `sticky:2`），两个实例仍共享同一份内容：
  * 在第二张里打字，第一张跟着变。这一笔把内容也分开，判据抽在 `src/vue/instanceData.ts`
@@ -963,15 +963,15 @@ describe.skipIf(skip)('多实例内容（F-01 阶段 2）：两张卡各写各�
   })
 
   /**
-   * ⑧ 速记（第八个、也是阶段 2 最后一个字段，2026-11-05）。
+   * ⑧ 速记（第八个、也是阶段 2 最后一个字段，2026-11-05；写入入口 §12.58 同日补上）。
    *
-   * 与哥哥们**唯一的不同**：速记今天没有 UI 写入入口（`addNote` 自初始提交起只有测试
-   * 在调），所以"各自写"那半没法用真点击完成 —— 这条钉的是**读路径隔离**：种一份
-   * 顶层 + 一份 byInstance 的速记，两张卡必须各显示各的标题；刷新后仍各是各的
-   * （读的不是"当时恰好相同"的同一份）。判定层那一半（读写口径）在
-   * `instanceData.test.ts` 锁 100；写入入口补上后，这条再加"各自写"不迟。
+   * §12.57 那笔先把数据层铺成按实例分的正确形状（读写判定层锁 100），但速记彼时
+   * **没有界面写入入口**（`addNote` 只有测试在调）—— 那条因此只钉读路径隔离。
+   * §12.58 补上入口后，这条升级为**写-读-刷新全链**：在两张卡里各记一笔，
+   * 各显示各的（含此前预置的两份）、刷新后各自还在，且盘上落在正确的位置
+   * （第一张的进顶层、第二张的进 `byInstance['notes:2']`）。
    */
-  it('第二张速记卡只看自己那份：顶层与 byInstance 各显示各的，刷新后仍隔离', async () => {
+  it('两张速记卡各写各的：写-读-刷新全链（写入入口 §12.58），编辑态也各读各的', async () => {
     url = process.env.MODULO_URL ?? url
     const browser = await puppeteer.launch({
       executablePath: EXE!,
@@ -985,7 +985,10 @@ describe.skipIf(skip)('多实例内容（F-01 阶段 2）：两张卡各写各�
     await page.evaluateOnNewDocument(() => {
       localStorage.setItem('modulo.template.v1', 'general')
       // general 出厂模板已带一张速记；这里**预置**两种来源的速记（顶层的 + 第二实例自己的），
-      // 再 runtime 里加第二张速记卡 —— 两张各读各的才算分开。
+      // 再 runtime 里加第二张速记卡并**各记一笔** —— 写-读-刷新全链。
+      // **只在没有这份存档时才种**：`evaluateOnNewDocument` 每次导航（含 reload）都会跑，
+      // 不设防就会在刷新那一刻用种子把刚写落盘的数据覆盖掉 —— 断言会红得莫名其妙。
+      if (!localStorage.getItem('modulo.carddata.v1')) {
       const seed = {
         sticky: '',
         todos: [],
@@ -1020,6 +1023,7 @@ describe.skipIf(skip)('多实例内容（F-01 阶段 2）：两张卡各写各�
         byInstance: { 'notes:2': { notes: [{ id: 'n2', title: '第二张的速记', body: '切片那份', at: 2 }] } },
       }
       localStorage.setItem('modulo.carddata.v1', JSON.stringify(seed))
+      }
     })
     await page.goto(url, { waitUntil: 'networkidle2', timeout: 30000 })
     await wait(800)
@@ -1093,16 +1097,50 @@ describe.skipIf(skip)('多实例内容（F-01 阶段 2）：两张卡各写各�
       ['第二张的速记'],
     ])
 
-    // 存储形状：预置的那份切片没被动过（本卡只读；写入入口缺失如实记）
+    /**
+     * 写入入口（§12.58）：两张卡各记一笔。顺序上**最新的在前**（addNote 往前插），
+     * 所以每张卡显示的是「新记的 + 预置的」。写哪一份由判定层按两个 id 定 ——
+     * 组件只把 moduleId / instanceId 原样传下去。
+     */
+    expect(await clickBar('工作台'), '回「工作台」').toBe(true)
+    await wait(800)
+    const typeIntoCard = async (cardIdx: number, title: string, body: string) => {
+      const tis = await page.$$('.cell[data-module^="notes"] .ti')
+      const bis = await page.$$('.cell[data-module^="notes"] .bi')
+      expect(tis.length, '两张速记卡都该有写入入口（bar / recent 才不显示）').toBe(2)
+      await tis[cardIdx].click()
+      await page.keyboard.type(title)
+      await bis[cardIdx].click()
+      await page.keyboard.type(body)
+      await page.keyboard.press('Enter')
+      await wait(300)
+    }
+    await typeIntoCard(0, '第一张新记的', '工作台里写下的')
+    await typeIntoCard(1, '第二张新记的', '写进自己那份')
+    expect(await titles(), '两张卡各自显示「新记的 + 预置的」，互不串').toEqual([
+      ['第一张新记的', '第一张的速记'],
+      ['第二张新记的', '第二张的速记'],
+    ])
+
+    // 刷新：各自写的那笔都落在盘上正确的位置
+    await wait(600) // 写入防抖的合并窗口（300ms）内等它落盘
+    await page.reload({ waitUntil: 'networkidle2' })
+    await wait(800)
+    expect(await titles(), '刷新后两笔都还在、仍各读各的').toEqual([
+      ['第一张新记的', '第一张的速记'],
+      ['第二张新记的', '第二张的速记'],
+    ])
+
+    // 存储形状：第一笔进顶层、第二笔进 byInstance —— 这就是"各写各的"的盘上证词
     const stored = await page.evaluate(() => JSON.parse(localStorage.getItem('modulo.carddata.v1') ?? '{}'))
     expect(
-      ((stored.byInstance?.['notes:2']?.notes ?? []) as { title: string }[]).map((n) => n.title),
-      '第二实例那份速记原样在盘上',
-    ).toEqual(['第二张的速记'])
-    expect(
       (stored.notes as { title: string }[]).map((n) => n.title),
-      '顶层那份速记原样在盘上',
-    ).toEqual(['第一张的速记'])
+      '顶层那份 = 新记的在前 + 预置的（最新在前是速记的语义）',
+    ).toEqual(['第一张新记的', '第一张的速记'])
+    expect(
+      ((stored.byInstance?.['notes:2']?.notes ?? []) as { title: string }[]).map((n) => n.title),
+      '第二实例那份同理',
+    ).toEqual(['第二张新记的', '第二张的速记'])
 
     expect(errs, `页面不该有报错：${errs.join(' | ')}`).toEqual([])
     await browser.close()
