@@ -34,30 +34,32 @@ const broken = () => {
   return { ...base, set: () => { throw new Error('磁盘满了') } }
 }
 
-describe('三步本身', () => {
-  it('三步、顺序固定、段落文案非空', () => {
-    expect(ONBOARDING_STEPS.map((s) => s.id)).toEqual(['layout', 'look', 'ready'])
+describe('一屏本身（2026-11-05 PR-C：三步向导收成一屏三动作）', () => {
+  it('一屏、文案非空（口径见 PRODUCT.md §1.1：主标题 + 副题）', () => {
+    expect(ONBOARDING_STEPS.map((s) => s.id)).toEqual(['welcome'])
     for (const s of ONBOARDING_STEPS) {
       expect(s.title.trim()).not.toBe('')
       expect(s.hint.trim()).not.toBe('')
     }
+    // 首屏文案以 PRODUCT.md §1.1 为单一真相：两处各钉一半，改文案必须两处一起改
+    expect(ONBOARDING_STEPS[0].title).toContain('这一屏')
+    expect(ONBOARDING_STEPS[0].hint).toContain('建卡')
   })
 
-  it('越界的索引夹回合法范围（坏索引不许把向导画成空白）', () => {
+  it('越界的索引夹回合法范围（坏索引不许把欢迎屏画成空白）', () => {
     expect(clampStep(-3)).toBe(0)
     expect(clampStep(99)).toBe(ONBOARDING_STEPS.length - 1)
-    expect(clampStep(1.7)).toBe(1)
+    expect(clampStep(1.7), '一屏之后 1.7 也夹回 0 —— 数组只有一个元素，两端就是同一点').toBe(0)
     // 算不出来的（NaN / ±Infinity）回第一步：无从夹取就从头上再来，
     // 而算得出但越界的（-3 / 99）夹到两端 —— 两种坏值处理不同，是因为语义不同
     expect(clampStep(Number.NaN)).toBe(0)
     expect(clampStep(Number.POSITIVE_INFINITY)).toBe(0)
-    expect(stepAt(99).id).toBe('ready')
-    expect(stepAt(-1).id).toBe('layout')
+    expect(stepAt(99).id).toBe('welcome')
+    expect(stepAt(-1).id).toBe('welcome')
   })
 
   it('最后一步只有一个', () => {
-    expect(isLastStep(0)).toBe(false)
-    expect(isLastStep(1)).toBe(false)
+    expect(isLastStep(0)).toBe(true)
     expect(isLastStep(2)).toBe(true)
     expect(isLastStep(99), '越界也按"最后一步"算，否则「开始用」永远不出现').toBe(true)
   })

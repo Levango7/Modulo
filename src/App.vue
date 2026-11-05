@@ -60,6 +60,19 @@ useExtensions(store, cardDataApi)
  */
 const onboarding = createOnboarding(storage, { firstRun: () => store.firstRun })
 provide('onboarding', onboarding)
+/**
+ * 首启一屏（2026-11-05 PR-C）的两个"开门"动作：只开界面，不直接改数据 ——
+ * 「让 AI 开始」展开对话坞（内容一个字不动）；「先看模板」开模板选择器。
+ * 向导只负责点完关上（finish），不知道这两个界面长什么样（与命令总线的钩子同一条纪律）。
+ */
+provide('welcome', {
+  startAI: () => {
+    dockExpanded.value = true
+  },
+  templates: () => {
+    templatesOpen.value = true
+  },
+})
 const contentHistory = inject<ContentHistoryApi>('contentHistory')!
 const appearance = useAppearance(storage)
 provide('appearance', appearance)
