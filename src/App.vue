@@ -47,6 +47,8 @@ import OnboardingWizard from './vue/components/OnboardingWizard.vue'
 import TemplatePicker from './vue/components/TemplatePicker.vue'
 import TitleBar from './vue/components/TitleBar.vue'
 import ChatDock from './vue/components/ChatDock.vue'
+import SessionRail from './vue/components/SessionRail.vue'
+import { createAiSessions } from './vue/useAiSessions'
 import { canShowDock } from './vue/aiChat'
 
 const storage = inject<PersistentStorage>('storage')!
@@ -412,6 +414,28 @@ const commandBus: CommandBus = useAppCommands(cmdCtx, {
 })
 provide('commandBus', commandBus)
 
+/**
+ * AI 会话的共享状态（改天换地 PR-D）：坞与左栏（SessionRail）共用同一份清单与
+ * active id —— 抽到 `useAiSessions` 的理由见那个文件头。列表在栏挂载时拉一次，
+ * 发送完成后坞会再刷（`sessions.refresh()`）。
+ */
+const aiSessions = createAiSessions()
+provide('aiSessions', aiSessions)
+/**
+ * 左栏显隐（PR-D）：**按窗口宽自适应**，阈值取「12 列舞台 + 栏宽」——
+ * 栏常驻会把 1440 视口的舞台压到 8 列，破坏「1440 → 12 列」的响应式承诺
+ * （三档视口 E2E 与 README 都钉着它）。宽屏（≥1480）常驻；窄窗自动收起，
+ * 12 列优先。常驻开关（用户手动钉住/收起）在 PR-E 与 composer 一起做。
+ */
+const windowW = ref(typeof window !== 'undefined' ? window.innerWidth : 1920)
+const onWindowResize = () => {
+  windowW.value = window.innerWidth
+}
+onMounted(() => window.addEventListener('resize', onWindowResize))
+onBeforeUnmount(() => window.removeEventListener('resize', onWindowResize))
+const RAIL_MIN_VIEWPORT = 1480
+const railVisible = computed(() => windowW.value >= RAIL_MIN_VIEWPORT)
+
 /** 面板里"跳到某张卡"：切到布局编辑并交给编辑器选中+滚动到视野 */
 function goCard(id: string): void {
   enterEdit()
@@ -468,6 +492,8 @@ const onGlobalKey = useGlobalKeys({
   <div class="app">
     <TitleBar v-if="isDesktop" />
     <div class="shell">
+    <SessionRail v-show="railVisible" :view="view" @select-view="onSelectView" />
+    <div class="content">
     <AppToolbar
       :view="view"
       :stage-w="stageW"
@@ -549,6 +575,7 @@ const onGlobalKey = useGlobalKeys({
       </CanvasEditor>
       <StackEditor v-else />
     </main>
+    </div>
 
     <ChatDock v-if="dockVisible" :expanded="dockExpanded" @update:expanded="dockExpanded = $event" />
     </div>
@@ -578,8 +605,18 @@ const onGlobalKey = useGlobalKeys({
 }
 .shell {
   display: flex;
+  flex-direction: row;
+  flex: 1;
+  min-height: 0;
+  gap: var(--space-4);
+}
+/* 改天换地 PR-D：左栏（SessionRail）+ 右侧内容列。原来的 shell 内边距搬到这里 ——
+   栏是全高的，内容列才需要与视口保持距离 */
+.content {
+  display: flex;
   flex-direction: column;
   flex: 1;
+  min-width: 0;
   min-height: 0;
   padding: var(--space-4);
   gap: var(--space-4);
