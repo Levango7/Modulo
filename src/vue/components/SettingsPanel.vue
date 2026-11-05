@@ -434,7 +434,7 @@ section h3 {
   background: linear-gradient(135deg, #fff 50%, #c93c16 50%);
 }
 .dot[data-s='aurora'] {
-  background: linear-gradient(135deg, #eceff6, #ffb8d0);
+  background: linear-gradient(135deg, #ffffff, #dfe8e2);
 }
 .dot[data-s='candy'] {
   background: linear-gradient(135deg, #ffd9a0, #ff5c8a);
