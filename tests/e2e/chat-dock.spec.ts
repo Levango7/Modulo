@@ -210,9 +210,9 @@ describe.skipIf(skip)('F-12 二期：底部对话坞（桌面形态）', () => {
     expect(hist.length).toBe(1)
     expect(hist[0].title).toBe('帮我看看待办')
 
-    await click(page, '[data-chat-history-toggle]')
-    await page.waitForSelector('[data-history]', { timeout: 10000 })
-    expect(await text(page, '[data-chat-history]')).toContain('帮我看看待办')
+    // 历史面板已搬进左栏（PR-D）：发完之后栏里的清单应该出现这条
+    await page.waitForSelector('[data-session]', { timeout: 10000 })
+    expect(await text(page, '.rail')).toContain('帮我看看待办')
     expect(errs, `页面不该有报错：${errs.join(' | ')}`).toEqual([])
   })
 
@@ -297,7 +297,7 @@ describe.skipIf(skip)('F-12 二期：底部对话坞（桌面形态）', () => {
     expect(errs, `页面不该有报错：${errs.join(' | ')}`).toEqual([])
   })
 
-  it('历史：点开一条恢复气泡；删除要两步，删完列表真的空了', async () => {
+  it('历史（左栏）：点开一条恢复气泡；删除要两步，删完列表真的空了', async () => {
     const errs: string[] = []
     const page = await open({
       history: [
@@ -313,10 +313,9 @@ describe.skipIf(skip)('F-12 二期：底部对话坞（桌面形态）', () => {
         },
       ],
     }, errs)
-    await expand(page)
-    await click(page, '[data-chat-history-toggle]')
-    await page.waitForSelector('[data-history="conv-old"]', { timeout: 10000 })
-    await click(page, '[data-history="conv-old"] .title')
+    // 历史面板已搬进左栏（PR-D）：清单是栏的，气泡仍是坞的
+    await page.waitForSelector('[data-session="conv-old"]', { timeout: 10000 })
+    await click(page, '[data-session="conv-old"]')
     await page.waitForFunction(
       () => (document.querySelector('[data-role="assistant"]')?.textContent ?? '').includes('上次给的回答'),
       { timeout: 10000 },
@@ -324,14 +323,11 @@ describe.skipIf(skip)('F-12 二期：底部对话坞（桌面形态）', () => {
     // system 是拼给模型的，不该出现在界面里
     expect(await text(page, '[data-chat-thread]')).not.toContain('拼给模型的上下文')
 
-    await click(page, '[data-chat-history-toggle]')
-    await page.waitForSelector('[data-history="conv-old"]', { timeout: 10000 })
-    await click(page, '[data-history="conv-old"] [data-chat-history-delete]')
+    await click(page, '[data-session="conv-old"] [data-chat-session-delete], [data-session="conv-old"] ~ .del, li:has([data-session="conv-old"]) .del')
     // 第一下只是待确认（与会议删稿同一手法），列表还在
-    expect(await exists(page, '[data-history="conv-old"]')).toBe(true)
-    expect(await text(page, '[data-history="conv-old"] [data-chat-history-delete]')).toContain('确定删除')
-    await click(page, '[data-history="conv-old"] [data-chat-history-delete]')
-    await page.waitForFunction(() => !document.querySelector('[data-history="conv-old"]'), { timeout: 10000 })
+    expect(await exists(page, '[data-session="conv-old"]')).toBe(true)
+    await click(page, 'li:has([data-session="conv-old"]) .del')
+    await page.waitForFunction(() => !document.querySelector('[data-session="conv-old"]'), { timeout: 10000 })
     const hist = await page.evaluate(
       () => (window as unknown as { __STUB_AI_HISTORY__: () => unknown[] }).__STUB_AI_HISTORY__(),
     )

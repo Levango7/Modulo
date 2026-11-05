@@ -20,6 +20,7 @@ import { computed, inject, nextTick, onBeforeUnmount, ref, watch } from 'vue'
 import { Channel, invoke } from '@tauri-apps/api/core'
 import * as E from '@levango7/engine'
 import type { CardDataApi } from '../cardData'
+import type { AiSessionsApi } from '../useAiSessions'
 import type { CommandBus } from '../commandBus'
 import type { LayoutStore, StorageAdapter } from '../store'
 import { AI_DOC_KEY, parseAiDoc } from '../aiSettings'
@@ -29,7 +30,6 @@ import {
   cardChoices,
   excerptFor,
   filterChoices,
-  historyWhen,
   mentionQuery,
   stripMention,
   summaryText,
@@ -37,8 +37,6 @@ import {
   type CardChoice,
   type ChatChunk,
   type ChatTurn,
-  type HistoryItem,
-  type HistoryMsg,
 } from '../aiChat'
 
 const props = defineProps<{ expanded: boolean }>()
@@ -52,8 +50,27 @@ const commandBus = inject<CommandBus>('commandBus')!
 /** 输入草稿：收起态那条 input 与展开后的 textarea 共用同一份，聚焦就展开不丢字 */
 const draft = ref('')
 const turns = ref<ChatTurn[]>([])
-/** 当前会话 id（Rust 生成的 conv-xxx）。新对话时清空，下一条消息由后端再生成 */
-const conversationId = ref<string | null>(null)
+/**
+ * 会话状态搬到共享层 `useAiSessions`（改天换地 PR-D）：左栏的 Session 列表与本坞
+ * 共用同一份清单与 active id —— 此前历史面板是坞的私有实现，左栏再做一份就是
+ * 两份清单。`conversationId` 是共享层 `activeId` 的本坞别名（发送/续聊照旧写它）。
+ */
+const sessions = inject<AiSessionsApi>('aiSessions')!
+const conversationId = sessions.activeId
+/**
+ * 栏里点了一条会话 ⇒ 把气泡换成那条的消息（system 不进界面，`turnsFromHistory` 管），
+ * 顺手把坞展开 —— 从左栏点进来的用户要看见内容，而不是坞还收着。
+ */
+watch(sessions.lastLoaded, (v) => {
+  if (!v) return
+  turns.value = turnsFromHistory(v.messages)
+  chips.value = []
+  streamToken++
+  busy.value = false
+  streamConv.value = null
+  expand()
+  scrollDown()
+})
 /** 正在流式输出的那个会话 id —— 「停止」按的就是它 */
 const streamConv = ref<string | null>(null)
 const busy = ref(false)
@@ -65,11 +82,6 @@ const chips = ref<CardChoice[]>([])
 const picker = ref<CardChoice[]>([])
 const pickerIndex = ref(0)
 
-const historyOpen = ref(false)
-const historyItems = ref<HistoryItem[]>([])
-const historyError = ref<string | null>(null)
-const confirmDelete = ref<string | null>(null)
-const confirmClear = ref(false)
 
 const inputEl = ref<HTMLTextAreaElement | null>(null)
 const miniEl = ref<HTMLInputElement | null>(null)
@@ -112,7 +124,6 @@ watch(
       return
     }
     picker.value = []
-    confirmClear.value = false
     miniEl.value?.blur()
   },
 )
@@ -230,7 +241,7 @@ async function send(): Promise<void> {
     if (c.done) {
       busy.value = false
       streamConv.value = null
-      if (historyOpen.value) void loadHistory()
+      void sessions.refresh()
     }
   }
 
@@ -322,74 +333,15 @@ function newConversation(): void {
   streamConv.value = null
   busy.value = false
   notice.value = ''
-  historyOpen.value = false
   void nextTick(() => inputEl.value?.focus())
 }
 
-async function loadHistory(): Promise<void> {
-  historyError.value = null
-  try {
-    historyItems.value = await invoke<HistoryItem[]>('ai_history_list')
-  } catch (err) {
-    historyError.value = String(err)
-  }
-}
 
-function toggleHistory(): void {
-  historyOpen.value = !historyOpen.value
-  confirmDelete.value = null
-  confirmClear.value = false
-  if (historyOpen.value) void loadHistory()
-}
 
-async function pickHistory(item: HistoryItem): Promise<void> {
-  if (busy.value) return
-  try {
-    const d = await invoke<{ id: string; messages: HistoryMsg[] }>('ai_history_get', { id: item.id })
-    turns.value = turnsFromHistory(d.messages)
-    conversationId.value = d.id
-    chips.value = []
-    historyOpen.value = false
-    scrollDown()
-  } catch (err) {
-    historyError.value = String(err)
-  }
-}
 
 /** 删除两步：第一次点击只是「待确认」，第二次同一行才真删（与会议详情删稿同一手法） */
-async function deleteHistory(item: HistoryItem): Promise<void> {
-  if (confirmDelete.value !== item.id) {
-    confirmDelete.value = item.id
-    confirmClear.value = false
-    return
-  }
-  confirmDelete.value = null
-  try {
-    await invoke('ai_history_delete', { id: item.id })
-    if (conversationId.value === item.id) newConversation()
-    await loadHistory()
-  } catch (err) {
-    historyError.value = String(err)
-  }
-}
 
-async function clearHistory(): Promise<void> {
-  if (!confirmClear.value) {
-    confirmClear.value = true
-    confirmDelete.value = null
-    return
-  }
-  confirmClear.value = false
-  try {
-    await invoke('ai_history_clear')
-    newConversation()
-    await loadHistory()
-  } catch (err) {
-    historyError.value = String(err)
-  }
-}
 
-const when = (sec: number): string => historyWhen(sec, Date.now())
 
 onBeforeUnmount(() => {
   // 组件被撤掉（切编辑/开设置）还在流式：**不自动取消** —— 用户只是打开了设置，
@@ -417,14 +369,11 @@ onBeforeUnmount(() => {
         </span>
         <span class="grow" />
         <button class="link" data-chat-new title="开一段新对话" @click="newConversation">新对话</button>
-        <button class="link" data-chat-history-toggle :data-active="historyOpen ? '1' : '0'" @click="toggleHistory">
-          历史
-        </button>
         <button class="link" data-chat-collapse title="收起（Esc）" @click="collapse">收起</button>
       </header>
 
       <div ref="threadEl" class="thread" data-chat-thread>
-        <p v-if="!turns.length && !historyOpen" class="empty" data-chat-empty>
+        <p v-if="!turns.length" class="empty" data-chat-empty>
           问点什么。输入 <code>@</code> 可以引用版面里的卡片，答案会带上那张卡的内容。
         </p>
         <div
@@ -444,22 +393,6 @@ onBeforeUnmount(() => {
         </div>
       </div>
 
-      <div v-if="historyOpen" class="history" data-chat-history>
-        <p v-if="historyError" class="err" data-chat-history-error>{{ historyError }}</p>
-        <p v-if="!historyItems.length" class="muted small" data-chat-history-empty>还没有对话记录。</p>
-        <ul v-else class="rows">
-          <li v-for="h in historyItems" :key="h.id" class="row" :data-history="h.id">
-            <button class="title" :title="h.title" @click="pickHistory(h)">{{ h.title }}</button>
-            <span class="meta">{{ h.messageCount }} 条 · {{ when(h.updatedAt) }}</span>
-            <button class="link danger" data-chat-history-delete @click="deleteHistory(h)">
-              {{ confirmDelete === h.id ? '确定删除？' : '删除' }}
-            </button>
-          </li>
-        </ul>
-        <button v-if="historyItems.length" class="link danger" data-chat-history-clear @click="clearHistory">
-          {{ confirmClear ? '确定清空全部？' : '清空全部' }}
-        </button>
-      </div>
 
       <div v-if="chips.length" class="chips" data-chat-chips>
         <button
@@ -656,12 +589,6 @@ onBeforeUnmount(() => {
   margin: 0;
   font-size: 12px;
   color: var(--c-red);
-}
-.history {
-  border-top: 1px solid var(--border-soft);
-  max-height: 30vh;
-  overflow-y: auto;
-  padding: var(--space-2) var(--space-3);
 }
 .rows {
   margin: 0;
