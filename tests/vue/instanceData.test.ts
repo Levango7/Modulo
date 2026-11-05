@@ -14,6 +14,7 @@ import {
   allHabitDays,
   allHabits,
   allLedgerEntries,
+  allNotes,
   allTodos,
   anyCountdownSet,
   anySticky,
@@ -23,6 +24,7 @@ import {
   habitOf,
   ledgerEntriesOf,
   matrixOf,
+  notesOf,
   stickyOf,
   todosOf,
   writeCountdown,
@@ -30,11 +32,12 @@ import {
   writeHabit,
   writeLedgerEntries,
   writeMatrix,
+  writeNotes,
   writeSticky,
   writeTodos,
   type InstanceSource,
 } from '../../src/vue/instanceData'
-import type { CountdownSetting, ElapsedSetting, HabitSetting, InstanceData, LedgerRow, MatrixTodo, Todo } from '../../src/vue/cardDataTypes'
+import type { CountdownSetting, ElapsedSetting, HabitSetting, InstanceData, LedgerRow, MatrixTodo, Note, Todo } from '../../src/vue/cardDataTypes'
 
 /** 空的"名字 + 日子"：与顶层 `emptyCardData` 那一份逐字相同 */
 const blankDay = (): { label: string; date: string } => ({ label: '', date: '' })
@@ -757,5 +760,125 @@ describe('聚合取数：顶层 + 每个实例切片（求和 / 并集 / 任一�
     const blank = src('', { 'sticky:2': { sticky: '   ' } })
     expect(anySticky(blank), '全是空白 ⇒ 没有正文').toBe(false)
     expect(anySticky(src(''))).toBe(false)
+  })
+})
+
+describe('notesOf / writeNotes / allNotes（F-01 阶段 2 第八个字段，速记，2026-11-05）', () => {
+  /** 一条速记：id + 标题 + 正文 + 时间戳，与顶层同形状 */
+  const note = (id: string, title: string, body: string, at: number): Note => ({ id, title, body, at })
+
+  it('口径一：第一实例读顶层那份（实例 id 等于模块 id）', () => {
+    const d: InstanceSource = {
+      sticky: '',
+      todos: [],
+      countdown: { label: '', date: '' },
+      elapsed: { label: '', date: '' },
+      notes: [note('n1', '周会', '三件事', 10)] }
+    expect(notesOf(d, 'notes', 'notes')).toEqual([note('n1', '周会', '三件事', 10)])
+  })
+
+  it('口径一（缺 id 兜底）：只拿到模块 id / 一个 id 都没有 ⇒ 回落顶层，不许静默变空', () => {
+    const d: InstanceSource = {
+      sticky: '',
+      todos: [],
+      countdown: { label: '', date: '' },
+      elapsed: { label: '', date: '' },
+      notes: [note('n1', '周会', '三件事', 10)] }
+    expect(notesOf(d, 'notes', undefined)).toEqual([note('n1', '周会', '三件事', 10)])
+    expect(notesOf(d, undefined, 'notes')).toEqual([note('n1', '周会', '三件事', 10)])
+    expect(notesOf(d)).toEqual([note('n1', '周会', '三件事', 10)])
+  })
+
+  it('口径二：第二实例读自己那份、没有就是空白（不回落顶层——那正是阶段 1 的缺陷）', () => {
+    const d: InstanceSource = {
+      sticky: '',
+      todos: [],
+      countdown: { label: '', date: '' },
+      elapsed: { label: '', date: '' },
+      notes: [note('n1', '第一张的', '内容', 10)] }
+    expect(notesOf(d, 'notes', 'notes:2')).toEqual([])
+    d.byInstance = { 'notes:2': { notes: [note('n2', '第二张的', '内容', 20)] } }
+    expect(notesOf(d, 'notes', 'notes:2')).toEqual([note('n2', '第二张的', '内容', 20)])
+  })
+
+  it('读返回的是新数组：调用方 slice/filter 不会原地污染顶层', () => {
+    const top = [note('n1', '周会', '三件事', 10)]
+    const d: InstanceSource = {
+      sticky: '',
+      todos: [],
+      countdown: { label: '', date: '' },
+      elapsed: { label: '', date: '' },
+      notes: top }
+    const got = notesOf(d)
+    got.push(note('nx', '外来', '污染', 99))
+    expect(top).toHaveLength(1)
+  })
+
+  it('writeNotes 顶层：整条替换（不 unshift 原地改——深层 watch 看不见）', () => {
+    const d: InstanceSource = {
+      sticky: '',
+      todos: [],
+      countdown: { label: '', date: '' },
+      elapsed: { label: '', date: '' },
+      notes: [note('n1', '旧', '内容', 10)] }
+    writeNotes(d, 'notes', 'notes', [note('n1', '新', '内容', 20)])
+    expect(d.notes).toEqual([note('n1', '新', '内容', 20)])
+  })
+
+  it('writeNotes 第二实例：写才建立；已有切片就整条替换那个切片', () => {
+    const d: InstanceSource = {
+      sticky: '',
+      todos: [],
+      countdown: { label: '', date: '' },
+      elapsed: { label: '', date: '' },
+      notes: [note('n1', '第一张', '内容', 10)] }
+    writeNotes(d, 'notes', 'notes:2', [note('n2', '第二张', '内容', 20)])
+    expect(d.byInstance).toEqual({ 'notes:2': { notes: [note('n2', '第二张', '内容', 20)] } })
+    expect(d.notes, '顶层不能被带上一层写动').toEqual([note('n1', '第一张', '内容', 10)])
+    writeNotes(d, 'notes', 'notes:2', [note('n3', '第二张又一条', '内容', 30)])
+    expect(d.byInstance?.['notes:2']?.notes).toEqual([note('n3', '第二张又一条', '内容', 30)])
+  })
+
+  it('allNotes：顶层 + 各实例铺平，按 at 倒序（recent 卡与备份文案的聚合口径）', () => {
+    const d: InstanceSource = {
+      sticky: '',
+      todos: [],
+      countdown: { label: '', date: '' },
+      elapsed: { label: '', date: '' },
+      notes: [note('n1', '顶层的', '内容', 10)],
+      byInstance: {
+        'notes:2': { notes: [note('n2', '第二张新的', '内容', 30)] },
+        'notes:3': { notes: [note('n3', '第三张中间的', '内容', 20)] },
+      },
+    }
+    expect(allNotes(d).map((n) => n.id)).toEqual(['n2', 'n3', 'n1'])
+  })
+
+  it('allNotes：切片里 undefined / 坏形状不数成东西；空板返回空数组', () => {
+    const messy: InstanceSource = {
+      sticky: '',
+      todos: [],
+      countdown: { label: '', date: '' },
+      elapsed: { label: '', date: '' },
+      notes: undefined as unknown as Note[],
+      byInstance: { 'notes:9': undefined as unknown as InstanceData, 'notes:8': { notes: [] } },
+    }
+    expect(allNotes(messy)).toEqual([])
+  })
+
+  /**
+   * 缺字段来源的兜底那一半（AI 摘录那种只读来源、坏档）：`notes` / `byInstance`
+   * 整个不在时也是空数组，不抛 —— 与其他字段的 `?? []` 同一条纪律。
+   */
+  it('notes / byInstance 整个缺失：读与聚合都按空，不抛', () => {
+    const bare: InstanceSource = {
+      sticky: '',
+      todos: [],
+      countdown: { label: '', date: '' },
+      elapsed: { label: '', date: '' },
+    }
+    expect(notesOf(bare, 'notes', 'notes')).toEqual([])
+    expect(allNotes(bare)).toEqual([])
+    expect(notesOf(bare, 'notes', 'notes:2'), '第二实例且没有 byInstance ⇒ 也是空').toEqual([])
   })
 })

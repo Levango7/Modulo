@@ -28,7 +28,7 @@ import type {
   StoredBirthday,
   Todo,
 } from './cardDataTypes'
-import { countdownOf, elapsedOf, habitOf, ledgerEntriesOf, matrixOf, stickyOf, todosOf } from './instanceData'
+import { countdownOf, elapsedOf, habitOf, ledgerEntriesOf, matrixOf, notesOf, stickyOf, todosOf } from './instanceData'
 
 export type ChatRole = 'user' | 'assistant'
 
@@ -188,6 +188,8 @@ export interface ExcerptSource {
   todos: Todo[]
   /** 与 `todos` 同一条理由：按实例取数（`matrixOf`）要的是可变数组 */
   matrix: MatrixTodo[]
+  /** 速记：2026-11-05 起按实例分（`notesOf`）—— 必填如旧（`CardData.notes` 就是必填），
+   *  读路径在 `notesOf` 里 `?? []` 兜底（测试夹具与坏档不带它时不炸） */
   notes: readonly Note[]
   ledger: { symbol: string; entries: readonly LedgerRow[] }
   links: readonly { label: string; href: string }[]
@@ -196,7 +198,7 @@ export interface ExcerptSource {
   habit: HabitSetting
   birthdays: readonly StoredBirthday[]
   pickList: readonly PickItem[]
-  /** 按实例分的那五个字段（便签 / 待办 / 倒数日 / 正计时 / 记账条目）的第二实例内容都在这张表里 */
+  /** 按实例分的那些字段（便签 / 待办 / 倒数日 / 正计时 / 记账条目 / 习惯 / 四象限 / 速记）的第二实例内容都在这张表里 */
   byInstance?: Record<string, InstanceData>
 }
 
@@ -230,8 +232,13 @@ export function excerptFor(choice: CardChoice, data: ExcerptSource): string {
       return cut(open.length ? `未完成：${open.slice(0, 8).join('、')}` : '', EXCERPT_MAX)
     }
     case 'notes': {
-      if (!data.notes.length) return ''
-      const lines = data.notes
+      // 按实例取（F-01 阶段 2 第八个、也是最后一个字段，2026-11-05）：第二张速记卡读的
+      // 是它自己那份 —— 不这么取，引用第二张卡喂给模型的是第一张的速记，而界面上看着
+      // "引用成功了"（§12.52 习惯、§12.47 记账同一条缝）。速记今天没有 UI 写入入口，
+      // 这个 case 是"第二张真有了内容时正确"的那颗钉子。
+      const list = notesOf(data, choice.module, choice.id)
+      if (!list.length) return ''
+      const lines = list
         .slice(0, 3)
         .map((n) => cut(`${n.title || '无标题'}：${n.body}`.replace(/\s+/g, ' ').trim(), 120))
       return cut(lines.join('\n'), EXCERPT_MAX)

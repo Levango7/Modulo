@@ -158,4 +158,32 @@ describe('写入防抖：300ms 合并成一次', () => {
       vi.useRealTimers()
     }
   })
+
+  /**
+   * 按实例的速记（F-01 阶段 2 第八个字段，2026-11-05）：同一条"写盘要看见 byInstance"的钉子。
+   *
+   * 速记今天没有 UI 写入入口（`addNote` 自初始提交起只有测试在调），这条用例因此是双份的：
+   * 既钉落盘判据里有 `byInstance`，也钉"将来真有了写入入口时第二张的速记会落在自己那份下"。
+   */
+  it('第二实例加速记 ⇒ 落盘落在 byInstance 下，顶层不多出一条', async () => {
+    vi.useFakeTimers()
+    try {
+      const storage = countingStorage()
+      storage.set(KEY, JSON.stringify({ todos: [], notes: [] }))
+      storage.writes.length = 0 // 种子那笔不算
+      const api = createCardData(storage)
+      api.addNote('第一张的标题', '正文', 'notes', 'notes')
+      api.addNote('第二张的标题', '正文', 'notes', 'notes:2')
+      await nextTick()
+      api.flush()
+      const stored = JSON.parse(storage.writes.at(-1)!)
+      expect(stored.byInstance?.['notes:2']?.notes?.map((n: { title: string }) => n.title)).toEqual(['第二张的标题'])
+      expect(stored.notes.map((n: { title: string }) => n.title), '第一实例（顶层）不该跟着多一条').toEqual(['第一张的标题'])
+      // 换一份实例读回来：刷新之后第二张的那条还在
+      const again = createCardData(storage)
+      expect(again.state.byInstance?.['notes:2']?.notes?.map((n) => n.title)).toEqual(['第二张的标题'])
+    } finally {
+      vi.useRealTimers()
+    }
+  })
 })

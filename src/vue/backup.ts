@@ -11,7 +11,7 @@
 
 import { parseBook, parseLayout, type LayoutDoc, type ModuleRegistry, type SchemeBook } from '@levango7/engine'
 import { sanitizeCardData, type CardData } from './cardData'
-import { allTodos, anyCountdownSet, anySticky } from './instanceData'
+import { allNotes, allTodos, anyCountdownSet, anySticky } from './instanceData'
 
 export const BACKUP_KIND = 'modulo.backup'
 export const BACKUP_VERSION = 2
@@ -154,6 +154,9 @@ export function buildBackup(input: BackupInput): BackupPayload {
       // 同一个坑，第二张账本的一笔在导出期间被改会跟着进包。
       // 2026-11-01 习惯跟上：里面嵌着 days 数组，`{...v.habit}` 只复制外层 ——
       // 第二张的打卡记录会与界面那份共享引用（倒数日 / 记账犯过同一个坑）。
+      // 2026-11-05 速记跟上：与待办同类，数组里装的是对象（待办 / 四象限 / 记账
+      // 犯过同一个坑）。速记今天没有 UI 写入入口，这一行是"第二张速记将来真有内容
+      // 时换机器不丢"的那颗钉子。
       ...(input.cardData.byInstance
         ? {
             byInstance: Object.fromEntries(
@@ -167,6 +170,7 @@ export function buildBackup(input: BackupInput): BackupPayload {
                   ...(v.matrix ? { matrix: v.matrix.map((m) => ({ ...m })) } : {}),
                   ...(v.ledger ? { ledger: v.ledger.map((r) => ({ ...r })) } : {}),
                   ...(v.habit ? { habit: { ...v.habit, days: [...v.habit.days] } } : {}),
+                  ...(v.notes ? { notes: v.notes.map((n) => ({ ...n })) } : {}),
                 },
               ]),
             ),
@@ -224,8 +228,10 @@ function summarize(layout: LayoutDoc | null, schemes: SchemeBook | null, cardDat
     modules: layout?.items.length ?? 0,
     // 2026-11-01：待办 / 便签 / 倒数日都已按实例分，摘要要报**整块板**的数 —— 只认第一张的话，
     // 第二张里摆着的内容在确认框里"界面上看得见、这里算不进"，用户据此判断要不要覆盖就会判错。
+    // 2026-11-05：速记跟上同一个口径（byInstance 的第一条已在 2026-10-29 补上，
+    // 这条是"新字段也得是整块板"的钉子）。
     todos: cardData ? allTodos(cardData).length : 0,
-    notes: cardData?.notes.length ?? 0,
+    notes: cardData ? allNotes(cardData).length : 0,
     sticky: cardData ? anySticky(cardData) : false,
     schemes: schemes?.schemes.length ?? 0,
     countdown: cardData ? anyCountdownSet(cardData) : false,

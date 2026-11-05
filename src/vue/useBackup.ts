@@ -25,7 +25,7 @@ import {
   type ParsedBackup,
 } from './backup'
 import { downloadText, pickTextFile, stamp } from './fileIo'
-import { allLedgerEntries, allTodos, anyCountdownSet } from './instanceData'
+import { allLedgerEntries, allNotes, allTodos, anyCountdownSet } from './instanceData'
 import type { CardData } from './cardData'
 import type { LayoutStore, StorageAdapter } from './store'
 import type { SchemesApi } from './useSchemes'
@@ -125,8 +125,9 @@ export function applyParsedSections(parsed: ParsedBackup, t: ApplyTargets): stri
     applyCardData(t.cardData, parsed.cardData)
     // 条数报**整块板**的合计（2026-11-01）：待办与记账条目都按实例分了，只认第一张会把
     // 第二张里的条目漏掉 —— 恢复完用户核对"东西都回来了没"时，这个数就是他的依据。
+    // 2026-11-05 速记跟上同一个口径（阶段 2 最后一个字段按实例分）。
     done.push(
-      `内容 ${allTodos(parsed.cardData).length} 条待办 / ${parsed.cardData.notes.length} 条速记 / ${allLedgerEntries(parsed.cardData).length} 笔账`,
+      `内容 ${allTodos(parsed.cardData).length} 条待办 / ${allNotes(parsed.cardData).length} 条速记 / ${allLedgerEntries(parsed.cardData).length} 笔账`,
     )
   }
   if (parsed.settings && t.settings) {
@@ -168,7 +169,7 @@ export function useBackup(store: LayoutStore, schemes: SchemesApi, cardData: () 
     const payload = snapshot()
     downloadText(`modulo-backup-${stamp()}.json`, backupToJson(payload))
     notices.value = [
-      `已导出：${payload.layout.items.length} 个模块、${allTodos(payload.cardData).length} 条待办、${payload.cardData.notes.length} 条速记${anyCountdownSet(payload.cardData) ? '、倒数日' : ''}${payload.settings ? '、外观设置' : ''}`,
+      `已导出：${payload.layout.items.length} 个模块、${allTodos(payload.cardData).length} 条待办、${allNotes(payload.cardData).length} 条速记${anyCountdownSet(payload.cardData) ? '、倒数日' : ''}${payload.settings ? '、外观设置' : ''}`,
     ]
   }
 

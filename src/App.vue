@@ -518,7 +518,20 @@ const onGlobalKey = useGlobalKeys({
         @focus-change="(id: string | null) => (focusedCard = id)"
       >
         <template #default="{ item }">
-          <component :is="CARD_COMPONENTS[E.moduleIdOf(item)]" :variant="item.variant" :module-id="E.moduleIdOf(item)" :chromeless="true" />
+          <!--
+            `module-id` 是模块 id、`instance-id` 是实例 id（第二张起是 `模块:2`）——
+            与 GridLayout（工作台）同一条纪律（见 `src/vue/components/GridLayout.vue`
+            同款注释）。2026-11-05 修：这条编辑态渲染路径此前只传 module-id，
+            多开的第二张卡在布局编辑态一律按"第一实例"读内容 —— 界面看着就是
+            "编辑态里两张速记显示同一份"。F-01 阶段 2 八个字段全按实例分了才暴露它。
+          -->
+          <component
+            :is="CARD_COMPONENTS[E.moduleIdOf(item)]"
+            :variant="item.variant"
+            :module-id="E.moduleIdOf(item)"
+            :instance-id="item.id"
+            :chromeless="true"
+          />
         </template>
       </CanvasEditor>
       <StackEditor v-else />

@@ -174,15 +174,43 @@ function sanitizeLedgerRows(raw: unknown): LedgerRow[] {
 }
 
 /**
+ * 速记条目清洗。**顶层与按实例共用同一套**（F-01 阶段 2 第八个、也是最后一个字段，
+ * 2026-11-05）—— 与 `sanitizeTodos` 同一条理由：两份实现意味着"修了顶层忘了第二张"，
+ * 而这类分歧平时根本不响。速记今天没有 UI 写入入口（`addNote` 只有测试在调），
+ * 这条共用的清洗就是"第二张速记将来真有了内容时与第一张同一套规则"的那颗钉子。
+ *
+ * 与顶层原内联逻辑**逐字相同**（顶层那个调用点换成它，行为不变）：标题缺了就当
+ * 「无标题」；`at` 不是有限数就记成**当下**（界面按它排序，NaN 会让排序结果乱飘）；
+ * 上限同一个 MAX_ITEMS。id 在同一份清单内唯一（`noteSeen` 每次新建）。
+ */
+function sanitizeNotes(raw: unknown): Note[] {
+  const out: Note[] = []
+  if (!Array.isArray(raw)) return out
+  const seen = new Set<string>()
+  for (const entry of raw.slice(0, MAX_ITEMS)) {
+    const e = entry as Partial<Note> | null
+    if (!e || (typeof e.title !== 'string' && typeof e.body !== 'string')) continue
+    out.push({
+      id: uniqueId(seen, e.id, 'n', out.length),
+      title: textOf(e.title) || '无标题',
+      body: textOf(e.body),
+      at: typeof e.at === 'number' && Number.isFinite(e.at) ? e.at : Date.now(),
+    })
+  }
+  return out
+}
+
+/**
  * 按实例的内容（F-01 阶段 2）。**这是读盘边界**，所以规则是"不认识的就丢"：
  *
  * - 键必须是非空字符串（实例 id）；值必须是朴素对象（数组不算）。
  * - 只收**认得的字段**（现阶段 `sticky` / `todos` / `countdown` / `elapsed` / `matrix` /
- *   `ledger` / `habit`）：
- *   `sticky` 只收字符串、`todos` / `matrix` / `ledger` 各走与顶层同一套条目清洗
- *   （`sanitizeTodos` / `sanitizeMatrix` / `sanitizeLedgerRows`）、`countdown` / `elapsed`
- *   走 `sanitizeDaySetting`、`habit` 走 `sanitizeHabit` —— 其余一律丢掉，这样将来给
- *   `InstanceData` 加字段时，旧备份读进来是"这一段没有"而不是"有一段看不懂的"。
+ *   `ledger` / `habit` / `notes`）：
+ *   `sticky` 只收字符串、`todos` / `matrix` / `ledger` / `notes` 各走与顶层同一套条目清洗
+ *   （`sanitizeTodos` / `sanitizeMatrix` / `sanitizeLedgerRows` / `sanitizeNotes`）、
+ *   `countdown` / `elapsed` 走 `sanitizeDaySetting`、`habit` 走 `sanitizeHabit` ——
+ *   其余一律丢掉，这样将来给 `InstanceData` 加字段时，旧备份读进来是"这一段没有"而不是
+ *   "有一段看不懂的"。
  *   记账只收**条目**：币种符号是顶层共享的偏好，切片里出现也会被丢掉。
  * - 一条都不剩 ⇒ 返回 **undefined**，让 `byInstance` 这个键**根本不出现** ——
  *   旧档、模板、单实例读出来的对象因此与今天逐字相同（备份的字节对账也靠这条）。
@@ -220,6 +248,9 @@ function sanitizeByInstance(raw: unknown): Record<string, InstanceData> | undefi
     // 读回来就该是"这个实例还没写过内容"
     const habit = sanitizeHabit((value as { habit?: unknown }).habit)
     if (habit) entry.habit = habit
+    // 速记（第八个字段，2026-11-05）：空清单不写这个键，与待办 / 四象限 / 记账同一条理由
+    const notes = sanitizeNotes((value as { notes?: unknown }).notes)
+    if (notes.length) entry.notes = notes
     if (Object.keys(entry).length) out[key] = entry
   }
   return Object.keys(out).length ? out : undefined
@@ -252,20 +283,9 @@ export function sanitizeCardData(raw: unknown, fallback: CardData): CardData {
   // 不留两份实现（"改了顶层忘了第二张"这类分歧平时根本不响）
   const matrix: MatrixTodo[] = sanitizeMatrix(o.matrix)
 
-  const noteSeen = new Set<string>()
-  const notes: Note[] = []
-  if (Array.isArray(o.notes)) {
-    for (const entry of o.notes.slice(0, MAX_ITEMS)) {
-      const e = entry as Partial<Note> | null
-      if (!e || (typeof e.title !== 'string' && typeof e.body !== 'string')) continue
-      notes.push({
-        id: uniqueId(noteSeen, e.id, 'n', notes.length),
-        title: textOf(e.title) || '无标题',
-        body: textOf(e.body),
-        at: typeof e.at === 'number' && Number.isFinite(e.at) ? e.at : Date.now(),
-      })
-    }
-  }
+  // 速记：与 byInstance 共用同一条清洗（`sanitizeNotes`）—— 顶层原内联逻辑换成它，
+  // 行为逐字不变（F-01 阶段 2 第八个字段，2026-11-05）
+  const notes: Note[] = sanitizeNotes(o.notes)
 
   // 倒数日 / 正计时：与 byInstance 共用同一条清洗（`sanitizeDaySetting`）
   const countdown: CountdownSetting = sanitizeDaySetting(o.countdown) ?? fallback.countdown

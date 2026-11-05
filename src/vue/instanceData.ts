@@ -25,10 +25,13 @@
  *   （与 `moduleIdOf` 只认 `p.module ?? p.id` 同一条纪律）。
  * - 按实例分的字段：`sticky` / `todos` / `countdown` / `elapsed` / `matrix`（四象限，
  *   **合并序第七个字段**）/ `ledger`（记账的**条目**，第五个字段）/ `habit`（习惯，
- *   2026-11-01，第六个字段）。序数按**合并序**排 —— master 那两笔先合入，故本笔排其后，
- *   口径见 ARCHITECTURE §12.51。
- *   其余字段（速记……）仍是按模块共享，那是它们各自的下一笔。记账的币种
- *   符号也留顶层：它是偏好不是内容（`LedgerCard.vue` 文件头自己这么写），两条账本共用一种货币。
+ *   2026-11-01，第六个字段）/ `notes`（速记，2026-11-05，第八个、也是阶段 2 最后
+ *   一个字段 —— 如实记：它今天没有 UI 写入入口，本笔只铺数据层）。序数按**合并序**排 ——
+ *   master 那两笔先合入，故本笔排其后，口径见 ARCHITECTURE §12.51。
+ *   其余字段（生日 / 抽签 / 快捷链接 / 启动器 / 自定卡 / 原生卡……）仍是按模块共享 ——
+ *   它们不属于 F-01 阶段 2 点名的"记录类卡"七（今八）个字段，没有各自的下一笔。
+ *   记账的币种符号也留顶层：它是偏好不是内容（`LedgerCard.vue` 文件头自己这么写），
+ *   两条账本共用一种货币。
  *
  * ## 单卡取数 vs 聚合取数（2026-11-01 补）
  *
@@ -36,7 +39,7 @@
  * 「**这块板**一共有什么」。前者第二张没有就返回空、**不回落**顶层；后者把顶层与每个
  * 切片加在一起、**一张都不漏**。两种问法方向相反，各自都对 —— 混用才是错的。
  */
-import type { CardData, CountdownSetting, ElapsedSetting, HabitSetting, LedgerRow, MatrixTodo, Todo } from './cardDataTypes'
+import type { CardData, CountdownSetting, ElapsedSetting, HabitSetting, LedgerRow, MatrixTodo, Note, Todo } from './cardDataTypes'
 
 /**
  * 取数只需要这些字段，测试不必造一整份 `CardData`。
@@ -51,6 +54,8 @@ export type InstanceSource = Pick<CardData, 'sticky' | 'todos' | 'countdown' | '
   habit?: HabitSetting
   /** 四象限：顶层那份在 `CardData` 里是**必填**，但取数来源未必带它（测试夹具、旧档）⇒ 放宽成可选 */
   matrix?: MatrixTodo[]
+  /** 速记：同四象限的理由（AI 摘录的 `ExcerptSource` 没有它、只读来源）⇒ 放宽成可选 + 只读 */
+  notes?: readonly Note[]
 }
 
 /** 空"名字 + 日子"：与顶层那个空形状（`emptyCardData`）逐字相同，渲染侧不必为实例分叉判空 */
@@ -261,6 +266,58 @@ export function writeHabit(
   const bag = data.byInstance ?? {}
   bag[instanceId as string] = { ...bag[instanceId as string], habit: next }
   data.byInstance = bag
+}
+
+/**
+ * 速记条目：按实例读（2026-11-05，第八个、也是阶段 2 最后一个字段）。
+ *
+ * 三条口径与便签 / 待办逐条相同（第一实例读顶层；第二实例读自己那份、空不回落；
+ * 两 id 缺一回落顶层）。返回**新数组**（`?? []` 与拷贝二选一都不够——
+ * `readonly Note[]` 的来源可能就是顶层那个数组本身，调用方 slice/ filter 之前
+ * 得先有一份自己的，不然改起来会原地污染顶层）。
+ */
+export function notesOf(data: InstanceSource, moduleId?: string, instanceId?: string): Note[] {
+  if (!isSecondInstance(moduleId, instanceId)) return [...(data.notes ?? [])]
+  return [...(data.byInstance?.[instanceId as string]?.notes ?? [])]
+}
+
+/**
+ * 速记条目：按实例写。**整条替换**（理由同 `writeTodos` / `writeHabit`：
+ * 深层 watch 靠"值变了"才触发写盘，原地 unshift 既不动界面也不落盘）。
+ * 上限与清洗在读盘那道（`cardDataSanitize.ts`），这里不重复实现。
+ */
+export function writeNotes(
+  data: InstanceSource,
+  moduleId: string | undefined,
+  instanceId: string | undefined,
+  next: readonly Note[],
+): void {
+  if (!isSecondInstance(moduleId, instanceId)) {
+    data.notes = [...next]
+    return
+  }
+  const bag = data.byInstance ?? {}
+  bag[instanceId as string] = { ...bag[instanceId as string], notes: [...next] }
+  data.byInstance = bag
+}
+
+/**
+ * **所有**速记（顶层那一份 + 各实例自己的那一份），给聚合口径那几路用 ——
+ * 备份摘要「N 条速记」/ 导出文案 / 命令面板内容域 / `@卡片` 全量上下文 / `recent`
+ * （最近改动）卡。与 §12.50 同一条理由：只看顶层的话，第二张速记卡的内容"看得见、
+ * 算不进"——比报错更难被发现。`recent` 卡与备份文案要的是"这块板一共有什么"，
+ * 这正是聚合口径的反向问法（单卡问"这张卡有什么"走 `notesOf`）。
+ *
+ * 与 `allTodos` 的唯一差别：**按 `at` 倒序排**（recent 卡的语义就是"最近动过的"）。
+ * 同刻两条不保证次序 —— 稳定性不重要（界面上同一分钟内的两条速记谁前谁后无意义），
+ * 不引入额外比较键。
+ */
+export function allNotes(data: InstanceSource): Note[] {
+  const out: Note[] = [...(data.notes ?? [])]
+  for (const slice of Object.values(data.byInstance ?? {})) {
+    if (slice?.notes) out.push(...slice.notes)
+  }
+  return out.sort((a, b) => b.at - a.at)
 }
 
 /**
