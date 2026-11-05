@@ -186,4 +186,32 @@ describe('写入防抖：300ms 合并成一次', () => {
       vi.useRealTimers()
     }
   })
+
+  /**
+   * 写入入口（§12.58）落地后补的两条纪律：
+   * ① 标题正文都空 = 不落（误触回车不留噪音，与 `addTodo` 同一条）；
+   * ② 正文首尾空白进盘前整形（界面上看的就是落盘的那一份）。
+   */
+  it('addNote：标题正文都空时不落盘；只一头有内容照落', async () => {
+    vi.useFakeTimers()
+    try {
+      const storage = countingStorage()
+      storage.set(KEY, JSON.stringify({ todos: [], notes: [] }))
+      storage.writes.length = 0
+      const api = createCardData(storage)
+      api.addNote('   ', '') // 都空 ⇒ 直接返回
+      api.addNote('', '') // 都空 ⇒ 直接返回
+      await nextTick()
+      expect(storage.writes.length, '两次空输入一次都不该落盘').toBe(0)
+      expect(api.state.notes).toEqual([])
+      api.addNote('', '只有正文') // 一头有内容 ⇒ 落，标题回落「无标题」
+      await nextTick()
+      expect(api.state.notes.map((n) => [n.title, n.body])).toEqual([['无标题', '只有正文']])
+      api.addNote('只有标题', '') // 一头有内容 ⇒ 落
+      await nextTick()
+      expect(api.state.notes.map((n) => n.title)).toEqual(['只有标题', '无标题'])
+    } finally {
+      vi.useRealTimers()
+    }
+  })
 })
