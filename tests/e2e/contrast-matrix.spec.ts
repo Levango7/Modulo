@@ -56,26 +56,30 @@ const PAIRS: Record<string, [string, string]> = {
 
 /** 基线表（2026-10-14 probe.mjs 实测；键与 PAIRS 同集）。
  *  `text-1/brand-50` 一组为 2026-10-17 实测（配对同日记入 PAIRS，见那里的注释）；
- *  --brand-50 是 color-mix 令牌，取数走 canvas 回读（见 visual-kit/measure.ts 的 resolveColor）。 */
+ * --brand-50 是 color-mix 令牌，取数走 canvas 回读（见 visual-kit/measure.ts 的 resolveColor）。
+ *  **aurora 两套为 2026-11-05 重测**（PR-B 换默认皮：中性纸面 / 实色卡 / 发丝线，
+ * 深色文字档整体下移是刻意的——旧 10.82 的半金属黑底被暖中性黑替掉，新值全部
+ * AAA 起步：text-2 = 7.40 / 7.96、text-3 = 3.44 / 4.36、accent 5.43 AA）。
+ * ink / candy 两套未动，基线维持 2026-10-14/17 实测值。 */
 const BASELINE: Record<string, Record<string, Record<string, number>>> = {
   aurora: {
     light: {
-      'text-1/bg-page': 13.88,
-      'text-2/bg-page': 6.86,
-      'text-3/bg-page': 3.16,
-      'text-1/bg-card-solid': 15.29,
-      'accent/bg-page': 5.59,
-      'c-red/bg-page': 3.33,
-      'text-1/brand-50': 13.09,
+      'text-1/bg-page': 16.36,
+      'text-2/bg-page': 7.4,
+      'text-3/bg-page': 3.44,
+      'text-1/bg-card-solid': 17.21,
+      'accent/bg-page': 5.43,
+      'c-red/bg-page': 3.58,
+      'text-1/brand-50': 14.49,
     },
     dark: {
-      'text-1/bg-page': 15.73,
-      'text-2/bg-page': 10.82,
-      'text-3/bg-page': 6.14,
-      'text-1/bg-card-solid': 14,
-      'accent/bg-page': 7.03,
-      'c-red/bg-page': 4.8,
-      'text-1/brand-50': 11.32,
+      'text-1/bg-page': 14.6,
+      'text-2/bg-page': 7.96,
+      'text-3/bg-page': 4.36,
+      'text-1/bg-card-solid': 13.22,
+      'accent/bg-page': 6.84,
+      'c-red/bg-page': 4.67,
+      'text-1/brand-50': 10.4,
     },
   },
   ink: {
