@@ -793,22 +793,21 @@ it.skipIf(skip)('首启：弹的是向导而不是模板选择器；走完一次
   await page.setViewport({ width: 1440, height: 900, deviceScaleFactor: 1 })
   await page.goto(url, { waitUntil: 'networkidle2', timeout: 30000 })
   await settle(700)
-  // F-10：首启入口从「只弹模板选择器」换成三步向导 —— 后者第 1 步就是选版面，
-  // 但还会说清外观与那三条"你可能不知道"的事。选择器本身仍从顶栏/设置里进。
-  expect(await page.evaluate(() => !!document.querySelector('.wizard')), '没有存档时首启应出向导').toBe(true)
+  // 2026-11-05 PR-C：首启从「三步向导」收成「一屏三动作」—— 还没获得价值之前
+  // 不再分步、不摊 8 张模板；选择器仍从「先看模板」与顶栏/设置里进。
+  expect(await page.evaluate(() => !!document.querySelector('.wizard')), '没有存档时首启应出这一屏').toBe(true)
+  expect(
+    await page.evaluate(() => (document.querySelector('.wizard')?.textContent ?? '')),
+  ).toContain('这一屏，交给 AI 布置。')
   expect(
     await page.evaluate(() => !!document.querySelector('.picker[role="dialog"]')),
     '首启不该再直接砸出模板选择器（那会让人以为这个应用只有选版面一件事）',
   ).toBe(false)
 
-  // 第 1 步挑「通用」→ 后面两步一路「下一步」→ 开始用
-  await page.click('.wizard [data-tpl="general"]')
-  await page.click('.wizard [data-next="layout"]')
-  await page.waitForSelector('.wizard .skin', { timeout: 10000 })
-  await page.click('.wizard [data-next="look"]')
-  await page.waitForSelector('.wizard [data-next="ready"]', { timeout: 10000 })
-  await page.click('.wizard [data-next="ready"]')
+  // 「让 AI 开始」：开对话坞，版面一个字不动
+  await page.click('.wizard [data-start]')
   await settle(600)
+  expect(await page.evaluate(() => !!document.querySelector('.wizard')), '点了动作这一屏就该退场').toBe(false)
 
   await page.reload({ waitUntil: 'networkidle2' })
   await settle(700)

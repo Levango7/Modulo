@@ -1,11 +1,17 @@
 /**
- * 首启向导的**纯判定层**（F-10，2026-10-28）。
+ * 首启向导的**纯判定层**（F-10，2026-10-28；2026-11-05 改天换地 PR-C 收成**一屏**）。
  *
  * 为什么单独成文件：这段要能被断言（本仓受测层的纳入判据，见 `vitest.config.ts` 文件头）。
  * 三件事在这里定死，组件只负责画：
- *   ① **三步是什么**（顺序就是数组顺序，不许在模板里再写一遍）；
+ *   ① **这一屏是什么**（顺序就是数组顺序，不许在模板里再写一遍）；
  *   ② **什么时候该弹**（`showOnboarding`）—— 这条最容易写错，见下面那条口径；
  *   ③ **状态怎么落盘、坏数据怎么办**（`parseOnboarding` / `serializeOnboarding`）。
+ *
+ * 2026-11-05：从「三步向导（挑版面 / 选外观 / 三条事实）」收成**一屏三动作**
+ * （让 AI 开始 / 我从空白开始 / 先看模板）—— 用户还没获得任何价值之前，
+ * 分步 + 一上来摊 8 张模板是纯负担。文案以 `docs/PRODUCT.md` §1.1 的规格为准。
+ * 步骤数组保留（单元素）：`clampStep` / `stepAt` / `isLastStep` 的防越界机制不变，
+ * 组件与测试的读法也就不变。
  *
  * 触发口径（为什么老用户升级上来不会被打扰）：
  *   `show = !done && firstRun`，而 `firstRun` 是 store 里的派生量「版面为空且没挑过模板」。
@@ -31,16 +37,18 @@ export interface OnboardingState {
 export const EMPTY_ONBOARDING: OnboardingState = { done: false, skipped: false, at: null }
 
 export interface OnboardingStep {
-  id: 'layout' | 'look' | 'ready'
+  id: 'welcome'
   title: string
-  /** 这一步在做"决定"还是"知道"——决定那两步才即时生效 */
+  /** 副题：一句话说清这一屏是干什么的 */
   hint: string
 }
 
 export const ONBOARDING_STEPS: readonly OnboardingStep[] = [
-  { id: 'layout', title: '先挑一张版面', hint: '点一张就换过去（可以 Ctrl+Z 退回）；不想挑就「先不选」，不影响使用' },
-  { id: 'look', title: '选个顺眼的外观', hint: '皮肤与明暗会立刻生效，之后随时能在「设置 → 外观」里改' },
-  { id: 'ready', title: '可以开始了', hint: '三条你可能不知道的事在下面' },
+  {
+    id: 'welcome',
+    title: '这一屏，交给 AI 布置。',
+    hint: '说一句话，它建卡、记账、总结、盯梢——产出留在你布置得明的桌面上。',
+  },
 ]
 
 /** 第几步（越界一律夹回合法范围：坏的索引不许把向导画成空白） */

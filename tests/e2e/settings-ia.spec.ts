@@ -185,30 +185,28 @@ describe.skipIf(skip)('F-10 设置分组（网页形态）', () => {
   })
 })
 
-describe.skipIf(skip)('F-10 首启向导（桌面形态）', () => {
-  it('真首启弹向导：选版面 → 选外观 → 开始用，落盘 done 且版面真的换了', async () => {
+describe.skipIf(skip)('首启一屏（2026-11-05 PR-C：三步向导收成一屏三动作）', () => {
+  it('真首启弹一屏：先看模板 → 挑「专注」→ 版面真的换了，落盘 done', async () => {
     const errs: string[] = []
     const page = await open({ seeded: false }, errs)
     await page.waitForSelector('.wizard', { timeout: 15000 })
-    expect(await page.evaluate(() => (document.querySelector('.wizard')?.textContent ?? ''))).toContain('第 1 步 / 共 3 步')
+    // 首屏文案口径见 PRODUCT.md §1.1：主标题 + 副题，没有分步
+    expect(await page.evaluate(() => (document.querySelector('.wizard')?.textContent ?? ''))).toContain('这一屏，交给 AI 布置。')
+    expect(await page.evaluate(() => (document.querySelector('.wizard')?.textContent ?? ''))).not.toContain('第 1 步')
 
-    // 第 1 步：挑「专注」那张（不点任何门也能过，但点了就要真生效）
-    await page.click('.wizard .tpl[data-tpl="focus"]')
-    await page.click('.wizard [data-next="layout"]')
-
-    // 第 2 步：换皮肤
-    await page.waitForSelector('.wizard .skin', { timeout: 10000 })
-    await page.evaluate(() => {
-      const btn = [...document.querySelectorAll('.wizard .skin')].find((b) => (b.textContent ?? '').includes('墨纸'))
-      ;(btn as HTMLElement).click()
-    })
-    await page.click('.wizard [data-next="look"]')
-
-    // 第 3 步：三条事实 + 开始用
-    await page.waitForSelector('.wizard .facts li', { timeout: 10000 })
-    expect(await page.evaluate(() => document.querySelectorAll('.wizard .facts li').length)).toBeGreaterThanOrEqual(3)
-    await page.click('.wizard [data-next="ready"]')
+    // 「先看模板」：开门动作 —— 开模板选择器（引导自己关上）
+    await page.click('.wizard [data-templates]')
     await page.waitForFunction(() => !document.querySelector('.wizard'), { timeout: 10000 })
+    await page.waitForSelector('.picker[role="dialog"]', { timeout: 15000 })
+
+    // 挑「专注」那张（不点任何门也能过，但点了就要真生效）
+    await page.evaluate(() => {
+      const btn = [...document.querySelectorAll<HTMLElement>('.picker .card')].find((b) =>
+        (b.textContent ?? '').includes('专注'),
+      )
+      btn?.click()
+    })
+    await page.waitForFunction(() => !document.querySelector('.picker[role="dialog"]'), { timeout: 10000 })
 
     // 落盘：done=true / skipped=false
     await page.waitForFunction(
@@ -285,7 +283,7 @@ describe.skipIf(skip)('F-10 首启向导（桌面形态）', () => {
 
     await page.click('.panel [data-replay-onboarding]')
     await page.waitForSelector('.wizard', { timeout: 10000 })
-    expect(await page.evaluate(() => (document.querySelector('.wizard')?.textContent ?? ''))).toContain('第 1 步 / 共 3 步')
+    expect(await page.evaluate(() => (document.querySelector('.wizard')?.textContent ?? ''))).toContain('这一屏，交给 AI 布置。')
     await page.waitForFunction(
       () => (localStorage.getItem('modulo.__stubdoc.modulo.onboarding.v1') ?? '').includes('"done":false'),
       { timeout: 15000 },
