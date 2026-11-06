@@ -489,4 +489,34 @@ describe.skipIf(skip)('聊天任脊柱（E1）', () => {
     expect(await exists(page, '.cell'), '切回工作台画布在').toBe(true)
     expect(errs, `页面不该有报错：${errs.join(' | ')}`).toEqual([])
   })
+
+  it('composer 控件行（E2）：模型名常在；引用一张卡后显示上下文用量与可读卡数', async () => {
+    const errs: string[] = []
+    const page = await open({}, errs)
+    await expand(page)
+    // 模型名：配置里唯一的 provider 的名字/型号要说在明处
+    await page.waitForSelector('[data-chat-model]', { timeout: 10000 })
+    expect(await text(page, '[data-chat-model]')).toContain('gpt-4o-mini')
+    // 没引用卡片时不显示上下文/权限两枚（不占地方，不显示空信息）
+    expect(await exists(page, '[data-chat-ctx]')).toBe(false)
+
+    // 引用那张待办卡：控件行给出「已用 X / 2000」与「本次可读 1 张卡」
+    await page.type('[data-chat-input]', '@')
+    await page.waitForSelector('[data-chat-picker] [data-pick]', { timeout: 10000 })
+    await click(page, '[data-chat-picker] [data-pick]')
+    await new Promise((r) => setTimeout(r, 300))
+
+    const ctx = await text(page, '[data-chat-ctx]')
+    expect(ctx, '上下文用量形如「上下文 N/2000」').toMatch(/^上下文 \d+\/2000$/)
+    const n = Number(ctx.replace('上下文 ', '').split('/')[0])
+    expect(n, '用量是正数（引用块不是空的）').toBeGreaterThan(0)
+    expect(await text(page, '[data-chat-perm]')).toContain('本次可读 1 张卡')
+    // 与判定层同源（§12.63 的两颗钉子）：用量 = contextBlock 的真实长度，
+    // 这里借 chip 的 aria 断言"可读卡数"与实际引用数一致
+    expect(await exists(page, '[data-chat-chips] .chip'), '引用 chip 在').toBe(true)
+    await click(page, '[data-chat-chips] .chip')
+    await new Promise((r) => setTimeout(r, 300))
+    expect(await exists(page, '[data-chat-ctx]'), '移除 chip = 收权，控件行收回用量显示').toBe(false)
+    expect(errs, `页面不该有报错：${errs.join(' | ')}`).toEqual([])
+  })
 })
