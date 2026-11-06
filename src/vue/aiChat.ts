@@ -284,6 +284,33 @@ export function excerptFor(choice: CardChoice, data: ExcerptSource): string {
  * 引用块（system 消息）。整块有预算：卡片多了按顺序截断，并在末尾明说被截了 ——
  * 静默截断会让模型以为"就这些"，那比不带上下文更糟。
  */
+/**
+ * 上下文预算的**当前用量**（E2 composer 控件）：把 chips 与其摘录换算成
+ * "已用多少字 / 预算多少字"，composer 据此显示「已用 123 / 2000」并在超预算前预警。
+ *
+ * 为什么单独一个纯函数而不是在组件里拼：这个数字有三个消费者（控件显示 / 超预算
+ * 预警 / 测试），而 `contextBlock` 的截断是**事后**的（拼完才发现超了）；
+ * `contextUsage` 是**事前**的（还没拼出来就知道要给用户看什么）。两者必须同源 ——
+ * 所以用量算法就是 contextBlock 算法的前半段（head + 每卡 `## label
+摘录` 的
+ * 总长 + 未计入预算的截断后缀），测试直接钉住两个数字对得上。
+ */
+export function contextUsage(
+  chips: readonly CardChoice[],
+  excerptOf: (c: CardChoice) => string,
+  max: number = CONTEXT_MAX,
+): { used: number; max: number; cards: number; over: boolean } {
+  const head =
+    '用户在版面里引用了下面这些卡片，把它们当作已知内容来回答；不要编造卡片里没有的信息。'
+  let used = head.length
+  for (const c of chips) {
+    const body = excerptOf(c).trim() || '（这张卡没有可引用的文字内容）'
+    // 与 contextBlock 的拼接逐字符同源：head 之后接 '\n\n'，每张卡再各自接 '\n\n'
+    used += 2 + `## ${c.label}\n${body}`.length
+  }
+  return { used, max, cards: chips.length, over: used > max }
+}
+
 export function contextBlock(
   chips: readonly CardChoice[],
   excerptOf: (c: CardChoice) => string,

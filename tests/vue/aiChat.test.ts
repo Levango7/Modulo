@@ -5,6 +5,7 @@ import {
   canShowDock,
   cardChoices,
   contextBlock,
+  contextUsage,
   excerptFor,
   filterChoices,
   historyWhen,
@@ -183,6 +184,30 @@ describe('组装请求', () => {
   it('没有可引用内容的卡如实写一句，不替它编内容', () => {
     expect(contextBlock([choice({ label: '时钟' })], () => '')).toContain('没有可引用的文字内容')
     expect(contextBlock([], () => '')).toBeNull()
+  })
+
+  /**
+   * E2 的 composer 控件行显示「已用 X / 2000」—— 这个数字与 `contextBlock` 的
+   * 事后截断必须同源，否则控件是个"看着玩的花架子"（显示没超、其实早截了）。
+   * 钉法：不超预算时 usage.used == contextBlock 的真实长度（逐字符核对）。
+   */
+  it('contextUsage 与 contextBlock 同源：不超预算时两个数字逐字符相等', () => {
+    const chips = [choice({ id: 'a', label: '待办' }), choice({ id: 'b', label: '便签' })]
+    const u = contextUsage(chips, (c) => (c.id === 'a' ? '交周报' : '周五前发老板'))
+    const block = contextBlock(chips, (c) => (c.id === 'a' ? '交周报' : '周五前发老板'))!
+    expect(u.used).toBe(block.length)
+    expect(u.max).toBe(2000)
+    expect(u.cards).toBe(2)
+    expect(u.over).toBe(false)
+  })
+
+  it('contextUsage：空摘录的卡也占那一份「没有可引用内容」的长度；超预算 over 翻真', () => {
+    const u1 = contextUsage([choice({ label: '时钟' })], () => '')
+    const b1 = contextBlock([choice({ label: '时钟' })], () => '')!
+    expect(u1.used).toBe(b1.length)
+    const u2 = contextUsage([choice()], () => 'x'.repeat(5000))
+    expect(u2.over, '5000 字远超 2000 预算 ⇒ over').toBe(true)
+    expect(u2.cards).toBe(1)
   })
 })
 

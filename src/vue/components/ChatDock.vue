@@ -27,6 +27,7 @@ import { AI_DOC_KEY, parseAiDoc } from '../aiSettings'
 import {
   applyChunk,
   buildMessages,
+  contextUsage,
   cardChoices,
   excerptFor,
   filterChoices,
@@ -98,6 +99,22 @@ const threadEl = ref<HTMLElement | null>(null)
  */
 const providers = computed(() => parseAiDoc(storage.get(AI_DOC_KEY)))
 const providerId = ref('')
+
+/** 当前 provider 的展示名（composer 控件行第一个控件：模型是什么要说在明处） */
+const providerModel = computed(() => {
+  const p = providers.value.find((x) => x.id === providerId.value) ?? providers.value[0]
+  return p ? p.model || p.id : '未配置模型'
+})
+/**
+ * 上下文用量（E2 控件行）：事前算法（`contextUsage`），与 `contextBlock` 的事后截断
+ * 同源 —— 测试钉两个数字对得上，控件才不是"看着玩的花架子"。
+ */
+const usage = computed(() =>
+  contextUsage(
+    chips.value,
+    (c) => excerptFor(c, cardDataApi.state),
+  ),
+)
 
 /** 选中的 provider 掉了（被删）就回落到第一条，避免发出去必失败 */
 watch(
@@ -412,6 +429,25 @@ onBeforeUnmount(() => {
         </button>
       </div>
 
+      <!--
+        composer 控件行（E2）：模型名 / 上下文用量 / 权限说明三件。
+        上下文用量走 `contextUsage`（事前算法，与 contextBlock 同源——测试钉住两个
+        数字对得上）；超预算时数字转红并**提前**说，而不是等拼完才截断。
+        权限说明把"引用卡片"翻译成用户语言：本次可读 N 张卡的内容、各自上限 400 字 ——
+        chips 就是权限的具象（移除 chip = 收权），这里是把它显式化。
+      -->
+      <div class="controls" data-chat-controls>
+        <span class="ctl model" data-chat-model :title="`当前模型服务：${providerModel}`">
+          {{ providerModel }}
+        </span>
+        <span v-if="usage.cards" class="ctl ctx" :class="{ over: usage.over }" data-chat-ctx>
+          上下文 {{ usage.used }}/{{ usage.max }}
+        </span>
+        <span v-if="usage.cards" class="ctl perm" data-chat-perm>
+          本次可读 {{ usage.cards }} 张卡的内容（各 ≤400 字）
+        </span>
+      </div>
+
       <div class="composer">
         <ul v-if="picker.length" class="picker" data-chat-picker>
           <li v-for="(c, i) in picker" :key="c.id">
@@ -653,6 +689,24 @@ onBeforeUnmount(() => {
   align-items: flex-end;
   gap: var(--space-2);
   padding: var(--space-2) var(--space-3) var(--space-3);
+}
+.controls {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+.ctl {
+  font-size: 11px;
+  color: var(--text-3);
+  padding: 2px 7px;
+  border-radius: var(--radius-pill, 999px);
+  background: color-mix(in srgb, var(--border-soft) 18%, transparent);
+  white-space: nowrap;
+}
+.ctl.over {
+  color: var(--c-red);
+  font-weight: 600;
 }
 .composer textarea {
   flex: 1;
