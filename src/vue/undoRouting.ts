@@ -16,7 +16,11 @@
 /** 历史归属：版面（布局编辑态改的东西）或内容（卡片里的数据） */
 export type UndoKind = 'layout' | 'content'
 
-export type ViewKind = 'workbench' | 'edit'
+/**
+ * E1 起多一个 `chat` 视图。对撤销路由而言它归 `workbench` 一侧（都不改版面）——
+ * 这里把三态收进类型，路由函数内部继续按"是不是 edit"判（见下）。
+ */
+export type ViewKind = 'workbench' | 'chat' | 'edit'
 
 /** 路由所需的全部输入 —— 都是值，没有 ref、没有副作用 */
 export interface UndoRoutingState {

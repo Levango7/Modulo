@@ -85,6 +85,9 @@ interface Seed {
   reply?: string
   /** 版面上再加两张倒数日 + 两张记账（见 `TWIN_ITEMS`） */
   twins?: boolean
+  /** `false` = 网页形态：**不装 stub**（不摆 Tauri 内核 ⇒ isDesktop=false），E1 的
+   *  web 占位用例靠它拿到真 web 环境 */
+  desktop?: boolean
 }
 
 /** 开一张桌面形态的页面。`ai: false` = 没配任何模型服务（空态那条路） */
@@ -95,9 +98,10 @@ async function open(seed: Seed = {}, errs?: string[]): Promise<Page> {
   await page.setViewport({ width: 1440, height: 900, deviceScaleFactor: 1 })
   const doc = seed.twins ? { ...DOC, items: [...DOC.items, ...TWIN_ITEMS] } : DOC
   const card = seed.twins ? { ...CARD, ...TWIN_CARD } : CARD
+  const desktop = seed.desktop !== false
   await page.evaluateOnNewDocument(
-    (src: string, docJson: string, cardJson: string, aiJson: string | null, histJson: string | null, hang: boolean, reply: string | null) => {
-      new Function(src)()
+    (src: string, docJson: string, cardJson: string, aiJson: string | null, histJson: string | null, hang: boolean, reply: string | null, installStub: boolean) => {
+      if (installStub) new Function(src)()
       localStorage.setItem('modulo.layout.v1', docJson)
       localStorage.setItem('modulo.__stubdoc.modulo.carddata.v1', cardJson)
       if (aiJson) localStorage.setItem('modulo.__stubdoc.ai-settings.v1', aiJson)
@@ -113,9 +117,11 @@ async function open(seed: Seed = {}, errs?: string[]): Promise<Page> {
     seed.history ? JSON.stringify(seed.history) : null,
     seed.hang === true,
     seed.reply ?? null,
+    desktop,
   )
   await page.goto(url, { waitUntil: 'networkidle2', timeout: 30000 })
-  await page.waitForSelector('[data-chat-bar], [data-chat-panel]', { timeout: 15000 })
+  // web 形态没有坞（AI 后端不在）⇒ 等左栏出现即可
+  await page.waitForSelector(desktop ? '[data-chat-bar], [data-chat-panel]' : '[data-mode="chat"]', { timeout: 15000 })
   return page
 }
 
@@ -395,6 +401,92 @@ describe.skipIf(skip)('F-12 二期：底部对话坞（桌面形态）', () => {
     expect(
       await page.evaluate(() => (document.querySelector('[data-chat-input]') as HTMLTextAreaElement).value),
     ).toBe('')
+    expect(errs, `页面不该有报错：${errs.join(' | ')}`).toEqual([])
+  })
+})
+
+/**
+ * 聊天任脊柱（改天换地 E1，2026-11-06）：AI 从"底部小坞"升成脊柱级**视图**。
+ *
+ * 只测三件只有端到端能证的事：① 左栏点「聊天」⇒ 全高面板、画布让位；② 切回
+ * 「工作台」⇒ 原样回来（互斥可逆）；③ web 形态（无 AI 后端）⇒ 诚实占位而不是
+ * 假输入框。窄窗 12 列由 layout.spec 的三档视口用例钉着（E1 的自适应改动正是
+ * 被它抓出来的），这里只补一条 1440 回归。
+ */
+describe.skipIf(skip)('聊天任脊柱（E1）', () => {
+  it('点「聊天」：对话撑满内容列、画布让位；切「工作台」后原样回来', async () => {
+    const errs: string[] = []
+    const page = await open({}, errs)
+
+    // 工作台态：坞是 46px 底部输入条（不是全高面板）
+    await page.waitForSelector('[data-chat-bar]', { timeout: 10000 })
+    const barH = await page.evaluate(
+      () => Math.round((document.querySelector('[data-chat-bar]') as HTMLElement).getBoundingClientRect().height),
+    )
+    expect(barH, '工作台态的坞是底部输入条').toBeLessThan(80)
+
+    await click(page, '[data-mode="chat"]')
+    await new Promise((r) => setTimeout(r, 600))
+    const chatState = await page.evaluate(() => ({
+      mode: !!document.querySelector('[data-chat-mode]'),
+      panel: !!document.querySelector('[data-chat-panel]'),
+      grid: !!document.querySelector('.cell'),
+      panelH: Math.round((document.querySelector('[data-chat-panel]') as HTMLElement)?.getBoundingClientRect().height ?? 0),
+    }))
+    expect(chatState.mode, 'chat 容器在').toBe(true)
+    expect(chatState.panel, '全高对话面板在').toBe(true)
+    expect(chatState.panelH, '面板撑满内容列（≥600px）').toBeGreaterThan(600)
+    expect(chatState.grid, '画布让位').toBe(false)
+
+    // 切回来：画布回来、坞回底部形态（互斥可逆）
+    await click(page, '[data-mode="workbench"]')
+    await new Promise((r) => setTimeout(r, 600))
+    expect(await exists(page, '.cell'), '画布回来了').toBe(true)
+    expect(await exists(page, '[data-chat-bar]'), '坞回底部输入条').toBe(true)
+    expect(await exists(page, '[data-chat-panel]'), '全高面板收起').toBe(false)
+    expect(errs, `页面不该有报错：${errs.join(' | ')}`).toEqual([])
+  })
+
+  it('窄窗（1440）：左栏自动收起、画布拿回全宽（12 列优先不回退）', async () => {
+    const errs: string[] = []
+    const page = await open({}, errs)
+    const railHidden = await page.evaluate(() => {
+      const rail = document.querySelector('.rail') as HTMLElement | null
+      return rail ? getComputedStyle(rail).display === 'none' : null
+    })
+    expect(railHidden, '1440 视口左栏自动收起').toBe(true)
+    const stageW = await page.evaluate(() => {
+      const stage = document.querySelector('.stage') as HTMLElement | null
+      return Math.round(stage?.getBoundingClientRect().width ?? 0)
+    })
+    expect(stageW, '舞台拿回全宽（≥1400），栏没偷宽度').toBeGreaterThanOrEqual(1400)
+    expect(errs, `页面不该有报错：${errs.join(' | ')}`).toEqual([])
+  })
+
+  it('web 形态：点「聊天」给诚实占位，不摆假输入框', async () => {
+    const errs: string[] = []
+    // 不装 stub ⇒ isDesktop=false；`open(false)` 的 ai 配置也随之不带
+    const page = await open({ desktop: false, ai: false }, errs)
+    // 该 spec 的 open() 总是装 stub —— web 形态的判定需要它真的不在位：
+    const reallyWeb = await page.evaluate(() => !('__TAURI_INTERNALS__' in window))
+    if (!reallyWeb) {
+      // 桩在位 ⇒ 这条用例的前提不成立（说明 open 的 desktop 选项没走通），如实失败
+      throw new Error('web 形态前提不成立：stub 仍在位')
+    }
+    await click(page, '[data-mode="chat"]')
+    await new Promise((r) => setTimeout(r, 500))
+    const state = await page.evaluate(() => ({
+      note: !!document.querySelector('[data-chat-web-note]'),
+      noteText: document.querySelector('[data-chat-web-note]')?.textContent ?? '',
+      fakeInput: !!document.querySelector('[data-chat-panel], [data-chat-bar]'),
+    }))
+    expect(state.note, '占位面板在').toBe(true)
+    expect(state.noteText).toContain('桌面')
+    expect(state.noteText).toContain('密钥')
+    expect(state.fakeInput, 'web 态没有假的输入框').toBe(false)
+    await click(page, '[data-mode="workbench"]')
+    await new Promise((r) => setTimeout(r, 500))
+    expect(await exists(page, '.cell'), '切回工作台画布在').toBe(true)
     expect(errs, `页面不该有报错：${errs.join(' | ')}`).toEqual([])
   })
 })

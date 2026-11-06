@@ -40,7 +40,8 @@ export type CommandScope =
 export interface CommandContext {
   store: LayoutStore
   /** 当前视图（'workbench' | 'edit'） */
-  view: Ref<'workbench' | 'edit'>
+  /** E1 起多 chat 态：命令谓词里 chat 与 workbench 同侧（都不是编辑态） */
+  view: Ref<'workbench' | 'chat' | 'edit'>
   /** 编辑器里选中的卡（工作台为空集） */
   selection: Ref<ReadonlySet<string>>
   /**

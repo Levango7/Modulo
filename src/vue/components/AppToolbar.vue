@@ -28,7 +28,8 @@ import type { ArrangeAction } from '../arrangeActions'
 import type { FloatItem } from '../floatList'
 
 const props = defineProps<{
-  view: 'workbench' | 'edit'
+  /** E1 起多 chat 态：顶栏只画两个 tab（布局/工作台），chat 由左栏进 */
+  view: 'workbench' | 'chat' | 'edit'
   stageW: number
   cols: number
   mode: 'canvas' | 'stack'
@@ -48,7 +49,7 @@ const props = defineProps<{
 }>()
 
 const emit = defineEmits<{
-  (e: 'select-view', v: 'workbench' | 'edit'): void
+  (e: 'select-view', v: 'workbench' | 'chat' | 'edit'): void
   (e: 'enter-edit'): void
   (e: 'cancel-edit'): void
   (e: 'save-edit'): void

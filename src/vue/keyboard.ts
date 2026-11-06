@@ -113,7 +113,8 @@ export interface AppKeyLayers {
   cancelAskOpen: boolean
   /** 编辑器自退（清选中 / 关目录下拉）；消费掉了返回 true */
   editorEscape: () => boolean
-  view: 'workbench' | 'edit'
+  /** E1 起多 chat 态；Esc 语义上它与 workbench 同侧（都按"非编辑"处理），见下 */
+  view: 'workbench' | 'chat' | 'edit'
   arrangeOpen: boolean
   /** 顶栏「浮窗 N」清单开着（F-08，2026-10-26）—— 有浮窗时顶栏才出现这枚按钮 */
   floatOpen: boolean
