@@ -39,7 +39,12 @@ import {
   type ChatTurn,
 } from '../aiChat'
 
-const props = defineProps<{ expanded: boolean }>()
+/**
+ * `full`：嵌入全高模式（E1 的 chat 视图）。展开面板从"浮在画布上的 45vh 浮层"
+ * 变成"撑满 chat-mode 容器的一块"—— 收起条、Esc 收起这些交互在 full 下没有意义
+ * （左栏永远能切走），所以 full 时 App 传 `:expanded="true"` 且忽略 update 事件。
+ */
+const props = defineProps<{ expanded: boolean; full?: boolean }>()
 const emit = defineEmits<{ (e: 'update:expanded', v: boolean): void }>()
 
 const storage = inject<StorageAdapter>('storage')!
@@ -351,7 +356,7 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <div class="dock" :data-open="expanded ? '1' : '0'">
+  <div class="dock" :data-open="expanded ? '1' : '0'" :data-full="full ? '1' : '0'">
     <section v-if="expanded" class="panel" data-chat-panel aria-label="AI 对话">
       <header class="head">
         <span class="tag">AI</span>
@@ -514,6 +519,14 @@ onBeforeUnmount(() => {
   right: 0;
   bottom: 0;
   max-height: 45vh;
+  /* E1 全高模式（chat 视图）：面板从浮层变成撑满容器的一块 */
+  .dock[data-full='1'] & {
+    position: static;
+    max-height: none;
+    height: 100%;
+    box-shadow: none;
+    border-radius: var(--radius-lg);
+  }
   display: flex;
   flex-direction: column;
   border: 1px solid var(--border-soft);

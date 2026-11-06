@@ -15,8 +15,8 @@ import { inject, onMounted, ref } from 'vue'
 import { MessageSquarePlus, Trash2 } from 'lucide-vue-next'
 import type { AiSessionsApi } from '../useAiSessions'
 
-const props = defineProps<{ view: 'workbench' | 'edit' }>()
-const emit = defineEmits<{ (e: 'select-view', v: 'workbench' | 'edit'): void }>()
+const props = defineProps<{ view: 'workbench' | 'chat' | 'edit' }>()
+const emit = defineEmits<{ (e: 'select-view', v: 'workbench' | 'chat' | 'edit'): void }>()
 
 const sessions = inject<AiSessionsApi>('aiSessions')!
 
@@ -51,6 +51,9 @@ onMounted(() => void sessions.refresh())
 <template>
   <aside class="rail" aria-label="会话栏">
     <nav class="modes" aria-label="视图">
+      <button :data-active="view === 'chat'" data-mode="chat" title="和 AI 说话，让它来布置这一屏" @click="emit('select-view', 'chat')">
+        聊天
+      </button>
       <button :data-active="view === 'workbench'" data-mode="workbench" @click="emit('select-view', 'workbench')">
         工作台
       </button>

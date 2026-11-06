@@ -18,7 +18,11 @@ import type { LayoutDoc } from '@levango7/engine'
 import { countLayoutChanges, isEditDirty } from './editTransaction'
 import type { LayoutStore } from './store'
 
-export type TxView = 'workbench' | 'edit'
+/**
+ * E1 起多一个 `chat` 视图。事务只关心"是不是 edit"：chat 归 workbench 一侧
+ * （都是看，不改版面）—— 类型收三态，语义按 edit 判。
+ */
+export type TxView = 'workbench' | 'chat' | 'edit'
 
 export interface EditTransactionOptions {
   store: LayoutStore

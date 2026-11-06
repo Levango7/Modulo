@@ -379,7 +379,8 @@ export function historyWhen(updatedAt: number, nowMs: number): string {
  */
 export interface DockVisibility {
   desktop: boolean
-  view: 'workbench' | 'edit'
+  /** 改天换地 E1：chat 是并列的第三种视图（左栏三 tab），坞在其中要全高常驻 */
+  view: 'workbench' | 'chat' | 'edit'
   /** 已脱离成浮窗的卡数（>0 = 用户正在别的窗口里） */
   floats: number
   settingsOpen: boolean
@@ -388,10 +389,16 @@ export interface DockVisibility {
   onboardingOpen: boolean
 }
 
+/**
+ * 坞什么时候该在。E1 起 `view` 有三态：`workbench`（底部常驻条）/ `chat`（**全高面板**，
+ * 聊天任脊柱）/ `edit`（编辑器里不挡拖拽，同旧）。
+ * `desktop` 那条不动：AI 后端是 Tauri IPC，web 版没有脊梁骨 —— 但 `view==='chat'` 时
+ * web 也有话要说（占位面板），那句话不归这里管，归 App 的 chat-mode 分支。
+ */
 export function canShowDock(s: DockVisibility): boolean {
   return (
     s.desktop &&
-    s.view === 'workbench' &&
+    (s.view === 'workbench' || s.view === 'chat') &&
     s.floats === 0 &&
     !s.settingsOpen &&
     !s.templatesOpen &&

@@ -158,7 +158,11 @@ const reminders = useReminders(() => cardDataApi.state, {
 })
 provide('reminders', reminders)
 
-const view = ref<'workbench' | 'edit'>('workbench')
+/**
+ * 三态视图（改天换地 E1）：chat = 聊天任脊柱（中央全高对话）/ workbench = 画布 + 底部坞 /
+ * edit = 布局编辑。左栏三个 tab；顶栏的「工作台 / 布局编辑」按钮保留成快捷方式。
+ */
+const view = ref<'workbench' | 'chat' | 'edit'>('workbench')
 
 /**
  * 撤销/重做（2026-10-20 起，2026-10-24 Cut B 抽成 `useUndoRedo.ts`）：版面与内容各有一份历史，
@@ -172,8 +176,8 @@ const { canUndoAny, canRedoAny, undoLatest, redoLatest } = useUndoRedo({
   view,
 })
 const settingsOpen = ref(false)
-/** 顶栏视图切换：edit 态点「工作台」走取消事务（与 Esc / tab 同一条路），否则直接切 */
-function onSelectView(v: 'workbench' | 'edit'): void {
+/** 视图切换：edit 态点「工作台」走取消事务（与 Esc / tab 同一条路），否则直接切 */
+function onSelectView(v: 'workbench' | 'chat' | 'edit'): void {
   if (v === 'workbench' && view.value === 'edit') cancelEdit()
   else view.value = v
 }
@@ -534,7 +538,23 @@ const onGlobalKey = useGlobalKeys({
         @dismiss-reminder="reminderNotes = []"
         @export-backup="backup.exportBackup()"
       />
-      <template v-if="view === 'workbench'">
+      <!--
+        聊天任脊柱（E1）：chat 态时画布整块让位给全高对话。桌面有 AI 后端（Tauri IPC），
+        全高坞；web 没有后端 —— 这里给**诚实占位**（说明 AI 为什么只在桌面 + 出路在哪），
+        而不是一个发不出消息的假输入框。
+      -->
+      <div v-if="view === 'chat'" class="chat-mode" data-chat-mode>
+        <ChatDock v-if="isDesktop" :expanded="true" full @update:expanded="() => {}" />
+        <section v-else class="chat-web-note" data-chat-web-note>
+          <h2>AI 对话在桌面版里</h2>
+          <p>
+            AI 的请求由桌面壳直接发给模型服务（不经过任何第三方服务器，你的密钥也不出本机）——
+            网页版没有这条通道，所以这里不摆一个发不出消息的输入框。
+          </p>
+          <p>画布、卡片、本地数据这些都不受影响，随时切回「工作台」继续用。</p>
+        </section>
+      </div>
+      <template v-else-if="view === 'workbench'">
         <p v-if="projection.collapsed.length" class="collapsed muted">
           当前宽度放不下：{{ projection.collapsed.map((c) => c.id).join('、') }}
         </p>
@@ -575,9 +595,14 @@ const onGlobalKey = useGlobalKeys({
       </CanvasEditor>
       <StackEditor v-else />
     </main>
-    </div>
 
+    <!--
+      工作台态的底部坞：**必须在 .content 里**（内容列的最后一层）。外壳 `.shell` 被 E1
+      改成左栏 + 内容列的行向布局后，坞若留在 shell 直下就会被 flex 当成右侧第三列
+      （实测偷走 270px 舞台宽、1440 视口列数掉档）—— 这次是被窄窗用例当场抓出来的。
+    -->
     <ChatDock v-if="dockVisible" :expanded="dockExpanded" @update:expanded="dockExpanded = $event" />
+    </div>
     </div>
 
     <CancelEditDialog
@@ -620,6 +645,44 @@ const onGlobalKey = useGlobalKeys({
   min-height: 0;
   padding: var(--space-4);
   gap: var(--space-4);
+}
+/* E1 聊天态：画布让位，对话撑满内容列 */
+.chat-mode {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+/* 坞常驻容器在 chat 态要撑满（收起态那条 46px 老规则不能压着它），
+   全高面板再撑满容器 —— 两级的 height 都覆盖掉才真的是"全高" */
+.chat-mode .dock {
+  flex: 1;
+  min-height: 0;
+  height: auto !important;
+}
+.chat-mode .panel {
+  height: 100%;
+}
+.chat-web-note {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: flex-start;
+  gap: var(--space-3);
+  max-width: 560px;
+  margin: 0 auto;
+  padding: var(--space-5);
+}
+.chat-web-note h2 {
+  margin: 0;
+  font-size: 18px;
+}
+.chat-web-note p {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.7;
+  color: var(--text-2);
 }
 .stage {
   flex: 1;

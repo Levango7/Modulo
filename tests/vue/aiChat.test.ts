@@ -443,6 +443,9 @@ describe('坞该不该出现', () => {
 
   it('桌面工作台、没有浮窗、没有全屏遮罩时才在', () => {
     expect(canShowDock(base)).toBe(true)
+    // E1：chat 视图里坞也要在（全高面板）；edit 仍不挡拖拽
+    expect(canShowDock({ ...base, view: 'chat' })).toBe(true)
+    expect(canShowDock({ ...base, view: 'edit' })).toBe(false)
   })
 
   it('网页版 / 布局编辑 / 有浮窗 / 任一全屏遮罩 —— 一律不渲染', () => {
