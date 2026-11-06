@@ -19,9 +19,13 @@ use tokio::sync::Semaphore;
 use tokio_util::sync::CancellationToken;
 
 use super::keys;
+// E3：消息与附件两个类型搬进 protocol（纯函数的家）—— 命令签名与线上字段一字不变，
+// 这里只是把它们重新导出，`ai::openai_compat::Msg` 的老路径继续可用。
 use super::protocol::{
-    humanize_connect, humanize_status, parse_sse_data_line, validate_base_url, SseEvent,
+    compose_messages, humanize_connect, humanize_status, parse_sse_data_line, validate_base_url,
+    SseEvent,
 };
+pub use super::protocol::{Attachment, Msg};
 use super::settings::{load_provider, load_settings, ProviderCfg, ProviderView};
 
 /// 一次性摘要的整体超时；流式对话不设整体超时（长对话合法），只有连接超时。
@@ -101,12 +105,6 @@ async fn probe_ready(c: &ProviderCfg, has_key: bool) -> bool {
     matches!(req.send().await, Ok(r) if r.status().is_success())
 }
 
-#[derive(Serialize, Deserialize)]
-pub struct Msg {
-    pub role: String,
-    pub content: String,
-}
-
 #[derive(Serialize, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct AiChunk {
@@ -127,10 +125,17 @@ pub async fn ai_chat(
     provider_id: String,
     conversation_id: Option<String>,
     messages: Vec<Msg>,
+    // E3 思考等级：off / low / medium / high。缺失、未知值一律"不加指令"
+    // （折成文字在 protocol::thinking_directive，线上不多发任何字段）
+    thinking: Option<String>,
+    // E3 添加文件：只带文件名与正文，不带路径；上限由 protocol 那一层把关
+    attachments: Option<Vec<Attachment>>,
     on_chunk: Channel<AiChunk>,
 ) -> Result<ConversationRef, String> {
     let cfg = load_provider(&app, &provider_id)?;
     let key = keys::get_key(&provider_id)?;
+    // 缺省 = 没挂文件；空数组与 None 同一条路（preamble 那边返回 None，不插空 system）
+    let attachments = attachments.unwrap_or_default();
     let conv_id = conversation_id.unwrap_or_else(new_conversation_id);
     let token = CancellationToken::new();
     chat_tasks()
@@ -145,12 +150,16 @@ pub async fn ai_chat(
     let app2 = app.clone();
     tauri::async_runtime::spawn(async move {
         let _permit = chat_sem().acquire().await;
-        // 历史落盘用：入参全量消息 + 流式累积的 assistant 回复 = 完整一轮
+        // 历史落盘用：入参全量消息 + 流式累积的 assistant 回复 = 完整一轮。
+        // **附件正文不进历史**：历史是给人回看的，8k 字贴进气泡只会把列表拖慢；
+        // 思考等级同理 —— 它是这一轮的说话方式，不是这段对话的内容（§12.65 如实记）。
         let mut full: Vec<(String, String)> = messages
             .iter()
             .map(|m| (m.role.clone(), m.content.clone()))
             .collect();
-        match run_chat(&base, &model, key, messages, &token, &sink).await {
+        // 真正发出去的那一份：需要时在最前面并入/插入一条 system
+        let outgoing = compose_messages(messages, thinking.as_deref(), &attachments);
+        match run_chat(&base, &model, key, outgoing, &token, &sink).await {
             Ok(reply) => {
                 let _ = sink.send(AiChunk {
                     delta: String::new(),
