@@ -354,6 +354,156 @@ export function summaryText(
   return text.slice(0, Math.max(0, max - suffix.length)) + suffix
 }
 
+// ---- E3：思考档位与附件（composer 的两件新控件）----
+//
+// 两件参数到 Rust 侧都会折成文字（`protocol.rs` 的 `thinking_directive` /
+// `fold_attachments`），这里只负责**界面这一半**：档位文案、读文件前的判断、
+// 预算与去重。上限数字与 Rust 同口径，但**不是权威** —— 真正的闸门在 Rust
+// （手搓的 invoke 也照那边的数裁），这边只负责"提前把话说清楚"。
+
+/** 发给 Rust 的一份附件（与 `ai/protocol.rs` 的 `Attachment` 逐字段一致） */
+export interface OutgoingAttachment {
+  name: string
+  content: string
+}
+
+/** 已挂到这次对话上的文件：`OutgoingAttachment` + 只有界面关心的用量 */
+export interface MountedFile extends OutgoingAttachment {
+  /** 实际带上的字符数（截断后） */
+  chars: number
+  /** 原文件比 `ATTACH_CHARS_MAX` 长，只带了前面一段 */
+  truncated: boolean
+}
+
+/** 一次最多挂几个文件：再多就不是"带材料"，是拿文件灌提示词 */
+export const ATTACH_MAX_FILES = 3
+/** 单个文件的字数上限（同 Rust `ATTACH_CHARS_MAX`） */
+export const ATTACH_CHARS_MAX = 8000
+/** 所有附件合计的字数上限（同 Rust `ATTACH_TOTAL_MAX`） */
+export const ATTACH_TOTAL_MAX = 16000
+/**
+ * 单个文件的体积上限。再大的文件读进内存只为取前 8000 字，不值当 ——
+ * 组件在 `File.text()` 之前用它拦一道（读之前拦，才真的省下那次内存）。
+ */
+export const ATTACH_MAX_BYTES = 2_000_000
+
+export interface ThinkingLevel {
+  id: string
+  label: string
+  /** 悬停说明：每个档位实际做了什么，别让人以为这是"推理预算" */
+  hint: string
+}
+
+/**
+ * 四档。`off` 是默认 —— 不加任何指令，行为与 E2 之前逐字一致：
+ * 新控件不该悄悄改掉所有人的回答风格。
+ */
+export const THINKING_LEVELS: readonly ThinkingLevel[] = [
+  { id: 'off', label: '默认', hint: '不加思考指令，按模型本来的方式回答' },
+  { id: 'low', label: '快', hint: '先给结论，理由一两句（适合改文案、问答）' },
+  { id: 'medium', label: '细', hint: '先拆问题再答，结论在前、推理在后' },
+  { id: 'high', label: '深', hint: '先列假设与边界，分步推理，不确定就说不确定' },
+]
+
+/** 档位的中文名；未知 id 回落「默认」（与 Rust「未知值不加指令」同一条口径） */
+export function thinkingLabel(id: string): string {
+  return THINKING_LEVELS.find((l) => l.id === id)?.label ?? THINKING_LEVELS[0].label
+}
+
+/** 字数的短写法：界面上要的是量级，不是精确到个位的数字 */
+export function charsLabel(n: number): string {
+  if (n < 1000) return `${n} 字`
+  const k = n / 1000
+  return `${k >= 10 ? Math.round(k) : k.toFixed(1)}k 字`
+}
+
+/**
+ * 把选中文件读出来的文本变成可挂的附件。只做判断，不碰 DOM（可单测）。
+ *
+ * 三条拒收都有来由：空文件挂上去只会换来一句"文件是空的"；NUL 字节是
+ * "这不是文本"的可靠判据（图片 / PDF / 压缩包都会命中）；超长文件按**码点**
+ * 截断并把"截断过"记在对象上，界面据此显示"已截断"，不装成全文。
+ *
+ * 调用方保证只把 ≤ `ATTACH_MAX_BYTES` 的文本交进来（组件在读之前拦）。
+ */
+export function attachFile(
+  name: string,
+  text: string,
+): { ok: true; file: MountedFile } | { ok: false; reason: string } {
+  // CRLF → LF：Windows 上选的 txt 全是 CRLF，不统一的话同一个文件两种系统下字数不同
+  const body = text.replace(/\r\n/g, '\n')
+  if (!body.trim()) return { ok: false, reason: `${name} 是空的，没有可带上的内容` }
+  if (body.includes('\u0000')) {
+    return { ok: false, reason: `${name} 不像文本文件（读到了二进制内容）` }
+  }
+  // 按码点算：与 Rust 的 chars() 同一口径，emoji 不会被劈成两个半截
+  const points = Array.from(body)
+  const truncated = points.length > ATTACH_CHARS_MAX
+  return {
+    ok: true,
+    file: {
+      name,
+      content: truncated ? points.slice(0, ATTACH_CHARS_MAX).join('') : body,
+      chars: truncated ? ATTACH_CHARS_MAX : points.length,
+      truncated,
+    },
+  }
+}
+
+export interface PickedText {
+  name: string
+  text: string
+}
+
+/**
+ * 把新选的文件并进已挂的那批，守住三条：同名不重复、个数不超、合计不超。
+ *
+ * 拒收理由要**逐条**回给用户（`rejected`），不能只留最后一个 —— 一次拖五个文件
+ * 进来，用户需要知道哪几个进了、哪几个为什么没进。
+ */
+export function addFiles(
+  existing: readonly MountedFile[],
+  incoming: readonly PickedText[],
+): { files: MountedFile[]; rejected: string[] } {
+  const files = existing.slice()
+  const rejected: string[] = []
+  for (const it of incoming) {
+    if (files.some((f) => f.name === it.name)) {
+      rejected.push(`「${it.name}」已经挂上了`)
+      continue
+    }
+    if (files.length >= ATTACH_MAX_FILES) {
+      rejected.push(`一次最多带 ${ATTACH_MAX_FILES} 个文件，「${it.name}」先没带`)
+      continue
+    }
+    const one = attachFile(it.name, it.text)
+    if (!one.ok) {
+      rejected.push(one.reason)
+      continue
+    }
+    const used = files.reduce((n, f) => n + f.chars, 0)
+    if (used + one.file.chars > ATTACH_TOTAL_MAX) {
+      rejected.push(`附件合计最多 ${ATTACH_TOTAL_MAX} 字，「${it.name}」先没带`)
+      continue
+    }
+    files.push(one.file)
+  }
+  return { files, rejected }
+}
+
+/** 控件行上的附件摘要；没有文件返回 null（不占地方，不显示空信息） */
+export function filesSummary(files: readonly MountedFile[]): string | null {
+  if (!files.length) return null
+  const chars = files.reduce((n, f) => n + f.chars, 0)
+  const cut = files.some((f) => f.truncated) ? ' · 有截断' : ''
+  return `${files.length} 个文件 · ${charsLabel(chars)}${cut}`
+}
+
+/** 单个附件的悬停说明：文件名 + 实际带上多少字（截断的要说） */
+export function attachmentLine(f: MountedFile): string {
+  return `${f.name} · ${charsLabel(f.chars)}${f.truncated ? '（原文件更长，已截断）' : ''}`
+}
+
 /**
  * 组装一次请求。引用块永远在最前（system），历史只取最近 `HISTORY_MAX` 条 ——
  * 长对话不靠把全部记录塞给模型，长期上下文归会话历史，这条边界写在这里而不是组件里。

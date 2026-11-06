@@ -4,7 +4,7 @@
 //! 不持状态**，全部可在 cargo test 里跑；reqwest/tauri 相关的粘合留在外面。
 //! 单测就在本文件——测试与实现同文件是仓库惯例（sysmon.rs 同模式）。
 
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
 // ---- URL 白名单（契约 ai_chat notes：https，或 localhost/127.0.0.1 的 http）----
 
@@ -94,6 +94,149 @@ pub(crate) fn humanize_connect(base: &str) -> String {
     } else {
         "网络连不上模型服务，检查连接后重试".into()
     }
+}
+
+// ---- 聊天消息 · composer 的思考等级与附件（改天换地 E3）----
+//
+// 这两件 composer 参数在线上都**没有对应的协议字段**，全部在这里折成文字：
+// 思考等级是给模型的一句指令，附件是接在消息前的 `## 附件：文件名` 块。
+//
+// 为什么不发 `reasoning_effort` / 顶层 `temperature` 之类的参数：这条线连的是
+// "OpenAI 兼容"的各种服务 —— 官方、DeepSeek、千问、vLLM、Ollama、还有各种网关。
+// 未知的顶层字段有的被服务端默默忽略，有的直接 400（千问的兼容层对不认识的字段很严）。
+// 一句话指令是**谁都能收、收不到也不报错**的那种形状；它换不来真的推理预算，
+// 这个差别不许在界面上说成"深度思考"糊弄人（§12.65 如实记）。
+
+/// 发给 OpenAI 兼容端点的一条消息。`role` / `content` 就是线上的字面字段
+#[derive(Serialize, Deserialize)]
+pub struct Msg {
+    pub role: String,
+    pub content: String,
+}
+
+/// composer「添加文件」带上来的一份附件：文件名 + 正文。
+///
+/// **不带路径** —— 前端把文件读成文本后只交正文，Rust 这边不需要、也不该知道它
+/// 从哪个目录来。少一个"传进来一个路径就照着读"的入口。
+#[derive(Deserialize)]
+pub struct Attachment {
+    pub name: String,
+    pub content: String,
+}
+
+/// 单个文件带进上下文的字数上限。与前端 `ATTACH_CHARS_MAX` 同一口径 ——
+/// 前端那份只管显示「已截断」，真正的闸门在这里（手搓的 invoke 一样按这个数来）。
+pub(crate) const ATTACH_CHARS_MAX: usize = 8_000;
+
+/// 一次请求所有附件合计的字数上限：两个顶格文件。再多就不是"带几份材料"，
+/// 是拿文件灌提示词 —— 那件事不该由一条隐形的 composer 动作替用户做。
+pub(crate) const ATTACH_TOTAL_MAX: usize = 16_000;
+
+/// 按**字符**取前 `max` 个（返回切片与实际字符数）。中文在 UTF-8 里 3 字节，
+/// 按字节切会 panic；`chars().take().collect()` 在这台机器上会让测试壳启动即退
+/// （见 Cargo.toml `[profile.test]` 那段），所以这里走 `char_indices` 取边界。
+fn cut_chars(s: &str, max: usize) -> (&str, usize) {
+    match s.char_indices().nth(max) {
+        Some((i, _)) => (&s[..i], max),
+        None => (s, s.chars().count()),
+    }
+}
+
+/// 思考等级 → 给模型的一句指令。
+///
+/// **未知值一律 None**（不猜、不兜底）：`off` 与拼错的值都落进这里 —— 前者是
+/// "用户没要"，后者是"版本错位"，两种情况下"不替他改语气"都比"按最像的那档来"安全。
+pub(crate) fn thinking_directive(level: &str) -> Option<&'static str> {
+    match level {
+        "low" => Some("先给结论，再用一两句话说明理由，不要展开推演。"),
+        "medium" => Some("回答前先在内部把问题拆成几步；先给结论，再给必要的推理，不要复述思考过程。"),
+        "high" => Some("慢一点想：先列出你的关键假设与边界，再分步推理，最后给结论；不确定的地方直接说不确定。"),
+        _ => None,
+    }
+}
+
+/// 附件块。每个文件各自封顶 `ATTACH_CHARS_MAX`、合计封顶 `ATTACH_TOTAL_MAX`。
+///
+/// 三条都是"如实"：截断要写明截到哪、预算用完的文件要留名字和一句"没有带入"、
+/// 空文件要说是空的。静默丢弃/静默截断会让模型以为文件就到这儿 —— 比不带更糟。
+pub(crate) fn fold_attachments(items: &[Attachment]) -> Option<String> {
+    if items.is_empty() {
+        return None;
+    }
+    let mut out = String::from(
+        "用户在这条消息里附上了下面这些文件，把它们当作已知内容来回答；文件里没写的，不要编。",
+    );
+    let mut budget = ATTACH_TOTAL_MAX;
+    for it in items {
+        let name = if it.name.trim().is_empty() {
+            "未命名文件"
+        } else {
+            it.name.trim()
+        };
+        let body = it.content.trim_end();
+        if budget == 0 {
+            out.push_str(&format!(
+                "\n\n## 附件：{name}\n（本次附件字数已到上限，这个文件没有带入）"
+            ));
+            continue;
+        }
+        let total = body.chars().count();
+        let (cut, used) = cut_chars(body, ATTACH_CHARS_MAX.min(budget));
+        budget -= used;
+        out.push_str(&format!("\n\n## 附件：{name}\n{cut}"));
+        if cut.is_empty() {
+            out.push_str("\n（这个文件没有文字内容）");
+        } else if used < total {
+            // 封顶的是单文件还是合计预算，用户该看到的原因不一样
+            if used < ATTACH_CHARS_MAX {
+                out.push_str("\n（本次附件合计已到上限，这个文件只带入了前面一部分）");
+            } else {
+                out.push_str(&format!("\n（文件较长，只带入了前 {ATTACH_CHARS_MAX} 字）"));
+            }
+        }
+    }
+    Some(out)
+}
+
+/// 两件 composer 参数合成**一条** system 前缀（都没有就 None）。
+///
+/// 为什么必须合成一条：有的网关只认开头一条 system（后出现的会被当普通输入或直接 400），
+/// 而前端已经会为引用的卡片带一条 system —— 再多一条就把"卡片内容"挤到了非 system 位。
+pub(crate) fn preamble(thinking: Option<&str>, attachments: &[Attachment]) -> Option<String> {
+    let directive = thinking.and_then(thinking_directive);
+    let files = fold_attachments(attachments);
+    match (directive, files) {
+        (None, None) => None,
+        (Some(d), None) => Some(d.to_string()),
+        (None, Some(f)) => Some(f),
+        (Some(d), Some(f)) => Some(format!("{d}\n\n{f}")),
+    }
+}
+
+/// 把 composer 的两件参数并进消息序列：只在**最前面**有一条 system，且不新增第二条。
+/// 原有的那条（引用卡片的 contextBlock）正文一字不动，只是被顶到后面。
+pub(crate) fn compose_messages(
+    mut messages: Vec<Msg>,
+    thinking: Option<&str>,
+    attachments: &[Attachment],
+) -> Vec<Msg> {
+    let Some(head) = preamble(thinking, attachments) else {
+        return messages;
+    };
+    if let Some(first) = messages.first_mut() {
+        if first.role == "system" {
+            first.content = format!("{head}\n\n{}", first.content);
+            return messages;
+        }
+    }
+    messages.insert(
+        0,
+        Msg {
+            role: "system".to_string(),
+            content: head,
+        },
+    );
+    messages
 }
 
 // ---- SSE 行解析 ----
@@ -272,5 +415,153 @@ mod tests {
             humanize_connect("https://api.example.com/v1"),
             "网络连不上模型服务，检查连接后重试"
         );
+    }
+
+    #[test]
+    fn 思考等级_未知值一律不加指令() {
+        for id in ["low", "medium", "high"] {
+            assert!(thinking_directive(id).is_some(), "{id} 应当有指令");
+        }
+        // off 是"用户没要"，拼错是"版本错位"：两者都不能替用户猜一档
+        for id in ["off", "", "HIGH", "deep"] {
+            assert!(thinking_directive(id).is_none(), "{id} 不该有指令");
+        }
+        // 三档文案互不相同 —— 相同就是复制粘贴漏改，界面上的档位成了摆设
+        let mut seen = std::collections::HashSet::new();
+        for id in ["low", "medium", "high"] {
+            assert!(
+                seen.insert(thinking_directive(id).unwrap()),
+                "{id} 的文案与别的档重复"
+            );
+        }
+    }
+
+    #[test]
+    fn 附件_单文件封顶且明说截断() {
+        let big = "字".repeat(ATTACH_CHARS_MAX + 2_000);
+        let block = fold_attachments(&[Attachment {
+            name: "笔记.md".into(),
+            content: big,
+        }])
+        .expect("有附件就该有块");
+        assert!(block.contains("## 附件：笔记.md"));
+        assert!(
+            block.contains(&format!("只带入了前 {ATTACH_CHARS_MAX} 字")),
+            "单文件截断要说明：{block}"
+        );
+        // 正文按字符裁到上限，不是按字节（中文 3 字节/字）
+        let body = block.split("## 附件：笔记.md\n").nth(1).unwrap();
+        assert_eq!(
+            body.split('\n').next().unwrap().chars().count(),
+            ATTACH_CHARS_MAX
+        );
+    }
+
+    #[test]
+    fn 附件_合计封顶且不静默丢文件() {
+        let full = "字".repeat(ATTACH_CHARS_MAX);
+        let items: Vec<Attachment> = ["a.md", "b.md", "c.md"]
+            .iter()
+            .map(|n| Attachment {
+                name: (*n).into(),
+                content: full.clone(),
+            })
+            .collect();
+        let block = fold_attachments(&items).expect("有附件就该有块");
+        assert!(block.contains("## 附件：a.md"));
+        assert!(block.contains("## 附件：b.md"));
+        // 预算用完的第三个：名字要在，正文进不来也要说清
+        assert!(block.contains("## 附件：c.md"), "第三个不能被静默丢弃");
+        assert!(block.contains("没有带入"), "要说清没带入，而不是留个空标题");
+        // 整体（含说明句）不该明显超出合计预算
+        assert!(
+            block.chars().count() < ATTACH_TOTAL_MAX + 1_000,
+            "预算被撑破了"
+        );
+    }
+
+    #[test]
+    fn 附件_空名单与空文件() {
+        assert!(fold_attachments(&[]).is_none());
+        let empty = fold_attachments(&[Attachment {
+            name: "  ".into(),
+            content: "   \n".into(),
+        }])
+        .unwrap();
+        assert!(empty.contains("未命名文件"), "没名字也要有个称呼：{empty}");
+        assert!(
+            empty.contains("没有文字内容"),
+            "空文件不能装成有内容：{empty}"
+        );
+    }
+
+    #[test]
+    fn 前缀_合成一条且空参数不出前缀() {
+        assert!(preamble(None, &[]).is_none());
+        assert!(preamble(Some("off"), &[]).is_none());
+        // 只有思考等级
+        assert_eq!(
+            preamble(Some("medium"), &[]).unwrap(),
+            thinking_directive("medium").unwrap()
+        );
+        // 只有附件
+        let only_file = preamble(
+            None,
+            &[Attachment {
+                name: "x.txt".into(),
+                content: "正文".into(),
+            }],
+        )
+        .unwrap();
+        assert!(only_file.starts_with("用户在这条消息里"));
+        // 两件都有：同一段里，指令在前，之间只隔一个空行
+        let both = preamble(
+            Some("high"),
+            &[Attachment {
+                name: "x.txt".into(),
+                content: "正文".into(),
+            }],
+        )
+        .unwrap();
+        assert!(both.starts_with(thinking_directive("high").unwrap()));
+        assert!(both.contains("\n\n## 附件：x.txt"));
+        assert!(!both.contains("\n\n\n"), "不该出现三连换行：{both}");
+    }
+
+    #[test]
+    fn 消息组装_system永远只有一条且在最前() {
+        let user = || Msg {
+            role: "user".into(),
+            content: "看这张".into(),
+        };
+        // 原本没有 system：插一条，原有消息顺序不动
+        let plain = compose_messages(vec![user()], Some("high"), &[]);
+        assert_eq!(plain.len(), 2);
+        assert_eq!(plain[0].role, "system");
+        assert_eq!(plain[1].content, "看这张");
+        // 已有 system（引用卡片的 contextBlock）：并进去，不新增第二条，原正文不丢
+        let with_ctx = compose_messages(
+            vec![
+                Msg {
+                    role: "system".into(),
+                    content: "卡片内容".into(),
+                },
+                user(),
+            ],
+            Some("high"),
+            &[],
+        );
+        assert_eq!(with_ctx.len(), 2, "不能出现两条 system");
+        assert!(with_ctx[0]
+            .content
+            .starts_with(thinking_directive("high").unwrap()));
+        assert!(
+            with_ctx[0].content.ends_with("卡片内容"),
+            "原有 system 正文不能丢"
+        );
+        // 两件都没给：原样返回，不插空 system
+        let untouched = compose_messages(vec![user()], None, &[]);
+        assert_eq!(untouched.len(), 1);
+        assert_eq!(untouched[0].role, "user");
     }
 }

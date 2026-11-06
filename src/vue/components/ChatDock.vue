@@ -7,7 +7,7 @@
  * 不做成卡片：注册表 55 种卡的尺寸契约、多实例、版面模板都会被牵动，而它本质是
  * "随时能叫出来的一层壳"，不是版面里的一块。
  *
- * 三条纪律：
+ * 四条纪律（第 4 条是 E3 加的）：
  * 1. **判定全在 `aiChat.ts`**：流式三态、`@` 解析、引用块预算、历史气泡过滤 ——
  *    这里只做 Channel / invoke / 焦点 / 滚动这些"必须活在组件里"的事。
  * 2. **不探测、不预加载**：provider 列表读的是启动时 hydrate 的 `ai-settings.v1` 镜像；
@@ -15,6 +15,8 @@
  *    并把入口指到「设置 → 实验室」——这正是二期要消掉的那条死路。
  * 3. **历史由 Rust 单点落盘**：本组件只在流结束时刷新列表，不自己存一份 ——
  *    两份真相迟早对不上（一期 `ai-settings.v1` 的教训同理）。
+ * 4. **附件不落历史**（E3）：文件正文只随这一轮请求发出去，历史里只留问答本身 ——
+ *    8k 字贴进气泡只会把列表拖慢，而且在左栏列表里也回看不出意义来。
  */
 import { computed, inject, nextTick, onBeforeUnmount, ref, watch } from 'vue'
 import { Channel, invoke } from '@tauri-apps/api/core'
@@ -26,18 +28,27 @@ import type { LayoutStore, StorageAdapter } from '../store'
 import { AI_DOC_KEY, parseAiDoc } from '../aiSettings'
 import {
   applyChunk,
+  ATTACH_CHARS_MAX,
+  ATTACH_MAX_BYTES,
+  ATTACH_MAX_FILES,
+  addFiles,
+  attachmentLine,
   buildMessages,
   contextUsage,
   cardChoices,
   excerptFor,
+  filesSummary,
   filterChoices,
   mentionQuery,
   stripMention,
   summaryText,
+  THINKING_LEVELS,
   turnsFromHistory,
   type CardChoice,
   type ChatChunk,
   type ChatTurn,
+  type MountedFile,
+  type PickedText,
 } from '../aiChat'
 
 /**
@@ -71,6 +82,7 @@ watch(sessions.lastLoaded, (v) => {
   if (!v) return
   turns.value = turnsFromHistory(v.messages)
   chips.value = []
+  files.value = []
   streamToken++
   busy.value = false
   streamConv.value = null
@@ -87,6 +99,24 @@ let streamToken = 0
 const chips = ref<CardChoice[]>([])
 const picker = ref<CardChoice[]>([])
 const pickerIndex = ref(0)
+
+/**
+ * E3 的两件 composer 参数。分工不一样：
+ * - `thinking` 是**偏好**：换会话也留着（用户的说话习惯不该每条对话重设一遍）；
+ * - `files` 属于**这次对话**：新对话 / 从左栏切会话就清空 —— 文件正文不进历史
+ *   （纪律 4），换到另一条对话还挂着上一份文件，只会让人以为它还在上下文里。
+ */
+const thinking = ref('off')
+const files = ref<MountedFile[]>([])
+const fileEl = ref<HTMLInputElement | null>(null)
+/** 控件行上的附件摘要（没有文件时 null：不显示空信息） */
+const filesNote = computed(() => filesSummary(files.value))
+const thinkingHint = computed(
+  () => THINKING_LEVELS.find((l) => l.id === thinking.value)?.hint ?? '',
+)
+/** 文件选择框的过滤提示。只是提示 —— 收不收由 `attachFile` 判（扩展名能骗人） */
+const FILE_ACCEPT =
+  '.txt,.md,.markdown,.json,.csv,.tsv,.log,.yml,.yaml,.toml,.ini,.xml,.html,.css,.js,.ts,.vue,.py,.rs,.go,.java,.sh'
 
 
 const inputEl = ref<HTMLTextAreaElement | null>(null)
@@ -189,6 +219,46 @@ function removeChip(id: string): void {
   chips.value = chips.value.filter((c) => c.id !== id)
 }
 
+/** 打开系统选择文件（原生 input 藏起来：它的外观跟这条控件行不搭） */
+function pickFiles(): void {
+  fileEl.value?.click()
+}
+
+/**
+ * 读选中的文件 → 交给 `addFiles` 合并。**读之前**先按体积拦一道：
+ * 一份 20MB 的日志读进内存只为取前 8000 字，不值当（`ATTACH_MAX_BYTES`）。
+ *
+ * 拒收理由逐条进 notice（一次选五个文件时，用户要知道哪个没进、为什么），
+ * 成功挂上的不吭声 —— 文件 chip 本身就是回执。
+ */
+async function onFilesPicked(e: Event): Promise<void> {
+  const input = e.target as HTMLInputElement
+  const picked = Array.from(input.files ?? [])
+  // 清 value：同一个文件再选一次也要能触发 change
+  input.value = ''
+  const read: PickedText[] = []
+  const rejected: string[] = []
+  for (const f of picked) {
+    if (f.size > ATTACH_MAX_BYTES) {
+      rejected.push(`${f.name} 超过 ${Math.round(ATTACH_MAX_BYTES / 1000)}KB，先别带`)
+      continue
+    }
+    try {
+      read.push({ name: f.name, text: await f.text() })
+    } catch {
+      rejected.push(`${f.name} 读不出来（可能不是文本文件）`)
+    }
+  }
+  const merged = addFiles(files.value, read)
+  files.value = merged.files
+  const why = [...rejected, ...merged.rejected]
+  notice.value = why.length ? why.join('；') : null
+}
+
+function removeFile(name: string): void {
+  files.value = files.value.filter((f) => f.name !== name)
+}
+
 /**
  * textarea 里的键：候选开着时方向键/回车/退出归候选；`Enter` 发送、`Shift+Enter` 换行。
  * 候选那支要 `stopPropagation` —— 否则 Esc 会同时被应用层级联看到，坞整个收起。
@@ -239,8 +309,9 @@ async function send(): Promise<void> {
   const text = draft.value.trim()
   if (!text || busy.value) return
   if (missingProvider()) return
-  // 引用块用这一轮开始时的快照：发出去之后用户再删 chip，不改已发出的请求
+  // 引用块与附件都用这一轮开始时的快照：发出去之后用户再删，不改已发出的请求
   const usedChips = chips.value.slice()
+  const usedFiles = files.value.slice()
   turns.value = [
     ...turns.value,
     { role: 'user', content: text, status: 'done', error: null },
@@ -273,6 +344,10 @@ async function send(): Promise<void> {
       providerId: providerId.value,
       conversationId: conversationId.value,
       messages,
+      // E3：两件 composer 参数。名字与 Rust 命令形参一致（snake_case 由 tauri 映射，
+      // 这两个词本来就单词，不需要驼峰改写）—— 附件只交正文，不交路径
+      thinking: thinking.value,
+      attachments: usedFiles.map((f) => ({ name: f.name, content: f.content })),
       onChunk: ch,
     })
     if (token !== streamToken) return
@@ -351,6 +426,8 @@ function newConversation(): void {
   streamToken++
   turns.value = []
   chips.value = []
+  // 附件属于"这次对话"：新开一条就该清空（思考档位是偏好，留着）
+  files.value = []
   conversationId.value = null
   streamConv.value = null
   busy.value = false
@@ -429,23 +506,61 @@ onBeforeUnmount(() => {
         </button>
       </div>
 
+      <!-- E3 附件：与卡片 chip 属于同一类（"这次对话能读到的内容"），所以挨着放；
+           区别在文件正文不落历史（纪律 4），点一下即移除 -->
+      <div v-if="files.length" class="files" data-chat-files>
+        <button
+          v-for="f in files"
+          :key="f.name"
+          class="file"
+          :data-file="f.name"
+          :title="`${attachmentLine(f)}（点一下从这次对话里移除）`"
+          @click="removeFile(f.name)"
+        >
+          {{ f.name }} ×
+        </button>
+      </div>
+
       <!--
-        composer 控件行（E2）：模型名 / 上下文用量 / 权限说明三件。
-        上下文用量走 `contextUsage`（事前算法，与 contextBlock 同源——测试钉住两个
-        数字对得上）；超预算时数字转红并**提前**说，而不是等拼完才截断。
-        权限说明把"引用卡片"翻译成用户语言：本次可读 N 张卡的内容、各自上限 400 字 ——
-        chips 就是权限的具象（移除 chip = 收权），这里是把它显式化。
+        composer 控件行（E2 起）：模型名 / 上下文用量 / 权限说明；E3 加思考档位、
+        附件摘要与「＋文件」。上下文用量走 `contextUsage`（事前算法，与 contextBlock
+        同源 —— 测试钉住两个数字对得上）；超预算时数字转红并**提前**说，而不是等
+        拼完才截断。权限说明把"引用卡片"翻译成用户语言：本次可读 N 张卡、各 ≤400 字。
       -->
       <div class="controls" data-chat-controls>
         <span class="ctl model" data-chat-model :title="`当前模型服务：${providerModel}`">
           {{ providerModel }}
         </span>
+        <label class="ctl think" :title="`思考等级：${thinkingHint}`">
+          思考
+          <select v-model="thinking" data-chat-thinking aria-label="思考等级">
+            <option v-for="l in THINKING_LEVELS" :key="l.id" :value="l.id">{{ l.label }}</option>
+          </select>
+        </label>
         <span v-if="usage.cards" class="ctl ctx" :class="{ over: usage.over }" data-chat-ctx>
           上下文 {{ usage.used }}/{{ usage.max }}
         </span>
         <span v-if="usage.cards" class="ctl perm" data-chat-perm>
           本次可读 {{ usage.cards }} 张卡的内容（各 ≤400 字）
         </span>
+        <span v-if="filesNote" class="ctl file-note" data-chat-files-note>{{ filesNote }}</span>
+        <button
+          class="ctl add"
+          data-chat-attach
+          :title="`带文本文件进来：最多 ${ATTACH_MAX_FILES} 个、单个 ${ATTACH_CHARS_MAX} 字`"
+          @click="pickFiles"
+        >
+          ＋ 文件
+        </button>
+        <input
+          ref="fileEl"
+          type="file"
+          multiple
+          class="file-input"
+          data-chat-file
+          :accept="FILE_ACCEPT"
+          @change="onFilesPicked"
+        />
       </div>
 
       <div class="composer">
@@ -695,6 +810,9 @@ onBeforeUnmount(() => {
   align-items: center;
   gap: 6px;
   flex-wrap: wrap;
+  /* E2 时这行没有左右内边距，药丸贴着面板边框、与上面的 chips / 下面的输入框都不齐；
+     E3 控件变多后这处不齐特别显眼，补上 */
+  padding: 0 var(--space-3);
 }
 .ctl {
   font-size: 11px;
@@ -703,6 +821,57 @@ onBeforeUnmount(() => {
   border-radius: var(--radius-pill, 999px);
   background: color-mix(in srgb, var(--border-soft) 18%, transparent);
   white-space: nowrap;
+}
+/* E3：label / button 形状的控件（思考档位、＋文件）要和 span 药丸长得一样 */
+.ctl.think,
+.ctl.add {
+  border: 0;
+  font-family: inherit;
+  font-size: inherit;
+  cursor: pointer;
+}
+.ctl.think {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+}
+.ctl.think select {
+  border: 0;
+  padding: 0 1px;
+  background: none;
+  color: var(--accent);
+  font-family: inherit;
+  font-size: inherit;
+  cursor: pointer;
+  outline: none;
+}
+.ctl.think:hover,
+.ctl.add:hover {
+  color: var(--text-2);
+}
+.file-input {
+  display: none;
+}
+.files {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1);
+  padding: var(--space-1) var(--space-3) 0;
+}
+/* 虚线边框：卡片 chip 是实线（长期引用），文件是一次对话里的材料，视觉上轻一档 */
+.file {
+  padding: 2px var(--space-2);
+  border: 1px dashed color-mix(in srgb, var(--accent) 45%, transparent);
+  border-radius: 999px;
+  background: none;
+  color: var(--text-2);
+  font-family: inherit;
+  font-size: 11px;
+  cursor: pointer;
+}
+.file:hover {
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 8%, transparent);
 }
 .ctl.over {
   color: var(--c-red);

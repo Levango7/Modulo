@@ -1,18 +1,28 @@
 import { describe, expect, it } from 'vitest'
 import {
+  addFiles,
   applyChunk,
+  attachFile,
+  ATTACH_CHARS_MAX,
+  ATTACH_MAX_FILES,
+  ATTACH_TOTAL_MAX,
+  attachmentLine,
   buildMessages,
   canShowDock,
   cardChoices,
+  charsLabel,
   contextBlock,
   contextUsage,
   excerptFor,
+  filesSummary,
   filterChoices,
   historyWhen,
   mentionQuery,
   outgoingFromTurns,
   stripMention,
   summaryText,
+  THINKING_LEVELS,
+  thinkingLabel,
   turnsFromHistory,
   type CardChoice,
   type ChatChunk,
@@ -430,6 +440,97 @@ describe('卡片正文摘录（只读用户真写进去的字）', () => {
     const long = excerptFor(choice({ module: 'sticky', id: 'sticky' }), source({ sticky: 'x'.repeat(900) }))
     expect(long.length).toBe(401)
     expect(long.endsWith('…')).toBe(true)
+  })
+})
+
+describe('思考档位与附件（E3）', () => {
+  it('四档：off 是默认；未知 id 回落默认文案（与 Rust「未知值不加指令」同口径）', () => {
+    expect(THINKING_LEVELS.map((l) => l.id)).toEqual(['off', 'low', 'medium', 'high'])
+    expect(thinkingLabel('off')).toBe('默认')
+    expect(thinkingLabel('high')).toBe('深')
+    // 不抛、也不把英文 id 露给用户 —— 回落到「默认」
+    expect(thinkingLabel('turbo')).toBe('默认')
+  })
+
+  it('attachFile：空文件与二进制拒收，理由里带文件名', () => {
+    const empty = attachFile('空.md', '  \n\t ')
+    expect(empty.ok).toBe(false)
+    if (!empty.ok) expect(empty.reason).toContain('空.md')
+    const bin = attachFile('图.png', 'PNG\u0000\u0001')
+    expect(bin.ok).toBe(false)
+    if (!bin.ok) expect(bin.reason).toContain('不像文本文件')
+  })
+
+  it('attachFile：CRLF 归一；超长按码点截到 8000 并记下截断', () => {
+    const ok = attachFile('a.txt', '一\r\n二')
+    expect(ok.ok).toBe(true)
+    if (ok.ok) expect(ok.file.content).toBe('一\n二')
+    const cut = attachFile('长.txt', '字'.repeat(ATTACH_CHARS_MAX + 5))
+    expect(cut.ok).toBe(true)
+    if (cut.ok) {
+      expect(cut.file.truncated).toBe(true)
+      expect(cut.file.chars).toBe(ATTACH_CHARS_MAX)
+      expect(Array.from(cut.file.content)).toHaveLength(ATTACH_CHARS_MAX)
+    }
+  })
+
+  it('attachFile：emoji 按码点算，不会被劈成两个半截', () => {
+    const ok = attachFile('e.txt', '😀'.repeat(3))
+    expect(ok.ok).toBe(true)
+    // 3 个 emoji = 3 个码点（不是 6 个 UTF-16 单元）
+    if (ok.ok) expect(ok.file.chars).toBe(3)
+  })
+
+  it('addFiles：同名不重复挂；个数与合计预算各自守门', () => {
+    const dup = addFiles([], [
+      { name: 'a.md', text: 'x' },
+      { name: 'a.md', text: 'y' },
+    ])
+    expect(dup.files).toHaveLength(1)
+    expect(dup.rejected[0]).toContain('已经挂上了')
+
+    const many = addFiles([], ['1', '2', '3', '4'].map((n) => ({ name: `${n}.md`, text: 'x' })))
+    expect(many.files).toHaveLength(ATTACH_MAX_FILES)
+    expect(many.rejected.join('')).toContain('一次最多带')
+
+    // 合计上限：两个顶格文件正好用满，第三个小文件也进不来
+    const full = '字'.repeat(ATTACH_CHARS_MAX)
+    const over = addFiles([], [
+      { name: 'A', text: full },
+      { name: 'B', text: full },
+      { name: 'C', text: '一点点' },
+    ])
+    expect(over.files).toHaveLength(2)
+    expect(over.rejected.join('')).toContain(String(ATTACH_TOTAL_MAX))
+  })
+
+  it('addFiles：坏文件（空 / 二进制）的理由原样透传，不悄悄吞掉', () => {
+    const r = addFiles([], [
+      { name: 'empty.md', text: '   \n' },
+      { name: 'bin.png', text: 'x\u0000y' },
+    ])
+    expect(r.files).toHaveLength(0)
+    expect(r.rejected).toHaveLength(2)
+    expect(r.rejected[0]).toContain('是空的')
+    expect(r.rejected[1]).toContain('不像文本文件')
+  })
+
+  it('filesSummary / attachmentLine：没文件不出摘要；截断要说', () => {
+    expect(filesSummary([])).toBeNull()
+    const one = attachFile('a.md', 'x'.repeat(1234))
+    if (!one.ok) throw new Error('夹具应当被接收')
+    expect(filesSummary([one.file])).toBe('1 个文件 · 1.2k 字')
+    expect(attachmentLine(one.file)).toBe('a.md · 1.2k 字')
+    const cut = attachFile('b.md', 'x'.repeat(ATTACH_CHARS_MAX + 1))
+    if (!cut.ok) throw new Error('夹具应当被接收')
+    expect(filesSummary([cut.file])).toContain('有截断')
+    expect(attachmentLine(cut.file)).toContain('已截断')
+  })
+
+  it('charsLabel：千位以下报精确值，以上报量级', () => {
+    expect(charsLabel(999)).toBe('999 字')
+    expect(charsLabel(1000)).toBe('1.0k 字')
+    expect(charsLabel(12400)).toBe('12k 字')
   })
 })
 

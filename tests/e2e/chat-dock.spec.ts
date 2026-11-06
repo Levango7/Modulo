@@ -9,11 +9,12 @@
  * 桩的形状照 Rust：`ai_chat` 经 Channel 按 index 推 `{delta, done, error}` 帧，
  * 历史落在 `modulo.__stubai.hist`（与配置文档、密钥都分开存）。
  */
-import { readFileSync } from 'node:fs'
-import { resolve } from 'node:path'
+import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join, resolve } from 'node:path'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import puppeteer from 'puppeteer-core'
-import type { Browser, Page } from 'puppeteer-core'
+import type { Browser, ElementHandle, Page } from 'puppeteer-core'
 import { chromePath } from './chrome'
 
 const EXE = chromePath()
@@ -517,6 +518,73 @@ describe.skipIf(skip)('聊天任脊柱（E1）', () => {
     await click(page, '[data-chat-chips] .chip')
     await new Promise((r) => setTimeout(r, 300))
     expect(await exists(page, '[data-chat-ctx]'), '移除 chip = 收权，控件行收回用量显示').toBe(false)
+    expect(errs, `页面不该有报错：${errs.join(' | ')}`).toEqual([])
+  })
+
+  it('思考档位（E3）：默认 off（不改老行为）；选「深」后档位随请求发出去', async () => {
+    const errs: string[] = []
+    const page = await open({}, errs)
+    await expand(page)
+    const before = await page.$eval('[data-chat-thinking]', (el) => {
+      const s = el as HTMLSelectElement
+      return { value: s.value, label: s.options[s.selectedIndex]?.textContent ?? '' }
+    })
+    expect(before.value, '默认档 = 不加指令（E2 之前的行为逐字不变）').toBe('off')
+    expect(before.label).toBe('默认')
+
+    await page.select('[data-chat-thinking]', 'high')
+    await ask(page, '在吗')
+    await new Promise((r) => setTimeout(r, 600))
+    const chat = (await calls(page)).filter((c) => c.cmd === 'ai_chat')
+    expect(chat, '发了一条').toHaveLength(1)
+    expect(chat[0].args.thinking, '档位到 Rust 那一侧').toBe('high')
+    // 没挂文件时也发空数组：Rust 那边只有"有/没有附件"两种，不靠字段缺失来猜
+    expect(chat[0].args.attachments, '没文件就是空数组').toEqual([])
+    expect(errs, `页面不该有报错：${errs.join(' | ')}`).toEqual([])
+  })
+
+  it('添加文件（E3）：正文只走 attachments、不混进消息与历史；chip 点一下即移除', async () => {
+    const errs: string[] = []
+    const page = await open({}, errs)
+    await expand(page)
+    const dir = mkdtempSync(join(tmpdir(), 'modulo-e3-'))
+    const file = join(dir, 'e3-note.md')
+    writeFileSync(file, '# 周报要点\n- 交付 A\n- 交付 B', 'utf8')
+
+    // 断言时转成 ElementHandle<HTMLInputElement>：`page.$` 只回 ElementHandle<Element>，
+// 而 uploadFile 只挂在 HTMLInputElement 那个句柄上（CI 的类型检查抓的正是这一处）
+    const input = (await page.waitForSelector('[data-chat-file]', { timeout: 10000 })) as
+      | ElementHandle<HTMLInputElement>
+      | null
+    expect(input, '文件选择框在（藏起来但存在）').toBeTruthy()
+    await input!.uploadFile(file)
+    await page.waitForSelector('[data-chat-files] .file', { timeout: 10000 })
+    expect(await text(page, '[data-chat-files-note]'), '控件行报出挂了几份').toContain('1 个文件')
+    expect(await text(page, '[data-chat-files] .file')).toContain('e3-note.md')
+
+    await ask(page, '按这份文件列要点')
+    await new Promise((r) => setTimeout(r, 600))
+    const chat = (await calls(page)).filter((c) => c.cmd === 'ai_chat')
+    expect(chat).toHaveLength(1)
+    const att = chat[0].args.attachments as { name: string; content: string }[]
+    expect(att, '附件一份').toHaveLength(1)
+    expect(att[0].name).toBe('e3-note.md')
+    expect(att[0].content).toContain('交付 A')
+
+    // 纪律 4：文件正文只走 attachments —— 不进消息体（气泡）、更不进历史
+    const msgs = chat[0].args.messages as { role: string; content: string }[]
+    expect(msgs.some((m) => m.content.includes('交付 A')), '正文不该混进消息体').toBe(false)
+    const hist = await page.evaluate(() => {
+      const fn = (window as unknown as { __STUB_AI_HISTORY__: () => { messages: { content: string }[] }[] })
+        .__STUB_AI_HISTORY__
+      return fn()
+    })
+    expect(hist[0].messages.some((m) => m.content.includes('交付 A')), '历史里也不该有正文').toBe(false)
+
+    // chip 点一下即移除；控件行的附件摘要随之消失（不显示空信息）
+    await click(page, '[data-chat-files] .file')
+    await page.waitForFunction(() => !document.querySelector('[data-chat-files]'), { timeout: 5000 })
+    expect(await exists(page, '[data-chat-files-note]'), '没文件就不显示摘要').toBe(false)
     expect(errs, `页面不该有报错：${errs.join(' | ')}`).toEqual([])
   })
 })
