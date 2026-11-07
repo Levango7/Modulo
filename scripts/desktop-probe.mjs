@@ -574,8 +574,14 @@ mkdirSync(OUT, { recursive: true })
 const APPEARANCE_FILE = join(process.env.APPDATA ?? '', 'app.modulo', 'data', 'modulo.appearance.v1.json')
 /** 手抄自 `src/vue/appearance.ts` 的 `DEFAULT_APPEARANCE.skin`，两处必须一致 */
 const DEFAULT_SKIN = 'aurora'
-/** 同一处 `accent: 'auto'` 的落点 —— 柔光皮肤「跟随皮肤」：`:root` 亮色 / `[data-theme='dark']` 暗色 */
-const DEFAULT_ACCENTS = ['#35695c', '#6fae97']
+/**
+ * 同一处 `accent: 'auto'` 的落点 —— 柔光皮肤「跟随皮肤」：`:root` 亮色 / `[data-theme='dark']` 暗色。
+ *
+ * 2026-11-06 PR-B（改天换地第二笔）把默认皮重做成「中性纸面」：`:root` 的强调色由
+ * `#35695c` 换成 `#3a7062`（暗色档 `#6fae97` 两版一致）。这份手抄值必须同笔跟着改 ——
+ * 否则发布链的探针会红在一条**有意改过**的产品行为上，而那不是回归。
+ */
+const DEFAULT_ACCENTS = ['#3a7062', '#6fae97']
 let appearanceBackup = null
 let appearanceExisted = false
 function dropAppearance() {
