@@ -49,6 +49,7 @@ import TitleBar from './vue/components/TitleBar.vue'
 import ChatDock from './vue/components/ChatDock.vue'
 import SessionRail from './vue/components/SessionRail.vue'
 import { createAiSessions } from './vue/useAiSessions'
+import { createKnowledge } from './vue/useKnowledge'
 import { canShowDock } from './vue/aiChat'
 
 const storage = inject<PersistentStorage>('storage')!
@@ -425,6 +426,13 @@ provide('commandBus', commandBus)
  */
 const aiSessions = createAiSessions()
 provide('aiSessions', aiSessions)
+/**
+ * 「资料」的共享状态（PR-F1 知识库第一格）：栏里列它、聊天里 `@` 它 —— 两处同一份。
+ * 落盘走同一个 `storage`（与卡片数据、AI 配置一条闸门），所以它是本机数据，
+ * 跟着备份/同步那套走，不另开通道。
+ */
+const knowledge = createKnowledge(storage)
+provide('knowledge', knowledge)
 /**
  * 左栏显隐（PR-D）：**按窗口宽自适应**，阈值取「12 列舞台 + 栏宽」——
  * 栏常驻会把 1440 视口的舞台压到 8 列，破坏「1440 → 12 列」的响应式承诺

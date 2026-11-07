@@ -6,6 +6,7 @@ import { AUTO_INDEX_KEY, AUTO_SLOT_COUNT, autoSlotKey } from './useBackup'
 import { REMINDERS_KEY } from './useReminders'
 import { MIGRATE_BACKUP_KEY } from './migrate'
 import { AI_DOC_KEY } from './aiSettings'
+import { KNOWLEDGE_DOC_KEY } from './knowledge'
 
 /**
  * 桌面壳的数据落盘。
@@ -65,6 +66,11 @@ export const DATA_KEYS: readonly string[] = [
   // 直读 `data/ai-settings.v1.json`，这里必须一字不差，否则"界面写进去了、Rust 读不到"。
   // 密钥不在这个文件里：它只进系统凭据库（`ai_set_key`）。也不进备份/同步（一期）。
   AI_DOC_KEY,
+  // 「资料」（PR-F1 知识库）：用户导入的本地文本，聊天里 `@` 引用。**必须登记**，
+  // 否则症状是"导入完界面看得见、重启就没了"（与上面那条同款纪律）。
+  // 纸面口径如实记：这一笔**不进完整备份、也不进多端同步**（两者都是显式清单）——
+  // 与 AI 会话历史同一条取舍（体积与隐私），见 §12.66。
+  KNOWLEDGE_DOC_KEY,
 ]
 
 

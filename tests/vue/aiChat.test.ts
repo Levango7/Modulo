@@ -19,6 +19,7 @@ import {
   historyWhen,
   mentionQuery,
   outgoingFromTurns,
+  permNote,
   stripMention,
   summaryText,
   THINKING_LEVELS,
@@ -531,6 +532,19 @@ describe('思考档位与附件（E3）', () => {
     expect(charsLabel(999)).toBe('999 字')
     expect(charsLabel(1000)).toBe('1.0k 字')
     expect(charsLabel(12400)).toBe('12k 字')
+  })
+})
+
+describe('控件行权限文案（E2 → PR-F1 扩了资料档）', () => {
+  it('没有引用就不出这句话；只有卡片时逐字保持 E2 的旧文案', () => {
+    expect(permNote(0, 0)).toBeNull()
+    expect(permNote(1, 0)).toBe('本次可读 1 张卡的内容（各 ≤400 字）')
+    expect(permNote(3, 0)).toBe('本次可读 3 张卡的内容（各 ≤400 字）')
+  })
+
+  it('带了资料就把两档上限都写出来 —— 别让人以为资料也按 400 字喂', () => {
+    expect(permNote(0, 2)).toBe('本次可读 2 份资料的内容（卡片各 ≤400 字、资料各 ≤1200 字）')
+    expect(permNote(1, 1)).toBe('本次可读 1 张卡 + 1 份资料的内容（卡片各 ≤400 字、资料各 ≤1200 字）')
   })
 })
 
