@@ -89,6 +89,8 @@ interface Seed {
   /** `false` = 网页形态：**不装 stub**（不摆 Tauri 内核 ⇒ isDesktop=false），E1 的
    *  web 占位用例靠它拿到真 web 环境 */
   desktop?: boolean
+  /** 宽屏（1600）：左栏常驻的档位（≥1480）。PR-F1 的「资料」节只在栏里，窄窗看不见它 */
+  wide?: boolean
 }
 
 /** 开一张桌面形态的页面。`ai: false` = 没配任何模型服务（空态那条路） */
@@ -96,7 +98,7 @@ async function open(seed: Seed = {}, errs?: string[]): Promise<Page> {
   const ctx = await browser.createBrowserContext()
   const page = await ctx.newPage()
   if (errs) page.on('pageerror', (e: unknown) => errs.push(String((e as Error).message).slice(0, 160)))
-  await page.setViewport({ width: 1440, height: 900, deviceScaleFactor: 1 })
+  await page.setViewport({ width: seed.wide ? 1600 : 1440, height: 900, deviceScaleFactor: 1 })
   const doc = seed.twins ? { ...DOC, items: [...DOC.items, ...TWIN_ITEMS] } : DOC
   const card = seed.twins ? { ...CARD, ...TWIN_CARD } : CARD
   const desktop = seed.desktop !== false
@@ -585,6 +587,66 @@ describe.skipIf(skip)('聊天任脊柱（E1）', () => {
     await click(page, '[data-chat-files] .file')
     await page.waitForFunction(() => !document.querySelector('[data-chat-files]'), { timeout: 5000 })
     expect(await exists(page, '[data-chat-files-note]'), '没文件就不显示摘要').toBe(false)
+    expect(errs, `页面不该有报错：${errs.join(' | ')}`).toEqual([])
+  })
+
+  it('资料（PR-F1）：导入 → 左栏列出且**重启还在** → `@` 引用进 system → 两步移除', async () => {
+    const errs: string[] = []
+    // 资料节在左栏里，而栏只在 ≥1480 的窗口常驻（PR-D 的自适应规则）—— 这条用例必须开宽屏
+    const page = await open({ wide: true }, errs)
+    await page.waitForSelector('[data-doc-file]', { timeout: 10000 })
+    const dir = mkdtempSync(join(tmpdir(), 'modulo-kb-'))
+    const file = join(dir, '验收清单.md')
+    writeFileSync(file, '# 验收清单\n- 交付 A\n- 交付 B', 'utf8')
+
+    const input = (await page.waitForSelector('[data-doc-file]', { timeout: 10000 })) as
+      | ElementHandle<HTMLInputElement>
+      | null
+    expect(input, '导入按钮背后的文件框在').toBeTruthy()
+    await input!.uploadFile(file)
+    await page.waitForSelector('[data-doc]', { timeout: 10000 })
+    expect(await text(page, '[data-doc]')).toContain('验收清单.md')
+
+    // 点开看到的就是喂给模型的那一段（不是全文的另一种样子）
+    await click(page, '[data-doc]')
+    await page.waitForSelector('[data-doc-preview]', { timeout: 5000 })
+    expect(await text(page, '[data-doc-preview]')).toContain('交付 A')
+
+    // 聊天里 @ 到它：候选里资料排在最前，第一条就是
+    await expand(page)
+    await page.type('[data-chat-input]', '@')
+    await page.waitForSelector('[data-chat-picker] [data-pick]', { timeout: 10000 })
+    const labels = await page.$$eval('[data-chat-picker] [data-pick]', (els) =>
+      els.map((e) => e.textContent?.trim() ?? ''),
+    )
+    expect(labels.join(' | '), '候选里有这份资料').toContain('验收清单.md')
+    await click(page, '[data-chat-picker] [data-pick]')
+    await new Promise((r) => setTimeout(r, 200))
+    expect(await text(page, '[data-chat-chips]')).toContain('验收清单.md')
+    // 权限行要把资料那一档说出来（卡片 400 / 资料 1200，两个上限不同源）
+    expect(await text(page, '[data-chat-perm]')).toContain('1 份资料')
+
+    await ask(page, '按资料列要点')
+    await new Promise((r) => setTimeout(r, 600))
+    const chat = (await calls(page)).filter((c) => c.cmd === 'ai_chat')
+    expect(chat).toHaveLength(1)
+    const msgs = chat[0].args.messages as { role: string; content: string }[]
+    expect(msgs[0].role).toBe('system')
+    expect(msgs[0].content, '资料正文进了 system 块').toContain('交付 A')
+
+    // ★ 这一条是"资料库"与"一次性附件"的分界：落盘了，reload 之后还在
+    //（漏登记 DATA_KEYS 的症状就是这里写着一份、重启后一份都不见）
+    await page.reload({ waitUntil: 'networkidle2' })
+    await page.waitForSelector('[data-doc]', { timeout: 15000 })
+    expect(await text(page, '[data-doc]'), '重启后资料还在').toContain('验收清单.md')
+
+    // 两步移除：第一次只标记，第二次才真删
+    //（删按钮是 `[data-doc]` 的**兄弟**不是子节点 —— 选择器按 aria-label 前缀找）
+    await click(page, '[aria-label^="移除资料"]')
+    await new Promise((r) => setTimeout(r, 200))
+    expect(await exists(page, '[data-doc]'), '第一次点击不删').toBe(true)
+    await click(page, '[aria-label^="移除资料"]')
+    await page.waitForFunction(() => !document.querySelector('[data-doc]'), { timeout: 5000 })
     expect(errs, `页面不该有报错：${errs.join(' | ')}`).toEqual([])
   })
 })

@@ -40,6 +40,7 @@ import {
   filesSummary,
   filterChoices,
   mentionQuery,
+  permNote,
   stripMention,
   summaryText,
   THINKING_LEVELS,
@@ -50,6 +51,8 @@ import {
   type MountedFile,
   type PickedText,
 } from '../aiChat'
+import { docChoices, excerptWithDocs } from '../knowledge'
+import type { KnowledgeApi } from '../useKnowledge'
 
 /**
  * `full`：嵌入全高模式（E1 的 chat 视图）。展开面板从"浮在画布上的 45vh 浮层"
@@ -73,6 +76,8 @@ const turns = ref<ChatTurn[]>([])
  * 两份清单。`conversationId` 是共享层 `activeId` 的本坞别名（发送/续聊照旧写它）。
  */
 const sessions = inject<AiSessionsApi>('aiSessions')!
+/** 资料（PR-F1）：坞里 `@` 能引用的另一半来源 —— 与左栏「资料」共用同一份（App provide） */
+const knowledge = inject<KnowledgeApi>('knowledge')!
 const conversationId = sessions.activeId
 /**
  * 栏里点了一条会话 ⇒ 把气泡换成那条的消息（system 不进界面，`turnsFromHistory` 管），
@@ -139,12 +144,20 @@ const providerModel = computed(() => {
  * 上下文用量（E2 控件行）：事前算法（`contextUsage`），与 `contextBlock` 的事后截断
  * 同源 —— 测试钉两个数字对得上，控件才不是"看着玩的花架子"。
  */
-const usage = computed(() =>
-  contextUsage(
-    chips.value,
-    (c) => excerptFor(c, cardDataApi.state),
-  ),
-)
+/**
+ * 引用摘录的**唯一入口**（PR-F1 加的这层薄壳）：资料走 `docExcerpt`、卡片走 `excerptFor`。
+ * `contextUsage` / `contextBlock` / `buildMessages` / `summaryText` 四处拿到的是同一个函数 ——
+ * 口径只有一份，才不会出现"控件说 300 字、请求其实早被截到 2000"那种各说各话。
+ */
+const excerptOf = (c: CardChoice): string =>
+  excerptWithDocs(knowledge.docs.value, (x) => excerptFor(x, cardDataApi.state))(c)
+/** 引用里资料占几份（卡片与资料的摘录上限不同源，界面要分开报） */
+const chipsDocs = computed(() => chips.value.filter((c) => c.module === 'knowledge').length)
+
+const usage = computed(() => contextUsage(chips.value, excerptOf))
+
+/** 控件行那句「本次可读 …」（E2 起；F1 起把资料那档也写出来，两个上限不同源） */
+const permLine = computed(() => permNote(chips.value.length - chipsDocs.value, chipsDocs.value))
 
 /** 选中的 provider 掉了（被删）就回落到第一条，避免发出去必失败 */
 watch(
@@ -155,10 +168,15 @@ watch(
   { immediate: true },
 )
 
-/** 版面上有哪些卡可以引用（同模块多实例带序号，见 aiChat.cardChoices） */
-const choices = computed(() =>
-  cardChoices(store.doc.value.items, (m) => E.findModule(store.reg, m)?.title ?? m),
-)
+/**
+ * `@` 能引用的东西：**资料在前、版面卡片在后**（PR-F1）。排前面的理由很实际 ——
+ * 用户刚导入的那份资料通常就是这次要问的；两边的候选与 chip 同一形状
+ * （`CardChoice`），所以选中/删除/预算那几条路一行都不用改。
+ */
+const choices = computed(() => [
+  ...docChoices(knowledge.docs.value),
+  ...cardChoices(store.doc.value.items, (m) => E.findModule(store.reg, m)?.title ?? m),
+])
 
 function expand(): void {
   if (!props.expanded) emit('update:expanded', true)
@@ -339,7 +357,7 @@ async function send(): Promise<void> {
   }
 
   try {
-    const messages = buildMessages(turns.value, usedChips, (c) => excerptFor(c, cardDataApi.state))
+    const messages = buildMessages(turns.value, usedChips, excerptOf)
     const r = await invoke<{ conversationId: string }>('ai_chat', {
       providerId: providerId.value,
       conversationId: conversationId.value,
@@ -377,7 +395,7 @@ const canSummarize = computed(() => chips.value.length > 0 || draft.value.trim()
 async function summarize(): Promise<void> {
   if (busy.value || !canSummarize.value) return
   if (missingProvider()) return
-  const text = summaryText(chips.value, draft.value, (c) => excerptFor(c, cardDataApi.state))
+  const text = summaryText(chips.value, draft.value, excerptOf)
   if (!text) return
   const asked = draft.value.trim()
   turns.value = [
@@ -540,9 +558,7 @@ onBeforeUnmount(() => {
         <span v-if="usage.cards" class="ctl ctx" :class="{ over: usage.over }" data-chat-ctx>
           上下文 {{ usage.used }}/{{ usage.max }}
         </span>
-        <span v-if="usage.cards" class="ctl perm" data-chat-perm>
-          本次可读 {{ usage.cards }} 张卡的内容（各 ≤400 字）
-        </span>
+        <span v-if="permLine" class="ctl perm" data-chat-perm>{{ permLine }}</span>
         <span v-if="filesNote" class="ctl file-note" data-chat-files-note>{{ filesNote }}</span>
         <button
           class="ctl add"
