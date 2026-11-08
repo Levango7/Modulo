@@ -771,4 +771,58 @@ describe.skipIf(skip)('聊天任脊柱（E1）', () => {
     expect(await text(page, '[data-wf-status="w1"]'), '运行记录落盘了').toContain('跑完')
     expect(errs, `页面不该有报错：${errs.join(' | ')}`).toEqual([])
   }, 90_000)
+
+  it('AI 动手（第十二笔）：动作只是提议 —— 点「照做」才摆卡 / 记待办；坏行说人话；裸动作行不露给用户', async () => {
+    const errs: string[] = []
+    const reply = [
+      '好，我给你摆一张便签，再记一条待办。',
+      '@@act {"type":"addCard","moduleId":"sticky"}',
+      '@@act {"type":"todo.add","text":"买牛奶"}',
+      '@@act {"type":"canvas.clear"}',
+    ].join('\n')
+    const page = await open({ reply }, errs)
+    await expand(page)
+    const before = await page.evaluate(() => document.querySelectorAll('.cell').length)
+    await ask(page, '帮我安排一下')
+
+    await page.waitForSelector('[data-ai-acts]', { timeout: 15000 })
+    // 正文里没有裸动作行（剥干净），提议块列的是人话
+    expect(await text(page, '[data-role="assistant"]'), '裸动作行不该露给用户').not.toContain('@@act')
+    expect(await text(page, '[data-ai-act]')).toBe('摆一张「便签」卡')
+    expect(await text(page, '[data-ai-acts] ul li:nth-child(2)')).toBe('加一条待办：买牛奶')
+    // 不会做的动作如实说（不静默丢）
+    expect(await text(page, '[data-ai-act-bad]')).toContain('还不会')
+    // 能力说明真的进了 system（模型得知道能动手）
+    const sent = (await calls(page)).filter((c) => c.cmd === 'ai_chat')
+    const sys = (sent[0].args.messages as { role: string; content: string }[])[0]
+    expect(sys.role).toBe('system')
+    expect(sys.content).toContain('@@act')
+    // 还没点「照做」：版面一动不动（AI 永不直接写）
+    expect(await page.evaluate(() => document.querySelectorAll('.cell').length), '没点照做就不该动').toBe(before)
+
+    await click(page, '[data-ai-act-run]')
+    await page.waitForSelector('[data-ai-acts-note]', { timeout: 10000 })
+    expect(await text(page, '[data-ai-acts-note]')).toContain('Ctrl+Z')
+    await page.waitForFunction(
+      (n: number) => document.querySelectorAll('.cell').length === n + 1,
+      { timeout: 10000 },
+      before,
+    )
+    // 待办真的落盘（走既有写入口；卡内容写入有 300ms 防抖 ⇒ 等条件不猜时间）
+    await page.waitForFunction(
+      () => (localStorage.getItem('modulo.__stubdoc.modulo.carddata.v1') ?? '').includes('买牛奶'),
+      { timeout: 10000 },
+    )
+    // 「算了」那条路：不写任何东西
+    await page.evaluate((r: string) => {
+      ;(window as unknown as { __STUB_AI_REPLY__: string }).__STUB_AI_REPLY__ = r
+    }, '@@act {"type":"addCard","moduleId":"clock"}')
+    const after = await page.evaluate(() => document.querySelectorAll('.cell').length)
+    await ask(page, '再来一张')
+    await page.waitForSelector('[data-ai-act-skip]', { timeout: 15000 })
+    await click(page, '[data-ai-act-skip]')
+    await page.waitForFunction(() => !document.querySelector('[data-ai-act-skip]'), { timeout: 10000 })
+    expect(await page.evaluate(() => document.querySelectorAll('.cell').length), '「算了」不该写').toBe(after)
+    expect(errs, `页面不该有报错：${errs.join(' | ')}`).toEqual([])
+  }, 90_000)
 })

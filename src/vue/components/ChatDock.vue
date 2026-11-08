@@ -53,6 +53,8 @@ import {
 } from '../aiChat'
 import { docChoices, excerptWithDocs } from '../knowledge'
 import type { KnowledgeApi } from '../useKnowledge'
+import { actionLabel, parseActions, runActions } from '../aiActions'
+import { localDay } from '../reminders'
 
 /**
  * `full`：嵌入全高模式（E1 的 chat 视图）。展开面板从"浮在画布上的 45vh 浮层"
@@ -350,6 +352,8 @@ async function send(): Promise<void> {
     turns.value[idx] = applyChunk(turns.value[idx], c)
     scrollDown()
     if (c.done) {
+      // 「AI 动手」（第十二笔）：正常收尾才解析动作（错误帧没有正文可解析）
+      if (!c.error) attachActions(idx)
       busy.value = false
       streamConv.value = null
       void sessions.refresh()
@@ -377,6 +381,59 @@ async function send(): Promise<void> {
     busy.value = false
     streamConv.value = null
   }
+}
+
+/** 卡的中文名（提议列表里的人话）；查不到落回 id */
+const titleOf = (id: string): string | undefined => store.reg.find((m) => m.id === id)?.title
+
+/**
+ * 「AI 动手」（第十二笔）：流正常收尾时把动作行解析出来。剥掉动作行之后的正文才是
+ * 给人看的；坏行也要留着 —— 界面说给用户听（与 `aiActions.ts` 的纪律 2 同源）。
+ */
+function attachActions(i: number): void {
+  const t = turns.value[i]
+  if (!t || t.role !== 'assistant' || !t.content) return
+  const r = parseActions(t.content, {
+    moduleIds: store.reg.map((m) => m.id),
+    today: localDay(new Date()),
+  })
+  if (!r.actions.length && !r.bad.length) return
+  turns.value[i] = { ...t, content: r.clean, actions: r.actions, badActions: r.bad, actionsState: 'pending' }
+}
+
+/** 提议块顶上一句话（按状态变；只有坏行时单独一句 —— 别写成"等你点头"） */
+function actsHead(t: ChatTurn): string {
+  if (!t.actions?.length) return '它想做点事，但这一版还照做不了：'
+  if (t.actionsState === 'done') return '它想这么做 —— 已照做：'
+  if (t.actionsState === 'dismissed') return '它想这么做 —— 已忽略：'
+  return '它想这么做（等你点头）：'
+}
+
+/**
+ * 「照做」：顺次执行（首败即停），全部走既有写入口 —— `store.add` 进版面历史、
+ * `cardData` 的写进内容历史 ⇒ **Ctrl+Z 撤得掉**。往哪写在这里，"能不能做"在纯层。
+ */
+function runActs(i: number): void {
+  const t = turns.value[i]
+  if (!t?.actions?.length || t.actionsState !== 'pending') return
+  const r = runActions(t.actions, (a) => {
+    if (a.type === 'addCard') store.add(a.moduleId, 0, 0, a.variant)
+    else if (a.type === 'todo.add') cardDataApi.addTodo(a.text)
+    else cardDataApi.addLedger(a.date, a.cents, a.category, a.note ?? '')
+  })
+  const note = r.ok
+    ? '做完了 —— Ctrl+Z 可以撤销'
+    : r.done > 0
+      ? `做了一半：第 ${r.done + 1} 个没做成（${r.error}）；前面 ${r.done} 个已经生效 —— Ctrl+Z 可以撤销`
+      : `没做成：${r.error}`
+  turns.value[i] = { ...t, actionsState: 'done', actionsNote: note }
+}
+
+/** 「算了」：只是把提议标掉，不写任何东西 */
+function skipActs(i: number): void {
+  const t = turns.value[i]
+  if (!t || t.actionsState !== 'pending') return
+  turns.value[i] = { ...t, actionsState: 'dismissed' }
 }
 
 /** 收起态里直接回车：先把面板展开再发 —— 答案得让人看得见 */
@@ -507,6 +564,18 @@ onBeforeUnmount(() => {
             <span v-else-if="t.status === 'streaming'" class="muted">{{ t.summary ? '摘要中…' : '…' }}</span>
           </p>
           <p v-if="t.error" class="err" data-chat-error>{{ t.error }}</p>
+          <div v-if="t.actions?.length || t.badActions?.length" class="acts" data-ai-acts>
+            <p class="acts-head">{{ actsHead(t) }}</p>
+            <ul v-if="t.actions?.length" class="acts-list">
+              <li v-for="(a, k) in t.actions" :key="k" data-ai-act>{{ actionLabel(a, titleOf) }}</li>
+            </ul>
+            <p v-if="t.badActions?.length" class="acts-bad" data-ai-act-bad>{{ t.badActions.join('；') }}</p>
+            <div v-if="t.actionsState === 'pending' && t.actions?.length" class="acts-btns">
+              <button type="button" class="acts-btn" data-ai-act-run @click="runActs(i)">照做</button>
+              <button type="button" class="acts-btn acts-ghost" data-ai-act-skip @click="skipActs(i)">算了</button>
+            </div>
+            <p v-else-if="t.actionsState === 'done'" class="acts-note" data-ai-acts-note>{{ t.actionsNote }}</p>
+          </div>
         </div>
       </div>
 
@@ -769,6 +838,57 @@ onBeforeUnmount(() => {
   margin: 0;
   font-size: 12px;
   color: var(--c-red);
+}
+/* 「AI 动手」的提议块（第十二笔）：一张小单据 —— 动作列表 + 照做/算了 */
+.acts {
+  margin: var(--space-2) 0 0;
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-md);
+  background: color-mix(in srgb, var(--border-soft) 14%, transparent);
+  max-width: 100%;
+}
+.acts-head {
+  margin: 0 0 4px;
+  font-size: 12px;
+  color: var(--text-3);
+}
+.acts-list {
+  margin: 0;
+  padding-left: 18px;
+  font-size: 13px;
+  color: var(--text-1);
+}
+.acts-bad {
+  margin: 4px 0 0;
+  font-size: 12px;
+  color: var(--c-red);
+}
+.acts-btns {
+  display: flex;
+  gap: var(--space-2);
+  margin-top: 6px;
+}
+.acts-btn {
+  font: inherit;
+  font-size: 13px;
+  padding: 2px 12px;
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: var(--text-1);
+  cursor: pointer;
+}
+.acts-btn:hover {
+  border-color: var(--accent);
+}
+.acts-ghost {
+  color: var(--text-3);
+}
+.acts-note {
+  margin: 6px 0 0;
+  font-size: 12px;
+  color: var(--text-3);
 }
 .rows {
   margin: 0;

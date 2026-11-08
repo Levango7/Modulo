@@ -176,14 +176,20 @@ describe('组装请求', () => {
     expect(out.map((m) => m.content)).toEqual(['第 17 条', '第 18 条', '第 19 条'])
   })
 
-  it('有引用时 system 块在最前；没引用时一条都不多', () => {
+  it('有引用时 system 块在最前（引用块 + 能力说明）；没引用时也有一条 system（只装能力说明）', () => {
     const chips = [choice()]
     const withCtx = buildMessages([turn()], chips, () => '未完成：交周报')
     expect(withCtx[0].role).toBe('system')
     expect(withCtx[0].content).toContain('待办')
     expect(withCtx[0].content).toContain('交周报')
+    expect(withCtx[0].content).toContain('@@act') // 第十二笔：能力说明常驻
     expect(withCtx[1]).toEqual({ role: 'user', content: '你好' })
-    expect(buildMessages([turn()], [], () => '')).toHaveLength(1)
+    // 没引用时引用块那半不出现，但能力说明仍在（模型得一直知道能动手）
+    const noCtx = buildMessages([turn()], [], () => '')
+    expect(noCtx[0].role).toBe('system')
+    expect(noCtx[0].content).toContain('@@act')
+    expect(noCtx[0].content).not.toContain('用户在版面里引用了')
+    expect(noCtx[1]).toEqual({ role: 'user', content: '你好' })
   })
 
   it('引用块有预算：超了要明说被截断，不能静默变成"就这些"', () => {
@@ -558,6 +564,19 @@ describe('历史', () => {
     ])
     expect(turns.map((t) => t.content)).toEqual(['问', '答'])
     expect(turns.every((t) => t.status === 'done')).toBe(true)
+  })
+
+  it('助手那半剥掉动作行（第十二笔）；只剩动作行的回复整条不进气泡；用户那半原样', () => {
+    const turns = turnsFromHistory([
+      { role: 'user', content: '帮我记一笔\n@@act {"type":"todo.add","text":"用户自己打的"}', ts: 1 },
+      { role: 'assistant', content: '记好了。\n@@act {"type":"ledger.add","cents":1234,"category":"餐饮"}', ts: 1 },
+      { role: 'assistant', content: '@@act {"type":"addCard","moduleId":"todo"}', ts: 1 },
+    ])
+    // 剥行只从助手那半（用户真打了 @@act 也照原样）；只剩动作行的整条丢 —— 不许留空气泡
+    expect(turns.map((t) => t.content)).toEqual([
+      '帮我记一笔\n@@act {"type":"todo.add","text":"用户自己打的"}',
+      '记好了。',
+    ])
   })
 
   it('时间：今天/昨天只说时分，同年带月日，跨年带年份', () => {
