@@ -8,6 +8,7 @@ import { MIGRATE_BACKUP_KEY } from './migrate'
 import { AI_DOC_KEY } from './aiSettings'
 import { KNOWLEDGE_DOC_KEY } from './knowledge'
 import { CRON_DOC_KEY } from './cron'
+import { WORKFLOW_DOC_KEY } from './workflow'
 
 /**
  * 桌面壳的数据落盘。
@@ -76,6 +77,10 @@ export const DATA_KEYS: readonly string[] = [
   // 与资料同一条纪律：漏登记的症状是"建了任务、重启就没了"。
   // 不进备份/同步（显式清单）：定时任务绑定这台机器的模型服务与作息，见 §12.67。
   CRON_DOC_KEY,
+  // 「工作流」（PR-F3）：流程定义（名字 + 每一步要做的事）+ 最近运行记录，同一格。
+  // 与定时任务同一条纪律：漏登记的症状是"建了流程、重启就没了"。
+  // 不进备份/同步（显式清单）：工作流绑定这台机器的模型服务，见 §12.68。
+  WORKFLOW_DOC_KEY,
 ]
 
 

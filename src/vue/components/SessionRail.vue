@@ -12,12 +12,19 @@
  * （与会议详情删稿、坞原历史面板同一手法）。
  */
 import { computed, inject, onMounted, ref } from 'vue'
-import { CalendarClock, FilePlus, MessageSquarePlus, Power, Trash2 } from 'lucide-vue-next'
+import { CalendarClock, FilePlus, MessageSquarePlus, Play, Power, Trash2, Workflow, X } from 'lucide-vue-next'
 import type { AiSessionsApi } from '../useAiSessions'
 import type { KnowledgeApi } from '../useKnowledge'
 import type { CronApi } from '../useCron'
+import type { WorkflowApi } from '../useWorkflow'
 import { AI_DOC_KEY, parseAiDoc } from '../aiSettings'
 import { lastRun, type CronRun, type CronTask } from '../cron'
+import {
+  lastRun as lastWorkflowRun,
+  WORKFLOW_MAX_STEPS,
+  type WorkflowFlow,
+  type WorkflowRun,
+} from '../workflow'
 import { isDesktop } from '../useShell'
 import { charsLabel } from '../aiChat'
 import type { StorageAdapter } from '../store'
@@ -34,6 +41,7 @@ const emit = defineEmits<{ (e: 'select-view', v: 'workbench' | 'chat' | 'edit'):
 const sessions = inject<AiSessionsApi>('aiSessions')!
 const knowledge = inject<KnowledgeApi>('knowledge')!
 const cron = inject<CronApi>('cron')!
+const workflow = inject<WorkflowApi>('workflow')!
 const storage = inject<StorageAdapter>('storage')!
 /** 模型服务清单（建任务时选一个；与坞读的是同一份镜像，零 IO） */
 const providers = computed(() => parseAiDoc(storage.get(AI_DOC_KEY)))
@@ -100,6 +108,100 @@ function dropCron(id: string): void {
   cronConfirm.value = null
   if (cronOpen.value === id) cronOpen.value = null
   cron.remove(id)
+}
+
+/**
+ * 「工作流」这一节（PR-F3）。四条边界写进 §12.68，界面上照着说：
+ * - **首败即停**：某一步没跑通，后面几步不再跑 —— 后面几步的前提就是上一步的产出；
+ * - **跑一遍才花钱**：没有定时器，只由用户点「跑一遍」触发（定时任务管"什么时候跑"）；
+ * - **一次只跑一个**：并发跑等于双倍花钱，用户只点了一下；
+ * - 步骤数 2–6：一步是"聊天"，两步以上才是"流程"。
+ */
+const wfAdding = ref(false)
+const wfName = ref('')
+/** 每一步一行；空行由建流程时的闸门拒收（§12.68：超长/空都拒收，不静默改写） */
+const wfSteps = ref<string[]>(['', ''])
+const wfProvider = ref('')
+const wfNotice = ref<string | null>(null)
+const wfConfirm = ref<string | null>(null)
+const wfOpen = ref<string | null>(null)
+
+function startWorkflowAdd(): void {
+  wfAdding.value = !wfAdding.value
+  if (!wfProvider.value) wfProvider.value = providers.value[0]?.id ?? ''
+  if (!wfSteps.value.length) wfSteps.value = ['', '']
+}
+
+function addWorkflowStep(): void {
+  if (wfSteps.value.length >= WORKFLOW_MAX_STEPS) {
+    wfNotice.value = `最多 ${WORKFLOW_MAX_STEPS} 步（一步就是一次模型调用）`
+    return
+  }
+  wfNotice.value = null
+  wfSteps.value = [...wfSteps.value, '']
+}
+
+function removeWorkflowStep(i: number): void {
+  wfSteps.value = wfSteps.value.filter((_, n) => n !== i)
+}
+
+function submitWorkflow(): void {
+  const rejected = workflow.add({
+    name: wfName.value,
+    prompts: wfSteps.value,
+    providerId: wfProvider.value,
+  })
+  wfNotice.value = rejected.length ? rejected.join('；') : null
+  if (!rejected.length) {
+    wfName.value = ''
+    wfSteps.value = ['', '']
+    wfAdding.value = false
+  }
+}
+
+function wfStatus(f: WorkflowFlow): string {
+  if (workflow.running.value === f.id) return '正在跑…'
+  const r = lastWorkflowRun(workflow.runs.value, f.id)
+  if (!r) return `${f.steps.length} 步 · 等第一次`
+  const tail = when(r.at * 1000)
+  return r.status === 'ok' ? `跑完 · ${tail}` : `没跑通 · ${tail}`
+}
+
+function wfLast(f: WorkflowFlow): WorkflowRun | undefined {
+  return lastWorkflowRun(workflow.runs.value, f.id)
+}
+
+function wfRunMeta(r: WorkflowRun): string {
+  return `${r.status === 'ok' ? '结果' : '原因'} · ${when(r.at * 1000)}`
+}
+
+/** 第几步的那句提示词（标出来，让人知道是哪一步出的事；长了只留开头） */
+function wfStepPrompt(f: WorkflowFlow, stepId: string): string {
+  const p = f.steps.find((s) => s.id === stepId)?.prompt ?? ''
+  return p.length > 40 ? `${p.slice(0, 40)}…` : p
+}
+
+function runWorkflow(id: string): void {
+  if (!workflow.run(id)) {
+    wfNotice.value = '已经有一个工作流在跑了 —— 一次只跑一条（并发跑等于双倍花钱）'
+    return
+  }
+  wfNotice.value = null
+}
+
+function toggleWorkflowOpen(id: string): void {
+  wfOpen.value = wfOpen.value === id ? null : id
+  wfConfirm.value = null
+}
+
+function dropWorkflow(id: string): void {
+  if (wfConfirm.value !== id) {
+    wfConfirm.value = id
+    return
+  }
+  wfConfirm.value = null
+  if (wfOpen.value === id) wfOpen.value = null
+  workflow.remove(id)
 }
 
 /**
@@ -344,6 +446,101 @@ onMounted(() => void sessions.refresh())
             <p class="preview-hint" data-cron-run-meta>{{ runMeta(lastOf(t)!) }}</p>
             <pre v-if="lastOf(t)!.text" class="preview" data-cron-run-preview>{{ lastOf(t)!.text }}</pre>
             <pre v-else class="preview" data-cron-run-error>{{ lastOf(t)!.error }}</pre>
+          </div>
+        </li>
+      </ul>
+    </div>
+
+    <!-- PR-F3 工作流：把几步串起来替我跑一遍。同样只有桌面有模型服务通道，网页版整节不渲染 -->
+    <div v-if="isDesktop" class="docs" role="group" aria-label="工作流">
+      <div class="sessions-head">
+        <span class="label">工作流</span>
+        <button class="new" title="加一个工作流" aria-label="加工作流" data-wf-add @click="startWorkflowAdd">
+          <Workflow :size="14" />
+        </button>
+      </div>
+      <p v-if="wfNotice" class="err" data-wf-notice>{{ wfNotice }}</p>
+      <div v-if="wfAdding" class="cron-form">
+        <input
+          v-model="wfName"
+          class="cron-time wf-name"
+          data-wf-name
+          placeholder="这个流程叫什么？"
+          aria-label="工作流名字"
+        />
+        <div v-for="i in wfSteps.length" :key="i" class="wf-step">
+          <textarea
+            v-model="wfSteps[i - 1]"
+            rows="2"
+            class="cron-prompt"
+            :data-wf-step="i - 1"
+            :placeholder="`第 ${i} 步：这一步让 AI 做什么？`"
+            :aria-label="`第 ${i} 步提示词`"
+          />
+          <button
+            v-if="wfSteps.length > 1"
+            class="wf-step-del"
+            :data-wf-step-remove="i - 1"
+            title="删掉这一步"
+            :aria-label="`删掉第 ${i} 步`"
+            @click="removeWorkflowStep(i - 1)"
+          >
+            <X :size="12" />
+          </button>
+        </div>
+        <button class="wf-add-step" data-wf-add-step @click="addWorkflowStep">加一步</button>
+        <select v-if="providers.length > 1" v-model="wfProvider" class="cron-provider" data-wf-provider aria-label="用哪个模型服务">
+          <option v-for="p in providers" :key="p.id" :value="p.id">{{ p.model || p.id }}</option>
+        </select>
+        <p v-else-if="providers.length === 1" class="preview-hint">用模型服务：{{ providers[0].model || providers[0].id }}</p>
+        <p v-else class="preview-hint">还没有模型服务 —— 先去「设置 → 实验室」配一个再建工作流。</p>
+        <div class="cron-actions">
+          <button class="cron-submit" data-wf-submit :disabled="!wfName.trim()" @click="submitWorkflow">建工作流</button>
+          <button class="cron-cancel" data-wf-cancel @click="wfAdding = false">取消</button>
+        </div>
+      </div>
+      <p v-if="!workflow.flows.value.length && !wfAdding" class="empty">
+        把几步串成一条：先让它搜集，再让它归纳。点「跑一遍」才花钱，某一步没通就停在那儿。
+      </p>
+      <ul v-else class="doc-list">
+        <li v-for="f in workflow.flows.value" :key="f.id">
+          <div class="doc-line">
+            <button
+              class="item"
+              :data-wf-flow="f.id"
+              :data-open="wfOpen === f.id"
+              :title="`${f.name} · ${f.steps.length} 步（点开看最近一次）`"
+              @click="toggleWorkflowOpen(f.id)"
+            >
+              <span class="t">{{ f.name }}</span>
+              <span class="m" :data-wf-status="f.id">{{ wfStatus(f) }}</span>
+            </button>
+            <button
+              class="del"
+              :data-wf-run="f.id"
+              :title="workflow.running.value ? '已经有一个在跑了' : '跑一遍'"
+              :aria-label="`跑一遍工作流：${f.name}`"
+              @click.stop="runWorkflow(f.id)"
+            >
+              <Play :size="13" />
+            </button>
+            <button
+              class="del"
+              :data-confirm="wfConfirm === f.id"
+              :title="wfConfirm === f.id ? '再点一次确认删除' : '删除工作流'"
+              :aria-label="`删除工作流：${f.name}`"
+              @click.stop="dropWorkflow(f.id)"
+            >
+              <Trash2 :size="13" />
+            </button>
+          </div>
+          <div v-if="wfOpen === f.id && wfLast(f)" class="preview-wrap">
+            <p class="preview-hint" data-wf-run-meta>{{ wfRunMeta(wfLast(f)!) }}</p>
+            <div v-for="(s, i) in wfLast(f)!.steps" :key="s.stepId" class="wf-result">
+              <p class="preview-hint">第 {{ i + 1 }} 步 · {{ wfStepPrompt(f, s.stepId) }}</p>
+              <pre class="preview" :data-wf-step-result="i">{{ s.text || s.error }}</pre>
+            </div>
+            <p v-if="wfLast(f)!.error" class="err" data-wf-run-error>{{ wfLast(f)!.error }}</p>
           </div>
         </li>
       </ul>
@@ -609,6 +806,47 @@ onMounted(() => void sessions.refresh())
 }
 .doc-line.off .item {
   opacity: 0.55;
+}
+/* PR-F3 工作流：多步表单（一步一行 + 删那一步）+ 逐步结果 */
+.wf-name {
+  width: 100%;
+}
+.wf-step {
+  display: flex;
+  align-items: flex-start;
+  gap: 4px;
+}
+.wf-step .cron-prompt {
+  flex: 1;
+  min-width: 0;
+}
+.wf-step-del {
+  flex: 0 0 auto;
+  display: grid;
+  place-items: center;
+  padding: 5px 3px;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: none;
+  color: var(--text-3);
+  cursor: pointer;
+}
+.wf-step-del:hover {
+  color: var(--c-red);
+  background: var(--bg-card-soft);
+}
+.wf-add-step {
+  align-self: flex-start;
+  padding: 4px var(--space-2);
+  border: 1px dashed var(--border-soft);
+  border-radius: var(--radius-sm);
+  background: none;
+  color: var(--text-2);
+  font-size: 12px;
+  cursor: pointer;
+}
+.wf-result {
+  margin-bottom: 6px;
 }
 .user {
   display: flex;
