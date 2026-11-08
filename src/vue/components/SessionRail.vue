@@ -11,11 +11,16 @@
  * 纪律：栏只"选"不"发"——发消息仍只有坞一个入口；两步删除的第一次点击只标记
  * （与会议详情删稿、坞原历史面板同一手法）。
  */
-import { inject, onMounted, ref } from 'vue'
-import { FilePlus, MessageSquarePlus, Trash2 } from 'lucide-vue-next'
+import { computed, inject, onMounted, ref } from 'vue'
+import { CalendarClock, FilePlus, MessageSquarePlus, Power, Trash2 } from 'lucide-vue-next'
 import type { AiSessionsApi } from '../useAiSessions'
 import type { KnowledgeApi } from '../useKnowledge'
+import type { CronApi } from '../useCron'
+import { AI_DOC_KEY, parseAiDoc } from '../aiSettings'
+import { lastRun, type CronRun, type CronTask } from '../cron'
+import { isDesktop } from '../useShell'
 import { charsLabel } from '../aiChat'
+import type { StorageAdapter } from '../store'
 import {
   docExcerpt,
   KNOWLEDGE_EXCERPT_MAX,
@@ -28,6 +33,74 @@ const emit = defineEmits<{ (e: 'select-view', v: 'workbench' | 'chat' | 'edit'):
 
 const sessions = inject<AiSessionsApi>('aiSessions')!
 const knowledge = inject<KnowledgeApi>('knowledge')!
+const cron = inject<CronApi>('cron')!
+const storage = inject<StorageAdapter>('storage')!
+/** 模型服务清单（建任务时选一个；与坞读的是同一份镜像，零 IO） */
+const providers = computed(() => parseAiDoc(storage.get(AI_DOC_KEY)))
+
+/**
+ * 「定时」节（PR-F2）。三条边界都写进过 §12.67，界面上照着说：
+ * - 到点自动跑 AI = 未经确认花钱 ⇒ 任务只能显式建、运行记录全部可见；
+ * - **错过不补跑**（空态文案里就说清，不让用户以为后台会追赶）；
+ * - 结果不自动写版面 —— 展开看到的是那次对话的结果原文（全文在会话历史里）。
+ */
+const cronAdding = ref(false)
+const cronTime = ref('09:00')
+const cronPrompt = ref('')
+const cronProvider = ref('')
+const cronNotice = ref<string | null>(null)
+const cronConfirm = ref<string | null>(null)
+const cronOpen = ref<string | null>(null)
+
+function startCronAdd(): void {
+  cronAdding.value = !cronAdding.value
+  if (!cronProvider.value) cronProvider.value = providers.value[0]?.id ?? ''
+}
+
+function submitCron(): void {
+  const rejected = cron.add({ prompt: cronPrompt.value, time: cronTime.value, providerId: cronProvider.value })
+  cronNotice.value = rejected.length ? rejected.join('；') : null
+  if (!rejected.length) {
+    cronPrompt.value = ''
+    cronAdding.value = false
+  }
+}
+
+function statusLine(t: CronTask): string {
+  const r = lastRun(cron.runs.value, t.id)
+  if (!r) return t.enabled ? '等第一次' : '已停用'
+  const tail = when(r.at * 1000)
+  if (r.status === 'ok') return `跑完 · ${tail}`
+  if (r.status === 'error') return `失败 · ${tail}`
+  return `错过 · ${tail}`
+}
+
+function lastOf(t: CronTask): CronRun | undefined {
+  return lastRun(cron.runs.value, t.id)
+}
+
+function runMeta(r: CronRun): string {
+  return `${r.status === 'ok' ? '结果' : '原因'} · ${when(r.at * 1000)}`
+}
+
+function toggleCronOpen(id: string): void {
+  cronOpen.value = cronOpen.value === id ? null : id
+  cronConfirm.value = null
+}
+
+function toggleCronEnabled(id: string): void {
+  cron.toggle(id)
+}
+
+function dropCron(id: string): void {
+  if (cronConfirm.value !== id) {
+    cronConfirm.value = id
+    return
+  }
+  cronConfirm.value = null
+  if (cronOpen.value === id) cronOpen.value = null
+  cron.remove(id)
+}
 
 /**
  * 「资料」这一节（PR-F1）。三条与坞里那套保持一致：
@@ -198,6 +271,79 @@ onMounted(() => void sessions.refresh())
           <div v-if="openDoc === d.id" class="preview-wrap">
             <p class="preview-hint">喂给模型的就是这一段（摘录上限 {{ KNOWLEDGE_EXCERPT_MAX }} 字）</p>
             <pre class="preview" data-doc-preview>{{ docExcerpt(d) }}</pre>
+          </div>
+        </li>
+      </ul>
+    </div>
+
+    <!-- PR-F2 定时任务：桌面才有模型服务通道，网页版整节不渲染（不摆发不出去的假界面） -->
+    <div v-if="isDesktop" class="docs" role="group" aria-label="定时任务">
+      <div class="sessions-head">
+        <span class="label">定时</span>
+        <button class="new" title="加一个定时任务" aria-label="加定时任务" data-cron-add @click="startCronAdd">
+          <CalendarClock :size="14" />
+        </button>
+      </div>
+      <p v-if="cronNotice" class="err" data-cron-notice>{{ cronNotice }}</p>
+      <div v-if="cronAdding" class="cron-form">
+        <input v-model="cronTime" type="time" class="cron-time" data-cron-time aria-label="每天几点跑" />
+        <textarea
+          v-model="cronPrompt"
+          rows="2"
+          class="cron-prompt"
+          data-cron-prompt
+          placeholder="到点让 AI 做什么？比如：把今天的待办整理成三句话。"
+          aria-label="任务提示词"
+        />
+        <select v-if="providers.length > 1" v-model="cronProvider" class="cron-provider" data-cron-provider aria-label="用哪个模型服务">
+          <option v-for="p in providers" :key="p.id" :value="p.id">{{ p.model || p.id }}</option>
+        </select>
+        <p v-else-if="providers.length === 1" class="preview-hint">用模型服务：{{ providers[0].model || providers[0].id }}</p>
+        <p v-else class="preview-hint">还没有模型服务 —— 先去「设置 → 实验室」配一个再建任务。</p>
+        <div class="cron-actions">
+          <button class="cron-submit" data-cron-submit :disabled="!cronPrompt.trim()" @click="submitCron">建任务</button>
+          <button class="cron-cancel" data-cron-cancel @click="cronAdding = false">取消</button>
+        </div>
+      </div>
+      <p v-if="!cron.tasks.value.length && !cronAdding" class="empty">
+        到点让 AI 替你跑一句：比如每天早上把待办整理成三句话。应用没开着就记「错过」，不补跑。
+      </p>
+      <ul v-else class="doc-list">
+        <li v-for="t in cron.tasks.value" :key="t.id">
+          <div class="doc-line" :class="{ off: !t.enabled }">
+            <button
+              class="item"
+              :data-cron-task="t.id"
+              :data-open="cronOpen === t.id"
+              :title="`${t.time} · ${t.prompt}（点开看最近一次）`"
+              @click="toggleCronOpen(t.id)"
+            >
+              <span class="t">{{ t.time }} · {{ t.prompt }}</span>
+              <span class="m" :data-cron-status="t.id">{{ statusLine(t) }}</span>
+            </button>
+            <button
+              class="del"
+              :data-cron-toggle="t.id"
+              :title="t.enabled ? '停用（不再到点执行）' : '启用'"
+              :aria-label="t.enabled ? `停用任务：${t.prompt}` : `启用任务：${t.prompt}`"
+              @click.stop="toggleCronEnabled(t.id)"
+            >
+              <Power :size="13" />
+            </button>
+            <button
+              class="del"
+              :data-confirm="cronConfirm === t.id"
+              :title="cronConfirm === t.id ? '再点一次确认删除' : '删除任务'"
+              :aria-label="`删除任务：${t.prompt}`"
+              @click.stop="dropCron(t.id)"
+            >
+              <Trash2 :size="13" />
+            </button>
+          </div>
+          <div v-if="cronOpen === t.id && lastOf(t)" class="preview-wrap">
+            <p class="preview-hint" data-cron-run-meta>{{ runMeta(lastOf(t)!) }}</p>
+            <pre v-if="lastOf(t)!.text" class="preview" data-cron-run-preview>{{ lastOf(t)!.text }}</pre>
+            <pre v-else class="preview" data-cron-run-error>{{ lastOf(t)!.error }}</pre>
           </div>
         </li>
       </ul>
@@ -399,6 +545,70 @@ onMounted(() => void sessions.refresh())
   white-space: pre-wrap;
   word-break: break-word;
   font-family: inherit;
+}
+/* PR-F2 定时：建任务的内联小表单 + 停用行的视觉降档 */
+.cron-form {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 2px 8px 6px;
+}
+.cron-time {
+  width: 120px;
+  padding: 4px 6px;
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-sm);
+  background: var(--input-bg);
+  color: var(--text-1);
+  font-size: 12px;
+}
+.cron-prompt {
+  resize: none;
+  padding: 6px 8px;
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-sm);
+  background: var(--input-bg);
+  color: var(--text-1);
+  font-size: 12px;
+  line-height: 1.5;
+  font-family: inherit;
+}
+.cron-provider {
+  padding: 4px 6px;
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-sm);
+  background: var(--input-bg);
+  color: var(--text-1);
+  font-size: 12px;
+}
+.cron-actions {
+  display: flex;
+  gap: 6px;
+}
+.cron-submit {
+  padding: 5px var(--space-3);
+  border: 1px solid var(--accent);
+  border-radius: var(--radius-sm);
+  background: var(--accent);
+  color: #fff;
+  font-size: 12px;
+  cursor: pointer;
+}
+.cron-submit:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+.cron-cancel {
+  padding: 5px var(--space-2);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-sm);
+  background: none;
+  color: var(--text-2);
+  font-size: 12px;
+  cursor: pointer;
+}
+.doc-line.off .item {
+  opacity: 0.55;
 }
 .user {
   display: flex;

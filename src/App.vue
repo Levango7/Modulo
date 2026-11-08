@@ -50,6 +50,8 @@ import ChatDock from './vue/components/ChatDock.vue'
 import SessionRail from './vue/components/SessionRail.vue'
 import { createAiSessions } from './vue/useAiSessions'
 import { createKnowledge } from './vue/useKnowledge'
+import { createCron } from './vue/useCron'
+import { AI_DOC_KEY, parseAiDoc } from './vue/aiSettings'
 import { canShowDock } from './vue/aiChat'
 
 const storage = inject<PersistentStorage>('storage')!
@@ -323,11 +325,14 @@ onMounted(() => {
   backup.initAutoBackup()
   /** 提醒：启动先对一次表，之后每分钟一次（静默时段只压投递，不压事实） */
   reminders.start()
+  /** 定时任务：同一个节奏对表。错过不补跑（PR-F2 的边界 1），网页版 start() 直接不开 */
+  cron.start()
 })
 onBeforeUnmount(() => {
   window.removeEventListener('keydown', onGlobalKey)
   document.removeEventListener('mousedown', onDocMousedown)
   reminders.stop()
+  cron.stop()
 })
 
 function fitContent() {
@@ -433,6 +438,17 @@ provide('aiSessions', aiSessions)
  */
 const knowledge = createKnowledge(storage)
 provide('knowledge', knowledge)
+/**
+ * 「定时任务」的共享状态（PR-F2）：栏里列它、到点由这里驱动执行。
+ * `providers` 读启动时 hydrate 的 ai-settings 镜像（与坞同一份，零 IO）；
+ * `canRun` 门着网页版 —— ai_chat 是 Tauri IPC，网页没有这条通道（与坞同一条边界）。
+ */
+const cron = createCron({
+  storage,
+  providers: () => parseAiDoc(storage.get(AI_DOC_KEY)),
+  canRun: () => isDesktop,
+})
+provide('cron', cron)
 /**
  * 左栏显隐（PR-D）：**按窗口宽自适应**，阈值取「12 列舞台 + 栏宽」——
  * 栏常驻会把 1440 视口的舞台压到 8 列，破坏「1440 → 12 列」的响应式承诺

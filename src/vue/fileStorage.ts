@@ -7,6 +7,7 @@ import { REMINDERS_KEY } from './useReminders'
 import { MIGRATE_BACKUP_KEY } from './migrate'
 import { AI_DOC_KEY } from './aiSettings'
 import { KNOWLEDGE_DOC_KEY } from './knowledge'
+import { CRON_DOC_KEY } from './cron'
 
 /**
  * 桌面壳的数据落盘。
@@ -71,6 +72,10 @@ export const DATA_KEYS: readonly string[] = [
   // 纸面口径如实记：这一笔**不进完整备份、也不进多端同步**（两者都是显式清单）——
   // 与 AI 会话历史同一条取舍（体积与隐私），见 §12.66。
   KNOWLEDGE_DOC_KEY,
+  // 「定时任务」（PR-F2）：任务定义 + 最近运行记录 + 当天调度状态，同一格。
+  // 与资料同一条纪律：漏登记的症状是"建了任务、重启就没了"。
+  // 不进备份/同步（显式清单）：定时任务绑定这台机器的模型服务与作息，见 §12.67。
+  CRON_DOC_KEY,
 ]
 
 
