@@ -12,10 +12,11 @@
  * （与会议详情删稿、坞原历史面板同一手法）。
  */
 import { computed, inject, onMounted, ref } from 'vue'
-import { CalendarClock, FilePlus, MessageSquarePlus, Power, Trash2 } from 'lucide-vue-next'
+import { BookMarked, CalendarClock, FilePlus, MessageSquarePlus, Power, Trash2 } from 'lucide-vue-next'
 import type { AiSessionsApi } from '../useAiSessions'
 import type { KnowledgeApi } from '../useKnowledge'
 import type { CronApi } from '../useCron'
+import type { SkillsApi } from '../useSkills'
 import { AI_DOC_KEY, parseAiDoc } from '../aiSettings'
 import { lastRun, type CronRun, type CronTask } from '../cron'
 import { isDesktop } from '../useShell'
@@ -27,6 +28,7 @@ import {
   KNOWLEDGE_FILE_MAX_BYTES,
   type PickedDoc,
 } from '../knowledge'
+import { skillExcerpt, SKILL_NAME_MAX, SKILL_TEXT_MAX } from '../skills'
 
 const props = defineProps<{ view: 'workbench' | 'chat' | 'edit' }>()
 const emit = defineEmits<{ (e: 'select-view', v: 'workbench' | 'chat' | 'edit'): void }>()
@@ -34,6 +36,7 @@ const emit = defineEmits<{ (e: 'select-view', v: 'workbench' | 'chat' | 'edit'):
 const sessions = inject<AiSessionsApi>('aiSessions')!
 const knowledge = inject<KnowledgeApi>('knowledge')!
 const cron = inject<CronApi>('cron')!
+const skills = inject<SkillsApi>('skills')!
 const storage = inject<StorageAdapter>('storage')!
 /** 模型服务清单（建任务时选一个；与坞读的是同一份镜像，零 IO） */
 const providers = computed(() => parseAiDoc(storage.get(AI_DOC_KEY)))
@@ -158,6 +161,49 @@ function dropDoc(id: string): void {
   knowledge.remove(id)
 }
 
+/**
+ * 「技能」这一节（PR-F3）。与资料同一套行样式 / 两步移除，差别只在录入方式：
+ * 技能是用户手写的**一段提示词模板**（名字 + 正文），不是导入文件。
+ * 判定（同名 / 空 / 非文本 / 超长拒收 / 份数）全在 `skills.ts`，这里只把拒收理由
+ * 逐条说出来、把预览显示成**喂给模型的同一段全文**（不截断，见 §12.68）。
+ */
+const skillAdding = ref(false)
+const skillName = ref('')
+const skillText = ref('')
+const skillNotice = ref<string | null>(null)
+const openSkill = ref<string | null>(null)
+const confirmSkill = ref<string | null>(null)
+
+function startSkillAdd(): void {
+  skillAdding.value = !skillAdding.value
+  skillNotice.value = null
+}
+
+function submitSkill(): void {
+  const why = skills.add([{ name: skillName.value, text: skillText.value }])
+  skillNotice.value = why.length ? why.join('；') : null
+  if (!why.length) {
+    skillName.value = ''
+    skillText.value = ''
+    skillAdding.value = false
+  }
+}
+
+function toggleSkill(id: string): void {
+  openSkill.value = openSkill.value === id ? null : id
+  confirmSkill.value = null
+}
+
+function dropSkill(id: string): void {
+  if (confirmSkill.value !== id) {
+    confirmSkill.value = id
+    return
+  }
+  confirmSkill.value = null
+  if (openSkill.value === id) openSkill.value = null
+  skills.remove(id)
+}
+
 /** 两步删除：第一次点只标记，第二次点同一行才真删（与坞原历史面板同一手法） */
 const confirmId = ref<string | null>(null)
 
@@ -271,6 +317,72 @@ onMounted(() => void sessions.refresh())
           <div v-if="openDoc === d.id" class="preview-wrap">
             <p class="preview-hint">喂给模型的就是这一段（摘录上限 {{ KNOWLEDGE_EXCERPT_MAX }} 字）</p>
             <pre class="preview" data-doc-preview>{{ docExcerpt(d) }}</pre>
+          </div>
+        </li>
+      </ul>
+    </div>
+
+    <!-- PR-F3 技能：本地提示词模板 → 聊天里 @ 展开进 system 块。与资料同层，放它下面 -->
+    <div class="docs" role="group" aria-label="技能">
+      <div class="sessions-head">
+        <span class="label">技能</span>
+        <button class="new" title="存一条技能（提示词模板）" aria-label="存一条技能" data-skill-add @click="startSkillAdd">
+          <BookMarked :size="14" />
+        </button>
+      </div>
+      <p v-if="skillNotice" class="err" data-skill-notice>{{ skillNotice }}</p>
+      <div v-if="skillAdding" class="skill-form">
+        <input
+          v-model="skillName"
+          class="skill-name"
+          data-skill-name
+          :maxlength="SKILL_NAME_MAX"
+          placeholder="起个名字，比如「周报助手」"
+          aria-label="技能名字"
+        />
+        <textarea
+          v-model="skillText"
+          rows="3"
+          class="skill-text"
+          data-skill-text
+          placeholder="写一段会反复用的提示词，聊天里 @ 选中它就展开"
+          aria-label="技能正文"
+        />
+        <p class="preview-hint">纯文本模板：名字 {{ SKILL_NAME_MAX }} 字内、正文 {{ SKILL_TEXT_MAX }} 字内；超长整条拒收、不截断。</p>
+        <div class="cron-actions">
+          <button class="cron-submit" data-skill-submit :disabled="!skillName.trim() || !skillText.trim()" @click="submitSkill">存技能</button>
+          <button class="cron-cancel" data-skill-cancel @click="skillAdding = false; skillNotice = null">取消</button>
+        </div>
+      </div>
+      <p v-if="!skills.skills.value.length && !skillAdding" class="empty">
+        存一段常用的提示词（比如「把要点写成三句话」），聊天里用 @ 选中它，整段展开进对话。
+      </p>
+      <ul v-else class="doc-list">
+        <li v-for="s in skills.skills.value" :key="s.id">
+          <div class="doc-line">
+            <button
+              class="item"
+              :data-skill="s.id"
+              :data-open="openSkill === s.id"
+              :title="s.name"
+              @click="toggleSkill(s.id)"
+            >
+              <span class="t">{{ s.name }}</span>
+              <span class="m">{{ charsLabel(s.chars) }}</span>
+            </button>
+            <button
+              class="del"
+              :data-confirm="confirmSkill === s.id"
+              :title="confirmSkill === s.id ? '再点一次确认移除' : '移除技能'"
+              :aria-label="`移除技能：${s.name}`"
+              @click.stop="dropSkill(s.id)"
+            >
+              <Trash2 :size="13" />
+            </button>
+          </div>
+          <div v-if="openSkill === s.id" class="preview-wrap">
+            <p class="preview-hint">@ 选中时展开进对话的就是这一整段；多条引用合计仍由既有的 2000 字预算统一封顶。</p>
+            <pre class="preview" data-skill-preview>{{ skillExcerpt(s) }}</pre>
           </div>
         </li>
       </ul>
@@ -545,6 +657,27 @@ onMounted(() => void sessions.refresh())
   white-space: pre-wrap;
   word-break: break-word;
   font-family: inherit;
+}
+/* PR-F3 技能：与定时同一套内联表单样式，只是多一个单行名字输入 */
+.skill-form {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 2px 8px 6px;
+}
+.skill-name,
+.skill-text {
+  padding: 4px 6px;
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-sm);
+  background: var(--input-bg);
+  color: var(--text-1);
+  font-size: 12px;
+  line-height: 1.5;
+  font-family: inherit;
+}
+.skill-text {
+  resize: none;
 }
 /* PR-F2 定时：建任务的内联小表单 + 停用行的视觉降档 */
 .cron-form {

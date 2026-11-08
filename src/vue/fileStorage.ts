@@ -8,6 +8,7 @@ import { MIGRATE_BACKUP_KEY } from './migrate'
 import { AI_DOC_KEY } from './aiSettings'
 import { KNOWLEDGE_DOC_KEY } from './knowledge'
 import { CRON_DOC_KEY } from './cron'
+import { SKILL_DOC_KEY } from './skills'
 
 /**
  * 桌面壳的数据落盘。
@@ -76,6 +77,10 @@ export const DATA_KEYS: readonly string[] = [
   // 与资料同一条纪律：漏登记的症状是"建了任务、重启就没了"。
   // 不进备份/同步（显式清单）：定时任务绑定这台机器的模型服务与作息，见 §12.67。
   CRON_DOC_KEY,
+  // 「技能」（PR-F3）：用户存的提示词模板，聊天里 `@` 展开进 system 块。**必须登记** ——
+  // 同 F1/F2：漏登记的症状不是报错，是"存完界面看得见、重启就没了"（E2E 用 reload 钉住）。
+  // 不进完整备份、也不进多端同步（两者都是显式清单）—— 与资料同一条取舍，见 §12.68。
+  SKILL_DOC_KEY,
 ]
 
 

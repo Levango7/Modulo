@@ -52,7 +52,9 @@ import {
   type PickedText,
 } from '../aiChat'
 import { docChoices, excerptWithDocs } from '../knowledge'
+import { skillChoices, excerptWithSkills } from '../skills'
 import type { KnowledgeApi } from '../useKnowledge'
+import type { SkillsApi } from '../useSkills'
 
 /**
  * `full`：嵌入全高模式（E1 的 chat 视图）。展开面板从"浮在画布上的 45vh 浮层"
@@ -78,6 +80,8 @@ const turns = ref<ChatTurn[]>([])
 const sessions = inject<AiSessionsApi>('aiSessions')!
 /** 资料（PR-F1）：坞里 `@` 能引用的另一半来源 —— 与左栏「资料」共用同一份（App provide） */
 const knowledge = inject<KnowledgeApi>('knowledge')!
+/** 技能（PR-F3）：与资料同层，本地提示词模板 —— 与左栏「技能」共用同一份（App provide） */
+const skills = inject<SkillsApi>('skills')!
 const conversationId = sessions.activeId
 /**
  * 栏里点了一条会话 ⇒ 把气泡换成那条的消息（system 不进界面，`turnsFromHistory` 管），
@@ -145,19 +149,26 @@ const providerModel = computed(() => {
  * 同源 —— 测试钉两个数字对得上，控件才不是"看着玩的花架子"。
  */
 /**
- * 引用摘录的**唯一入口**（PR-F1 加的这层薄壳）：资料走 `docExcerpt`、卡片走 `excerptFor`。
- * `contextUsage` / `contextBlock` / `buildMessages` / `summaryText` 四处拿到的是同一个函数 ——
- * 口径只有一份，才不会出现"控件说 300 字、请求其实早被截到 2000"那种各说各话。
+ * 引用摘录的**唯一入口**（PR-F1 加的薄壳，PR-F3 再叠一层）：技能走 `skillExcerpt`、
+ * 资料走 `docExcerpt`、卡片走 `excerptFor`。两层薄壳叠起来**仍是这一个函数** ——
+ * `contextUsage` / `contextBlock` / `buildMessages` / `summaryText` 四处拿的是同一份口径，
+ * 卡片 / 资料 / 技能共用一条 `@` 通道、同一个上下文块，不出现第二个 system 块。
  */
 const excerptOf = (c: CardChoice): string =>
-  excerptWithDocs(knowledge.docs.value, (x) => excerptFor(x, cardDataApi.state))(c)
-/** 引用里资料占几份（卡片与资料的摘录上限不同源，界面要分开报） */
+  excerptWithSkills(
+    skills.skills.value,
+    excerptWithDocs(knowledge.docs.value, (x) => excerptFor(x, cardDataApi.state)),
+  )(c)
+/** 引用里资料 / 技能各占几份（三档摘录上限不同源，界面要分开报） */
 const chipsDocs = computed(() => chips.value.filter((c) => c.module === 'knowledge').length)
+const chipsSkills = computed(() => chips.value.filter((c) => c.module === 'skills').length)
 
 const usage = computed(() => contextUsage(chips.value, excerptOf))
 
-/** 控件行那句「本次可读 …」（E2 起；F1 起把资料那档也写出来，两个上限不同源） */
-const permLine = computed(() => permNote(chips.value.length - chipsDocs.value, chipsDocs.value))
+/** 控件行那句「本次可读 …」（E2 起；F1 加资料档；F3 加技能档）。卡片数要把两者都扣掉 */
+const permLine = computed(() =>
+  permNote(chips.value.length - chipsDocs.value - chipsSkills.value, chipsDocs.value, chipsSkills.value),
+)
 
 /** 选中的 provider 掉了（被删）就回落到第一条，避免发出去必失败 */
 watch(
@@ -169,12 +180,13 @@ watch(
 )
 
 /**
- * `@` 能引用的东西：**资料在前、版面卡片在后**（PR-F1）。排前面的理由很实际 ——
- * 用户刚导入的那份资料通常就是这次要问的；两边的候选与 chip 同一形状
- * （`CardChoice`），所以选中/删除/预算那几条路一行都不用改。
+ * `@` 能引用的东西：**资料 / 技能在前、版面卡片在后**（PR-F1 加资料，PR-F3 加技能）。
+ * 排前面的理由很实际 —— 用户刚存的资料与模板通常就是这次要用的；三者候选与 chip
+ * 同一形状（`CardChoice`），所以选中/删除/预算那几条路一行都不用改。
  */
 const choices = computed(() => [
   ...docChoices(knowledge.docs.value),
+  ...skillChoices(skills.skills.value),
   ...cardChoices(store.doc.value.items, (m) => E.findModule(store.reg, m)?.title ?? m),
 ])
 

@@ -51,6 +51,7 @@ import SessionRail from './vue/components/SessionRail.vue'
 import { createAiSessions } from './vue/useAiSessions'
 import { createKnowledge } from './vue/useKnowledge'
 import { createCron } from './vue/useCron'
+import { createSkills } from './vue/useSkills'
 import { AI_DOC_KEY, parseAiDoc } from './vue/aiSettings'
 import { canShowDock } from './vue/aiChat'
 
@@ -438,6 +439,13 @@ provide('aiSessions', aiSessions)
  */
 const knowledge = createKnowledge(storage)
 provide('knowledge', knowledge)
+/**
+ * 「技能」的共享状态（PR-F3 生态位第三格）：左栏列它、聊天里 `@` 它 —— 两处同一份。
+ * 与资料 / 定时任务走同一条 `storage` 闸门，落盘键登记进 `DATA_KEYS`；
+ * 没有执行体、没有自动跑，只是一份本地提示词模板清单（§12.68）。
+ */
+const skills = createSkills(storage)
+provide('skills', skills)
 /**
  * 「定时任务」的共享状态（PR-F2）：栏里列它、到点由这里驱动执行。
  * `providers` 读启动时 hydrate 的 ai-settings 镜像（与坞同一份，零 IO）；
