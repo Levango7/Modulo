@@ -51,6 +51,7 @@ import SessionRail from './vue/components/SessionRail.vue'
 import { createAiSessions } from './vue/useAiSessions'
 import { createKnowledge } from './vue/useKnowledge'
 import { createCron } from './vue/useCron'
+import { createWorkflow } from './vue/useWorkflow'
 import { AI_DOC_KEY, parseAiDoc } from './vue/aiSettings'
 import { canShowDock } from './vue/aiChat'
 
@@ -449,6 +450,16 @@ const cron = createCron({
   canRun: () => isDesktop,
 })
 provide('cron', cron)
+/**
+ * 「工作流」的共享状态（PR-F3，生态位第三格）：栏里建它、点「跑一遍」由这里顺次执行。
+ * 与定时任务分工明确 —— 定时管"什么时候跑"，工作流管"按什么顺序跑"。
+ * **没有定时器**：跑一遍要花钱，只由用户点「跑一遍」触发，不自动开跑。
+ */
+const workflow = createWorkflow({
+  storage,
+  providers: () => parseAiDoc(storage.get(AI_DOC_KEY)),
+})
+provide('workflow', workflow)
 /**
  * 左栏显隐（PR-D）：**按窗口宽自适应**，阈值取「12 列舞台 + 栏宽」——
  * 栏常驻会把 1440 视口的舞台压到 8 列，破坏「1440 → 12 列」的响应式承诺

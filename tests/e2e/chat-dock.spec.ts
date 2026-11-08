@@ -93,6 +93,8 @@ interface Seed {
   wide?: boolean
   /** 预置定时任务（PR-F2）：原样写进 `modulo.__stubdoc.modulo.cron.v1`（tasks + runs） */
   cron?: { tasks: unknown[]; runs?: unknown[] }
+  /** 预置工作流（PR-F3）：原样写进 `modulo.__stubdoc.modulo.workflow.v1`（flows + runs） */
+  workflow?: { flows: unknown[]; runs?: unknown[] }
 }
 
 /** 开一张桌面形态的页面。`ai: false` = 没配任何模型服务（空态那条路） */
@@ -105,7 +107,7 @@ async function open(seed: Seed = {}, errs?: string[]): Promise<Page> {
   const card = seed.twins ? { ...CARD, ...TWIN_CARD } : CARD
   const desktop = seed.desktop !== false
   await page.evaluateOnNewDocument(
-    (src: string, docJson: string, cardJson: string, aiJson: string | null, histJson: string | null, hang: boolean, reply: string | null, cronJson: string | null, installStub: boolean) => {
+    (src: string, docJson: string, cardJson: string, aiJson: string | null, histJson: string | null, hang: boolean, reply: string | null, cronJson: string | null, installStub: boolean, workflowJson: string | null) => {
       if (installStub) new Function(src)()
       localStorage.setItem('modulo.layout.v1', docJson)
       localStorage.setItem('modulo.__stubdoc.modulo.carddata.v1', cardJson)
@@ -120,6 +122,10 @@ async function open(seed: Seed = {}, errs?: string[]): Promise<Page> {
       if (cronJson && localStorage.getItem('modulo.__stubdoc.modulo.cron.v1') === null) {
         localStorage.setItem('modulo.__stubdoc.modulo.cron.v1', cronJson)
       }
+      // 工作流（PR-F3）：同一条通道、同一条守卫（同上：reload 会重跑这段）
+      if (workflowJson && localStorage.getItem('modulo.__stubdoc.modulo.workflow.v1') === null) {
+        localStorage.setItem('modulo.__stubdoc.modulo.workflow.v1', workflowJson)
+      }
     },
     STUB_SOURCE,
     JSON.stringify(doc),
@@ -130,6 +136,7 @@ async function open(seed: Seed = {}, errs?: string[]): Promise<Page> {
     seed.reply ?? null,
     seed.cron ? JSON.stringify({ schemaVersion: 1, tasks: seed.cron.tasks, runs: seed.cron.runs ?? [] }) : null,
     desktop,
+    seed.workflow ? JSON.stringify({ schemaVersion: 1, flows: seed.workflow.flows, runs: seed.workflow.runs ?? [] }) : null,
   )
   await page.goto(url, { waitUntil: 'networkidle2', timeout: 30000 })
   // web 形态没有坞（AI 后端不在）⇒ 等左栏出现即可
@@ -708,4 +715,60 @@ describe.skipIf(skip)('聊天任脊柱（E1）', () => {
     expect(off, '停用状态落盘了').toBe(true)
     expect(errs, `页面不该有报错：${errs.join(' | ')}`).toEqual([])
   }, 150_000)
+
+  it('工作流（PR-F3）：两步真跑；第二步带着第一步的产出；结果与流程都落盘', async () => {
+    const errs: string[] = []
+    const page = await open(
+      {
+        wide: true,
+        workflow: {
+          flows: [
+            {
+              id: 'w1',
+              name: '搜集再归纳',
+              steps: [
+                { id: 's1', prompt: '先搜一搜这个主题' },
+                { id: 's2', prompt: '再归纳成三条' },
+              ],
+              providerId: 'p1',
+              createdAt: 0,
+            },
+          ],
+          runs: [],
+        },
+      },
+      errs,
+    )
+
+    // 栏里的「工作流」节（窄窗栏是收起来的 ⇒ 必须 wide）
+    await page.waitForSelector('[data-wf-flow="w1"]', { timeout: 15000 })
+    expect(await text(page, '[data-wf-status="w1"]')).toContain('等第一次')
+
+    await click(page, '[data-wf-run="w1"]')
+    // 跑完的判据是 done 帧（不是 invoke 返回）—— 与定时任务同一口径
+    await page.waitForFunction(
+      () => document.querySelector('[data-wf-status="w1"]')?.textContent?.includes('跑完') ?? false,
+      { timeout: 30000, polling: 500 },
+    )
+
+    const chat = (await calls(page)).filter((c) => c.cmd === 'ai_chat')
+    expect(chat, '两步 = 两次模型调用').toHaveLength(2)
+    const first = chat[0].args.messages as { role: string; content: string }[]
+    const second = chat[1].args.messages as { role: string; content: string }[]
+    expect(first[0].content, '第一步只带自己的提示词').toBe('先搜一搜这个主题')
+    expect(second[0].content, '第二步带着自己的提示词').toContain('再归纳成三条')
+    expect(second[0].content, '第二步带着第一步的产出（链条靠这个串起来）').toContain('桩回复：收到。')
+
+    // 展开看每一步的结果
+    await click(page, '[data-wf-flow="w1"]')
+    await page.waitForSelector('[data-wf-step-result="0"]', { timeout: 5000 })
+    expect(await text(page, '[data-wf-step-result="0"]')).toContain('桩回复')
+    expect(await text(page, '[data-wf-step-result="1"]')).toContain('桩回复')
+
+    // 落盘：reload 后流程与运行记录都还在（漏登记 DATA_KEYS 的症状就是"重启就没了"）
+    await page.reload({ waitUntil: 'networkidle2' })
+    await page.waitForSelector('[data-wf-status="w1"]', { timeout: 15000 })
+    expect(await text(page, '[data-wf-status="w1"]'), '运行记录落盘了').toContain('跑完')
+    expect(errs, `页面不该有报错：${errs.join(' | ')}`).toEqual([])
+  }, 90_000)
 })
