@@ -29,11 +29,16 @@ export const ACTION_CATEGORY_MAX = 20
 export const ACTION_NOTE_MAX = 200
 /** 金额上限（单位：分）—— 一千万元，够用且防手滑 */
 export const ACTION_CENTS_MAX = 1_000_000_000
+/** 倒数日名字上限（v1.1） */
+export const ACTION_LABEL_MAX = 20
 
 export type AiAction =
   | { type: 'addCard'; moduleId: string; variant?: string }
   | { type: 'todo.add'; text: string }
   | { type: 'ledger.add'; cents: number; category: string; note?: string; date: string }
+  | { type: 'sticky.append'; text: string }
+  | { type: 'countdown.set'; label: string; date: string }
+  | { type: 'habit.check' }
 
 export interface ActionContext {
   /** 已装的模块 id（`addCard` 的校验白名单 —— 注册表里没有的卡不许摆） */
@@ -119,6 +124,27 @@ function parseLine(raw: string, ctx: ActionContext): AiAction | { bad: string } 
     }
     return { type: 'ledger.add', cents, category, ...(note ? { note } : {}), date }
   }
+  if (type === 'sticky.append') {
+    const text = str(o.text).trim()
+    if (!text) return { bad: '它想往便签里加内容，但没写要加什么' }
+    if (text.length > ACTION_TEXT_MAX) return { bad: `便签那一段太长（超过 ${ACTION_TEXT_MAX} 字）—— 这一条没有执行` }
+    return { type: 'sticky.append', text }
+  }
+  if (type === 'countdown.set') {
+    const label = str(o.label).trim()
+    if (!label) return { bad: '它想设倒数日，但没写名字（label）' }
+    if (label.length > ACTION_LABEL_MAX) {
+      return { bad: `倒数日名字太长（超过 ${ACTION_LABEL_MAX} 字）—— 这一条没有执行` }
+    }
+    const date = str(o.date).trim()
+    if (!DATE_RE.test(date)) {
+      return { bad: '它想设倒数日，但日期写法看不懂（要 YYYY-MM-DD）—— 这一条没有执行' }
+    }
+    return { type: 'countdown.set', label, date }
+  }
+  if (type === 'habit.check') {
+    return { type: 'habit.check' }
+  }
   return { bad: `它想做「${clip(type || '（没写 type）', 24)}」这件事 —— 这一版还不会` }
 }
 
@@ -169,6 +195,12 @@ export function actionLabel(a: AiAction, titleOf?: (id: string) => string | unde
       return `加一条待办：${a.text}`
     case 'ledger.add':
       return `记一笔：¥${(a.cents / 100).toFixed(2)} · ${a.category}${a.note ? ` · ${a.note}` : ''}`
+    case 'sticky.append':
+      return `往便签里加一段：${a.text}`
+    case 'countdown.set':
+      return `把倒数日设成「${a.label} · ${a.date}」`
+    case 'habit.check':
+      return '给习惯卡打上今天的卡'
   }
 }
 
@@ -221,7 +253,13 @@ export function actionPrompt(): string {
     `你可以在需要时动手改版面：在正文之后另起一行，一行一个动作。格式是 \`${ACTION_PREFIX} {"type":"…",…}\`，可用的三种：`,
     `- \`${ACTION_PREFIX} {"type":"addCard","moduleId":"todo","variant":"可选"}\` —— 把一张卡摆上版面；`,
     `- \`${ACTION_PREFIX} {"type":"todo.add","text":"…"}\` —— 往待办里加一条；`,
-    `- \`${ACTION_PREFIX} {"type":"ledger.add","cents":1234,"category":"餐饮","note":"可选"}\` —— 记一笔账（金额用整数分：12.34 元 = 1234）。`,
+    `- \`${ACTION_PREFIX} {"type":"ledger.add","cents":1234,"category":"餐饮","note":"可选"}\` —— 记一笔账（金额用整数分：12.34 元 = 1234）；`,
+    `- \`${ACTION_PREFIX} {"type":"sticky.append","text":"…"}\` —— 往便签里追加一段（不覆盖原有内容）；`,
+    // 示例值要和 E2E 夹具的词条错开：这段字**整体进 system 块**，而 chat-dock 的
+    // 「@第二张卡」用例钉着系统块里不许出现第一张卡的内容（'发版' / '团建餐' / '跑步'）。
+    // 实测逃逸样本：v1.1 初版这里写了 "label":"发版" ⇒ 那条断言当场红（整跑 11 分钟才看见）。
+    `- \`${ACTION_PREFIX} {"type":"countdown.set","label":"纪念日","date":"2026-12-01"}\` —— 设一张倒数日（名字 + 日期）；`,
+    `- \`${ACTION_PREFIX} {"type":"habit.check"}\` —— 给习惯卡打上今天的卡。`,
     `一次最多 ${ACTION_MAX_PER_REPLY} 个。动作只是提议 —— 用户点「照做」才会生效，所以正文里照常把你要做的事说清楚；不需要动手就不要写动作行。`,
     `常用卡 id：${CURATED_IDS.join(' / ')}（其它卡也能摆，摆不上会说明）。`,
   ].join('\n')
