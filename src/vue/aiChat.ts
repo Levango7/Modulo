@@ -28,6 +28,7 @@ import type {
   StoredBirthday,
   Todo,
 } from './cardDataTypes'
+import { actionPrompt, stripActionLines, type AiAction } from './aiActions'
 import { countdownOf, elapsedOf, habitOf, ledgerEntriesOf, matrixOf, notesOf, stickyOf, todosOf } from './instanceData'
 // 单向依赖：knowledge 只从这边拿**类型**（`import type`，运行时擦除），这边从这里拿一个常量。
 // 反过来 import 会成环 —— 别把 `docExcerpt` 挪进来。
@@ -50,6 +51,17 @@ export interface ChatTurn {
   error: string | null
   /** 一次性摘要结果（三期）：不写历史、刷新即消失，界面据此标「不保存」 */
   summary?: boolean
+  /**
+   * 「AI 动手」（第十二笔）：这次回复里**提议**的动作。只在活会话里有 —— 提议状态
+   * 不落盘（历史里只有剥掉动作行的人话正文，见 `turnsFromHistory`）。
+   */
+  actions?: AiAction[]
+  /** 看不懂 / 不合法 / 超量的动作行（人话说明，界面必须显示，不许静默丢） */
+  badActions?: string[]
+  /** 提议状态：等点头 / 已照做 / 已忽略 */
+  actionsState?: 'pending' | 'done' | 'dismissed'
+  /** 「已照做」那行的说明（含"做了一半"的实况） */
+  actionsNote?: string
 }
 
 /** Rust `AiChunk`（camelCase，`error` 为 null 表示正常帧） */
@@ -534,7 +546,10 @@ export function buildMessages(
 ): OutgoingMsg[] {
   const history = outgoingFromTurns(turns)
   const block = contextBlock(chips, excerptOf)
-  return block ? [{ role: 'system', content: block }, ...history] : history
+  // 能力说明（第十二笔「AI 动手」）：**每次都带** —— 模型得一直知道"可以动手"，
+  // 不然只有引用了卡片那几轮才想得起来摆卡。仍只有一条 system（块与说明拼在一起）。
+  const sys = [block, actionPrompt()].filter((s): s is string => !!s).join('\n\n')
+  return [{ role: 'system', content: sys }, ...history]
 }
 
 /** 历史详情 → 气泡。只认 user/assistant：system 是拼给模型的，不该出现在界面里 */
@@ -543,7 +558,11 @@ export function turnsFromHistory(messages: readonly HistoryMsg[]): ChatTurn[] {
   for (const m of messages) {
     if (m.role !== 'user' && m.role !== 'assistant') continue
     if (!m.content.trim()) continue
-    out.push({ role: m.role, content: m.content, status: 'done', error: null })
+    // 助手那半把动作行剥掉（第十二笔）：Rust 单点落盘的是**原文**（含 @@act 行），
+    // 回填只给人看人话 —— 提议状态不落盘，历史里也不该露出裸 JSON。
+    const content = m.role === 'assistant' ? stripActionLines(m.content) : m.content
+    if (!content.trim()) continue
+    out.push({ role: m.role, content, status: 'done', error: null })
   }
   return out
 }
