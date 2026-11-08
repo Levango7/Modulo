@@ -35,7 +35,7 @@ export const SETTINGS_GROUPS: readonly SettingsGroup[] = [
   // AI 模型服务（F-12 一期，2026-10-29）。放在「关于」前面：它不是一个日常开关，
   // 是"配一次、之后由会议摘要默默用"的东西。**桌面才有** —— 网页版没有 Rust 出口，
   // 也没有凭据库，留一个填了地址却发不出请求的表单比不显示更糟（同「桌面」组的理由）。
-  { id: 'lab', title: '实验室', hint: 'AI 模型服务（接入你自己的 Key）', desktopOnly: true },
+  { id: 'lab', title: '实验室', hint: 'AI 模型服务与 MCP 工具', desktopOnly: true },
   { id: 'about', title: '关于', hint: '版本、检查更新、重新播放首启引导' },
 ]
 

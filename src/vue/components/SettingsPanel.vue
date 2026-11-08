@@ -14,6 +14,7 @@ import BackupSection from './BackupSection.vue'
 import SyncSection from './SyncSection.vue'
 import SchemesSection from './SchemesSection.vue'
 import AiLabSection from './AiLabSection.vue'
+import McpSection from './McpSection.vue'
 import VersionSection from './VersionSection.vue'
 import type { AppearanceApi } from '../useAppearance'
 import type { RemindersApi } from '../useReminders'
@@ -272,6 +273,7 @@ onBeforeUnmount(stopRecord)
 
           <template v-else-if="active === 'lab' && isDesktop">
             <AiLabSection />
+            <McpSection />
           </template>
 
           <template v-else-if="active === 'about'">

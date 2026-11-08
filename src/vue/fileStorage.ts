@@ -8,6 +8,7 @@ import { MIGRATE_BACKUP_KEY } from './migrate'
 import { AI_DOC_KEY } from './aiSettings'
 import { KNOWLEDGE_DOC_KEY } from './knowledge'
 import { CRON_DOC_KEY } from './cron'
+import { MCP_DOC_KEY } from './mcp'
 
 /**
  * 桌面壳的数据落盘。
@@ -76,6 +77,10 @@ export const DATA_KEYS: readonly string[] = [
   // 与资料同一条纪律：漏登记的症状是"建了任务、重启就没了"。
   // 不进备份/同步（显式清单）：定时任务绑定这台机器的模型服务与作息，见 §12.67。
   CRON_DOC_KEY,
+  // 「MCP 服务」（PR-F4a）：登记的本机 server 配置（名字 / 命令 / argv / 启停）。
+  // 同一条纪律：漏登记的症状是"配好了、重启就没了"。
+  // 不进备份/同步（显式清单）：命令与参数绑定这台机器装了什么，搬走多半跑不起来。
+  MCP_DOC_KEY,
 ]
 
 
