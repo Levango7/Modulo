@@ -91,6 +91,8 @@ interface Seed {
   desktop?: boolean
   /** 宽屏（1600）：左栏常驻的档位（≥1480）。PR-F1 的「资料」节只在栏里，窄窗看不见它 */
   wide?: boolean
+  /** 预置定时任务（PR-F2）：原样写进 `modulo.__stubdoc.modulo.cron.v1`（tasks + runs） */
+  cron?: { tasks: unknown[]; runs?: unknown[] }
 }
 
 /** 开一张桌面形态的页面。`ai: false` = 没配任何模型服务（空态那条路） */
@@ -103,7 +105,7 @@ async function open(seed: Seed = {}, errs?: string[]): Promise<Page> {
   const card = seed.twins ? { ...CARD, ...TWIN_CARD } : CARD
   const desktop = seed.desktop !== false
   await page.evaluateOnNewDocument(
-    (src: string, docJson: string, cardJson: string, aiJson: string | null, histJson: string | null, hang: boolean, reply: string | null, installStub: boolean) => {
+    (src: string, docJson: string, cardJson: string, aiJson: string | null, histJson: string | null, hang: boolean, reply: string | null, cronJson: string | null, installStub: boolean) => {
       if (installStub) new Function(src)()
       localStorage.setItem('modulo.layout.v1', docJson)
       localStorage.setItem('modulo.__stubdoc.modulo.carddata.v1', cardJson)
@@ -112,6 +114,12 @@ async function open(seed: Seed = {}, errs?: string[]): Promise<Page> {
       if (histJson) localStorage.setItem('modulo.__stubai.hist', histJson)
       if (hang) (window as unknown as { __STUB_AI_HANG__: boolean }).__STUB_AI_HANG__ = true
       if (reply) (window as unknown as { __STUB_AI_REPLY__: string }).__STUB_AI_REPLY__ = reply
+      // 定时任务（PR-F2）：与卡片数据同一条 stub 存储通道（modulo.__stubdoc.<key>）。
+      // **守卫必须加**：evaluateOnNewDocument 每次导航都跑，不设防的话 reload 会在
+      // 应用落盘之前用种子覆盖刚写下的状态（F-01 阶段 2 那笔踩过同一条）
+      if (cronJson && localStorage.getItem('modulo.__stubdoc.modulo.cron.v1') === null) {
+        localStorage.setItem('modulo.__stubdoc.modulo.cron.v1', cronJson)
+      }
     },
     STUB_SOURCE,
     JSON.stringify(doc),
@@ -120,6 +128,7 @@ async function open(seed: Seed = {}, errs?: string[]): Promise<Page> {
     seed.history ? JSON.stringify(seed.history) : null,
     seed.hang === true,
     seed.reply ?? null,
+    seed.cron ? JSON.stringify({ schemaVersion: 1, tasks: seed.cron.tasks, runs: seed.cron.runs ?? [] }) : null,
     desktop,
   )
   await page.goto(url, { waitUntil: 'networkidle2', timeout: 30000 })
@@ -649,4 +658,54 @@ describe.skipIf(skip)('聊天任脊柱（E1）', () => {
     await page.waitForFunction(() => !document.querySelector('[data-doc]'), { timeout: 5000 })
     expect(errs, `页面不该有报错：${errs.join(' | ')}`).toEqual([])
   })
+
+  it('定时任务（PR-F2）：到点真的跑；错过如实记；停用落盘', async () => {
+    const errs: string[] = []
+    // 任务时间 = 现在 +1 分钟：对表节奏是 60s，任意一分钟里必有一次 tick 与它相等
+    const plus1 = new Date(Date.now() + 60_000)
+    const hm = `${String(plus1.getHours()).padStart(2, '0')}:${String(plus1.getMinutes()).padStart(2, '0')}`
+    const page = await open(
+      {
+        wide: true,
+        cron: {
+          tasks: [
+            { id: 'c1', prompt: '把今天的要点写成一句话', time: hm, providerId: 'p1', enabled: true, createdAt: 0 },
+            // 早已过点且今天没跑过 ⇒ 第一次对表就该记「错过」，不用等
+            { id: 'c2', prompt: '早就过了的点', time: '00:01', providerId: 'p1', enabled: true, createdAt: 0 },
+          ],
+          runs: [],
+        },
+      },
+      errs,
+    )
+
+    // 错过语义先到（同步路径，不等分钟翻转）
+    await page.waitForFunction(
+      () => document.querySelector('[data-cron-status="c2"]')?.textContent?.includes('错过') ?? false,
+      { timeout: 15000, polling: 1000 },
+    )
+    // 到点执行：跑完的判据是 done 帧（不是 invoke 返回）
+    await page.waitForFunction(
+      () => document.querySelector('[data-cron-status="c1"]')?.textContent?.includes('跑完') ?? false,
+      { timeout: 110_000, polling: 2000 },
+    )
+    const chat = (await calls(page)).filter((c) => c.cmd === 'ai_chat')
+    const sent = chat.find((c) => (c.args.messages as { content: string }[] | undefined)?.[0]?.content === '把今天的要点写成一句话')
+    expect(sent, '到点真的按任务的提示词发了 ai_chat').toBeTruthy()
+
+    // 展开行看到的是那次对话的结果原文（不是另一种全文的样子）
+    await click(page, '[data-cron-task="c1"]')
+    await page.waitForSelector('[data-cron-run-preview]', { timeout: 5000 })
+    expect(await text(page, '[data-cron-run-preview]')).toContain('桩回复')
+
+    // 停用 + 运行记录都落盘：reload 后还在（漏登记 DATA_KEYS 的症状就是"重启就没了"）
+    await click(page, '[data-cron-toggle="c1"]')
+    await new Promise((r) => setTimeout(r, 300))
+    await page.reload({ waitUntil: 'networkidle2' })
+    await page.waitForSelector('[data-cron-status="c1"]', { timeout: 15000 })
+    expect(await text(page, '[data-cron-status="c1"]'), '运行记录落盘了').toContain('跑完')
+    const off = await page.$eval('[data-cron-task="c1"]', (el) => el.closest('.doc-line')?.classList.contains('off') ?? false)
+    expect(off, '停用状态落盘了').toBe(true)
+    expect(errs, `页面不该有报错：${errs.join(' | ')}`).toEqual([])
+  }, 150_000)
 })
