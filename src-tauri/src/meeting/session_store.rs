@@ -23,7 +23,9 @@ pub struct Segment {
     pub start_ms: u64,
     pub end_ms: u64,
     pub text: String,
-    /// diarization 回填后的说话人 id。**D-14：本批恒为 null**（无校验源不落地）
+    /// diarization 回填后的说话人 id（`spk{n}`，显示名在 `speaker_names`）。
+    /// 2026-11-09 D-14 接线前恒为 null；接线后由后台 diarize 原子重写回填，
+    /// 缺件 / 失败的场仍然 null（降级不阻塞转写）。
     pub speaker: Option<String>,
 }
 

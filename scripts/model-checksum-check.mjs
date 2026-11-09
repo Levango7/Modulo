@@ -192,8 +192,8 @@ for (const a of artifacts) {
   )
 }
 ok(
-  '下载清单仍是三件（首次运行体积没被未接线的制品顶大）',
-  /pub fn all\(\) -> \[ModelSpec; 3\]/.test(modelsRs),
+  '下载清单是五件（D-14b 接线后两件说话人制品在内；件数变了就要重测下载量并回写文档的体积红线）',
+  /pub fn all\(\) -> \[ModelSpec; 5\]/.test(modelsRs),
   'all() 的件数变了就要重测下载量并回写文档的体积红线',
 )
 ok('分级有运行消费者：报错文案带得出基线出处', lineHas(asrRs, 'spec.trust.label()'))

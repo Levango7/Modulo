@@ -18,8 +18,11 @@ import {
   formatMeetingWhen,
   groupMeetings,
   MEETING_LIST_CAP,
+  mergeSpeakers,
   wordCountOf,
+  type DiarizedSegment,
   type MeetingItem,
+  type MeetingSegment,
   type MeetingTranscript,
 } from '../../src/vue/meetings'
 
@@ -165,5 +168,41 @@ describe('wordCountOf', () => {
       segments: [{ startMs: 0, endMs: 1, text: '   \n\t ', speaker: null }],
     }
     expect(wordCountOf(blank)).toBe(0)
+  })
+})
+
+describe('mergeSpeakers', () => {
+  /** 造一段无 speaker 的转写句（`meeting_get` 刚落盘时的形状） */
+  const seg = (startMs: number, endMs: number, text: string): MeetingSegment => ({ startMs, endMs, text, speaker: null })
+  /** 事件里的一句：只有坐标 + speaker key（无 text，前端无权造正文） */
+  const dseg = (startMs: number, endMs: number, speaker: string | null): DiarizedSegment => ({ startMs, endMs, speaker })
+
+  it('按 (startMs, endMs) 双键对齐补 speaker，对不上的段原样保留', () => {
+    const src = [seg(0, 2100, '今天讨论发布计划'), seg(2100, 4300, '先过一遍门禁清单'), seg(5000, 6000, '无人认领这句')]
+    const out = mergeSpeakers(src, [dseg(0, 2100, 'spk1'), dseg(2100, 4300, 'spk2')])
+    expect(out.map((s) => s.speaker)).toEqual(['spk1', 'spk2', null])
+    // 正文一个字节都没动
+    expect(out.map((s) => s.text)).toEqual(['今天讨论发布计划', '先过一遍门禁清单', '无人认领这句'])
+  })
+
+  it('双键射程：startMs 同而 endMs 不同不算对上（防错配到邻句）', () => {
+    const src = [seg(0, 2100, '甲'), seg(2100, 4300, '乙')]
+    // 事件里 endMs 整体错位 1ms —— 若只比 startMs 会把乙的 speaker 安到甲头上
+    const out = mergeSpeakers(src, [dseg(0, 2101, 'spk1'), dseg(2101, 4300, 'spk2')])
+    expect(out.map((s) => s.speaker)).toEqual([null, null])
+  })
+
+  it('事件空 / 无一对上 / speaker 全 null：原数组引用不变（响应式值不该空转重渲染）', () => {
+    const src = [seg(0, 2100, '甲')]
+    expect(mergeSpeakers(src, [])).toBe(src)
+    expect(mergeSpeakers(src, [dseg(9, 9, 'spk1')])).toBe(src)
+    expect(mergeSpeakers(src, [dseg(0, 2100, null)])).toBe(src)
+  })
+
+  it('已对齐的段再次合并同一事件：产物相等且仍是新数组（幂等重放不叠加）', () => {
+    const src = [seg(0, 2100, '甲')]
+    const once = mergeSpeakers(src, [dseg(0, 2100, 'spk1')])
+    const twice = mergeSpeakers(once, [dseg(0, 2100, 'spk1')])
+    expect(twice[0].speaker).toBe('spk1')
   })
 })

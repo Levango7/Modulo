@@ -12,6 +12,11 @@
  * `HTMLAnchorElement.prototype.click`（记 `download` 文件名），把「本该落盘的文本与
  * 文件名」读回来断言。不截这两个口子，导出在 headless 里就是哑的。
  *
+ * 说话人徽标（2026-11-09，D-14b/c/d）：`meeting_diarized` 是 Rust 后台 diarize 完才 emit
+ * 的事件，桩里由用例直接走 `plugin:event|emit` 发（同 floats-changed 的广播口）；
+ * 徽标渲染的判据（映射 / 旧形状降级 / 错场不领 / error 人话串）在这条 spec 里钉住，
+ * 对齐纯函数 `mergeSpeakers` 的判定在 tests/vue/meetings.test.ts。
+ *
  * 这条链路卡在纯单测做不了的地方：MinutesHistory / MinutesDetail 是真组件，
  * 分组渲染、两步删除、drill-down 替换都长在 DOM 上；引擎侧的纯判定（日界/截断/字数）
  * 已由 tests/vue/meetings.test.ts 钉死，这里不重复。
@@ -87,8 +92,8 @@ async function freshPage(): Promise<Page> {
         ],
       },
       m2: {
-        id: 'm2', createdAt: t2, durationMs: 61_000, speakerNames: {}, summary: '要点：改到周四',
-        segments: [{ startMs: 0, endMs: 1500, text: '改天再开', speaker: null }],
+        id: 'm2', createdAt: t2, durationMs: 61_000, speakerNames: { spk1: '说话人 1' }, summary: '要点：改到周四',
+        segments: [{ startMs: 0, endMs: 1500, text: '改天再开', speaker: 'spk1' }],
       },
     }
   }, STUB_SOURCE, JSON.stringify(DOC))
@@ -318,5 +323,106 @@ describe.skipIf(skip)('会议速记历史：前端整链（Tauri 桩）', () => 
     expect(await page.evaluate(() => document.querySelectorAll('.mdetail').length), '导出后仍在详情').toBe(1)
     const gets = (await calls(page)).filter((c) => c.cmd === 'meeting_get')
     expect(gets, '导出不重取：只有进详情那一次 meeting_get').toHaveLength(1)
+  })
+
+  it('说话人徽标：落盘已回填的场按 speakerNames 映射渲染，旧形状（无 speaker）降级不摆', async () => {
+    const page = await freshPage()
+    // m2 的桩从进场就带 speaker + speakerNames（D-14 回填后的落盘形状）
+    await page.evaluate(() => {
+      const el = [...document.querySelectorAll<HTMLElement>('.mhist .mi')].find((e) =>
+        e.textContent!.includes('昨天休会待补'),
+      )
+      el!.click()
+    })
+    await wait(400)
+    expect(
+      await page.evaluate(() => [...document.querySelectorAll('.mdetail .log li .spk')].map((e) => e.textContent!.trim())),
+      '徽标文案走 speakerNames 映射，不是裸 key',
+    ).toEqual(['说话人 1'])
+
+    // 旧形状降级：m1 的段没有 speaker（接线前落盘的老文件），徽标一个都不该摆
+    await page.evaluate(() => (document.querySelector('.mdetail .back') as HTMLElement).click())
+    await wait(300)
+    await page.evaluate(() => {
+      const el = [...document.querySelectorAll<HTMLElement>('.mhist .mi')].find((e) =>
+        e.textContent!.includes('今天讨论发布计划'),
+      )
+      el!.click()
+    })
+    await wait(400)
+    expect(await page.evaluate(() => document.querySelectorAll('.mdetail .log li .spk').length), '旧落盘文件无徽标').toBe(0)
+  })
+
+  /** 桩侧广播口：同 floats-changed 那条 `plugin:event|emit`，用例直接发 `meeting_diarized`。 */
+  const emitDiarized = (page: Page, payload: unknown) =>
+    page.evaluate(
+      (p) =>
+        (window as unknown as { __TAURI_INTERNALS__: { invoke: (c: string, a: unknown) => Promise<void> } }).__TAURI_INTERNALS__.invoke(
+          'plugin:event|emit',
+          { event: 'meeting_diarized', payload: p },
+        ),
+      payload,
+    )
+
+  it('meeting_diarized 事件：按 sessionId 原地回填徽标；错场的事件不领', async () => {
+    const page = await freshPage()
+    await page.evaluate(() => {
+      const el = [...document.querySelectorAll<HTMLElement>('.mhist .mi')].find((e) =>
+        e.textContent!.includes('今天讨论发布计划'),
+      )
+      el!.click()
+    })
+    await wait(400)
+
+    // 错场先至：sessionId 对不上，徽标一个不出（监听的第一道门）
+    await emitDiarized(page, {
+      sessionId: 'm999',
+      speakerNames: { spk1: '说话人 1' },
+      segments: [{ startMs: 0, endMs: 2100, speaker: 'spk1' }],
+      error: null,
+    })
+    await wait(300)
+    expect(await page.evaluate(() => document.querySelectorAll('.mdetail .log li .spk').length), '错场不领').toBe(0)
+
+    // 本场事件：坐标与 m1 转写同源，徽标原地出现、正文不动（事件里没有 text，前端不造正文）
+    await emitDiarized(page, {
+      sessionId: 'm1',
+      speakerNames: { spk1: '说话人 1', spk2: '说话人 2' },
+      segments: [
+        { startMs: 0, endMs: 2100, speaker: 'spk1' },
+        { startMs: 2100, endMs: 4300, speaker: 'spk2' },
+      ],
+      error: null,
+    })
+    await wait(300)
+    expect(
+      await page.evaluate(() => [...document.querySelectorAll('.mdetail .log li .spk')].map((e) => e.textContent!.trim())),
+      '按出现顺序映射成标签',
+    ).toEqual(['说话人 1', '说话人 2'])
+    expect(
+      await page.evaluate(() => [...document.querySelectorAll('.mdetail .log li .tx')].map((e) => e.textContent!.trim())),
+      '正文一个字节都没动',
+    ).toEqual(['今天讨论发布计划', '先过一遍门禁清单'])
+  })
+
+  it('事件带 error 人话串：降级如实摆出，正文与徽标都不动', async () => {
+    const page = await freshPage()
+    await page.evaluate(() => {
+      const el = [...document.querySelectorAll<HTMLElement>('.mhist .mi')].find((e) =>
+        e.textContent!.includes('今天讨论发布计划'),
+      )
+      el!.click()
+    })
+    await wait(400)
+
+    const msg = '说话人分离引擎初始化失败（模型文件可能坏了），这场先不标说话人'
+    await emitDiarized(page, { sessionId: 'm1', speakerNames: {}, segments: [], error: msg })
+    await wait(300)
+    expect(
+      await page.evaluate(() => document.querySelector('.mdetail .hint[data-tone="warn"]')!.textContent!),
+      '人话串原样摆出',
+    ).toBe(msg)
+    expect(await page.evaluate(() => document.querySelectorAll('.mdetail .log li .spk').length), '降级不摆徽标').toBe(0)
+    expect(await page.evaluate(() => document.querySelectorAll('.mdetail .log li .tx').length), '正文不受影响').toBe(2)
   })
 })
