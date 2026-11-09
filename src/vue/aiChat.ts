@@ -34,6 +34,10 @@ import { countdownOf, elapsedOf, habitOf, ledgerEntriesOf, matrixOf, notesOf, st
 // 单向依赖：knowledge 只从这边拿**类型**（`import type`，运行时擦除），这边从这里拿一个常量。
 // 反过来 import 会成环 —— 别把 `docExcerpt` 挪进来。
 import { KNOWLEDGE_EXCERPT_MAX } from './knowledge'
+// 技能（PR-F3）：**同向的第二条**。skills 也只从这边拿 `CardChoice` 类型（运行时擦除），
+// 这边从它拿一个上限常量（权限行显示用）。两处薄壳 `skillChoices` / `excerptWithSkills`
+// 都定义在 `skills.ts`，别挪进来 —— 挪进来就是 `aiChat ↔ skills` 成环。
+import { SKILL_TEXT_MAX } from './skills'
 
 export type ChatRole = 'user' | 'assistant'
 
@@ -330,19 +334,27 @@ export function contextUsage(
 }
 
 /**
- * 控件行那句「本次可读 …」（E2 起；PR-F1 扩了资料那一档）。
+ * 控件行那句「本次可读 …」（E2 起；PR-F1 扩了资料那一档；PR-F3 扩了技能第三档）。
  *
- * 两个上限不同源：卡片摘录每张 ≤`EXCERPT_MAX`，资料每份 ≤`KNOWLEDGE_EXCERPT_MAX`；
- * 整块 2000 字的总预算是两者共用的（`contextBlock`）。只有卡片时**逐字保持** E2 的
- * 旧文案（E2E 钉着它），带了资料才把两档都写出来 —— 不写清楚，用户会以为资料也按
- * 400 字喂给模型。
+ * 三个上限不同源：卡片摘录每张 ≤`EXCERPT_MAX`、资料每份 ≤`KNOWLEDGE_EXCERPT_MAX`、
+ * 技能每条 ≤`SKILL_TEXT_MAX`；整块 2000 字的总预算三者共用（`contextBlock`）。
+ * 只有卡片时**逐字保持** E2 的旧文案（E2E 钉着它）；**两参调用逐字保持 F1 的
+ * 两档文案**（`aiChat.test.ts` 钉着）—— 只有真的带了技能（`skills > 0`）才追加第三档。
+ * 不写清楚，用户会以为资料 / 技能也按 400 字喂给模型。
  */
-export function permNote(cards: number, docs: number): string | null {
-  if (!cards && !docs) return null
-  const head = [cards ? `${cards} 张卡` : '', docs ? `${docs} 份资料` : ''].filter(Boolean).join(' + ')
+export function permNote(cards: number, docs: number, skills: number = 0): string | null {
+  if (!cards && !docs && !skills) return null
+  const head = [
+    cards ? `${cards} 张卡` : '',
+    docs ? `${docs} 份资料` : '',
+    skills ? `${skills} 份技能` : '',
+  ].filter(Boolean).join(' + ')
   // 卡片那支的「张卡的内容」之间**没有空格** —— E2 的文案逐字如此，E2E 钉着它
-  if (!docs) return `本次可读 ${head}的内容（各 ≤${EXCERPT_MAX} 字）`
-  return `本次可读 ${head}的内容（卡片各 ≤${EXCERPT_MAX} 字、资料各 ≤${KNOWLEDGE_EXCERPT_MAX} 字）`
+  if (!docs && !skills) return `本次可读 ${head}的内容（各 ≤${EXCERPT_MAX} 字）`
+  const caps = `卡片各 ≤${EXCERPT_MAX} 字、资料各 ≤${KNOWLEDGE_EXCERPT_MAX} 字`
+  // skills === 0 → 逐字保持 F1 两档；带了技能才把第三档的上限也写出来
+  if (!skills) return `本次可读 ${head}的内容（${caps}）`
+  return `本次可读 ${head}的内容（${caps}、技能各 ≤${SKILL_TEXT_MAX} 字）`
 }
 
 export function contextBlock(
