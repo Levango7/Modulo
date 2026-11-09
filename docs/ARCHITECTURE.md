@@ -5163,7 +5163,10 @@ f32 = 64 KB/s，1 小时会议 ≈ 230 MB 常驻 RSS，而且 `Vec` 几何增长
 **本笔测试与射程**：单测 2309 → **2313 条**（+4 全在 `tests/vue/meetings.test.ts` 15 → 19 条）、
 E2E 129 → **132 条**（+3 全在 `tests/e2e/minutes.spec.ts`）、Rust 单测 125 → **129 条**
 （+4 全在新 `src-tauri/src/meeting/diarize.rs`；本机无链接器，由 CI 首验）、受测层分支覆盖
-**95.86%**。变异自证：把 `mergeSpeakers` 的双键改成单键（`&&` → `||`），「双键射程：startMs
-同而 endMs 不同不算对上」当场红（1 failed | 18 passed），还原后工作树逐字节一致；facts 行新
-认领的数字由 `docs:check` 的逐文件 / 条数 / 体积判据守住（判据自身有
-`tests/scripts/docs-check-claims.test.ts` 32 条变异用例看着）。
+**95.86%**。变异自证三件：① `mergeSpeakers` 双键改单键（`&&` → `||`），「双键射程：startMs
+同而 endMs 不同不算对上」当场红（1 failed | 18 passed）；② `model-checksum-check.mjs` 的
+`all()` 五件判据打回 3，门红（RC=1），还原后工作树净；③ facts 行数字把单测 / E2E 条数改小，
+`docs:check` 当场红（两条变异均已还原）——①②本机实跑，③ facts 判据自身由
+`tests/scripts/docs-check-claims.test.ts` 32 条变异用例看着。中点归属的「中点→起点」变异本机
+不可执行（cargo test 需链接器），其射程由跨段用例的起点 / 中点对照承担（起点 4.0s 归 seg0、
+中点 5.0s 落 seg1，期望 `Some(1)`），CI 的 cargo test 首验。还原后工作树逐字节一致。
