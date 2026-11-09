@@ -197,7 +197,15 @@ jobs:
           New-Item -ItemType Directory -Force -Path $dir | Out-Null
           $file = Join-Path $dir $env:SHERPA_ONNX_ARCHIVE
           $url = "https://github.com/k2-fsa/sherpa-onnx/releases/download/v$env:SHERPA_ONNX_VERSION/$env:SHERPA_ONNX_ARCHIVE"
-          Invoke-WebRequest -Uri $url -OutFile $file
+          # 8MB 的档在这条腿上一度挂了 26 分钟（2026-11-10，第四轮）：Invoke-WebRequest
+          # 的进度条渲染会拖慢大文件，且默认没有超时 —— 连接僵住就一直等到 job 超时。
+          $ProgressPreference = 'SilentlyContinue'
+          $ok = $false
+          for ($i = 1; $i -le 3 -and -not $ok; $i++) {
+            try { Invoke-WebRequest -Uri $url -OutFile $file -TimeoutSec 180; $ok = $true }
+            catch { Write-Warning "第 $i 次下载失败：$($_.Exception.Message)"; Start-Sleep -Seconds 3 }
+          }
+          if (-not $ok) { Write-Error 'sherpa-onnx 归档下载失败（3 次都超时/出错）'; exit 1 }
           $got = (Get-FileHash -Algorithm SHA256 $file).Hash.ToLower()
           if ($got -ne $env:SHERPA_ONNX_ARCHIVE_SHA256) {
             Write-Error "sherpa-onnx 归档 sha256 不匹配（期望 $env:SHERPA_ONNX_ARCHIVE_SHA256，实际 $got）"
@@ -360,7 +368,15 @@ jobs:
           New-Item -ItemType Directory -Force -Path $dir | Out-Null
           $file = Join-Path $dir $env:SHERPA_ONNX_ARCHIVE
           $url = "https://github.com/k2-fsa/sherpa-onnx/releases/download/v$env:SHERPA_ONNX_VERSION/$env:SHERPA_ONNX_ARCHIVE"
-          Invoke-WebRequest -Uri $url -OutFile $file
+          # 8MB 的档在这条腿上一度挂了 26 分钟（2026-11-10，第四轮）：Invoke-WebRequest
+          # 的进度条渲染会拖慢大文件，且默认没有超时 —— 连接僵住就一直等到 job 超时。
+          $ProgressPreference = 'SilentlyContinue'
+          $ok = $false
+          for ($i = 1; $i -le 3 -and -not $ok; $i++) {
+            try { Invoke-WebRequest -Uri $url -OutFile $file -TimeoutSec 180; $ok = $true }
+            catch { Write-Warning "第 $i 次下载失败：$($_.Exception.Message)"; Start-Sleep -Seconds 3 }
+          }
+          if (-not $ok) { Write-Error 'sherpa-onnx 归档下载失败（3 次都超时/出错）'; exit 1 }
           $got = (Get-FileHash -Algorithm SHA256 $file).Hash.ToLower()
           if ($got -ne $env:SHERPA_ONNX_ARCHIVE_SHA256) {
             Write-Error "sherpa-onnx 归档 sha256 不匹配（期望 $env:SHERPA_ONNX_ARCHIVE_SHA256，实际 $got）"
