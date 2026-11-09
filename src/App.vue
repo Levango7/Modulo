@@ -50,6 +50,7 @@ import ChatDock from './vue/components/ChatDock.vue'
 import SessionRail from './vue/components/SessionRail.vue'
 import { createAiSessions } from './vue/useAiSessions'
 import { createKnowledge } from './vue/useKnowledge'
+import { createMemory } from './vue/useMemory'
 import { createCron } from './vue/useCron'
 import { createWorkflow } from './vue/useWorkflow'
 import { AI_DOC_KEY, parseAiDoc } from './vue/aiSettings'
@@ -439,6 +440,12 @@ provide('aiSessions', aiSessions)
  */
 const knowledge = createKnowledge(storage)
 provide('knowledge', knowledge)
+/**
+ * 「AI 记忆」的共享状态（第十五笔）：dock 注入 system 块、设置面板列它删它 —— 两处同一份。
+ * 与资料同一形状（构造时读档、变更落盘）；见 §12.73。
+ */
+const memory = createMemory(storage)
+provide('memory', memory)
 /**
  * 「定时任务」的共享状态（PR-F2）：栏里列它、到点由这里驱动执行。
  * `providers` 读启动时 hydrate 的 ai-settings 镜像（与坞同一份，零 IO）；

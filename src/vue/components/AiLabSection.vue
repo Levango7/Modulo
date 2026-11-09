@@ -16,6 +16,7 @@
 import { computed, inject, ref } from 'vue'
 import { invoke } from '@tauri-apps/api/core'
 import type { StorageAdapter } from '../store'
+import type { MemoryApi } from '../useMemory'
 import {
   AI_DOC_KEY,
   addProvider,
@@ -46,6 +47,21 @@ interface FormState {
 }
 
 const storage = inject<StorageAdapter>('storage')!
+/**
+ * 「AI 记忆」（第十五笔）：清单与坞共用同一份（App provide）。
+ * 删除走两步（第一次只是「待确认」，第二次同一行才真删）—— 与会议记录删除同款手法。
+ */
+const memory = inject<MemoryApi>('memory')!
+const memories = computed(() => memory.entries.value)
+const pendingRemove = ref<string | null>(null)
+function askRemove(id: string): void {
+  if (pendingRemove.value !== id) {
+    pendingRemove.value = id
+    return
+  }
+  memory.remove(id)
+  pendingRemove.value = null
+}
 const providers = ref<AiProvider[]>(parseAiDoc(storage.get(AI_DOC_KEY)))
 /** 探测结果与密钥状态：**不落盘**。它是一次探测的结果，重启后回到「未测试」，不假装记得 */
 const ready = ref<Record<string, boolean>>({})
@@ -275,6 +291,33 @@ const keyLines = computed(() =>
       内网与保留地址（<code>10.x</code>、<code>192.168.x</code>、<code>*.internal</code> 等）一律拒绝 ——
       这条通道会把内容发出去，公司自建的网关得改成公网地址或先做转发。
     </p>
+
+    <div class="mem" data-ai-memory>
+      <h4>
+        记忆
+        <span v-if="memories.length" class="muted small">{{ memories.length }} 条</span>
+      </h4>
+      <p class="hint">
+        你在对话里让 AI 记住的事（说「记住：我偏好四象限」它会先问你要不要记）会常驻在每次对话的背景里；
+        它不是暗箱 —— 这里看得见、删得掉。删除走两步，与会议记录同款。
+      </p>
+      <p v-if="!memories.length" class="muted small" data-ai-memory-empty>
+        还没有记忆。层次分明的偏好比流水账值钱：「我喜欢先看结论」比「今天聊了 A」更像一条记忆。
+      </p>
+      <ul v-else class="mem-list">
+        <li v-for="m in memories" :key="m.id" class="mem-row" data-ai-memory-item>
+          <span class="mem-text">{{ m.text }}</span>
+          <button
+            type="button"
+            :class="['mem-del', pendingRemove === m.id ? 'danger' : '']"
+            :data-ai-memory-del="m.id"
+            @click="askRemove(m.id)"
+          >
+            {{ pendingRemove === m.id ? '确认删除' : '删除' }}
+          </button>
+        </li>
+      </ul>
+    </div>
   </section>
 </template>
 
@@ -400,5 +443,56 @@ button.danger {
   font-size: 11px;
   line-height: 1.7;
   color: var(--text-3);
+}
+/* 「AI 记忆」（第十五笔）：清单 + 两步删除 —— 与会议记录那套删除手法同款 */
+.mem {
+  margin-top: var(--space-3);
+  border-top: 1px solid var(--border-soft);
+  padding-top: var(--space-3);
+}
+.mem h4 {
+  margin: 0 0 4px;
+  font-size: 13px;
+  color: var(--text-1);
+}
+.mem h4 .small {
+  font-weight: 400;
+}
+.mem-list {
+  margin: var(--space-2) 0 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.mem-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: 6px 8px;
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-md);
+}
+.mem-text {
+  flex: 1;
+  font-size: 13px;
+  color: var(--text-1);
+  overflow-wrap: anywhere;
+}
+.mem-del {
+  font: inherit;
+  font-size: 12px;
+  padding: 2px 10px;
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: var(--text-3);
+  cursor: pointer;
+  white-space: nowrap;
+}
+.mem-del.danger {
+  color: var(--c-red);
+  border-color: var(--c-red);
 }
 </style>

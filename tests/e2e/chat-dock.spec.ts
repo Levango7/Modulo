@@ -914,4 +914,37 @@ describe.skipIf(skip)('聊天任脊柱（E1）', () => {
     expect(await exists(page, '[data-ai-act-run]'), '都办完了就不该再有提议').toBe(false)
     expect(errs, `页面不该有报错：${errs.join(' | ')}`).toEqual([])
   }, 90_000)
+
+  it('AI 记忆（第十五笔）：「记住」照做后落盘，且从下一轮起常驻 system 块', async () => {
+    const errs: string[] = []
+    const replies = [
+      '好，我记下。\n@@act {"type":"memory.add","text":"用户偏好四象限"}',
+      '记下了。',
+    ]
+    const page = await open({ replies }, errs)
+    await expand(page)
+    await ask(page, '记住：我偏好四象限')
+    await page.waitForSelector('[data-ai-act-run]', { timeout: 15000 })
+    expect(await text(page, '[data-ai-act]')).toBe('记住：用户偏好四象限')
+    await click(page, '[data-ai-act-run]')
+    await page.waitForSelector('[data-ai-acts-note]', { timeout: 10000 })
+    // 落盘（漏登记 DATA_KEYS 的症状是"记得住、重启就忘"）
+    await page.waitForFunction(
+      () => (localStorage.getItem('modulo.__stubdoc.modulo.memory.v1') ?? '').includes('用户偏好四象限'),
+      { timeout: 10000 },
+    )
+    // v1.2 的自动续轮（第二次请求）里，system 块已经带着这条记忆 —— 两笔天然衔上
+    await page.waitForFunction(
+      () =>
+        [...document.querySelectorAll('[data-role="assistant"]')].some((el) => el.textContent?.includes('记下了')),
+      { timeout: 15000 },
+    )
+    const sent = (await calls(page)).filter((c) => c.cmd === 'ai_chat')
+    expect(sent).toHaveLength(2)
+    const sys2 = (sent[1].args.messages as { role: string; content: string }[])[0]
+    expect(sys2.role).toBe('system')
+    expect(sys2.content, '记忆从下一轮起常驻 system 块').toContain('用户偏好四象限')
+    expect(sys2.content).toContain('不是当前指令')
+    expect(errs, `页面不该有报错：${errs.join(' | ')}`).toEqual([])
+  }, 90_000)
 })

@@ -17,6 +17,8 @@
  * 面、零 Rust 改动，代价是模型可能写坏 —— 所以解析必须宽容、失败必须可见。
  */
 
+import { MEMORY_TEXT_MAX } from './aiMemory'
+
 /** 动作行的前缀（行首；前后允许空白与代码围栏的 `` ` ``） */
 export const ACTION_PREFIX = '@@act'
 /** 一次回复最多认几个动作（超出的不执行、列出来说明） */
@@ -39,6 +41,7 @@ export type AiAction =
   | { type: 'sticky.append'; text: string }
   | { type: 'countdown.set'; label: string; date: string }
   | { type: 'habit.check' }
+  | { type: 'memory.add'; text: string }
 
 export interface ActionContext {
   /** 已装的模块 id（`addCard` 的校验白名单 —— 注册表里没有的卡不许摆） */
@@ -145,6 +148,14 @@ function parseLine(raw: string, ctx: ActionContext): AiAction | { bad: string } 
   if (type === 'habit.check') {
     return { type: 'habit.check' }
   }
+  if (type === 'memory.add') {
+    const text = str(o.text).trim()
+    if (!text) return { bad: '它想记住一件事，但没写要记什么' }
+    if (text.length > MEMORY_TEXT_MAX) {
+      return { bad: `要记的事太长（超过 ${MEMORY_TEXT_MAX} 字）—— 这一条没有执行` }
+    }
+    return { type: 'memory.add', text }
+  }
   return { bad: `它想做「${clip(type || '（没写 type）', 24)}」这件事 —— 这一版还不会` }
 }
 
@@ -201,6 +212,8 @@ export function actionLabel(a: AiAction, titleOf?: (id: string) => string | unde
       return `把倒数日设成「${a.label} · ${a.date}」`
     case 'habit.check':
       return '给习惯卡打上今天的卡'
+    case 'memory.add':
+      return `记住：${a.text}`
   }
 }
 
@@ -297,7 +310,8 @@ export function actionPrompt(): string {
     // 「@第二张卡」用例钉着系统块里不许出现第一张卡的内容（'发版' / '团建餐' / '跑步'）。
     // 实测逃逸样本：v1.1 初版这里写了 "label":"发版" ⇒ 那条断言当场红（整跑 11 分钟才看见）。
     `- \`${ACTION_PREFIX} {"type":"countdown.set","label":"纪念日","date":"2026-12-01"}\` —— 设一张倒数日（名字 + 日期）；`,
-    `- \`${ACTION_PREFIX} {"type":"habit.check"}\` —— 给习惯卡打上今天的卡。`,
+    `- \`${ACTION_PREFIX} {"type":"habit.check"}\` —— 给习惯卡打上今天的卡；`,
+    `- \`${ACTION_PREFIX} {"type":"memory.add","text":"…"}\` —— 记住一件关于用户的事（跨对话有效，用户可在设置里删）。`,
     `一次最多 ${ACTION_MAX_PER_REPLY} 个。动作只是提议 —— 用户点「照做」才会生效，所以正文里照常把你要做的事说清楚；不需要动手就不要写动作行。`,
     `动作执行之后，系统会把结果以一条「${ACTION_RESULT_MARK}」开头的消息发回来 —— 收到它就接着干：还有要做的继续按格式提议（别重复已经做过的），都完成了就用一两句话收尾。`,
     `常用卡 id：${CURATED_IDS.join(' / ')}（其它卡也能摆，摆不上会说明）。`,
