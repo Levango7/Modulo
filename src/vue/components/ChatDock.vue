@@ -55,6 +55,7 @@ import { docChoices, excerptWithDocs } from '../knowledge'
 import type { KnowledgeApi } from '../useKnowledge'
 import { actionLabel, parseActions, runActions } from '../aiActions'
 import { localDay } from '../reminders'
+import { habitOf, stickyOf, writeCountdown, writeHabit, writeSticky } from '../instanceData'
 
 /**
  * `full`：嵌入全高模式（E1 的 chat 视图）。展开面板从"浮在画布上的 45vh 浮层"
@@ -419,7 +420,21 @@ function runActs(i: number): void {
   const r = runActions(t.actions, (a) => {
     if (a.type === 'addCard') store.add(a.moduleId, 0, 0, a.variant)
     else if (a.type === 'todo.add') cardDataApi.addTodo(a.text)
-    else cardDataApi.addLedger(a.date, a.cents, a.category, a.note ?? '')
+    else if (a.type === 'ledger.add') cardDataApi.addLedger(a.date, a.cents, a.category, a.note ?? '')
+    else if (a.type === 'sticky.append') {
+      // 追加不覆盖（v1.1）—— 便签是用户的原文，AI 只往上添，不改写
+      const cur = stickyOf(cardDataApi.state)
+      writeSticky(cardDataApi.state, undefined, undefined, cur ? `${cur}\n${a.text}` : a.text)
+    } else if (a.type === 'countdown.set') {
+      writeCountdown(cardDataApi.state, undefined, undefined, { label: a.label, date: a.date })
+    } else if (a.type === 'habit.check') {
+      // 幂等：今天已打过就不重复加（days 是去重后的日历日清单）
+      const h = habitOf(cardDataApi.state)
+      writeHabit(cardDataApi.state, undefined, undefined, {
+        name: h.name,
+        days: [...new Set([...h.days, localDay(new Date())])].sort(),
+      })
+    }
   })
   const note = r.ok
     ? '做完了 —— Ctrl+Z 可以撤销'

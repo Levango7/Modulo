@@ -825,4 +825,44 @@ describe.skipIf(skip)('聊天任脊柱（E1）', () => {
     expect(await page.evaluate(() => document.querySelectorAll('.cell').length), '「算了」不该写').toBe(after)
     expect(errs, `页面不该有报错：${errs.join(' | ')}`).toEqual([])
   }, 90_000)
+
+  it('AI 动手 v1.1（第十三笔）：便签追加不覆盖 / 倒数日设定 / 习惯打卡（幂等）', async () => {
+    const errs: string[] = []
+    const reply = [
+      '好，都记下了。',
+      '@@act {"type":"sticky.append","text":"还有一件事：周会纪要"}',
+      '@@act {"type":"countdown.set","label":"发版","date":"2026-12-01"}',
+      '@@act {"type":"habit.check"}',
+      '@@act {"type":"habit.check"}',
+    ].join('\n')
+    const page = await open({ reply }, errs)
+    await expand(page)
+    await ask(page, '帮我记几件事')
+    await page.waitForSelector('[data-ai-act-run]', { timeout: 15000 })
+    expect(await text(page, '[data-ai-acts] ul li:nth-child(1)')).toBe('往便签里加一段：还有一件事：周会纪要')
+    expect(await text(page, '[data-ai-acts] ul li:nth-child(2)')).toBe('把倒数日设成「发版 · 2026-12-01」')
+    expect(await text(page, '[data-ai-acts] ul li:nth-child(4)')).toBe('给习惯卡打上今天的卡')
+
+    await click(page, '[data-ai-act-run]')
+    await page.waitForSelector('[data-ai-acts-note]', { timeout: 10000 })
+    const today = new Date()
+    const iso = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`
+    await page.waitForFunction(
+      (day: string) => {
+        const raw = localStorage.getItem('modulo.__stubdoc.modulo.carddata.v1') ?? ''
+        return raw.includes('周会纪要') && raw.includes('2026-12-01') && raw.includes(day)
+      },
+      { timeout: 10000 },
+      iso,
+    )
+    const stored = (await page.evaluate(() =>
+      JSON.parse(localStorage.getItem('modulo.__stubdoc.modulo.carddata.v1') ?? '{}'),
+    )) as { sticky?: string; countdown?: { label?: string; date?: string }; habit?: { days?: string[] } }
+    // 追加不覆盖：原句还在、新句在后（便签是用户的原文，AI 只往上添）
+    expect(stored.sticky).toBe('周五前把周报发给老板\n还有一件事：周会纪要')
+    expect(stored.countdown).toMatchObject({ label: '发版', date: '2026-12-01' })
+    // 幂等：连发两个 habit.check，今天只算一天
+    expect((stored.habit?.days ?? []).filter((d) => d === iso)).toHaveLength(1)
+    expect(errs, `页面不该有报错：${errs.join(' | ')}`).toEqual([])
+  }, 90_000)
 })

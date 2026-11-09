@@ -131,6 +131,32 @@ describe('AI 动作：三条白名单各自的闸门', () => {
   })
 })
 
+describe('AI 动作 v1.1：三个新动作的闸门（便签 / 倒数日 / 习惯）', () => {
+  it('sticky.append：空 / 超长 —— 不执行；合法原样留下（只追加，从设计上不覆盖）', () => {
+    const ok = parseActions(act({ type: 'sticky.append', text: '还有一件事' }), ctx())
+    expect(ok.actions).toEqual([{ type: 'sticky.append', text: '还有一件事' }])
+    expect(parseActions(act({ type: 'sticky.append', text: '  ' }), ctx()).bad[0]).toContain('没写要加什么')
+    const long = parseActions(act({ type: 'sticky.append', text: '字'.repeat(ACTION_TEXT_MAX + 1) }), ctx())
+    expect(long.actions).toEqual([])
+    expect(long.bad[0]).toContain('太长')
+  })
+
+  it('countdown.set：名字与日期都得在；日期写法看不懂不执行', () => {
+    const ok = parseActions(act({ type: 'countdown.set', label: '发版', date: '2026-12-01' }), ctx())
+    expect(ok.actions).toEqual([{ type: 'countdown.set', label: '发版', date: '2026-12-01' }])
+    expect(parseActions(act({ type: 'countdown.set', date: '2026-12-01' }), ctx()).bad[0]).toContain('没写名字')
+    expect(parseActions(act({ type: 'countdown.set', label: '发版', date: '12月1日' }), ctx()).bad[0]).toContain('YYYY-MM-DD')
+    const long = parseActions(act({ type: 'countdown.set', label: '字'.repeat(21), date: '2026-12-01' }), ctx())
+    expect(long.bad[0]).toContain('太长')
+  })
+
+  it('habit.check：无字段也算合法（打今天的卡是执行侧的事）', () => {
+    const r = parseActions(act({ type: 'habit.check' }), ctx())
+    expect(r.actions).toEqual([{ type: 'habit.check' }])
+    expect(r.bad).toEqual([])
+  })
+})
+
 describe('AI 动作：提议怎么执行（首败即停）', () => {
   const acts: AiAction[] = [
     { type: 'todo.add', text: '一条' },
@@ -168,6 +194,10 @@ describe('AI 动作：人话与指令', () => {
       '记一笔：¥12.50 · 餐饮 · 午饭',
     )
     expect(actionLabel({ type: 'ledger.add', cents: 1, category: 'a', date: '2026-11-09' })).toBe('记一笔：¥0.01 · a')
+    // v1.1 的三条
+    expect(actionLabel({ type: 'sticky.append', text: '还有一件事' })).toBe('往便签里加一段：还有一件事')
+    expect(actionLabel({ type: 'countdown.set', label: '发版', date: '2026-12-01' })).toBe('把倒数日设成「发版 · 2026-12-01」')
+    expect(actionLabel({ type: 'habit.check' })).toBe('给习惯卡打上今天的卡')
   })
 
   it('actionPrompt：三种格式、上限数、常用 id 都在，且它自己产出的示例能过解析', () => {
@@ -175,6 +205,9 @@ describe('AI 动作：人话与指令', () => {
     expect(p).toContain('addCard')
     expect(p).toContain('todo.add')
     expect(p).toContain('ledger.add')
+    expect(p).toContain('sticky.append')
+    expect(p).toContain('countdown.set')
+    expect(p).toContain('habit.check')
     expect(p).toContain(`最多 ${ACTION_MAX_PER_REPLY} 个`)
     expect(p).toContain('提议')
     for (const id of ['todo', 'sticky', 'ledger', 'countdown']) expect(p).toContain(id)
@@ -182,5 +215,12 @@ describe('AI 动作：人话与指令', () => {
     const demo = parseActions('看我的。\n' + act({ type: 'ledger.add', cents: 1234, category: '餐饮' }), ctx())
     expect(demo.actions).toHaveLength(1)
     expect(demo.bad).toEqual([])
+  })
+
+  it('actionPrompt 的示例词不与 E2E 夹具撞车（这段字整体进 system 块）', () => {
+    // chat-dock「@第二张卡」那条断言钉着系统块里不许出现第一张卡的内容；
+    // 实测逃逸：v1.1 初版示例写了 "label":"发版" ⇒ 那条用例红。这里把禁用词钉住，秒级反馈。
+    const p = actionPrompt()
+    for (const w of ['发版', '团建餐', '跑步']) expect(p).not.toContain(w)
   })
 })
