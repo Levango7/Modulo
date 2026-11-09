@@ -56,7 +56,7 @@ import { skillChoices, excerptWithSkills } from '../skills'
 import type { KnowledgeApi } from '../useKnowledge'
 import type { MemoryApi } from '../useMemory'
 import type { SkillsApi } from '../useSkills'
-import { actionLabel, actionResultLines, actionResultText, isActionResult, parseActions, runActions } from '../aiActions'
+import { ACTION_READ_MAX, actionLabel, actionResultLines, actionResultText, isActionResult, parseActions, runActions } from '../aiActions'
 import { localDay } from '../reminders'
 import { habitOf, stickyOf, writeCountdown, writeHabit, writeSticky } from '../instanceData'
 
@@ -414,6 +414,21 @@ async function send(): Promise<void> {
 const titleOf = (id: string): string | undefined => store.reg.find((m) => m.id === id)?.title
 
 /**
+ * 读类动作的执行体（第十六笔）：**只取不写**，走与 `@卡片` 同一套读路径。
+ * 无 moduleId = 版面清单（有哪些卡）；有 = 那张卡的摘录（同 `excerptFor` 口径，
+ * 单条封顶 `ACTION_READ_MAX`）。版面上没有那张卡 ⇒ 抛（首败即停会把它写进结果）。
+ */
+function readContext(moduleId?: string): string {
+  const cards = cardChoices(store.doc.value.items, (m) => E.findModule(store.reg, m)?.title ?? m)
+  if (!moduleId) return cards.length ? cards.map((c) => c.label).join('、') : '版面上没有卡'
+  const c = cards.find((x) => x.module === moduleId)
+  if (!c) throw new Error(`版面上没有「${titleOf(moduleId) ?? moduleId}」这张卡`)
+  const text = excerptFor(c, cardDataApi.state).trim()
+  if (!text) return `${c.label}：这张卡里没有可读的文字内容`
+  return text.length > ACTION_READ_MAX ? `${text.slice(0, ACTION_READ_MAX)}…` : text
+}
+
+/**
  * 「AI 动手」（第十二笔）：流正常收尾时把动作行解析出来。剥掉动作行之后的正文才是
  * 给人看的；坏行也要留着 —— 界面说给用户听（与 `aiActions.ts` 的纪律 2 同源）。
  */
@@ -461,9 +476,12 @@ function runActs(i: number): void {
         days: [...new Set([...h.days, localDay(new Date())])].sort(),
       })
     } else if (a.type === 'memory.add') {
-      // 拒收理由（空 / 超长 / 重复 / 条数满）当失败抛出去 —— 首败即停会把原话带进结果
+      // 拒收理由（空 / 超长 / 重复 / 满）当失败抛出 —— 首败即停会把原话带进结果
       const rejected = memory.add(a.text)
       if (rejected.length) throw new Error(rejected.join('；'))
+    } else if (a.type === 'context.read') {
+      // 读类（第十六笔）：只取不写 —— 产出随结果回喂给模型
+      return readContext(a.moduleId)
     }
   })
   const note = r.ok

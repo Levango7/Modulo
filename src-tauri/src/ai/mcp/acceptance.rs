@@ -485,7 +485,7 @@ fn 如实登记_截断按码点而非字素簇() {
 
 #[test]
 fn 如实登记_f4b本层不截断由f4c负责() {
-    // 「折进提示词时截断」归 F4c（见 §12.75「没做的」）；本层只保留全文。
+    // 「折进提示词时截断」归 F4c（见 §12.76「没做的」）；本层只保留全文。
     // 这条契约钉住「不是漏调用」，免得搬运后有人以为要在 parse 里截断。
     let long = "字".repeat(MCP_RESULT_MAX + 100);
     let r = parse_call_tool_result(&json!({"content":[{"type":"text","text": long}]})).unwrap();

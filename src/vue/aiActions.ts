@@ -33,6 +33,8 @@ export const ACTION_NOTE_MAX = 200
 export const ACTION_CENTS_MAX = 1_000_000_000
 /** 倒数日名字上限（v1.1） */
 export const ACTION_LABEL_MAX = 20
+/** 读类动作带回的内容上限（字）—— 回喂文本里每条读只占这么多 */
+export const ACTION_READ_MAX = 200
 
 export type AiAction =
   | { type: 'addCard'; moduleId: string; variant?: string }
@@ -42,6 +44,8 @@ export type AiAction =
   | { type: 'countdown.set'; label: string; date: string }
   | { type: 'habit.check' }
   | { type: 'memory.add'; text: string }
+  // 读类（第十六笔）：**不改任何东西** —— 看一眼版面清单，或某张卡里的内容
+  | { type: 'context.read'; moduleId?: string }
 
 export interface ActionContext {
   /** 已装的模块 id（`addCard` 的校验白名单 —— 注册表里没有的卡不许摆） */
@@ -156,6 +160,13 @@ function parseLine(raw: string, ctx: ActionContext): AiAction | { bad: string } 
     }
     return { type: 'memory.add', text }
   }
+  if (type === 'context.read') {
+    const moduleId = str(o.moduleId).trim()
+    if (moduleId && !ctx.moduleIds.includes(moduleId)) {
+      return { bad: `它想看一张「${clip(moduleId, 24)}」卡的内容，但注册表里没有这张卡` }
+    }
+    return moduleId ? { type: 'context.read', moduleId } : { type: 'context.read' }
+  }
   return { bad: `它想做「${clip(type || '（没写 type）', 24)}」这件事 —— 这一版还不会` }
 }
 
@@ -214,6 +225,8 @@ export function actionLabel(a: AiAction, titleOf?: (id: string) => string | unde
       return '给习惯卡打上今天的卡'
     case 'memory.add':
       return `记住：${a.text}`
+    case 'context.read':
+      return a.moduleId ? `看一眼「${titleOf?.(a.moduleId) || a.moduleId}」卡` : '看一眼版面清单'
   }
 }
 
@@ -223,6 +236,8 @@ export interface RunResult {
   done: number
   /** 第一个失败的原因（人话，直接展示） */
   error?: string
+  /** 每个成功动作的产出（人话；**读类动作靠它把看到的内容带进回喂文本**） */
+  values?: (string | undefined)[]
 }
 
 /**
@@ -243,7 +258,11 @@ export function actionResultLines(
   label: (a: AiAction) => string,
 ): string[] {
   return actions.map((a, i) => {
-    if (i < run.done) return `${label(a)}：成功`
+    if (i < run.done) {
+      // 读类动作把看到的内容带回去；写类动作没有产出，就写「成功」
+      const v = run.values?.[i]
+      return v ? `${label(a)}：${v}` : `${label(a)}：成功`
+    }
     if (i === run.done && !run.ok) return `${label(a)}：失败（${run.error ?? '原因未知'}）`
     return `${label(a)}：没有执行（前一步失败了）`
   })
@@ -268,15 +287,19 @@ export function isActionResult(content: string): boolean {
  * 前一条没落成还往下走，只会留下一串半成品。已执行的不回滚 —— 撤销是用户的事
  * （所有动作都经过既有写入口，Ctrl+Z 撤得掉）。
  */
-export function runActions(actions: readonly AiAction[], apply: (a: AiAction) => void): RunResult {
+export function runActions(
+  actions: readonly AiAction[],
+  apply: (a: AiAction) => string | void | undefined,
+): RunResult {
+  const values: (string | undefined)[] = []
   for (let i = 0; i < actions.length; i++) {
     try {
-      apply(actions[i])
+      values.push(apply(actions[i]) ?? undefined)
     } catch (err) {
-      return { ok: false, done: i, error: String(err) }
+      return { ok: false, done: i, error: String(err), values }
     }
   }
-  return { ok: true, done: actions.length }
+  return { ok: true, done: actions.length, values }
 }
 
 /** 常用卡 id：写进指令的"词汇表"。校验仍按注册表全表来 —— 这个清单只是提示 */
@@ -311,7 +334,8 @@ export function actionPrompt(): string {
     // 实测逃逸样本：v1.1 初版这里写了 "label":"发版" ⇒ 那条断言当场红（整跑 11 分钟才看见）。
     `- \`${ACTION_PREFIX} {"type":"countdown.set","label":"纪念日","date":"2026-12-01"}\` —— 设一张倒数日（名字 + 日期）；`,
     `- \`${ACTION_PREFIX} {"type":"habit.check"}\` —— 给习惯卡打上今天的卡；`,
-    `- \`${ACTION_PREFIX} {"type":"memory.add","text":"…"}\` —— 记住一件关于用户的事（跨对话有效，用户可在设置里删）。`,
+    `- \`${ACTION_PREFIX} {"type":"memory.add","text":"…"}\` —— 记住一件关于用户的事（跨对话有效，用户可在设置里删）；`,
+    `- \`${ACTION_PREFIX} {"type":"context.read"}\` —— 看一眼版面清单（有哪些卡）；\`${ACTION_PREFIX} {"type":"context.read","moduleId":"todo"}\` —— 看一眼某张卡里的内容（**只读**，不会改任何东西；看到的内容会随执行结果回给你）。`,
     `一次最多 ${ACTION_MAX_PER_REPLY} 个。动作只是提议 —— 用户点「照做」才会生效，所以正文里照常把你要做的事说清楚；不需要动手就不要写动作行。`,
     `动作执行之后，系统会把结果以一条「${ACTION_RESULT_MARK}」开头的消息发回来 —— 收到它就接着干：还有要做的继续按格式提议（别重复已经做过的），都完成了就用一两句话收尾。`,
     `常用卡 id：${CURATED_IDS.join(' / ')}（其它卡也能摆，摆不上会说明）。`,

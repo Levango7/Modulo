@@ -1,12 +1,12 @@
 //! MCP stdio 帧编解码 + JSON-RPC 2.0 子集（纯函数，零 IO）。
 //!
-//! 协议事实（2026-11-09 核自官方 spec `2025-06-18`，取舍见 ARCHITECTURE §12.75）：
+//! 协议事实（2026-11-09 核自官方 spec `2025-06-18`，取舍见 ARCHITECTURE §12.76）：
 //! - stdio = **newline-delimited JSON**，消息内 MUST NOT 含 embedded newlines，UTF-8；
 //!   不是 LSP 的 `Content-Length` framing。server stdout 只写协议消息，日志走 stderr。
 //! - `2025-06-18` 版消息是**单条** request / notification / response；
 //!   `2025-03-26` 允许 batch（数组）⇒ 本层明确拒收数组。
 //! - 未知字段交给 `Value` 兜住，不因多字段报错（前向兼容）；但形状错误逐条给独立理由。
-//! - **字段分级**（§12.75 的两条纪律）：必填 / 影响判定的字段严查存在性 + 类型；
+//! - **字段分级**（§12.76 的两条纪律）：必填 / 影响判定的字段严查存在性 + 类型；
 //!   `params` 是 JSON-RPC 保留字段，出现即校验 —— 前向兼容只针对**未知**字段。
 //!
 //! 由单文件拆出（F4b 步骤 B，**行为零改**）：类型 → `types.rs`，视图解析 → `views.rs`。
