@@ -84,6 +84,8 @@ interface Seed {
   history?: unknown[]
   hang?: boolean
   reply?: string
+  /** 回复序列（v1.2）：按 ai_chat 调用次数依次取 —— agent 循环要两轮回复（先提议、收到工具结果后收尾） */
+  replies?: string[]
   /** 版面上再加两张倒数日 + 两张记账（见 `TWIN_ITEMS`） */
   twins?: boolean
   /** `false` = 网页形态：**不装 stub**（不摆 Tauri 内核 ⇒ isDesktop=false），E1 的
@@ -107,7 +109,7 @@ async function open(seed: Seed = {}, errs?: string[]): Promise<Page> {
   const card = seed.twins ? { ...CARD, ...TWIN_CARD } : CARD
   const desktop = seed.desktop !== false
   await page.evaluateOnNewDocument(
-    (src: string, docJson: string, cardJson: string, aiJson: string | null, histJson: string | null, hang: boolean, reply: string | null, cronJson: string | null, installStub: boolean, workflowJson: string | null) => {
+    (src: string, docJson: string, cardJson: string, aiJson: string | null, histJson: string | null, hang: boolean, reply: string | null, cronJson: string | null, installStub: boolean, workflowJson: string | null, repliesJson: string | null) => {
       if (installStub) new Function(src)()
       localStorage.setItem('modulo.layout.v1', docJson)
       localStorage.setItem('modulo.__stubdoc.modulo.carddata.v1', cardJson)
@@ -126,6 +128,8 @@ async function open(seed: Seed = {}, errs?: string[]): Promise<Page> {
       if (workflowJson && localStorage.getItem('modulo.__stubdoc.modulo.workflow.v1') === null) {
         localStorage.setItem('modulo.__stubdoc.modulo.workflow.v1', workflowJson)
       }
+      // 回复序列（v1.2 agent 循环）：每次导航重置 —— 游标跟着页面走，不该跨导航累积
+      if (repliesJson) (window as unknown as { __STUB_AI_REPLIES__: string[] }).__STUB_AI_REPLIES__ = JSON.parse(repliesJson)
     },
     STUB_SOURCE,
     JSON.stringify(doc),
@@ -137,6 +141,7 @@ async function open(seed: Seed = {}, errs?: string[]): Promise<Page> {
     seed.cron ? JSON.stringify({ schemaVersion: 1, tasks: seed.cron.tasks, runs: seed.cron.runs ?? [] }) : null,
     desktop,
     seed.workflow ? JSON.stringify({ schemaVersion: 1, flows: seed.workflow.flows, runs: seed.workflow.runs ?? [] }) : null,
+    seed.replies ? JSON.stringify(seed.replies) : null,
   )
   await page.goto(url, { waitUntil: 'networkidle2', timeout: 30000 })
   // web 形态没有坞（AI 后端不在）⇒ 等左栏出现即可
@@ -780,7 +785,9 @@ describe.skipIf(skip)('聊天任脊柱（E1）', () => {
       '@@act {"type":"todo.add","text":"买牛奶"}',
       '@@act {"type":"canvas.clear"}',
     ].join('\n')
-    const page = await open({ reply }, errs)
+    // v1.2 起「照做」会**自动续一轮**（工具结果回喂）—— 用回复序列让续轮收到一句收尾，
+    // 否则单句桩会把同一批动作再提议一遍（多出一个残留的「算了」，本用例第二阶段会踩）
+    const page = await open({ replies: [reply, '都办好了。'] }, errs)
     await expand(page)
     const before = await page.evaluate(() => document.querySelectorAll('.cell').length)
     await ask(page, '帮我安排一下')
@@ -813,9 +820,12 @@ describe.skipIf(skip)('聊天任脊柱（E1）', () => {
       () => (localStorage.getItem('modulo.__stubdoc.modulo.carddata.v1') ?? '').includes('买牛奶'),
       { timeout: 10000 },
     )
-    // 「算了」那条路：不写任何东西
+    // 「算了」那条路：不写任何东西。
+    // 序列优先于单句 ⇒ 第二阶段要**同时**清掉序列、再设单句回复（否则这句没人读）
     await page.evaluate((r: string) => {
-      ;(window as unknown as { __STUB_AI_REPLY__: string }).__STUB_AI_REPLY__ = r
+      const w = window as unknown as { __STUB_AI_REPLY__: string; __STUB_AI_REPLIES__: string[] | null }
+      w.__STUB_AI_REPLIES__ = null
+      w.__STUB_AI_REPLY__ = r
     }, '@@act {"type":"addCard","moduleId":"clock"}')
     const after = await page.evaluate(() => document.querySelectorAll('.cell').length)
     await ask(page, '再来一张')
@@ -835,7 +845,8 @@ describe.skipIf(skip)('聊天任脊柱（E1）', () => {
       '@@act {"type":"habit.check"}',
       '@@act {"type":"habit.check"}',
     ].join('\n')
-    const page = await open({ reply }, errs)
+    // 同第十二笔：照做后的自动续轮要有单独的收尾句（单句桩会把同一批动作再提议一遍）
+    const page = await open({ replies: [reply, '都记下了，没别的了。'] }, errs)
     await expand(page)
     await ask(page, '帮我记几件事')
     await page.waitForSelector('[data-ai-act-run]', { timeout: 15000 })
@@ -863,6 +874,44 @@ describe.skipIf(skip)('聊天任脊柱（E1）', () => {
     expect(stored.countdown).toMatchObject({ label: '发版', date: '2026-12-01' })
     // 幂等：连发两个 habit.check，今天只算一天
     expect((stored.habit?.days ?? []).filter((d) => d === iso)).toHaveLength(1)
+    expect(errs, `页面不该有报错：${errs.join(' | ')}`).toEqual([])
+  }, 90_000)
+
+  it('AI 动手 v1.2（第十四笔）：agent 循环 —— 照做后结果自动回喂、模型接着收尾（全线可见，无第二个人工动作）', async () => {
+    const errs: string[] = []
+    const replies = [
+      '好，我先摆一张便签。\n@@act {"type":"addCard","moduleId":"sticky"}',
+      '摆好了，都办完了。',
+    ]
+    const page = await open({ replies }, errs)
+    await expand(page)
+    await ask(page, '帮我摆张便签')
+    await page.waitForSelector('[data-ai-act-run]', { timeout: 15000 })
+    await click(page, '[data-ai-act-run]')
+
+    // 自动续轮：工具结果小条出现 + 第二轮的回复渲染出来（中间没有人再点任何东西）
+    await page.waitForSelector('[data-chat-tool-note]', { timeout: 15000 })
+    await page.waitForFunction(
+      () =>
+        [...document.querySelectorAll('[data-role="assistant"]')].some((el) =>
+          el.textContent?.includes('都办完了'),
+        ),
+      { timeout: 15000 },
+    )
+    const sent = (await calls(page)).filter((c) => c.cmd === 'ai_chat')
+    expect(sent, '照做之后自动续了一轮 = 两次模型调用').toHaveLength(2)
+    const last = sent[1].args.messages as { role: string; content: string }[]
+    expect(last.at(-1)?.role, '回喂走的是 user 消息（协议只有三种角色）').toBe('user')
+    expect(last.at(-1)?.content).toContain('（工具结果）')
+    expect(last.at(-1)?.content).toContain('摆一张「便签」卡：成功')
+    // 工具结果不装成用户气泡：用户气泡（.bubble）只有最初那一句
+    const bubbles = await page.evaluate(() =>
+      [...document.querySelectorAll('[data-role="user"] .bubble')].map((el) => (el as HTMLElement).innerText),
+    )
+    expect(bubbles).toHaveLength(1)
+    expect(bubbles[0]).toContain('帮我摆张便签')
+    // 续轮回复里没有新提议 ⇒ 也没有新按钮
+    expect(await exists(page, '[data-ai-act-run]'), '都办完了就不该再有提议').toBe(false)
     expect(errs, `页面不该有报错：${errs.join(' | ')}`).toEqual([])
   }, 90_000)
 })

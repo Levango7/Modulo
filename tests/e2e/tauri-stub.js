@@ -283,7 +283,14 @@
       case 'ai_chat': {
         const ch = args?.onChunk
         const msgs = Array.isArray(args?.messages) ? args.messages : []
-        const reply = String(window.__STUB_AI_REPLY__ ?? '桩回复：收到。')
+        // 回复可以是一句话，也可以是一个**序列**（v1.2 的 agent 循环要两轮回复：先提议、
+        // 收到工具结果后收尾）—— 序列按 ai_chat 的调用次数依次取，取完停在最后一个。
+        const seq = Array.isArray(window.__STUB_AI_REPLIES__) ? window.__STUB_AI_REPLIES__ : null
+        const callN = Number(window.__STUB_AI_CALL_N__ ?? 0)
+        window.__STUB_AI_CALL_N__ = callN + 1
+        const reply = String(
+          (seq ? seq[Math.min(callN, seq.length - 1)] : null) ?? window.__STUB_AI_REPLY__ ?? '桩回复：收到。',
+        )
         const convId = String(args?.conversationId ?? '') || 'conv-stub-' + String(Date.now())
         let idx = 0
         const push = (msg) => {
@@ -451,6 +458,10 @@
   window.__STUB_AI_READY__ = false
   /** AI 对话的回复正文与节奏成对出现：默认两帧推完；HANG = 只推半句、等 cancel */
   window.__STUB_AI_REPLY__ = '桩回复：收到。'
+  /** 回复序列（可选，v1.2）：按 ai_chat 调用次数依次取；不设就用上面那一句 */
+  window.__STUB_AI_REPLIES__ = null
+  /** 本页 ai_chat 已调用次数（序列取值的游标；测试可读） */
+  window.__STUB_AI_CALL_N__ = 0
   window.__STUB_AI_HANG__ = false
   /** 一次性摘要的返回正文（三期）：它与对话回复分开，测试才能区分"走的是哪条命令" */
   window.__STUB_AI_SUMMARY__ = '桩摘要：这三句是要点。'
