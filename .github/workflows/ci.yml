@@ -198,13 +198,39 @@ jobs:
           New-Item -ItemType Directory -Force -Path $dir | Out-Null
           $file = Join-Path $dir $env:SHERPA_ONNX_ARCHIVE
           $url = "https://github.com/k2-fsa/sherpa-onnx/releases/download/v$env:SHERPA_ONNX_VERSION/$env:SHERPA_ONNX_ARCHIVE"
-          # 8MB 的档在这条腿上挂了三轮（2026-11-09，第四/五轮 CI）：Invoke-WebRequest 的
-          # -TimeoutSec 只管「拿到响应头」，服务器接上后 body 不动它就永远等 —— 一次僵死
-          # 吃满 job 的 35 分钟。换 curl.exe：--max-time 管整次传输，--retry 管重连，
-          # 任何一次失败都会响亮地红而不是静默挂死。旗标只用 7.55 时代就有的，不赌版本。
-          curl.exe --location --fail --silent --show-error --retry 5 `
-            --max-time 300 --output $file $url
-          if ($LASTEXITCODE -ne 0) { Write-Error "sherpa-onnx 归档下载失败（curl 退出码 $LASTEXITCODE）"; exit 1 }
+          # 8MB 的档挂了三轮（2026-11-09，第四~六轮 CI）：IWR 僵死 35 分钟一轮，curl 也
+          # 零输出挂满 10 分钟步级超时一轮 —— 不是客户端的问题，是「releases/download →
+          # objects.githubusercontent.com」这条链在 runner 上僵死（同 job rustup 从
+          # win.rustup.rs 下载是好的）。本轮带诊断：逐段标记 + DNS/TCP 探针 + curl -v
+          # 全轨迹 + IPv4 强制 + 60s 短超时；主路径失败再走 GitHub API 回退（仍官方源、
+          # 仍 sha256 钉死）。任何一站失败都会响亮地红并留下轨迹。
+          Write-Host '--- DNS github.com ---'
+          try { (Resolve-DnsName github.com -Type A -ErrorAction Stop | Select-Object -First 3 IPAddress).IPAddress } catch { Write-Host "FAIL: $_" }
+          Write-Host '--- DNS objects.githubusercontent.com ---'
+          try { (Resolve-DnsName objects.githubusercontent.com -Type A -ErrorAction Stop | Select-Object -First 3 IPAddress).IPAddress } catch { Write-Host "FAIL: $_" }
+          foreach ($h in @('github.com', 'objects.githubusercontent.com')) {
+            $t = Test-NetConnection $h -Port 443 -WarningAction SilentlyContinue
+            Write-Host "TCP443 $h = $($t.TcpTestSucceeded)"
+          }
+          Write-Host '--- curl start (primary) ---'
+          $sw = [System.Diagnostics.Stopwatch]::StartNew()
+          $out = curl.exe -4 -v --connect-timeout 15 --location --fail --show-error --retry 3 --max-time 60 --output $file $url 2>&1
+          $code = $LASTEXITCODE
+          $out | ForEach-Object { Write-Host "curl| $_" }
+          Write-Host "curl exit=$code after $([math]::Round($sw.Elapsed.TotalSeconds))s"
+          if ($code -ne 0) {
+            Write-Host '--- fallback: GitHub API + GITHUB_TOKEN ---'
+            try {
+              $rel = Invoke-RestMethod -Uri "https://api.github.com/repos/k2-fsa/sherpa-onnx/releases/tags/v$env:SHERPA_ONNX_VERSION" -Headers @{ Authorization = "token ${{ secrets.GITHUB_TOKEN }}" } -TimeoutSec 30
+              $asset = $rel.assets | Where-Object { $_.name -eq $env:SHERPA_ONNX_ARCHIVE }
+              $out2 = curl.exe -4 -v --connect-timeout 15 --location --fail --show-error --retry 3 --max-time 60 -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" -H 'Accept: application/octet-stream' --output $file $asset.url 2>&1
+              $code2 = $LASTEXITCODE
+              $out2 | ForEach-Object { Write-Host "curl-fallback| $_" }
+              if ($code2 -ne 0) { Write-Error "sherpa-onnx 归档下载失败（主路径退出码 $code、API 回退退出码 $code2）"; exit 1 }
+            } catch {
+              Write-Error "sherpa-onnx 归档下载失败（主路径退出码 $code；API 回退异常：$_）"; exit 1
+            }
+          }
           $got = (Get-FileHash -Algorithm SHA256 $file).Hash.ToLower()
           if ($got -ne $env:SHERPA_ONNX_ARCHIVE_SHA256) {
             Write-Error "sherpa-onnx 归档 sha256 不匹配（期望 $env:SHERPA_ONNX_ARCHIVE_SHA256，实际 $got）"
@@ -368,13 +394,39 @@ jobs:
           New-Item -ItemType Directory -Force -Path $dir | Out-Null
           $file = Join-Path $dir $env:SHERPA_ONNX_ARCHIVE
           $url = "https://github.com/k2-fsa/sherpa-onnx/releases/download/v$env:SHERPA_ONNX_VERSION/$env:SHERPA_ONNX_ARCHIVE"
-          # 8MB 的档在这条腿上挂了三轮（2026-11-09，第四/五轮 CI）：Invoke-WebRequest 的
-          # -TimeoutSec 只管「拿到响应头」，服务器接上后 body 不动它就永远等 —— 一次僵死
-          # 吃满 job 的 35 分钟。换 curl.exe：--max-time 管整次传输，--retry 管重连，
-          # 任何一次失败都会响亮地红而不是静默挂死。旗标只用 7.55 时代就有的，不赌版本。
-          curl.exe --location --fail --silent --show-error --retry 5 `
-            --max-time 300 --output $file $url
-          if ($LASTEXITCODE -ne 0) { Write-Error "sherpa-onnx 归档下载失败（curl 退出码 $LASTEXITCODE）"; exit 1 }
+          # 8MB 的档挂了三轮（2026-11-09，第四~六轮 CI）：IWR 僵死 35 分钟一轮，curl 也
+          # 零输出挂满 10 分钟步级超时一轮 —— 不是客户端的问题，是「releases/download →
+          # objects.githubusercontent.com」这条链在 runner 上僵死（同 job rustup 从
+          # win.rustup.rs 下载是好的）。本轮带诊断：逐段标记 + DNS/TCP 探针 + curl -v
+          # 全轨迹 + IPv4 强制 + 60s 短超时；主路径失败再走 GitHub API 回退（仍官方源、
+          # 仍 sha256 钉死）。任何一站失败都会响亮地红并留下轨迹。
+          Write-Host '--- DNS github.com ---'
+          try { (Resolve-DnsName github.com -Type A -ErrorAction Stop | Select-Object -First 3 IPAddress).IPAddress } catch { Write-Host "FAIL: $_" }
+          Write-Host '--- DNS objects.githubusercontent.com ---'
+          try { (Resolve-DnsName objects.githubusercontent.com -Type A -ErrorAction Stop | Select-Object -First 3 IPAddress).IPAddress } catch { Write-Host "FAIL: $_" }
+          foreach ($h in @('github.com', 'objects.githubusercontent.com')) {
+            $t = Test-NetConnection $h -Port 443 -WarningAction SilentlyContinue
+            Write-Host "TCP443 $h = $($t.TcpTestSucceeded)"
+          }
+          Write-Host '--- curl start (primary) ---'
+          $sw = [System.Diagnostics.Stopwatch]::StartNew()
+          $out = curl.exe -4 -v --connect-timeout 15 --location --fail --show-error --retry 3 --max-time 60 --output $file $url 2>&1
+          $code = $LASTEXITCODE
+          $out | ForEach-Object { Write-Host "curl| $_" }
+          Write-Host "curl exit=$code after $([math]::Round($sw.Elapsed.TotalSeconds))s"
+          if ($code -ne 0) {
+            Write-Host '--- fallback: GitHub API + GITHUB_TOKEN ---'
+            try {
+              $rel = Invoke-RestMethod -Uri "https://api.github.com/repos/k2-fsa/sherpa-onnx/releases/tags/v$env:SHERPA_ONNX_VERSION" -Headers @{ Authorization = "token ${{ secrets.GITHUB_TOKEN }}" } -TimeoutSec 30
+              $asset = $rel.assets | Where-Object { $_.name -eq $env:SHERPA_ONNX_ARCHIVE }
+              $out2 = curl.exe -4 -v --connect-timeout 15 --location --fail --show-error --retry 3 --max-time 60 -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" -H 'Accept: application/octet-stream' --output $file $asset.url 2>&1
+              $code2 = $LASTEXITCODE
+              $out2 | ForEach-Object { Write-Host "curl-fallback| $_" }
+              if ($code2 -ne 0) { Write-Error "sherpa-onnx 归档下载失败（主路径退出码 $code、API 回退退出码 $code2）"; exit 1 }
+            } catch {
+              Write-Error "sherpa-onnx 归档下载失败（主路径退出码 $code；API 回退异常：$_）"; exit 1
+            }
+          }
           $got = (Get-FileHash -Algorithm SHA256 $file).Hash.ToLower()
           if ($got -ne $env:SHERPA_ONNX_ARCHIVE_SHA256) {
             Write-Error "sherpa-onnx 归档 sha256 不匹配（期望 $env:SHERPA_ONNX_ARCHIVE_SHA256，实际 $got）"
