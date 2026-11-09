@@ -53,6 +53,7 @@ import {
 } from '../aiChat'
 import { docChoices, excerptWithDocs } from '../knowledge'
 import type { KnowledgeApi } from '../useKnowledge'
+import type { MemoryApi } from '../useMemory'
 import { actionLabel, actionResultLines, actionResultText, isActionResult, parseActions, runActions } from '../aiActions'
 import { localDay } from '../reminders'
 import { habitOf, stickyOf, writeCountdown, writeHabit, writeSticky } from '../instanceData'
@@ -81,6 +82,8 @@ const turns = ref<ChatTurn[]>([])
 const sessions = inject<AiSessionsApi>('aiSessions')!
 /** 资料（PR-F1）：坞里 `@` 能引用的另一半来源 —— 与左栏「资料」共用同一份（App provide） */
 const knowledge = inject<KnowledgeApi>('knowledge')!
+/** 「AI 记忆」（第十五笔）：每次请求常驻注入 system 块 —— 与设置面板里的清单同一份 */
+const memory = inject<MemoryApi>('memory')!
 const conversationId = sessions.activeId
 /**
  * 栏里点了一条会话 ⇒ 把气泡换成那条的消息（system 不进界面，`turnsFromHistory` 管），
@@ -360,7 +363,7 @@ async function runTurn(text: string, usedChips: CardChoice[], usedFiles: Mounted
   }
 
   try {
-    const messages = buildMessages(turns.value, usedChips, excerptOf)
+    const messages = buildMessages(turns.value, usedChips, excerptOf, memory.entries.value)
     const r = await invoke<{ conversationId: string }>('ai_chat', {
       providerId: providerId.value,
       conversationId: conversationId.value,
@@ -445,6 +448,10 @@ function runActs(i: number): void {
         name: h.name,
         days: [...new Set([...h.days, localDay(new Date())])].sort(),
       })
+    } else if (a.type === 'memory.add') {
+      // 拒收理由（空 / 超长 / 重复 / 条数满）当失败抛出去 —— 首败即停会把原话带进结果
+      const rejected = memory.add(a.text)
+      if (rejected.length) throw new Error(rejected.join('；'))
     }
   })
   const note = r.ok

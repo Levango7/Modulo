@@ -9,6 +9,7 @@ import { AI_DOC_KEY } from './aiSettings'
 import { KNOWLEDGE_DOC_KEY } from './knowledge'
 import { CRON_DOC_KEY } from './cron'
 import { WORKFLOW_DOC_KEY } from './workflow'
+import { MEMORY_DOC_KEY } from './aiMemory'
 
 /**
  * 桌面壳的数据落盘。
@@ -77,10 +78,14 @@ export const DATA_KEYS: readonly string[] = [
   // 与资料同一条纪律：漏登记的症状是"建了任务、重启就没了"。
   // 不进备份/同步（显式清单）：定时任务绑定这台机器的模型服务与作息，见 §12.67。
   CRON_DOC_KEY,
-  // 「工作流」（PR-F3）：流程定义（名字 + 每一步要做的事）+ 最近运行记录，同一格。
+  // 「工作流」（第十一笔）：流程定义（名字 + 每一步要做的事）+ 最近运行记录，同一格。
   // 与定时任务同一条纪律：漏登记的症状是"建了流程、重启就没了"。
-  // 不进备份/同步（显式清单）：工作流绑定这台机器的模型服务，见 §12.68。
+  // 不进备份/同步（显式清单）：工作流绑定这台机器的模型服务，见 §12.69。
   WORKFLOW_DOC_KEY,
+  // 「AI 记忆」（第十五笔）：用户让 agent 记住的事（跨对话生效，常驻注入 system 块）。
+  // 与资料同一条纪律：漏登记的症状是"它记住了、重启就忘了"。
+  // 不进备份/同步（显式清单）：记忆是"这台机器上你跟它的相处记录"，见 §12.73。
+  MEMORY_DOC_KEY,
 ]
 
 

@@ -29,6 +29,7 @@ import type {
   Todo,
 } from './cardDataTypes'
 import { actionPrompt, stripActionLines, type AiAction } from './aiActions'
+import { memoryBlock, type MemoryEntry } from './aiMemory'
 import { countdownOf, elapsedOf, habitOf, ledgerEntriesOf, matrixOf, notesOf, stickyOf, todosOf } from './instanceData'
 // 单向依赖：knowledge 只从这边拿**类型**（`import type`，运行时擦除），这边从这里拿一个常量。
 // 反过来 import 会成环 —— 别把 `docExcerpt` 挪进来。
@@ -545,12 +546,14 @@ export function buildMessages(
   turns: readonly ChatTurn[],
   chips: readonly CardChoice[],
   excerptOf: (c: CardChoice) => string,
+  /** 「AI 记忆」（第十五笔）：常驻注入（预算在 memoryBlock 里封顶）；不给 = 不注入 */
+  memory: readonly MemoryEntry[] = [],
 ): OutgoingMsg[] {
   const history = outgoingFromTurns(turns)
   const block = contextBlock(chips, excerptOf)
   // 能力说明（第十二笔「AI 动手」）：**每次都带** —— 模型得一直知道"可以动手"，
-  // 不然只有引用了卡片那几轮才想得起来摆卡。仍只有一条 system（块与说明拼在一起）。
-  const sys = [block, actionPrompt()].filter((s): s is string => !!s).join('\n\n')
+  // 不然只有引用了卡片那几轮才想得起来摆卡。仍只有一条 system（块 / 记忆 / 说明拼在一起）。
+  const sys = [block, memoryBlock(memory), actionPrompt()].filter((s): s is string => !!s).join('\n\n')
   return [{ role: 'system', content: sys }, ...history]
 }
 

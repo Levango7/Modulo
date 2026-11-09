@@ -291,4 +291,45 @@ describe.skipIf(skip)('首启一屏（2026-11-05 PR-C：三步向导收成一屏
     expect(JSON.parse((await disk(page, 'modulo.onboarding.v1')) ?? '{}')).toMatchObject({ done: false, skipped: true })
     expect(errs, `页面不该有报错：${errs.join(' | ')}`).toEqual([])
   })
+
+  it('实验室里的「记忆」（第十五笔）：列得出来、两步删得掉、盘上也真的没了', async () => {
+    const errs: string[] = []
+    const page = await open({}, errs)
+    // 先种两条记忆再 reload（createMemory 构造时读档；种完刷新正是"上次让 AI 记住的"的样子）
+    await page.evaluate(() =>
+      localStorage.setItem(
+        'modulo.__stubdoc.modulo.memory.v1',
+        JSON.stringify({
+          schemaVersion: 1,
+          entries: [
+            { id: 'm1', text: '用户偏好四象限', at: 1 },
+            { id: 'm2', text: '回答先给结论', at: 2 },
+          ],
+        }),
+      ),
+    )
+    await page.reload({ waitUntil: 'networkidle2' })
+    await openSettings(page)
+    await clickGroup(page, 'lab')
+    await page.waitForSelector('[data-ai-memory-item]', { timeout: 10000 })
+    const items = await page.evaluate(() =>
+      [...document.querySelectorAll('[data-ai-memory-item]')].map((el) => (el as HTMLElement).innerText),
+    )
+    expect(items).toHaveLength(2)
+    expect(items[0]).toContain('用户偏好四象限')
+
+    // 两步删除：第一下只是「待确认」（盘上不动），第二下才真删（盘上也没了）
+    await page.click('[data-ai-memory-del="m1"]')
+    await page.waitForFunction(
+      () => (document.querySelector('[data-ai-memory-del="m1"]')?.textContent ?? '').includes('确认删除'),
+      { timeout: 5000 },
+    )
+    expect((await disk(page, 'modulo.memory.v1')) ?? '', '第一下不写盘').toContain('用户偏好四象限')
+    await page.click('[data-ai-memory-del="m1"]')
+    await page.waitForFunction(() => !document.querySelector('[data-ai-memory-del="m1"]'), { timeout: 5000 })
+    const left = (await disk(page, 'modulo.memory.v1')) ?? ''
+    expect(left).not.toContain('用户偏好四象限')
+    expect(left).toContain('回答先给结论')
+    expect(errs, `页面不该有报错：${errs.join(' | ')}`).toEqual([])
+  })
 })
