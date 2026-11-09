@@ -8,12 +8,22 @@
  *
  * 贴底刻意用 `scrollTop = scrollHeight` 而不是 `scrollIntoView({behavior:'smooth'})`：
  * 平滑滚动是插值动画，不在这张卡的动效范围内；长会里逐句平滑滚会一直糊着。
+ *
+ * **说话人徽标**（D-14）：段上带 `speaker`（key 形态 `spk{n}`）才摆徽标，标签走
+ * `speakerNames` 映射（用户可改名），缺映射退回 key 本身；`speaker` 为空（live 区、
+ * 旧落盘文件、diarize 降级）一律不摆 —— 不给不存在的状态留位置。
  */
 import { nextTick, ref, watch } from 'vue'
 import { Captions } from 'lucide-vue-next'
 import { formatSegmentTime, type Segment } from '../minutesLive'
 
-const props = defineProps<{ segments: Segment[]; active: boolean; idleText?: string }>()
+const props = defineProps<{
+  segments: Segment[]
+  active: boolean
+  idleText?: string
+  /** 说话人 key → 显示名（`spk1` → 「说话人 1」，用户可改）；缺映射时徽标退回 key 本身 */
+  speakerNames?: Record<string, string>
+}>()
 
 const log = ref<HTMLElement | null>(null)
 /** 用户往上翻历史时不抢他的滚动位置；等他滚回贴底再恢复自动贴底（聊天窗的通行做法） */
@@ -45,6 +55,7 @@ watch(
     </li>
     <li v-for="s in segments" :key="s.startMs">
       <span class="at">{{ formatSegmentTime(s.startMs) }}</span>
+      <span v-if="s.speaker" class="spk">{{ props.speakerNames?.[s.speaker] ?? s.speaker }}</span>
       <span class="tx">{{ s.text }}</span>
     </li>
   </ol>
@@ -73,6 +84,16 @@ watch(
   flex: none;
   font-variant-numeric: tabular-nums;
   color: var(--text-2);
+}
+/* 说话人徽标：编号本身已可辨，不靠颜色分人（颜色也不够分）；底只用淡染不用彩条 */
+.spk {
+  flex: none;
+  padding: 0 4px;
+  border-radius: var(--radius-sm);
+  background: var(--bg-card-soft);
+  color: var(--text-2);
+  font-size: clamp(10px, 1.7cqw, 11px);
+  white-space: nowrap;
 }
 .tx {
   min-width: 0;

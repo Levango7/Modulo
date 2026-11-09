@@ -58,11 +58,12 @@ pub fn verify_mismatch(id: &str, expected: &str, actual: &str, trust: &str) -> S
     )
 }
 
-/// 磁盘写不进去。155MB 起步，磁盘满是很现实的失败。
+/// 磁盘写不进去。五件模型实测：下载档合计 265 954 102 B，解压后合计
+/// 359 754 828 B（约 360MB，`F:/tmp/d14-models` 逐文件 `stat` 求和），磁盘满是很现实的失败。
 pub fn humanize_io(msg: &str, ctx: &str) -> String {
     let m = msg.to_lowercase();
     if m.contains("no space") || m.contains("not enough space") || m.contains("disk") {
-        return "磁盘空间不足——模型解压后约 220MB，请清理后再试".into();
+        return "磁盘空间不足——模型解压后约 360MB，请清理后再试".into();
     }
     if m.contains("permission") || m.contains("denied") || m.contains("access") {
         return format!(

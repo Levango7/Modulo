@@ -153,7 +153,7 @@ function toggleOne(id: string, enabled: boolean): void {
         <label class="field grow">
           <span>名字（≤{{ MCP_NAME_MAX }} 字）</span>
           <!-- maxlength 走 HTML 规范的 UTF-16 计数，比闸门的码点更严（40 个 emoji 只能进 20 个）；
-               方向是"更早拦住"而不是"悄悄改写"，闸门仍按码点复核，见 §12.75 -->
+               方向是"更早拦住"而不是"悄悄改写"，闸门仍按码点复核，见 §12.76 -->
           <input v-model="form.draft.name" :maxlength="MCP_NAME_MAX" data-mcp-form-name />
         </label>
         <label class="field grow">

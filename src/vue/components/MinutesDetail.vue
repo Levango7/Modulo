@@ -14,14 +14,21 @@
  * **导出**：详情里 `t` 已经取回来了，导出不再多取一次 —— 直接把现成的转写喂给
  * `meetingExport.ts` 的纯函数算文本与文件名，`downloadText` 落盘。与摘要/删除不同，
  * 它不改 `t` 也不该挡着它们，所以走自己的 `exporting` 忙线而不是共用 `busy`。
+ *
+ * **说话人回填**（D-14）：stop 后 Rust 在后台跑 diarization，跑完原子重写
+ * transcript.json 并 emit `meeting_diarized`。这场详情正开着时，事件按 `sessionId`
+ * 认领：`error` 有人话串就摆出来（正文不动，主功能不受影响）；否则按 `(startMs, endMs)`
+ * 对齐补 speaker + 全量替换 speakerNames（判定在 `meetings.ts` 的 `mergeSpeakers`）。
  */
-import { computed, onMounted, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { invoke } from '@tauri-apps/api/core'
+import { listen, type UnlistenFn } from '@tauri-apps/api/event'
 import { ArrowLeft, Check, Download, Sparkles, Trash2 } from 'lucide-vue-next'
 import { formatDuration } from '../minutesLive'
-import { formatMeetingWhen, wordCountOf, type MeetingTranscript } from '../meetings'
+import { formatMeetingWhen, mergeSpeakers, wordCountOf, type DiarizedEvent, type MeetingTranscript } from '../meetings'
 import { buildMeetingExport } from '../meetingExport'
 import { downloadText } from '../fileIo'
+import { isDesktop } from '../useShell'
 import MinutesTranscript from './MinutesTranscript.vue'
 
 const props = defineProps<{
@@ -45,6 +52,9 @@ const busy = ref(false)
 const exporting = ref(false)
 const error = ref('')
 const armed = ref(false)
+/** `meeting_diarized` 带来的降级人话串（说话人没标上，转写/摘要/导出照常） */
+const diarError = ref('')
+let unDiar: UnlistenFn | null = null
 
 async function load(): Promise<void> {
   loading.value = true
@@ -57,11 +67,32 @@ async function load(): Promise<void> {
     loading.value = false
   }
 }
-onMounted(load)
+onMounted(async () => {
+  await load()
+  // 网页版没有事件总线（同 MinutesCard 的 listen 纪律）；桌面壳才接 diarize 回填
+  if (!isDesktop) return
+  unDiar = await listen<DiarizedEvent>('meeting_diarized', (e) => {
+    const p = e.payload
+    if (p.sessionId !== props.id) return
+    if (p.error) {
+      // 降级：transcript 保持现状，只把那句人话摆出来
+      diarError.value = p.error
+      return
+    }
+    diarError.value = ''
+    if (!t.value) return
+    t.value = { ...t.value, speakerNames: p.speakerNames, segments: mergeSpeakers(t.value.segments, p.segments) }
+  })
+})
+onBeforeUnmount(() => {
+  unDiar?.()
+  unDiar = null
+})
 watch(
   () => props.id,
   () => {
     armed.value = false
+    diarError.value = ''
     void load()
   },
 )
@@ -158,8 +189,9 @@ function onExport(): void {
         <Sparkles :size="12" />{{ busy ? '正在生成…' : '生成摘要' }}
       </button>
       <p v-if="error" class="hint" data-tone="error">{{ error }}</p>
+      <p v-if="diarError" class="hint" data-tone="warn">{{ diarError }}</p>
 
-      <MinutesTranscript :segments="t.segments" :active="false" idle-text="这场速记没有转写出内容（或全为空白）" />
+      <MinutesTranscript :segments="t.segments" :speaker-names="t.speakerNames" :active="false" idle-text="这场速记没有转写出内容（或全为空白）" />
 
       <button class="del" :data-armed="armed" :disabled="busy" @click="onDel">
         <Trash2 v-if="!armed" :size="12" />
