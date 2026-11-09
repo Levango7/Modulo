@@ -38,20 +38,33 @@ export const ACTION_READ_MAX = 200
 
 export type AiAction =
   | { type: 'addCard'; moduleId: string; variant?: string }
-  | { type: 'todo.add'; text: string }
-  | { type: 'ledger.add'; cents: number; category: string; note?: string; date: string }
-  | { type: 'sticky.append'; text: string }
-  | { type: 'countdown.set'; label: string; date: string }
-  | { type: 'habit.check' }
+  | { type: 'todo.add'; text: string; instanceId?: string }
+  | { type: 'ledger.add'; cents: number; category: string; note?: string; date: string; instanceId?: string }
+  | { type: 'sticky.append'; text: string; instanceId?: string }
+  | { type: 'countdown.set'; label: string; date: string; instanceId?: string }
+  | { type: 'habit.check'; instanceId?: string }
   | { type: 'memory.add'; text: string }
   // 读类（第十六笔）：**不改任何东西** —— 看一眼版面清单，或某张卡里的内容
-  | { type: 'context.read'; moduleId?: string }
+  // （第十八笔起可带 instanceId 定点读第二实例；moduleId 与 instanceId 必须指向同一张卡）
+  | { type: 'context.read'; moduleId?: string; instanceId?: string }
+
+/**
+ * 版面上的一张卡实例（胶水层从板上 items 解析给纯层校验用，第十八笔）。
+ * `id` 是板上 item 的 id（`habit` / `habit:2`；第一实例的 id == module id）。
+ */
+export interface ActionInstance {
+  id: string
+  /** 它属于哪个模块（item 的 `module` 字段；拿不到时与 id 同） */
+  module: string
+}
 
 export interface ActionContext {
   /** 已装的模块 id（`addCard` 的校验白名单 —— 注册表里没有的卡不许摆） */
   moduleIds: readonly string[]
   /** 缺省记账日期（今天，`YYYY-MM-DD`；`localDay` 的口径） */
   today: string
+  /** 版面上的卡实例清单（多实例定点校验用；可选 —— 旧 ctx 对象照常通过类型检查） */
+  instances?: readonly ActionInstance[]
   /** 覆盖上限（测试用；默认 `ACTION_MAX_PER_REPLY`） */
   max?: number
 }
@@ -73,6 +86,14 @@ const str = (v: unknown): string => (typeof v === 'string' ? v : '')
 const clip = (s: string, n: number): string => (s.length <= n ? s : `${s.slice(0, n)}…`)
 
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/
+
+/**
+ * 第十八笔：在实例清单里找这一张。`instances` 可选（旧 ctx 没有清单）——
+ * 没有清单 = 没有可定点的实例，任何 instanceId 都判"不在清单里"。
+ */
+function findInstance(id: string, ctx: ActionContext): ActionInstance | undefined {
+  return ctx.instances?.find((x) => x.id === id)
+}
 
 /** 行首判定：允许空白与代码围栏的反引号（模型爱把 JSON 包进 ``` 里） */
 function actBody(line: string): string | null {
@@ -105,7 +126,11 @@ function parseLine(raw: string, ctx: ActionContext): AiAction | { bad: string } 
     const text = str(o.text).trim()
     if (!text) return { bad: '它想加一条待办，但没写内容' }
     if (text.length > ACTION_TEXT_MAX) return { bad: `待办太长（超过 ${ACTION_TEXT_MAX} 字）—— 这一条没有执行` }
-    return { type: 'todo.add', text }
+    const instanceId = str(o.instanceId).trim()
+    if (instanceId && !findInstance(instanceId, ctx)) {
+      return { bad: `它想定点到「${clip(instanceId, 24)}」，但实例清单里没有这张卡（先 context.read 看一眼版面清单拿 id）` }
+    }
+    return { type: 'todo.add', text, ...(instanceId ? { instanceId } : {}) }
   }
   if (type === 'ledger.add') {
     const cents = o.cents
@@ -129,13 +154,21 @@ function parseLine(raw: string, ctx: ActionContext): AiAction | { bad: string } 
       }
       date = asked
     }
-    return { type: 'ledger.add', cents, category, ...(note ? { note } : {}), date }
+    const instanceId = str(o.instanceId).trim()
+    if (instanceId && !findInstance(instanceId, ctx)) {
+      return { bad: `它想定点到「${clip(instanceId, 24)}」，但实例清单里没有这张卡（先 context.read 看一眼版面清单拿 id）` }
+    }
+    return { type: 'ledger.add', cents, category, ...(note ? { note } : {}), date, ...(instanceId ? { instanceId } : {}) }
   }
   if (type === 'sticky.append') {
     const text = str(o.text).trim()
     if (!text) return { bad: '它想往便签里加内容，但没写要加什么' }
     if (text.length > ACTION_TEXT_MAX) return { bad: `便签那一段太长（超过 ${ACTION_TEXT_MAX} 字）—— 这一条没有执行` }
-    return { type: 'sticky.append', text }
+    const instanceId = str(o.instanceId).trim()
+    if (instanceId && !findInstance(instanceId, ctx)) {
+      return { bad: `它想定点到「${clip(instanceId, 24)}」，但实例清单里没有这张卡（先 context.read 看一眼版面清单拿 id）` }
+    }
+    return { type: 'sticky.append', text, ...(instanceId ? { instanceId } : {}) }
   }
   if (type === 'countdown.set') {
     const label = str(o.label).trim()
@@ -147,10 +180,18 @@ function parseLine(raw: string, ctx: ActionContext): AiAction | { bad: string } 
     if (!DATE_RE.test(date)) {
       return { bad: '它想设倒数日，但日期写法看不懂（要 YYYY-MM-DD）—— 这一条没有执行' }
     }
-    return { type: 'countdown.set', label, date }
+    const instanceId = str(o.instanceId).trim()
+    if (instanceId && !findInstance(instanceId, ctx)) {
+      return { bad: `它想定点到「${clip(instanceId, 24)}」，但实例清单里没有这张卡（先 context.read 看一眼版面清单拿 id）` }
+    }
+    return { type: 'countdown.set', label, date, ...(instanceId ? { instanceId } : {}) }
   }
   if (type === 'habit.check') {
-    return { type: 'habit.check' }
+    const instanceId = str(o.instanceId).trim()
+    if (instanceId && !findInstance(instanceId, ctx)) {
+      return { bad: `它想定点到「${clip(instanceId, 24)}」，但实例清单里没有这张卡（先 context.read 看一眼版面清单拿 id）` }
+    }
+    return instanceId ? { type: 'habit.check', instanceId } : { type: 'habit.check' }
   }
   if (type === 'memory.add') {
     const text = str(o.text).trim()
@@ -165,7 +206,18 @@ function parseLine(raw: string, ctx: ActionContext): AiAction | { bad: string } 
     if (moduleId && !ctx.moduleIds.includes(moduleId)) {
       return { bad: `它想看一张「${clip(moduleId, 24)}」卡的内容，但注册表里没有这张卡` }
     }
-    return moduleId ? { type: 'context.read', moduleId } : { type: 'context.read' }
+    const instanceId = str(o.instanceId).trim()
+    if (instanceId) {
+      const inst = findInstance(instanceId, ctx)
+      if (!inst) {
+        return { bad: `它想看「${clip(instanceId, 24)}」这张卡，但实例清单里没有这张卡（先 context.read 看一眼版面清单拿 id）` }
+      }
+      if (moduleId && inst.module !== moduleId) {
+        return { bad: `它想看「${clip(moduleId, 24)}」里的「${clip(instanceId, 24)}」，但这张卡是「${clip(inst.module, 24)}」的实例（moduleId 与 instanceId 对不上）` }
+      }
+    }
+    if (!moduleId) return instanceId ? { type: 'context.read', instanceId } : { type: 'context.read' }
+    return instanceId ? { type: 'context.read', moduleId, instanceId } : { type: 'context.read', moduleId }
   }
   return { bad: `它想做「${clip(type || '（没写 type）', 24)}」这件事 —— 这一版还不会` }
 }
@@ -208,24 +260,37 @@ export function parseActions(text: string, ctx: ActionContext): ParsedActions {
   return { clean: tidy(keep.join('\n')), actions, bad }
 }
 
-/** 一条提议的人话（界面列表用）。`titleOf` 给卡的中文名，给不了就落回 id */
-export function actionLabel(a: AiAction, titleOf?: (id: string) => string | undefined): string {
+/**
+ * 一条提议的人话（界面列表用）。`titleOf` 给卡的中文名，给不了就落回 id；
+ * `instanceLabelOf` 把实例 id 成人话（定点前缀「定点「…」 · 」统一在这里加，
+ * 调用方不用各自拼；第十八笔）。
+ */
+export function actionLabel(
+  a: AiAction,
+  titleOf?: (id: string) => string | undefined,
+  instanceLabelOf?: (id: string) => string,
+): string {
+  const fixed =
+    'instanceId' in a && a.instanceId
+      ? `定点「${instanceLabelOf ? instanceLabelOf(a.instanceId) : a.instanceId}」 · `
+      : ''
   switch (a.type) {
     case 'addCard':
       return `摆一张「${titleOf?.(a.moduleId) || a.moduleId}」卡`
     case 'todo.add':
-      return `加一条待办：${a.text}`
+      return `${fixed}加一条待办：${a.text}`
     case 'ledger.add':
-      return `记一笔：¥${(a.cents / 100).toFixed(2)} · ${a.category}${a.note ? ` · ${a.note}` : ''}`
+      return `${fixed}记一笔：¥${(a.cents / 100).toFixed(2)} · ${a.category}${a.note ? ` · ${a.note}` : ''}`
     case 'sticky.append':
-      return `往便签里加一段：${a.text}`
+      return `${fixed}往便签里加一段：${a.text}`
     case 'countdown.set':
-      return `把倒数日设成「${a.label} · ${a.date}」`
+      return `${fixed}把倒数日设成「${a.label} · ${a.date}」`
     case 'habit.check':
-      return '给习惯卡打上今天的卡'
+      return `${fixed}给习惯卡打上今天的卡`
     case 'memory.add':
       return `记住：${a.text}`
     case 'context.read':
+      if (a.instanceId) return `${fixed}看一眼这张卡`
       return a.moduleId ? `看一眼「${titleOf?.(a.moduleId) || a.moduleId}」卡` : '看一眼版面清单'
   }
 }
@@ -320,11 +385,11 @@ const CURATED_IDS = [
 
 /**
  * 拼进 system 块的那段能力说明（纯函数 —— 逐字可测，也方便将来按注册表动态化）。
- * 三句：格式、边界（提议不是执行）、词汇表。
+ * 四句：格式、边界（提议不是执行）、定点写法、词汇表。
  */
 export function actionPrompt(): string {
   return [
-    `你可以在需要时动手改版面：在正文之后另起一行，一行一个动作。格式是 \`${ACTION_PREFIX} {"type":"…",…}\`，可用的三种：`,
+    `你可以在需要时动手改版面：在正文之后另起一行，一行一个动作。格式是 \`${ACTION_PREFIX} {"type":"…",…}\`，可用的动作：`,
     `- \`${ACTION_PREFIX} {"type":"addCard","moduleId":"todo","variant":"可选"}\` —— 把一张卡摆上版面；`,
     `- \`${ACTION_PREFIX} {"type":"todo.add","text":"…"}\` —— 往待办里加一条；`,
     `- \`${ACTION_PREFIX} {"type":"ledger.add","cents":1234,"category":"餐饮","note":"可选"}\` —— 记一笔账（金额用整数分：12.34 元 = 1234）；`,
@@ -335,7 +400,8 @@ export function actionPrompt(): string {
     `- \`${ACTION_PREFIX} {"type":"countdown.set","label":"纪念日","date":"2026-12-01"}\` —— 设一张倒数日（名字 + 日期）；`,
     `- \`${ACTION_PREFIX} {"type":"habit.check"}\` —— 给习惯卡打上今天的卡；`,
     `- \`${ACTION_PREFIX} {"type":"memory.add","text":"…"}\` —— 记住一件关于用户的事（跨对话有效，用户可在设置里删）；`,
-    `- \`${ACTION_PREFIX} {"type":"context.read"}\` —— 看一眼版面清单（有哪些卡）；\`${ACTION_PREFIX} {"type":"context.read","moduleId":"todo"}\` —— 看一眼某张卡里的内容（**只读**，不会改任何东西；看到的内容会随执行结果回给你）。`,
+    `- \`${ACTION_PREFIX} {"type":"context.read"}\` —— 看一眼版面清单（有哪些卡、每张的实例 id）；\`${ACTION_PREFIX} {"type":"context.read","moduleId":"todo"}\` —— 看一眼某张卡里的内容（**只读**，不会改任何东西；看到的内容会随执行结果回给你）。`,
+    `同一张卡开了多张实例时（比如两块「习惯」），在动作里加 \`"instanceId":"habit:2"\` 就能定点写那一张；不给就写第一张。实例 id 从 \`context.read\` 看一眼版面清单里抄。`,
     `一次最多 ${ACTION_MAX_PER_REPLY} 个。动作只是提议 —— 用户点「照做」才会生效，所以正文里照常把你要做的事说清楚；不需要动手就不要写动作行。`,
     `动作执行之后，系统会把结果以一条「${ACTION_RESULT_MARK}」开头的消息发回来 —— 收到它就接着干：还有要做的继续按格式提议（别重复已经做过的），都完成了就用一两句话收尾。`,
     `常用卡 id：${CURATED_IDS.join(' / ')}（其它卡也能摆，摆不上会说明）。`,
