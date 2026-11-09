@@ -11,9 +11,12 @@
  * - `meeting_delete(id)` → 后端幂等（不存在也算成功）；
  * - `meeting_summarize(id)` → `{ summary }`，**存过摘要的直接回存值**（不再调模型），
  *   没有 provider 或转写为空时 reject 人话（D-15：契约只给 id，provider 取第一个 ready）。
+ * - `meeting_diarized` 事件 → `DiarizedEvent`（D-14b/c/d 接线后）：stop 后后台跑
+ *   说话人分离，完成时原子重写 transcript.json 并 emit 这一事件；失败/跳过带
+ *   `error` 人话串且不动正文。前端按 `sessionId` 领，`mergeSpeakers` 负责对齐回填。
  *
- * 字段全部 camelCase（serde `rename_all`）。`speaker` 恒 null（D-14：无 diarization），
- * 类型上保留 `speaker` 字段是为了契约对齐，不是预留功能 —— 别按「即将有值」去写 UI。
+ * 字段全部 camelCase（serde `rename_all`）。`speaker` 在**接线前**的落盘文件里恒 null，
+ * 类型上保留字段是为了契约对齐 —— 渲染层对 null/undefined 一律按「无说话人」降级。
  */
 
 /** Rust `session_store::Segment`（camelCase）。 */
@@ -21,8 +24,23 @@ export interface MeetingSegment {
   startMs: number
   endMs: number
   text: string
-  /** D-14：本批恒 null。字段存在只是契约对齐。 */
+  /** 说话人 key（`spk{n}`，D-14 后台回填后非 null）；旧文件与降级路径仍是 null。 */
   speaker?: string | null
+}
+
+/** Rust `diarize.rs::DiarizedSegment`（camelCase）。**没有 text** —— 它是「给哪句补标」的坐标，不是正文。 */
+export interface DiarizedSegment {
+  startMs: number
+  endMs: number
+  speaker: string | null
+}
+
+/** Rust `diarize.rs::DiarizedEvent`（camelCase）。`error` 有人话串 = 降级信号，正文不受影响。 */
+export interface DiarizedEvent {
+  sessionId: string
+  speakerNames: Record<string, string>
+  segments: DiarizedSegment[]
+  error: string | null
 }
 
 /** Rust `session_store::Transcript`（camelCase）。 */
@@ -144,4 +162,27 @@ export function wordCountOf(t: MeetingTranscript): number {
   let n = 0
   for (const s of t.segments) n += s.text.replace(/\s+/g, '').length
   return n
+}
+
+/**
+ * 把 `meeting_diarized` 的回填合进当前段表：按 `(startMs, endMs)` 双键对齐，
+ * 对上的补 `speaker`（key 原样，标签映射在渲染层做），对不上的**原样保留**
+ * （既不凭空加句也不乱改正文 —— 事件里没有 text，前端无权造）。
+ *
+ * 两侧样本都要有：事件空 / 无一对上 → **返回原数组本身**（引用不变，同
+ * `capMeetings` 的理由：响应式值不该在「没变化」时也重渲染）。
+ */
+export function mergeSpeakers(
+  segments: readonly MeetingSegment[],
+  diar: readonly DiarizedSegment[],
+): MeetingSegment[] {
+  if (!diar.length) return segments as MeetingSegment[]
+  let changed = false
+  const out = segments.map((s) => {
+    const hit = diar.find((d) => d.startMs === s.startMs && d.endMs === s.endMs)
+    if (!hit || hit.speaker == null) return s
+    changed = true
+    return { ...s, speaker: hit.speaker }
+  })
+  return changed ? out : (segments as MeetingSegment[])
 }

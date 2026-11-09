@@ -12,8 +12,8 @@
 //!   pyannote 分割包（6.6MB）因此没有权威校验源可抄 ⇒ 走**自证基线**（两次独立传输实测
 //!   同值 + 记时间/机器/工具，R-01 的分级版）。嵌入模型那边不用自证：
 //!   `speaker-recongition-models` release 带官方 `checksum.txt`，中英 campplus 那行今天
-//!   按真下载的字节核过。两样都还**没接进 `all()`**（引擎还没接线），所以首次运行
-//!   下载量一分不变。
+//!   按真下载的字节核过。两样都已在 2026-11-09 接进 `all()`（引擎接线，D-14b）——
+//!   接线前它们住在 `model_trust.rs::pending()` 受门禁看着但不进下载清单。
 //! - **解压后不硬编码模型文件名**：官方示例里 SenseVoice 是 `model.int8.onnx`、
 //!   标点档是 `model.onnx`，两档命名不一致且 int8 档可能改名 —— 统一改成
 //!   **扫描目录找 `.onnx`**，猜错一个字符就白下 155MB，不冒这个险。
@@ -31,6 +31,12 @@ const BASE_ASR: &str = "https://github.com/k2-fsa/sherpa-onnx/releases/download/
 /// 标点模型挂在另一个 tag 下，别混用
 const BASE_PUNC: &str =
     "https://github.com/k2-fsa/sherpa-onnx/releases/download/punctuation-models";
+/// 说话人**分割**模型的 release tag 照抄上游，别"修"成 recognition —— 拼错了就是 404。
+const BASE_SEG: &str =
+    "https://github.com/k2-fsa/sherpa-onnx/releases/download/speaker-segmentation-models";
+/// 说话人**嵌入**模型（上游 tag 就这么拼，少一个 n 就 404）
+const BASE_EMB: &str =
+    "https://github.com/k2-fsa/sherpa-onnx/releases/download/speaker-recongition-models";
 
 /// 归档（需解压）还是单文件（下载即用）
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -91,12 +97,45 @@ pub const PUNC: ModelSpec = ModelSpec {
     },
 };
 
-/// 本批要管的三件。`vad` 排第一：它最小（0.2MB），先就绪先可用。
+/// pyannote 说话人分割（6.9MB 归档）—— **全仓目前唯一的自证基线例外**。
 ///
-/// 另有两件「已核过出处、尚未接线」的说话人制品在 `model_trust.rs`，
-/// 不进这份下载清单（首次运行下载量因此一分不变）。
-pub fn all() -> [ModelSpec; 3] {
-    [VAD, ASR, PUNC]
+/// digest 来自 2026-11-04 两次独立 HTTPS 传输实测（同值，字节数也同），
+/// 逐次的 at/machine/tool/bytes 记在台账里。上游该 release 至今没有 `checksum.txt`。
+pub const DIAR_SEG: ModelSpec = ModelSpec {
+    id: "diar-seg",
+    file: "sherpa-onnx-pyannote-segmentation-3-0.tar.bz2",
+    base: BASE_SEG,
+    sha256: "24615ee884c897d9d2ba09bb4d30da6bb1b15e685065962db5b02e76e4996488",
+    kind: Kind::Archive,
+    trust: Trust::SelfAttested {
+        release: "speaker-segmentation-models",
+        samples: 2,
+        measured_on: "2026-11-04",
+    },
+};
+
+/// campplus 中英说话人嵌入（28.3MB 单文件）—— 官方 `checksum.txt` 有这一行，
+/// 且今天按真下载的字节核过（下载值与那行同值，不是只抄了行没验包）。
+pub const DIAR_EMB: ModelSpec = ModelSpec {
+    id: "diar-emb",
+    file: "3dspeaker_speech_campplus_sv_zh_en_16k-common_advanced.onnx",
+    base: BASE_EMB,
+    sha256: "aa3cfc16963a10586a9393f5035d6d6b57e98d358b347f80c2a30bf4f00ceba2",
+    kind: Kind::Single,
+    trust: Trust::Official {
+        release: "speaker-recongition-models",
+    },
+};
+
+/// 本批要管的五件。`vad` 排第一：它最小（0.2MB），先就绪先可用。
+///
+/// 后两件是说话人分离（D-14b，2026-11-09 接线）：`diar-seg` 是全仓唯一的自证基线
+/// 例外（`speaker-segmentation-models` 至今无官方 `checksum.txt`），`diar-emb` 走官方
+/// `checksum.txt`。两件与转写三件同清单、同下载、同 sha256 校验（R-01 不因「增强」
+/// 而降级）。首运下载量因此从三件约 231MB 涨到五件约 266MB（均为实测字节口径，
+/// 见 `docs/ARCHITECTURE.md` §12.55）。
+pub fn all() -> [ModelSpec; 5] {
+    [VAD, ASR, PUNC, DIAR_SEG, DIAR_EMB]
 }
 
 /// 完整下载 URL
@@ -144,9 +183,18 @@ pub fn is_ready(root: &Path, spec: &ModelSpec) -> bool {
     }
 }
 
-/// 三个全就绪才算 `ready`
-pub fn all_ready(root: &Path) -> bool {
-    all().iter().all(|s| is_ready(root, s))
+/// 转写三件全就绪才算 `ready` —— 这是 `meeting_start` 的门。
+///
+/// 说话人分离两件（`diar-seg` / `diar-emb`）**不**进这道门：缺它们时转写照跑、
+/// diarization 走降级（`speaker` 恒 `None` + 事件带 error 人话串），不拿可选增强
+/// 阻塞主功能。D-14b 接线时定的口径。
+pub fn asr_ready(root: &Path) -> bool {
+    [VAD, ASR, PUNC].iter().all(|s| is_ready(root, s))
+}
+
+/// 说话人分离两件全就绪。`meeting_stop` 起后台 diarize 前判，缺件走降级。
+pub fn diar_ready(root: &Path) -> bool {
+    [DIAR_SEG, DIAR_EMB].iter().all(|s| is_ready(root, s))
 }
 
 /// 计算字节流的 sha256 十六进制（小写）
@@ -280,7 +328,7 @@ mod tests {
         assert!(!is_ready(&d, &ASR));
         fs::write(target(&d, &ASR).join("model.int8.onnx"), b"").unwrap();
         assert!(is_ready(&d, &ASR));
-        assert!(!all_ready(&d)); // 另两个还没下
+        assert!(!asr_ready(&d)); // 另两个还没下
         let _ = fs::remove_dir_all(&d);
     }
 }

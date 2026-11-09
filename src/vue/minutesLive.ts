@@ -10,11 +10,14 @@
  *   3. 控件可用性（模型没就绪就绝不能让人点开始，否则只能收一个后端 reject）；
  *   4. 设备挑选（挑错 = 录了一路不存在的声音，而且当场看不出来）。
  *
- * ## 与后端契约的三处偏差（按**实现**写，不按 yaml）
+ * ## 与后端契约的偏差（按**实现**写，不按 yaml）
  * - 事件名是 `minutes_segment` / `minutes_error`；
- * - `speaker` 恒为 null、`speakerNames` 恒空 —— 说话人分离本批没落地、**没有数据来源**，
- *   所以本模块里**没有**任何"说话人"字段：不给不存在的状态留位置；
- * - `meeting_stop` 承诺的 diarization 回填已顺延，别等它。
+ * - `meeting_diarized` 是 stop 后**后台**推的（pyannote CPU 上能跑几分钟）：live 字幕区
+ *   不接它 —— 停止后字幕区让位给历史列表、不可见；回填由 `MinutesDetail` 按 sessionId 领。
+ *   本模块的段构造（`appendSegments`）**不产** `speaker`，live 区没有说话人数据来源，
+ *   不给不存在的状态留位置；
+ * - `meeting_stop` 承诺的 diarization 回填已由 D-14b/c/d 接线落地（PCM 文件 + 后台批处理），
+ *   不再是「顺延」；时间轴同口径（两轴都跳过暂停）论证在 `src-tauri/src/meeting/diarize.rs`。
  */
 
 /** 模型状态。`asr_model_status` 的 state 就是这五个。 */
@@ -28,11 +31,15 @@ export type AudioSource = 'mic' | 'system'
 
 export type Tone = 'info' | 'warn' | 'error'
 
-/** 字幕里的一句。`speaker` 不在其中 —— 见文件头第 2 条偏差。 */
+/**
+ * 字幕里的一句。`speaker` 只在**详情页复用本组件**时由 `meeting_diarized` 事件回填
+ * （key 形态 `spk{n}`）；live 区恒 undefined —— 见文件头偏差第 2 条。
+ */
 export interface Segment {
   startMs: number
   endMs: number
   text: string
+  speaker?: string | null
 }
 
 export interface AudioDevice {

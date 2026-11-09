@@ -9,6 +9,7 @@
 //! 当成一段话吐出来。
 
 use std::collections::HashMap;
+use std::fs::{self, File, OpenOptions};
 use std::sync::{Mutex, OnceLock};
 use std::thread::JoinHandle;
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -17,6 +18,7 @@ use tauri::{AppHandle, Emitter};
 
 use super::asr_engine::{AsrEngine, Utterance};
 use super::audio::{self, AudioCapture, AudioSource};
+use super::diarize::{self, append_pcm};
 
 /// live 转写段事件（D-15）
 const EVENT_SEGMENT: &str = "minutes_segment";
@@ -54,17 +56,34 @@ pub fn sessions() -> &'static Mutex<HashMap<String, Session>> {
     S.get_or_init(|| Mutex::new(HashMap::new()))
 }
 
-/// 转写线程：吃帧 → VAD 断句 → 转写 → emit。
+/// 会话的 PCM 缓存句柄（append）。暂停 = 线程退 = 句柄自动关，resume 重开续写同一文件。
+fn meetings_pcm(app: &AppHandle, session_id: &str) -> Option<File> {
+    let root = super::session_store::meetings_root(app).ok()?;
+    let p = diarize::pcm_path(&root, session_id);
+    fs::create_dir_all(p.parent()?).ok()?;
+    OpenOptions::new().append(true).create(true).open(&p).ok()
+}
+
+/// 转写线程：吃帧 → VAD 断句 → 转写 → emit → 帧顺手 append 进 PCM（供停止后 diarize）。
 /// 流结束（采集句柄被 drop）后 flush 尾巴，把引擎一并交回，供 resume 复用。
 pub fn run_worker(
     app: AppHandle,
     mut engine: AsrEngine,
     capture: AudioCapture,
+    session_id: String,
 ) -> (AsrEngine, Vec<Utterance>) {
     let mut out = Vec::new();
+    // PCM 是文件不是内存 Vec：16kHz f32 = 64KB/s，1h ≈ 230MB 常驻（且 Vec realloc
+    // 峰值双份）；文件流式 append 内存 O(1)，diarize 那几分钟的瞬时峰值是 sherpa
+    // 离线批处理 API 的形态决定的（理由全在 `diarize.rs` 文件头）。开失败 = 这场
+    // 没有说话人标，主功能不受影响。
+    let mut pcm = meetings_pcm(&app, &session_id);
     while let Some(ev) = capture.recv() {
         match ev {
             audio::AudioEvent::Frame(frame) => {
+                if let Some(f) = pcm.as_mut() {
+                    append_pcm(f, &frame.samples);
+                }
                 for u in engine.push(&frame.samples) {
                     let _ = app.emit(EVENT_SEGMENT, &u);
                     out.push(u);

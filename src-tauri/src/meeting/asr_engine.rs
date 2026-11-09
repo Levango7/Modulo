@@ -46,7 +46,7 @@ pub struct AsrEngine {
 }
 
 impl AsrEngine {
-    /// 从模型根目录加载。三个模型必须都已就绪（先用 [`asr_models::all_ready`] 判）。
+    /// 从模型根目录加载。三个模型必须都已就绪（先用 [`asr_models::asr_ready`] 判）。
     pub fn load(root: &Path) -> Result<Self, String> {
         let vad_dir = asr_models::target(root, &asr_models::VAD);
         let asr_dir = asr_models::target(root, &asr_models::ASR);

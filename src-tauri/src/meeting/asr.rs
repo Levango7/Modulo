@@ -107,7 +107,7 @@ pub fn models_root(app: &AppHandle) -> Result<PathBuf, String> {
 
 /// 刷新全局状态（进程启动时若模型已在盘上，应直接是 ready 而不是 missing）
 pub fn refresh_status(root: &Path) {
-    let st = if asr_models::all_ready(root) {
+    let st = if asr_models::asr_ready(root) {
         AsrState::Ready
     } else {
         AsrState::Missing

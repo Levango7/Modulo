@@ -12,7 +12,9 @@
 //! **live 事件（D-15）**：契约没定义实时事件，但会议速记没有实时字幕等于没有
 //! 产品。本批新增 `minutes_segment` / `minutes_error` 两个事件，已在偏差登记。
 //!
-//! **说话人（D-14）**：diarization 无权威校验源，本批不落地，`speaker` 恒 null。
+//! **说话人（D-14，2026-11-09 接线）**：转写三件就绪即可开场；说话人分离是
+//! 可选增强 —— 录制的帧顺手落 PCM，`meeting_stop` 起后台线程跑 diarize，
+//! 中点归属回填 `speaker` 并 emit `meeting_diarized`（带 error 人话串降级）。
 
 use std::collections::HashMap;
 use std::thread;
@@ -24,6 +26,7 @@ use super::asr::models_root;
 use super::asr_engine::AsrEngine;
 use super::asr_models;
 use super::audio::{self, AudioSource};
+use super::diarize;
 use super::session_live::{now_ms, run_worker, sessions, take_worker, Session};
 use super::session_store;
 
@@ -59,15 +62,20 @@ pub fn meeting_start(
 ) -> Result<MeetingStarted, String> {
     let src = parse_source(source.as_deref())?;
     let root = models_root(&app)?;
-    if !asr_models::all_ready(&root) {
+    if !asr_models::asr_ready(&root) {
         return Err("语音模型还没下载完，先在设置里下载模型再开始速记".to_string());
     }
     let engine = AsrEngine::load(&root)?;
     let capture = audio::open_capture(src, device_id.as_deref())?;
 
+    // 上次的孤儿 PCM（崩溃 / 强杀留下）超过 24h 就清，不给磁盘埋雷
+    if let Ok(mroot) = session_store::meetings_root(&app) {
+        diarize::prune_stale_pcm(&mroot);
+    }
+
     let id = session_store::new_id();
     let app2 = app.clone();
-    let worker = thread::spawn(move || run_worker(app2, engine, capture));
+    let worker = thread::spawn(move || run_worker(app2, engine, capture, id.clone()));
 
     let s = Session {
         id: id.clone(),
@@ -124,7 +132,8 @@ pub fn meeting_resume(app: AppHandle, session_id: String) -> Result<(), String> 
         .ok_or_else(|| "会话引擎已丢失，请重新开始一场速记".to_string())?;
     let capture = audio::open_capture(s.source, s.device_id.as_deref())?;
     let app2 = app.clone();
-    s.worker = Some(thread::spawn(move || run_worker(app2, engine, capture)));
+    let id = s.id.clone();
+    s.worker = Some(thread::spawn(move || run_worker(app2, engine, capture, id)));
     Ok(())
 }
 
@@ -158,7 +167,7 @@ pub fn meeting_stop(app: AppHandle, session_id: String) -> Result<MeetingStopped
                 start_ms: u.start_ms,
                 end_ms: u.end_ms,
                 text: u.text.clone(),
-                speaker: None, // D-14：本批无 diarization
+                speaker: None, // 先按现状落盘；后台 diarize 完成后原子重写回填（D-14）
             })
             .collect(),
         speaker_names: HashMap::new(),
@@ -166,9 +175,19 @@ pub fn meeting_stop(app: AppHandle, session_id: String) -> Result<MeetingStopped
     };
     let root = session_store::meetings_root(&app)?;
     let path = session_store::write_transcript(&root, &t)?;
+    // D-14：说话人分离在后台跑（pyannote CPU 上能跑几分钟），stop 不等它；
+    // PCM 在场才起线程，缺件 / 太短 / 失败都在线程里降级（事件带 error 人话串）。
+    let pcm = diarize::pcm_path(&root, &t.id);
+    let seg_count = t.segments.len();
+    let out_id = t.id.clone();
+    if pcm.is_file() {
+        let app2 = app.clone();
+        let mroot = root.clone();
+        thread::spawn(move || diarize::run_diarization(app2, mroot, t, pcm));
+    }
     Ok(MeetingStopped {
-        segment_count: t.segments.len(),
-        id: t.id,
+        segment_count: seg_count,
+        id: out_id,
         transcript_path: path,
         duration_ms,
     })
