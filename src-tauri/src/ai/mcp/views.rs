@@ -57,9 +57,7 @@ pub fn parse_tools_list(v: &Value) -> Result<ToolsListResult, CodecError> {
     let o = v
         .as_object()
         .ok_or_else(|| CodecError::InvalidShape("result 不是对象".into()))?;
-    let tools_value = o
-        .get("tools")
-        .ok_or(CodecError::MissingField("tools"))?;
+    let tools_value = o.get("tools").ok_or(CodecError::MissingField("tools"))?;
     let arr = tools_value
         .as_array()
         .ok_or(CodecError::BadField("tools"))?;
@@ -76,9 +74,7 @@ pub fn parse_tools_list(v: &Value) -> Result<ToolsListResult, CodecError> {
             .ok_or_else(|| CodecError::BadTool(format!("第 {} 个工具缺 name", i + 1)))?;
         let name = name_value
             .as_str()
-            .ok_or_else(|| {
-                CodecError::BadTool(format!("第 {} 个工具的 name 不是字符串", i + 1))
-            })?
+            .ok_or_else(|| CodecError::BadTool(format!("第 {} 个工具的 name 不是字符串", i + 1)))?
             .to_string();
         if name_too_long(&name) {
             return Err(CodecError::BadTool(format!("第 {} 个工具名字太长", i + 1)));
@@ -96,7 +92,10 @@ pub fn parse_tools_list(v: &Value) -> Result<ToolsListResult, CodecError> {
         tools.push(Tool {
             name,
             title: t.get("title").and_then(Value::as_str).map(String::from),
-            description: t.get("description").and_then(Value::as_str).map(String::from),
+            description: t
+                .get("description")
+                .and_then(Value::as_str)
+                .map(String::from),
             input_schema: schema.clone(),
         });
     }
@@ -109,10 +108,7 @@ pub fn parse_tools_list(v: &Value) -> Result<ToolsListResult, CodecError> {
                 .to_string(),
         ),
     };
-    Ok(ToolsListResult {
-        tools,
-        next_cursor,
-    })
+    Ok(ToolsListResult { tools, next_cursor })
 }
 
 pub fn parse_call_tool_result(v: &Value) -> Result<CallToolResult, CodecError> {
@@ -145,7 +141,9 @@ pub fn parse_call_tool_result(v: &Value) -> Result<CallToolResult, CodecError> {
             .ok_or(CodecError::BadField("content.type"))?;
         // 与 decode_line 里 method 空串判 BadMethod 同一口径：空串不是合法内容类型。
         if ty.is_empty() {
-            return Err(CodecError::InvalidShape(format!("content[{i}].type 不能为空")));
+            return Err(CodecError::InvalidShape(format!(
+                "content[{i}].type 不能为空"
+            )));
         }
         let kind = match ty {
             "text" => ContentKind::Text,

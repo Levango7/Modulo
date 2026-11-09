@@ -47,7 +47,10 @@ fn 通知不带id() {
         params: None,
     })
     .unwrap();
-    assert_eq!(line, r#"{"jsonrpc":"2.0","method":"notifications/initialized"}"#);
+    assert_eq!(
+        line,
+        r#"{"jsonrpc":"2.0","method":"notifications/initialized"}"#
+    );
 }
 
 // ---------- 验收 2：六种畸形各报各自理由 ----------
@@ -57,17 +60,35 @@ fn 畸形状逐条独立理由() {
     let cases: Vec<(&str, CodecError)> = vec![
         ("", CodecError::EmptyLine),
         (r#"[{"jsonrpc":"2.0"}]"#, CodecError::BatchNotSupported),
-        (r#"{"jsonrpc":"1.0","id":1,"result":{}}"#, CodecError::WrongVersion("1.0".into())),
-        (r#"{"jsonrpc":"2.0","id":null,"result":{}}"#, CodecError::NullId),
-        (r#"{"jsonrpc":"2.0","id":1,"result":{},"error":{"code":-1,"message":"x"}}"#, CodecError::ResultAndError),
-        (r#"{"jsonrpc":"2.0","id":1}"#, CodecError::NeitherResultNorError),
-        (r#"{"id":1,"result":{}}"#, CodecError::MissingField("jsonrpc")),
+        (
+            r#"{"jsonrpc":"1.0","id":1,"result":{}}"#,
+            CodecError::WrongVersion("1.0".into()),
+        ),
+        (
+            r#"{"jsonrpc":"2.0","id":null,"result":{}}"#,
+            CodecError::NullId,
+        ),
+        (
+            r#"{"jsonrpc":"2.0","id":1,"result":{},"error":{"code":-1,"message":"x"}}"#,
+            CodecError::ResultAndError,
+        ),
+        (
+            r#"{"jsonrpc":"2.0","id":1}"#,
+            CodecError::NeitherResultNorError,
+        ),
+        (
+            r#"{"id":1,"result":{}}"#,
+            CodecError::MissingField("jsonrpc"),
+        ),
     ];
     for (line, want) in cases {
         let got = decode_line(line).unwrap_err();
         assert_eq!(got, want, "输入：{line}");
     }
-    assert!(matches!(decode_line("not json").unwrap_err(), CodecError::Parse(_)));
+    assert!(matches!(
+        decode_line("not json").unwrap_err(),
+        CodecError::Parse(_)
+    ));
 }
 
 #[test]
@@ -85,10 +106,9 @@ fn 未知字段前向兼容() {
 
 #[test]
 fn 服务主动请求带得出方法名() {
-    let got = decode_line(
-        r#"{"jsonrpc":"2.0","id":9,"method":"sampling/createMessage","params":{}}"#,
-    )
-    .unwrap();
+    let got =
+        decode_line(r#"{"jsonrpc":"2.0","id":9,"method":"sampling/createMessage","params":{}}"#)
+            .unwrap();
     assert_eq!(
         got,
         Incoming::ServerRequest {
@@ -133,10 +153,16 @@ fn 超长行与超长半包都立即报错() {
     let big = "x".repeat(MCP_LINE_MAX + 1);
     assert_eq!(
         decode_line(&big).unwrap_err(),
-        CodecError::LineTooLong { bytes: MCP_LINE_MAX + 1, max: MCP_LINE_MAX }
+        CodecError::LineTooLong {
+            bytes: MCP_LINE_MAX + 1,
+            max: MCP_LINE_MAX
+        }
     );
     let mut r = LineReader::new();
-    assert!(matches!(r.push(&big).unwrap_err(), CodecError::LineTooLong { .. }));
+    assert!(matches!(
+        r.push(&big).unwrap_err(),
+        CodecError::LineTooLong { .. }
+    ));
 }
 
 // ---------- 验收 4 / 9 / 10 / 11：类型视图 ----------
@@ -218,7 +244,11 @@ fn 非文字内容保留类型不静默丢() {
 
 #[test]
 fn 错误映射保留原始code与message() {
-    let e = RpcError { code: -32602, message: "Unknown tool: x".into(), data: None };
+    let e = RpcError {
+        code: -32602,
+        message: "Unknown tool: x".into(),
+        data: None,
+    };
     let s = describe_rpc_error(&e);
     assert!(s.contains("参数不合法"));
     assert!(s.contains("-32602"));
@@ -236,7 +266,10 @@ fn 成功路径只发一条initialized通知() {
     assert_eq!(outs.len(), 1);
     assert_eq!(
         outs[0],
-        Outgoing::Notification { method: "notifications/initialized".into(), params: None }
+        Outgoing::Notification {
+            method: "notifications/initialized".into(),
+            params: None
+        }
     );
     assert_eq!(
         encode_line(&outs[0]).unwrap(),
@@ -277,7 +310,9 @@ fn initialize返回错误时不吞错误码() {
     let line = r#"{"jsonrpc":"2.0","id":1,"error":{"code":-32602,"message":"Unsupported protocol version"}}"#;
     let (phase, _) = initialize_request();
     let (next, _) = on_incoming(&phase, decode_line(line).unwrap());
-    let Phase::Failed(s) = next else { panic!("应当失败") };
+    let Phase::Failed(s) = next else {
+        panic!("应当失败")
+    };
     assert!(s.contains("-32602"));
     assert!(s.contains("Unsupported protocol version"));
 }
@@ -294,7 +329,11 @@ fn id不匹配不认领响应() {
 fn ready之前拒发tools请求() {
     let (phase, _) = initialize_request();
     for method in ["tools/list", "tools/call"] {
-        let req = Outgoing::Request { id: Id::Num(2), method: method.into(), params: None };
+        let req = Outgoing::Request {
+            id: Id::Num(2),
+            method: method.into(),
+            params: None,
+        };
         assert_eq!(on_outgoing(&phase, &req).unwrap_err(), CodecError::NotReady);
     }
 }
@@ -302,15 +341,25 @@ fn ready之前拒发tools请求() {
 #[test]
 fn initialized通知在初始化期放行且ready后全放行() {
     let (phase, _) = initialize_request();
-    let note = Outgoing::Notification { method: "notifications/initialized".into(), params: None };
+    let note = Outgoing::Notification {
+        method: "notifications/initialized".into(),
+        params: None,
+    };
     assert!(on_outgoing(&phase, &note).is_ok());
-    let req = Outgoing::Request { id: Id::Num(2), method: "tools/list".into(), params: None };
+    let req = Outgoing::Request {
+        id: Id::Num(2),
+        method: "tools/list".into(),
+        params: None,
+    };
     assert!(on_outgoing(&Phase::Ready, &req).is_ok());
 }
 
 #[test]
 fn ready期服务主动请求被明确拒绝() {
-    let msg = Incoming::ServerRequest { id: Id::Num(9), method: "elicitation/create".into() };
+    let msg = Incoming::ServerRequest {
+        id: Id::Num(9),
+        method: "elicitation/create".into(),
+    };
     let (next, _) = on_incoming(&Phase::Ready, msg);
     assert!(matches!(next, Phase::Failed(ref s) if s.contains("elicitation/create")));
 }
@@ -318,7 +367,11 @@ fn ready期服务主动请求被明确拒绝() {
 #[test]
 fn 失败态不再放行任何外发() {
     let p = Phase::Failed("版本不支持".into());
-    let req = Outgoing::Request { id: Id::Num(2), method: "tools/list".into(), params: None };
+    let req = Outgoing::Request {
+        id: Id::Num(2),
+        method: "tools/list".into(),
+        params: None,
+    };
     assert_eq!(
         on_outgoing(&p, &req).unwrap_err(),
         CodecError::SessionFailed("版本不支持".into())
@@ -343,7 +396,9 @@ fn b1回归_错误data里的supported版本不被吞() {
     let line = r#"{"jsonrpc":"2.0","id":1,"error":{"code":-32602,"message":"Unsupported protocol version","data":{"supported":["2025-03-26","2024-11-05"]}}}"#;
     let (phase, _) = initialize_request();
     let (next, _) = on_incoming(&phase, decode_line(line).unwrap());
-    let Phase::Failed(s) = next else { panic!("应当失败") };
+    let Phase::Failed(s) = next else {
+        panic!("应当失败")
+    };
     assert!(s.contains("-32602"));
     assert!(s.contains("Unsupported protocol version"));
     // 版本协商失败时，data.supported 是唯一能告诉上层该降到哪版的字段。
@@ -364,10 +419,12 @@ fn b2回归_method非字符串绝不降级成响应() {
     let line = r#"{"jsonrpc":"2.0","id":1,"method":123,"result":{"protocolVersion":"2025-06-18","capabilities":{"tools":{}}}}"#;
     assert_eq!(decode_line(line).unwrap_err(), CodecError::BadMethod);
     for bad in ["null", "{}", "[]", "true", "\"\""] {
-        let s = format!(
-            r#"{{"jsonrpc":"2.0","id":1,"method":{bad},"result":{{}}}}"#
+        let s = format!(r#"{{"jsonrpc":"2.0","id":1,"method":{bad},"result":{{}}}}"#);
+        assert_eq!(
+            decode_line(&s).unwrap_err(),
+            CodecError::BadMethod,
+            "输入：{s}"
         );
-        assert_eq!(decode_line(&s).unwrap_err(), CodecError::BadMethod, "输入：{s}");
     }
     // 合法 method 又带 result：矛盾形状，独立理由拒收。
     let contradictory = r#"{"jsonrpc":"2.0","id":1,"method":"tools/list","result":{}}"#;
@@ -437,7 +494,8 @@ fn 判据11_非文字内容产出可展示文案() {
         r.notice(),
         Some("这一版只收文字结果，另有 2 项非文字内容未展示".into())
     );
-    let text_only = parse_call_tool_result(&json!({"content":[{"type":"text","text":"ok"}]})).unwrap();
+    let text_only =
+        parse_call_tool_result(&json!({"content":[{"type":"text","text":"ok"}]})).unwrap();
     assert_eq!(text_only.notice(), None);
 }
 
@@ -461,7 +519,10 @@ fn 补钉子_crlf跨chunk边界() {
 #[test]
 fn 补钉子_初始化期服务主动请求被拒绝() {
     let (phase, _) = initialize_request();
-    let msg = Incoming::ServerRequest { id: Id::Num(9), method: "sampling/createMessage".into() };
+    let msg = Incoming::ServerRequest {
+        id: Id::Num(9),
+        method: "sampling/createMessage".into(),
+    };
     let (next, outs) = on_incoming(&phase, msg);
     assert!(matches!(next, Phase::Failed(ref s) if s.contains("sampling/createMessage")));
     assert!(outs.is_empty());
@@ -489,7 +550,10 @@ fn 如实登记_f4b本层不截断由f4c负责() {
     // 这条契约钉住「不是漏调用」，免得搬运后有人以为要在 parse 里截断。
     let long = "字".repeat(MCP_RESULT_MAX + 100);
     let r = parse_call_tool_result(&json!({"content":[{"type":"text","text": long}]})).unwrap();
-    assert_eq!(r.content[0].text.as_ref().unwrap().chars().count(), MCP_RESULT_MAX + 100);
+    assert_eq!(
+        r.content[0].text.as_ref().unwrap().chars().count(),
+        MCP_RESULT_MAX + 100
+    );
     assert_eq!(r.notice(), None);
 }
 
@@ -528,15 +592,34 @@ fn b4回归_content缺失或类型非法绝不静默当成功零输出() {
 #[test]
 fn b4回归_content数组里的项形状逐条严查() {
     let cases: Vec<(&str, CodecError)> = vec![
-        (r#"{"content":[123]}"#, CodecError::InvalidShape("content[0] 不是对象".into())),
-        (r#"{"content":[{"data":"x"}]}"#, CodecError::MissingField("content.type")),
-        (r#"{"content":[{"type":123}]}"#, CodecError::BadField("content.type")),
-        (r#"{"content":[{"type":"text"}]}"#, CodecError::MissingField("content.text")),
-        (r#"{"content":[{"type":"text","text":123}]}"#, CodecError::BadField("content.text")),
+        (
+            r#"{"content":[123]}"#,
+            CodecError::InvalidShape("content[0] 不是对象".into()),
+        ),
+        (
+            r#"{"content":[{"data":"x"}]}"#,
+            CodecError::MissingField("content.type"),
+        ),
+        (
+            r#"{"content":[{"type":123}]}"#,
+            CodecError::BadField("content.type"),
+        ),
+        (
+            r#"{"content":[{"type":"text"}]}"#,
+            CodecError::MissingField("content.text"),
+        ),
+        (
+            r#"{"content":[{"type":"text","text":123}]}"#,
+            CodecError::BadField("content.text"),
+        ),
     ];
     for (line, want) in cases {
         let v: serde_json::Value = serde_json::from_str(line).unwrap();
-        assert_eq!(parse_call_tool_result(&v).unwrap_err(), want, "输入：{line}");
+        assert_eq!(
+            parse_call_tool_result(&v).unwrap_err(),
+            want,
+            "输入：{line}"
+        );
     }
     // 非 text 类型不强求 text（image 的 data / mimeType 归 F4c）。
     let v = json!({"content":[{"type":"image","data":"AAAA"}]});
@@ -548,10 +631,22 @@ fn b4回归_content数组里的项形状逐条严查() {
 #[test]
 fn 补强_error字段存在性与类型分流() {
     for (line, want) in [
-        (r#"{"jsonrpc":"2.0","id":1,"error":{"message":"x"}}"#, CodecError::MissingField("error.code")),
-        (r#"{"jsonrpc":"2.0","id":1,"error":{"code":"-1","message":"x"}}"#, CodecError::BadField("error.code")),
-        (r#"{"jsonrpc":"2.0","id":1,"error":{"code":-1}}"#, CodecError::MissingField("error.message")),
-        (r#"{"jsonrpc":"2.0","id":1,"error":{"code":-1,"message":123}}"#, CodecError::BadField("error.message")),
+        (
+            r#"{"jsonrpc":"2.0","id":1,"error":{"message":"x"}}"#,
+            CodecError::MissingField("error.code"),
+        ),
+        (
+            r#"{"jsonrpc":"2.0","id":1,"error":{"code":"-1","message":"x"}}"#,
+            CodecError::BadField("error.code"),
+        ),
+        (
+            r#"{"jsonrpc":"2.0","id":1,"error":{"code":-1}}"#,
+            CodecError::MissingField("error.message"),
+        ),
+        (
+            r#"{"jsonrpc":"2.0","id":1,"error":{"code":-1,"message":123}}"#,
+            CodecError::BadField("error.message"),
+        ),
     ] {
         assert_eq!(decode_line(line).unwrap_err(), want, "输入：{line}");
     }
@@ -564,8 +659,7 @@ fn 补强_tools与inputschema形状分流() {
         CodecError::MissingField("tools")
     );
     for bad in ["123", "null", "{}", "\"oops\""] {
-        let v: serde_json::Value =
-            serde_json::from_str(&format!(r#"{{"tools":{bad}}}"#)).unwrap();
+        let v: serde_json::Value = serde_json::from_str(&format!(r#"{{"tools":{bad}}}"#)).unwrap();
         assert_eq!(
             parse_tools_list(&v).unwrap_err(),
             CodecError::BadField("tools"),
@@ -621,10 +715,13 @@ fn 补强_capabilities与protocolversion形状分流() {
 #[test]
 fn 补强_初始化响应解析失败时理由不被吞() {
     // 与 B1 同族：状态机不能把 parse 的具体错误折成一句笼统文案。
-    let line = r#"{"jsonrpc":"2.0","id":1,"result":{"protocolVersion":"2025-06-18","capabilities":123}}"#;
+    let line =
+        r#"{"jsonrpc":"2.0","id":1,"result":{"protocolVersion":"2025-06-18","capabilities":123}}"#;
     let (phase, _) = initialize_request();
     let (next, outs) = on_incoming(&phase, decode_line(line).unwrap());
-    let Phase::Failed(s) = next else { panic!("应当失败") };
+    let Phase::Failed(s) = next else {
+        panic!("应当失败")
+    };
     assert!(s.contains("capabilities"), "实际文案：{s}");
     assert!(outs.is_empty());
 }
@@ -669,7 +766,9 @@ fn a1回归_capabilities_tools值非法不驱动握手完成() {
         });
         let (phase, _) = initialize_request();
         let (next, outs) = on_incoming(&phase, decode_line(&v.to_string()).unwrap());
-        let Phase::Failed(s) = next else { panic!("tools={bad} 竟让握手完成") };
+        let Phase::Failed(s) = next else {
+            panic!("tools={bad} 竟让握手完成")
+        };
         assert!(s.contains("capabilities.tools"), "实际文案：{s}");
         assert!(outs.is_empty());
     }
@@ -688,7 +787,8 @@ fn a1回归_capabilities_tools值非法不驱动握手完成() {
         assert_eq!(outs.len(), 1);
     }
     // 缺 tools key 仍是「没声明工具能力」，不是「字段类型非法」。
-    let line = r#"{"jsonrpc":"2.0","id":1,"result":{"protocolVersion":"2025-06-18","capabilities":{}}}"#;
+    let line =
+        r#"{"jsonrpc":"2.0","id":1,"result":{"protocolVersion":"2025-06-18","capabilities":{}}}"#;
     let (phase, _) = initialize_request();
     let (next, _) = on_incoming(&phase, decode_line(line).unwrap());
     assert_eq!(next, Phase::Failed("这个服务没有声明工具能力".into()));

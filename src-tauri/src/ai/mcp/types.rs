@@ -37,10 +37,7 @@ pub enum Incoming {
         params: Option<Value>,
     },
     /// server→client 请求（sampling / elicitation / roots）：一期明确拒收，理由带方法名。
-    ServerRequest {
-        id: Id,
-        method: String,
-    },
+    ServerRequest { id: Id, method: String },
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -59,7 +56,10 @@ pub enum Outgoing {
 #[derive(Debug, Clone, PartialEq)]
 pub enum CodecError {
     EmptyLine,
-    LineTooLong { bytes: usize, max: usize },
+    LineTooLong {
+        bytes: usize,
+        max: usize,
+    },
     Parse(String),
     BatchNotSupported,
     InvalidShape(String),

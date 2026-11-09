@@ -104,7 +104,10 @@ mod tests {
 
     #[test]
     fn 空串与零上限() {
-        assert_eq!(truncate_by_points("", MCP_RESULT_MAX), (String::new(), false));
+        assert_eq!(
+            truncate_by_points("", MCP_RESULT_MAX),
+            (String::new(), false)
+        );
         assert_eq!(truncate_by_points("abc", 0), (String::new(), true));
     }
 

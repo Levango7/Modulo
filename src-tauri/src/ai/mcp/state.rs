@@ -52,13 +52,9 @@ pub fn on_incoming(phase: &Phase, msg: Incoming) -> (Phase, Vec<Outgoing>) {
                 let info = match result.as_ref() {
                     Some(v) => match super::views::parse_initialize_result(v) {
                         Ok(i) => i,
-                        Err(e) => {
-                            return (Phase::Failed(format!("初始化响应不合法：{e}")), vec![])
-                        }
+                        Err(e) => return (Phase::Failed(format!("初始化响应不合法：{e}")), vec![]),
                     },
-                    None => {
-                        return (Phase::Failed("初始化响应里没有 result".to_string()), vec![])
-                    }
+                    None => return (Phase::Failed("初始化响应里没有 result".to_string()), vec![]),
                 };
                 if !SUPPORTED_VERSIONS.contains(&info.protocol_version.as_str()) {
                     return (
@@ -70,7 +66,10 @@ pub fn on_incoming(phase: &Phase, msg: Incoming) -> (Phase, Vec<Outgoing>) {
                     );
                 }
                 if !info.has_tools {
-                    return (Phase::Failed("这个服务没有声明工具能力".to_string()), vec![]);
+                    return (
+                        Phase::Failed("这个服务没有声明工具能力".to_string()),
+                        vec![],
+                    );
                 }
                 (
                     Phase::Ready,
