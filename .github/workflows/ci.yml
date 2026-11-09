@@ -173,7 +173,10 @@ jobs:
   # 去掉 rust-cache 只是变慢，去掉 rust-toolchain 则要确认 runner 预装的工具链带 clippy+rustfmt。
   desktop:
     name: 桌面壳（Rust 门禁 + 真打包）
-    runs-on: windows-latest
+    # 钉 2022：windows-latest 已切到 win25-vs2026，而该镜像**不含 NSIS**
+    # （2026-11-10 实测：镜像 readme 只列 Chocolatey 2.7.5；2022 镜像有 NSIS 3.10）。
+    # 自检缺 makensis 就红是刻意设计（拿不到编译器不许空跑），所以环境要显式钉住。
+    runs-on: windows-2022
     timeout-minutes: 35
     steps:
       - uses: actions/checkout@v4
@@ -231,8 +234,10 @@ jobs:
       - name: NSIS 卸载钩子自检（宏真的会清「删数据」状态）
         shell: pwsh
         run: |
-          # runner 镜像文档写着装了 NSIS 3.10，但落点不一定是 Program Files（可能只有 choco shim）。
-          # 先查 PATH，再查两个常见目录，最后用 choco 装一次兜底 —— 都拿不到就红，不许空跑。
+          # 镜像钉在 windows-2022（该镜像含 NSIS 3.10；win25-vs2026 不含，2026-11-10 实测）。
+          # 落点不一定是 Program Files（可能只有 choco shim）：先查 PATH，再查两个常见目录，
+          # 最后用 choco 装一次兜底 —— 兜底失败要**说出来**（旧写法 | Out-Null 把原因吞了），
+          # 都拿不到就红，不许空跑。
           $findMk = {
             $cmd = Get-Command makensis -ErrorAction SilentlyContinue
             if ($cmd) { return $cmd.Source }
@@ -246,7 +251,8 @@ jobs:
           $mk = & $findMk
           if (-not $mk) {
             Write-Output 'PATH 与常见目录都没有 makensis，尝试 choco install nsis …'
-            choco install nsis -y --no-progress | Out-Null
+            choco install nsis -y --no-progress
+            if ($LASTEXITCODE -ne 0) { Write-Error "choco install nsis 失败（退出码 $LASTEXITCODE）"; exit 1 }
             $mk = & $findMk
           }
           if (-not $mk) { Write-Error 'runner 上没有 makensis（拿不到编译器就拒绝空跑）'; exit 1 }
@@ -298,7 +304,8 @@ jobs:
     if: >
       (github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')) ||
       (github.event_name == 'workflow_dispatch' && inputs.release_tag != '')
-    runs-on: windows-latest
+    # 与桌面壳同一个镜像（NSIS 3.10 在 2022 上；2025 镜像不含 NSIS）。
+    runs-on: windows-2022
     timeout-minutes: 60
     # 需要写权限才能用 gh 创建 Release；Secrets 里得先配 TAURI_SIGNING_PRIVATE_KEY。
     # `id-token: write` 是给 npm 的 OIDC 用的：2026-10-20 起它一身二责 ——
