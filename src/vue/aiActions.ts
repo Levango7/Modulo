@@ -213,6 +213,44 @@ export interface RunResult {
 }
 
 /**
+ * 「工具结果」回喂（v1.2 的 agent 循环）：动作执行完之后，把结果作为一条**合成 user 消息**
+ * 发回给模型，让它接着干（继续提议或收尾）—— 主流 agent 应用里这叫 tool result，
+ * 本仓协议只有 user / assistant / system 三种角色，所以用这条带标记的 user 消息承载。
+ *
+ * 两个后果都要照顾到：① 界面按标记把它渲染成"工具结果"小条，而不是用户气泡
+ * （用户没说过这句话）；② 它会被 Rust 单点落盘进历史（role=user 照存）——
+ * 回填时同一条标记规则让它的样子保持一致。
+ */
+export const ACTION_RESULT_MARK = '（工具结果）'
+
+/** 逐条执行结果的人话行（成功 / 失败 / 因前一步失败而没执行） */
+export function actionResultLines(
+  actions: readonly AiAction[],
+  run: RunResult,
+  label: (a: AiAction) => string,
+): string[] {
+  return actions.map((a, i) => {
+    if (i < run.done) return `${label(a)}：成功`
+    if (i === run.done && !run.ok) return `${label(a)}：失败（${run.error ?? '原因未知'}）`
+    return `${label(a)}：没有执行（前一步失败了）`
+  })
+}
+
+/** 执行结果 → 回喂文本（纯函数，逐字可测） */
+export function actionResultText(lines: readonly string[]): string {
+  return [
+    `${ACTION_RESULT_MARK}刚才你提议的动作已经按用户的点头执行了：`,
+    ...lines.map((l) => `- ${l}`),
+    '如果还有需要做的，继续按格式提议（不要重复已经做过的）；都完成了就用一两句话收尾。',
+  ].join('\n')
+}
+
+/** 这条 user 消息是不是工具结果（界面渲染与回填都用它） */
+export function isActionResult(content: string): boolean {
+  return content.trimStart().startsWith(ACTION_RESULT_MARK)
+}
+
+/**
  * 顺次执行提议。**首败即停**（与工作流同一条纪律）：后面几条的前提可能依赖前面，
  * 前一条没落成还往下走，只会留下一串半成品。已执行的不回滚 —— 撤销是用户的事
  * （所有动作都经过既有写入口，Ctrl+Z 撤得掉）。
@@ -261,6 +299,7 @@ export function actionPrompt(): string {
     `- \`${ACTION_PREFIX} {"type":"countdown.set","label":"纪念日","date":"2026-12-01"}\` —— 设一张倒数日（名字 + 日期）；`,
     `- \`${ACTION_PREFIX} {"type":"habit.check"}\` —— 给习惯卡打上今天的卡。`,
     `一次最多 ${ACTION_MAX_PER_REPLY} 个。动作只是提议 —— 用户点「照做」才会生效，所以正文里照常把你要做的事说清楚；不需要动手就不要写动作行。`,
+    `动作执行之后，系统会把结果以一条「${ACTION_RESULT_MARK}」开头的消息发回来 —— 收到它就接着干：还有要做的继续按格式提议（别重复已经做过的），都完成了就用一两句话收尾。`,
     `常用卡 id：${CURATED_IDS.join(' / ')}（其它卡也能摆，摆不上会说明）。`,
   ].join('\n')
 }

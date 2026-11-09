@@ -9,10 +9,14 @@ import { describe, expect, it } from 'vitest'
 import {
   actionLabel,
   actionPrompt,
+  actionResultLines,
+  actionResultText,
   ACTION_CENTS_MAX,
   ACTION_MAX_PER_REPLY,
   ACTION_NOTE_MAX,
+  ACTION_RESULT_MARK,
   ACTION_TEXT_MAX,
+  isActionResult,
   parseActions,
   runActions,
   stripActionLines,
@@ -182,6 +186,40 @@ describe('AI 动作：提议怎么执行（首败即停）', () => {
     expect(r.done).toBe(1)
     expect(r.error).toContain('盘子满了')
     expect(seen).toEqual(['一条'])
+  })
+})
+
+describe('AI 动作 v1.2：工具结果回喂（agent 循环）', () => {
+  const acts: AiAction[] = [
+    { type: 'todo.add', text: '买牛奶' },
+    { type: 'ledger.add', cents: 100, category: 'a', date: '2026-11-09' },
+    { type: 'habit.check' },
+  ]
+
+  it('actionResultLines：成功 / 失败 / 因前一步失败而没执行 三种行', () => {
+    const ok = actionResultLines(acts, { ok: true, done: 3 }, (a) => actionLabel(a))
+    expect(ok).toEqual([
+      '加一条待办：买牛奶：成功',
+      '记一笔：¥1.00 · a：成功',
+      '给习惯卡打上今天的卡：成功',
+    ])
+    const bad = actionResultLines(acts, { ok: false, done: 1, error: '盘子满了' }, (a) => actionLabel(a))
+    expect(bad[1]).toContain('失败（盘子满了）')
+    expect(bad[2]).toContain('没有执行（前一步失败了）')
+  })
+
+  it('actionResultText：带标记、逐条列出、明确让它继续或收尾', () => {
+    const t = actionResultText(['甲：成功'])
+    expect(t.startsWith(ACTION_RESULT_MARK)).toBe(true)
+    expect(t).toContain('- 甲：成功')
+    expect(t).toContain('不要重复已经做过的')
+  })
+
+  it('isActionResult：认标记（容忍行首空白），不误伤用户自己的话', () => {
+    expect(isActionResult(`${ACTION_RESULT_MARK}刚才…`)).toBe(true)
+    expect(isActionResult(`   ${ACTION_RESULT_MARK}刚才…`)).toBe(true)
+    expect(isActionResult('（工具结果的）这是我自己打的字')).toBe(false)
+    expect(isActionResult('普通提问')).toBe(false)
   })
 })
 

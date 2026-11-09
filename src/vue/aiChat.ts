@@ -62,6 +62,8 @@ export interface ChatTurn {
   actionsState?: 'pending' | 'done' | 'dismissed'
   /** 「已照做」那行的说明（含"做了一半"的实况） */
   actionsNote?: string
+  /** v1.2：这一轮请求用到的引用快照 —— 「照做」之后的自动续轮沿用它（@卡片 的上下文不丢） */
+  usedChips?: CardChoice[]
 }
 
 /** Rust `AiChunk`（camelCase，`error` 为 null 表示正常帧） */

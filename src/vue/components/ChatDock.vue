@@ -53,7 +53,7 @@ import {
 } from '../aiChat'
 import { docChoices, excerptWithDocs } from '../knowledge'
 import type { KnowledgeApi } from '../useKnowledge'
-import { actionLabel, parseActions, runActions } from '../aiActions'
+import { actionLabel, actionResultLines, actionResultText, isActionResult, parseActions, runActions } from '../aiActions'
 import { localDay } from '../reminders'
 import { habitOf, stickyOf, writeCountdown, writeHabit, writeSticky } from '../instanceData'
 
@@ -326,22 +326,20 @@ function missingProvider(): boolean {
   return true
 }
 
-async function send(): Promise<void> {
-  const text = draft.value.trim()
+/**
+ * 真正发出一轮（用户手打的 `send` 与「照做」之后的自动续轮共用）。
+ * 引用与附件都是**调用方在那一刻的快照**：发出去之后用户再删，不改已发出的请求；
+ * 续轮沿用产生那批动作的那一轮的引用快照（`usedChips` 存在助手占位上）—— @卡片 的
+ * 上下文不在中途丢掉。
+ */
+async function runTurn(text: string, usedChips: CardChoice[], usedFiles: MountedFile[]): Promise<void> {
   if (!text || busy.value) return
   if (missingProvider()) return
-  // 引用块与附件都用这一轮开始时的快照：发出去之后用户再删，不改已发出的请求
-  const usedChips = chips.value.slice()
-  const usedFiles = files.value.slice()
   turns.value = [
     ...turns.value,
     { role: 'user', content: text, status: 'done', error: null },
-    { role: 'assistant', content: '', status: 'streaming', error: null },
+    { role: 'assistant', content: '', status: 'streaming', error: null, usedChips },
   ]
-  draft.value = ''
-  chips.value = []
-  picker.value = []
-  notice.value = ''
   busy.value = true
   const token = ++streamToken
   const idx = turns.value.length - 1
@@ -382,6 +380,19 @@ async function send(): Promise<void> {
     busy.value = false
     streamConv.value = null
   }
+}
+
+async function send(): Promise<void> {
+  const text = draft.value.trim()
+  if (!text || busy.value) return
+  // 引用块与附件都用这一轮开始时的快照：发出去之后用户再删，不改已发出的请求
+  const usedChips = chips.value.slice()
+  const usedFiles = files.value.slice()
+  draft.value = ''
+  chips.value = []
+  picker.value = []
+  notice.value = ''
+  await runTurn(text, usedChips, usedFiles)
 }
 
 /** 卡的中文名（提议列表里的人话）；查不到落回 id */
@@ -442,6 +453,14 @@ function runActs(i: number): void {
       ? `做了一半：第 ${r.done + 1} 个没做成（${r.error}）；前面 ${r.done} 个已经生效 —— Ctrl+Z 可以撤销`
       : `没做成：${r.error}`
   turns.value[i] = { ...t, actionsState: 'done', actionsNote: note }
+  // v1.2（agent 循环）：把逐条结果回喂给模型，让它接着往下办 —— 用户点「照做」的语义
+  // 就是"办吧"，办完不汇报等于让 agent 断在半路。**只续这一轮**：它再提议，还是要等
+  // 下一次点头（循环由"确认"这件事自然限流，不是无限自动跑）。
+  void runTurn(
+    actionResultText(actionResultLines(t.actions, r, (a) => actionLabel(a, titleOf))),
+    t.usedChips ?? [],
+    [],
+  )
 }
 
 /** 「算了」：只是把提议标掉，不写任何东西 */
@@ -573,7 +592,10 @@ onBeforeUnmount(() => {
           :data-status="t.status"
           :data-kind="t.summary ? 'summary' : undefined"
         >
-          <p class="bubble">
+          <p v-if="t.role === 'user' && isActionResult(t.content)" class="tool-note" data-chat-tool-note>
+            工具结果已回喂给模型（它接着往下办）
+          </p>
+          <p v-else class="bubble">
             <span v-if="t.summary" class="summary-tag" data-chat-summary-tag>摘要 · 不保存</span>
             <span v-if="t.content">{{ t.content }}</span>
             <span v-else-if="t.status === 'streaming'" class="muted">{{ t.summary ? '摘要中…' : '…' }}</span>
@@ -904,6 +926,13 @@ onBeforeUnmount(() => {
   margin: 6px 0 0;
   font-size: 12px;
   color: var(--text-3);
+}
+/* 「工具结果」回喂的合成消息（v1.2）：不是用户说的话，渲染成一条小注而不是气泡 */
+.tool-note {
+  margin: 0;
+  font-size: 12px;
+  color: var(--text-3);
+  font-style: italic;
 }
 .rows {
   margin: 0;
