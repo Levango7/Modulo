@@ -379,23 +379,28 @@ mod tests {
 
     #[test]
     fn 配置点名_model_onnx_不被_int8_抢注() {
-        // pyannote 归档解压后两个 onnx 并存 —— 这是本模块唯一怕踩的坑，钉死它
+        // pyannote 归档解压后两个 onnx 并存 —— 这是本模块唯一怕踩的坑，钉死它。
+        // fixture 按注册表真实布局建（DIAR_SEG 是 Archive 件、DIAR_EMB 是 Single 件）；
+        // 旧版写「seg/emb.onnx」是从未对上 target() 的假布局，CI 首跑即红。
         let d = std::env::temp_dir().join(format!("modulo-diar-cfg-{}", std::process::id()));
         let _ = fs::remove_dir_all(&d);
-        fs::create_dir_all(d.join("seg")).unwrap();
-        fs::write(d.join("seg").join("model.onnx"), b"fp32").unwrap();
-        fs::write(d.join("seg").join("model.int8.onnx"), b"int8").unwrap();
-        fs::write(d.join("emb.onnx"), b"emb").unwrap();
+        let seg_dir = asr_models::target(&d, &asr_models::DIAR_SEG);
+        fs::create_dir_all(&seg_dir).unwrap();
+        fs::write(seg_dir.join("model.onnx"), b"fp32").unwrap();
+        fs::write(seg_dir.join("model.int8.onnx"), b"int8").unwrap();
+        let emb_file = asr_models::target(&d, &asr_models::DIAR_EMB);
+        fs::write(&emb_file, b"emb").unwrap();
         let cfg = diar_config(&d).unwrap();
-        assert!(cfg
-            .segmentation
-            .pyannote
-            .model
-            .unwrap()
-            .ends_with("model.onnx"));
-        assert!(cfg.embedding.model.unwrap().ends_with("emb.onnx"));
+        assert_eq!(
+            cfg.segmentation.pyannote.model,
+            Some(seg_dir.join("model.onnx").to_string_lossy().into_owned())
+        );
+        assert_eq!(
+            cfg.embedding.model,
+            Some(emb_file.to_string_lossy().into_owned())
+        );
         // 缺件 → Err（不进 create 拿 None 再猜）
-        let _ = fs::remove_file(d.join("seg").join("model.onnx"));
+        let _ = fs::remove_file(seg_dir.join("model.onnx"));
         assert!(diar_config(&d).is_err());
         let _ = fs::remove_dir_all(&d);
     }
