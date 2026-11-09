@@ -11,6 +11,7 @@ import { CRON_DOC_KEY } from './cron'
 import { SKILL_DOC_KEY } from './skills'
 import { WORKFLOW_DOC_KEY } from './workflow'
 import { MEMORY_DOC_KEY } from './aiMemory'
+import { MCP_DOC_KEY } from './mcp'
 
 /**
  * 桌面壳的数据落盘。
@@ -91,6 +92,10 @@ export const DATA_KEYS: readonly string[] = [
   // 与资料同一条纪律：漏登记的症状是"它记住了、重启就忘了"。
   // 不进备份/同步（显式清单）：记忆是"这台机器上你跟它的相处记录"，见 §12.73。
   MEMORY_DOC_KEY,
+  // 「MCP 服务」（PR-F4a）：登记的本机 server 配置（名字 / 命令 / argv / 启停）。
+  // 同一条纪律：漏登记的症状是"配好了、重启就没了"。
+  // 不进备份/同步（显式清单）：命令与参数绑定这台机器装了什么，搬走多半跑不起来，见 §12.74。
+  MCP_DOC_KEY,
 ]
 
 
