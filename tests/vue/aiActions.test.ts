@@ -168,11 +168,29 @@ describe('AI 动作：提议怎么执行（首败即停）', () => {
     { type: 'todo.add', text: '三条' },
   ]
 
-  it('全部成功：done 数对上、调用顺序就是提议顺序', () => {
+  it('全部成功：done 数对上、调用顺序就是提议顺序、无产出时 values 占位 undefined', () => {
     const seen: string[] = []
     const r = runActions(acts, (a) => void seen.push(a.type === 'todo.add' ? a.text : a.type))
-    expect(r).toEqual({ ok: true, done: 3 })
+    expect(r).toEqual({ ok: true, done: 3, values: [undefined, undefined, undefined] })
     expect(seen).toEqual(['一条', '两条', '三条'])
+  })
+
+  it('读类动作的产出进 values，并原样进回喂文本（写动作没有产出 = 成功）', () => {
+    const planned: AiAction[] = [
+      { type: 'context.read', moduleId: 'todo' },
+      { type: 'todo.add', text: '买牛奶' },
+      { type: 'context.read' },
+    ]
+    const r = runActions(planned, (a) => {
+      if (a.type === 'context.read') return a.moduleId ? '未完成：交周报' : '待办、便签'
+    })
+    expect(r.ok).toBe(true)
+    expect(r.done).toBe(3)
+    expect(r.values).toEqual(['未完成：交周报', undefined, '待办、便签'])
+    const lines = actionResultLines(planned, r, (a) => actionLabel(a))
+    expect(lines[0]).toBe('看一眼「todo」卡：未完成：交周报')
+    expect(lines[1]).toBe('加一条待办：买牛奶：成功')
+    expect(lines[2]).toBe('看一眼版面清单：待办、便签')
   })
 
   it('第二个抛：第一个不回滚、第三个不再跑，错误带出来', () => {
@@ -185,7 +203,33 @@ describe('AI 动作：提议怎么执行（首败即停）', () => {
     expect(r.ok).toBe(false)
     expect(r.done).toBe(1)
     expect(r.error).toContain('盘子满了')
+    expect(r.values).toEqual([undefined])
     expect(seen).toEqual(['一条'])
+  })
+})
+
+describe('AI 动作 v1.3：read 类（先看再动）', () => {
+  it('context.read：无 moduleId = 看版面清单；有则过注册表白名单；未知卡 id 拒收', () => {
+    expect(parseActions(act({ type: 'context.read' }), ctx()).actions).toEqual([{ type: 'context.read' }])
+    expect(parseActions(act({ type: 'context.read', moduleId: 'todo' }), ctx()).actions).toEqual([
+      { type: 'context.read', moduleId: 'todo' },
+    ])
+    const bad = parseActions(act({ type: 'context.read', moduleId: 'nonexistent' }), ctx())
+    expect(bad.actions).toEqual([])
+    expect(bad.bad[0]).toContain('注册表里没有')
+  })
+
+  it('人话：看一眼版面清单 / 看一眼「待办」卡（卡名查不到落回 id）', () => {
+    expect(actionLabel({ type: 'context.read' })).toBe('看一眼版面清单')
+    expect(actionLabel({ type: 'context.read', moduleId: 'todo' }, () => '待办')).toBe('看一眼「待办」卡')
+    expect(actionLabel({ type: 'context.read', moduleId: 'todo' })).toBe('看一眼「todo」卡')
+  })
+
+  it('actionPrompt：read 的两种格式在，且点名"只读、结果会回给你"', () => {
+    const p = actionPrompt()
+    expect(p).toContain('context.read')
+    expect(p).toContain('只读')
+    expect(p).toContain('会随执行结果回给你')
   })
 })
 

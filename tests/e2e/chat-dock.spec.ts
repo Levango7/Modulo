@@ -947,4 +947,40 @@ describe.skipIf(skip)('聊天任脊柱（E1）', () => {
     expect(sys2.content).toContain('不是当前指令')
     expect(errs, `页面不该有报错：${errs.join(' | ')}`).toEqual([])
   }, 90_000)
+
+  it('AI 动手 v1.3（第十六笔）：read 类 —— 先看再动（看到的内容回喂给模型，版面一动不动）', async () => {
+    const errs: string[] = []
+    const replies = [
+      '我先看一眼待办卡再说。\n@@act {"type":"context.read","moduleId":"todo"}',
+      '看完了：待办里有一条「交周报」，我帮你挂到周五。',
+    ]
+    const page = await open({ replies }, errs)
+    await expand(page)
+    const before = await page.evaluate(() => document.querySelectorAll('.cell').length)
+    await ask(page, '待办上都有啥？')
+    await page.waitForSelector('[data-ai-act-run]', { timeout: 15000 })
+    expect(await text(page, '[data-ai-act]')).toBe('看一眼「待办」卡')
+    await click(page, '[data-ai-act-run]')
+
+    // 自动续轮：读的产出随结果回喂（第二个请求的最后一条消息带着它）
+    await page.waitForSelector('[data-chat-tool-note]', { timeout: 15000 })
+    await page.waitForFunction(
+      () =>
+        [...document.querySelectorAll('[data-role="assistant"]')].some((el) => el.textContent?.includes('看完了')),
+      { timeout: 15000 },
+    )
+    const sent = (await calls(page)).filter((c) => c.cmd === 'ai_chat')
+    expect(sent, '读之后自动续了一轮 = 两次模型调用').toHaveLength(2)
+    const last = sent[1].args.messages as { role: string; content: string }[]
+    expect(last.at(-1)?.content).toContain('（工具结果）')
+    expect(last.at(-1)?.content).toContain('看一眼「待办」卡：')
+    expect(last.at(-1)?.content).toContain('交周报')
+    // 只读不写：版面卡数没动，盘上待办条数没动
+    expect(await page.evaluate(() => document.querySelectorAll('.cell').length)).toBe(before)
+    const stored = (await page.evaluate(() =>
+      JSON.parse(localStorage.getItem('modulo.__stubdoc.modulo.carddata.v1') ?? '{}'),
+    )) as { todos?: { text: string }[] }
+    expect(stored.todos).toHaveLength(1)
+    expect(errs, `页面不该有报错：${errs.join(' | ')}`).toEqual([])
+  }, 90_000)
 })
