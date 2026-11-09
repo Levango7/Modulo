@@ -233,6 +233,60 @@ describe('AI 动作 v1.3：read 类（先看再动）', () => {
   })
 })
 
+describe('AI 动作 v1.4：多实例定点（instanceId）', () => {
+  const instCtx = (): ActionContext => ({
+    ...ctx(),
+    moduleIds: ['todo', 'sticky', 'ledger', 'clock', 'habit'],
+    instances: [
+      { id: 'todo', module: 'todo' },
+      { id: 'habit', module: 'habit' },
+      { id: 'habit:2', module: 'habit' },
+    ],
+  })
+
+  it('定点写：instanceId 在清单里就过、不在就整行拒收（缺省逐字不变）', () => {
+    expect(parseActions(act({ type: 'habit.check', instanceId: 'habit:2' }), instCtx()).actions).toEqual([
+      { type: 'habit.check', instanceId: 'habit:2' },
+    ])
+    // 缺省 = 第一实例：不带 instanceId 的解析结果与 v1.3 逐字同形
+    expect(parseActions(act({ type: 'todo.add', text: '买牛奶' }), instCtx()).actions).toEqual([
+      { type: 'todo.add', text: '买牛奶' },
+    ])
+    const bad = parseActions(act({ type: 'habit.check', instanceId: 'habit:9' }), instCtx())
+    expect(bad.actions).toEqual([])
+    expect(bad.bad[0]).toContain('实例清单里没有这张卡')
+  })
+
+  it('context.read 定点读：moduleId 与 instanceId 必须对得上', () => {
+    expect(parseActions(act({ type: 'context.read', instanceId: 'habit:2' }), instCtx()).actions).toEqual([
+      { type: 'context.read', instanceId: 'habit:2' },
+    ])
+    expect(parseActions(act({ type: 'context.read', moduleId: 'habit', instanceId: 'habit:2' }), instCtx()).actions).toEqual([
+      { type: 'context.read', moduleId: 'habit', instanceId: 'habit:2' },
+    ])
+    const mismatch = parseActions(act({ type: 'context.read', moduleId: 'todo', instanceId: 'habit:2' }), instCtx())
+    expect(mismatch.actions).toEqual([])
+    expect(mismatch.bad[0]).toContain('moduleId 与 instanceId 对不上')
+    const unknown = parseActions(act({ type: 'context.read', instanceId: 'nope:1' }), instCtx())
+    expect(unknown.actions).toEqual([])
+    expect(unknown.bad[0]).toContain('实例清单里没有这张卡')
+  })
+
+  it('没有实例清单的旧 ctx：instanceId 拒收（清单为空，不会静默定点到别处）', () => {
+    const bad = parseActions(act({ type: 'habit.check', instanceId: 'habit:2' }), ctx())
+    expect(bad.actions).toEqual([])
+    expect(bad.bad[0]).toContain('实例清单里没有这张卡')
+  })
+
+  it('actionLabel：定点前缀统一 + 定点读的人话', () => {
+    expect(actionLabel({ type: 'habit.check', instanceId: 'habit:2' }, undefined, (id) => `冥想（${id}）`)).toBe(
+      '定点「冥想（habit:2）」 · 给习惯卡打上今天的卡',
+    )
+    expect(actionLabel({ type: 'todo.add', text: '买牛奶', instanceId: 'todo' })).toBe('定点「todo」 · 加一条待办：买牛奶')
+    expect(actionLabel({ type: 'context.read', instanceId: 'habit:2' })).toBe('定点「habit:2」 · 看一眼这张卡')
+  })
+})
+
 describe('AI 动作 v1.2：工具结果回喂（agent 循环）', () => {
   const acts: AiAction[] = [
     { type: 'todo.add', text: '买牛奶' },
@@ -282,9 +336,10 @@ describe('AI 动作：人话与指令', () => {
     expect(actionLabel({ type: 'habit.check' })).toBe('给习惯卡打上今天的卡')
   })
 
-  it('actionPrompt：三种格式、上限数、常用 id 都在，且它自己产出的示例能过解析', () => {
+  it('actionPrompt：可用动作清单、上限数、常用 id、定点写法都在，且它自己产出的示例能过解析', () => {
     const p = actionPrompt()
     expect(p).toContain('addCard')
+    expect(p).toContain('instanceId')
     expect(p).toContain('todo.add')
     expect(p).toContain('ledger.add')
     expect(p).toContain('sticky.append')

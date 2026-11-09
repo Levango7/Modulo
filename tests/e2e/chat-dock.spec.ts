@@ -983,4 +983,37 @@ describe.skipIf(skip)('聊天任脊柱（E1）', () => {
     expect(stored.todos).toHaveLength(1)
     expect(errs, `页面不该有报错：${errs.join(' | ')}`).toEqual([])
   }, 90_000)
+
+  it('AI 动手 v1.4（第十八笔）：多实例定点 —— instanceId 指名写到第二张习惯卡', async () => {
+    const errs: string[] = []
+    const replies = [
+      '给第二张习惯卡打上今天的卡。\n@@act {"type":"habit.check","instanceId":"habit:2"}',
+      '打好了。',
+    ]
+    const page = await open({ twins: true, replies }, errs)
+    await expand(page)
+    await ask(page, '给第二张习惯卡打卡')
+    await page.waitForSelector('[data-ai-act-run]', { timeout: 15000 })
+    expect(await text(page, '[data-ai-act]')).toBe('定点「习惯打卡（habit:2）」 · 给习惯卡打上今天的卡')
+    await click(page, '[data-ai-act-run]')
+    await page.waitForSelector('[data-ai-acts-note]', { timeout: 10000 })
+    const today = new Date()
+    const iso = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`
+    await page.waitForFunction(
+      (day: string) =>
+        ((JSON.parse(localStorage.getItem('modulo.__stubdoc.modulo.carddata.v1') ?? '{}') as {
+          byInstance?: Record<string, { habit?: { days?: string[] } }>
+        }).byInstance?.['habit:2']?.habit?.days ?? []).includes(day),
+      { timeout: 10000 },
+      iso,
+    )
+    const stored = (await page.evaluate(() =>
+      JSON.parse(localStorage.getItem('modulo.__stubdoc.modulo.carddata.v1') ?? '{}'),
+    )) as { habit?: { days?: string[] }; byInstance?: Record<string, { habit?: { name?: string; days?: string[] } }> }
+    // 定点：今天打在「冥想」那张上，第一张「跑步」一动不动
+    expect(stored.byInstance?.['habit:2']?.habit?.days).toContain(iso)
+    expect(stored.byInstance?.['habit:2']?.habit?.name).toBe('冥想')
+    expect(stored.habit?.days).not.toContain(iso)
+    expect(errs, `页面不该有报错：${errs.join(' | ')}`).toEqual([])
+  }, 90_000)
 })
