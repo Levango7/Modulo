@@ -333,9 +333,10 @@ mod tests {
         // 中点 2.5s → spk0；7.5s → spk1
         let out = assign_speakers(&[(0, 5_000), (5_000, 10_000)], &segs);
         assert_eq!(out, vec![Some(0), Some(1)]);
-        // 一句跨两段：中点（而非起点）决定归属 —— 这是选实现时不选重叠比例法的理由所在
+        // 一句跨两段：中点（而非起点）决定归属 —— 起点 4.0s 在 seg0、中点 5.0s 落
+        // seg1（右开端边界），这是选实现时不选重叠比例法的理由所在
         let out = assign_speakers(&[(4_000, 6_000)], &segs);
-        assert_eq!(out, vec![Some(0)]);
+        assert_eq!(out, vec![Some(1)]);
         // 中点落在段间缝隙（diarization 的 min_duration_off 留下的洞）→ None
         let out = assign_speakers(&[(4_900, 5_100)], &[seg(0.0, 4.9, 0), seg(5.2, 10.0, 1)]);
         assert_eq!(out, vec![None]);
