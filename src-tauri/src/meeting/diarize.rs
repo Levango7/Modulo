@@ -144,15 +144,17 @@ pub fn diar_config(root: &Path) -> Result<sherpa_onnx::OfflineSpeakerDiarization
 
 /// 把落盘的 PCM 字节还原成 f32 样本。长度不是 4 的整数倍 = 文件坏了（如实说，不猜）。
 pub fn pcm_to_samples(bytes: &[u8]) -> Result<Vec<f32>, String> {
-    if bytes.len() % 4 != 0 {
+    if !bytes.len().is_multiple_of(4) {
         return Err(format!(
             "录音文件长度 {} 不是 4 字节的整数倍（f32 采样），这场的声音还原不了",
             bytes.len()
         ));
     }
     Ok(bytes
-        .chunks_exact(4)
-        .map(|c| f32::from_le_bytes([c[0], c[1], c[2], c[3]]))
+        .as_chunks::<4>()
+        .0
+        .iter()
+        .map(|c| f32::from_le_bytes(*c))
         .collect())
 }
 
