@@ -75,7 +75,8 @@ pub fn meeting_start(
 
     let id = session_store::new_id();
     let app2 = app.clone();
-    let worker = thread::spawn(move || run_worker(app2, engine, capture, id.clone()));
+    let worker_id = id.clone();
+    let worker = thread::spawn(move || run_worker(app2, engine, capture, worker_id));
 
     let s = Session {
         id: id.clone(),

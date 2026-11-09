@@ -188,17 +188,16 @@ fn run_diarize(pcm: &Path, root: &Path) -> RunOutcome {
         }
     };
     match d.process(&samples) {
-        Some(r) => Ok(r
-            .sort_by_start_time()
-            .into_iter()
-            .map(|s| DiarSeg {
-                start: s.start,
-                end: s.end,
-                speaker: s.speaker,
-            })
-            .collect())
-        .map(RunOutcome::Done)
-        .unwrap_or_else(|| RunOutcome::Fail("说话人分离跑失败了，这场先不标说话人".to_string())),
+        Some(r) => RunOutcome::Done(
+            r.sort_by_start_time()
+                .into_iter()
+                .map(|s| DiarSeg {
+                    start: s.start,
+                    end: s.end,
+                    speaker: s.speaker,
+                })
+                .collect(),
+        ),
         None => RunOutcome::Fail("说话人分离跑失败了，这场先不标说话人".to_string()),
     }
 }
