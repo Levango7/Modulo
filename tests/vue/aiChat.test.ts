@@ -16,6 +16,7 @@ import {
   excerptFor,
   filesSummary,
   filterChoices,
+  fullContentFor,
   historyWhen,
   mentionQuery,
   outgoingFromTurns,
@@ -447,6 +448,82 @@ describe('卡片正文摘录（只读用户真写进去的字）', () => {
     const long = excerptFor(choice({ module: 'sticky', id: 'sticky' }), source({ sticky: 'x'.repeat(900) }))
     expect(long.length).toBe(401)
     expect(long.endsWith('…')).toBe(true)
+  })
+})
+
+describe('读全卡（v1.5）：与摘录分开，同一份数据、不同的量', () => {
+  it('便签读全文（摘录只到 400 字），且按实例取', () => {
+    const long = 'y'.repeat(900)
+    expect(fullContentFor(choice({ module: 'sticky', id: 'sticky' }), source({ sticky: long }))).toBe(long)
+    expect(
+      fullContentFor(
+        choice({ module: 'sticky', id: 'sticky:2' }),
+        source({ sticky: '第一张', byInstance: { 'sticky:2': { sticky: '第二张' } } }),
+      ),
+    ).toBe('第二张')
+  })
+
+  it('待办逐条列出（含已完成），不是摘录那种「前 8 条未完成」', () => {
+    const todos = [
+      { id: 'a', text: '交周报', done: false },
+      { id: 'b', text: '买牛奶', done: true },
+      ...Array.from({ length: 12 }, (_, i) => ({ id: `t${i}`, text: `第 ${i} 条`, done: false })),
+    ]
+    const full = fullContentFor(choice({ module: 'todo' }), source({ todos }))
+    expect(full).toContain('· 交周报')
+    expect(full).toContain('✓ 买牛奶')
+    expect(full).toContain('· 第 11 条') // 摘录只取前 8 条，全文全都在
+    expect(full.split('\n')).toHaveLength(14)
+  })
+
+  it('四象限 / 速记 / 记账各有自己的全文形状', () => {
+    expect(
+      fullContentFor(
+        choice({ module: 'matrix', id: 'matrix' }),
+        source({
+          matrix: [
+            { id: 'm', text: '季度复盘', q: 'plan', done: true },
+            { id: 'm2', text: '下季度规划', q: 'plan', done: false },
+          ],
+        }),
+      ),
+    ).toBe('✓ 季度复盘\n· 下季度规划')
+    expect(
+      fullContentFor(
+        choice({ module: 'notes', id: 'notes' }),
+        source({
+          notes: [
+            { id: 'n1', title: '会议', body: '周一评审', at: 0 },
+            { id: 'n2', title: '', body: '无标题正文', at: 1 },
+          ],
+        }),
+      ),
+    ).toBe('会议：周一评审\n无标题：无标题正文')
+    // 分类缺省写「未分类」；币种缺省不画符号（两个兜底分支都要走到）
+    expect(
+      fullContentFor(
+        choice({ module: 'ledger', id: 'ledger' }),
+        source({
+          ledger: {
+            symbol: '¥',
+            entries: [
+              { id: 'l1', date: '2026-10-28', cents: 1250, category: '餐饮', note: '团建餐' },
+              { id: 'l2', date: '2026-10-29', cents: 3900, category: '', note: '' },
+            ],
+          },
+        }),
+      ),
+    ).toBe('2026-10-28 餐饮 团建餐 12.50¥\n2026-10-29 未分类  39.00¥')
+    expect(
+      fullContentFor(
+        choice({ module: 'ledger', id: 'ledger' }),
+        source({ ledger: { symbol: '', entries: [{ id: 'l3', date: '2026-10-30', cents: 500, category: '饮料', note: '' }] } }),
+      ),
+    ).toBe('2026-10-30 饮料  5.00')
+  })
+
+  it('没有专门读面的卡落回摘录（机器采来的内容不喂）', () => {
+    expect(fullContentFor(choice({ module: 'weather' }), source())).toBe('')
   })
 })
 

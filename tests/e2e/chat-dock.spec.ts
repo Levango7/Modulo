@@ -39,6 +39,8 @@ const CARD = {
   todos: [{ id: 't1', text: '交周报', done: false }],
   sticky: '周五前把周报发给老板',
 }
+/** 超过摘录上限（200 字）的便签正文 —— v1.5「读全卡」用例要能看出"整篇都读回来了" */
+const LONG_STICKY = `${'这是一段很长的速记，用来验证读全卡不截断。'.repeat(20)}（全文完）`
 /**
  * `twins: true` 时额外摆**两张倒数日 + 两张记账 + 两张习惯卡**（各含一个第二实例）：引用块要报的是
  * 被选中的那一张自己的内容。两个实例的字段都取得出，测试才分得开"读对了那张"与"回落成第一张"。
@@ -88,6 +90,8 @@ interface Seed {
   replies?: string[]
   /** 版面上再加两张倒数日 + 两张记账（见 `TWIN_ITEMS`） */
   twins?: boolean
+  /** 把便签换成一段超过摘录上限的长文（v1.5 读全卡用例） */
+  longSticky?: boolean
   /** `false` = 网页形态：**不装 stub**（不摆 Tauri 内核 ⇒ isDesktop=false），E1 的
    *  web 占位用例靠它拿到真 web 环境 */
   desktop?: boolean
@@ -106,7 +110,8 @@ async function open(seed: Seed = {}, errs?: string[]): Promise<Page> {
   if (errs) page.on('pageerror', (e: unknown) => errs.push(String((e as Error).message).slice(0, 160)))
   await page.setViewport({ width: seed.wide ? 1600 : 1440, height: 900, deviceScaleFactor: 1 })
   const doc = seed.twins ? { ...DOC, items: [...DOC.items, ...TWIN_ITEMS] } : DOC
-  const card = seed.twins ? { ...CARD, ...TWIN_CARD } : CARD
+  const baseCard = seed.twins ? { ...CARD, ...TWIN_CARD } : CARD
+  const card = seed.longSticky ? { ...baseCard, sticky: LONG_STICKY } : baseCard
   const desktop = seed.desktop !== false
   await page.evaluateOnNewDocument(
     (src: string, docJson: string, cardJson: string, aiJson: string | null, histJson: string | null, hang: boolean, reply: string | null, cronJson: string | null, installStub: boolean, workflowJson: string | null, repliesJson: string | null) => {
@@ -1073,6 +1078,70 @@ describe.skipIf(skip)('聊天任脊柱（E1）', () => {
     expect(stored.byInstance?.['habit:2']?.habit?.days).toContain(iso)
     expect(stored.byInstance?.['habit:2']?.habit?.name).toBe('冥想')
     expect(stored.habit?.days).not.toContain(iso)
+    expect(errs, `页面不该有报错：${errs.join(' | ')}`).toEqual([])
+  }, 90_000)
+
+  it('AI 动手 v1.5（第十九笔）：读侧增强 —— 多卡并行读一条回喂 + 读全卡不截断', async () => {
+    const errs: string[] = []
+    const replies = [
+      '帮我看一眼待办和便签，再读一遍便签全文。\n@@act {"type":"context.read","moduleIds":["todo","sticky"]}\n@@act {"type":"context.read","moduleId":"sticky","full":true}',
+      '都看完了。',
+    ]
+    const page = await open({ longSticky: true, replies }, errs)
+    await expand(page)
+    await ask(page, '看看板上的待办和便签')
+    await page.waitForSelector('[data-ai-act-run]', { timeout: 15000 })
+    // 两条提议的人话：多卡一组 + 全卡（默认读法的一行不变）
+    const labels = await page.$$eval('[data-ai-act]', (els) => els.map((e) => e.textContent ?? ''))
+    expect(labels).toEqual(['看一眼 2 张卡（待办、便签）', '看一眼整张「便签」'])
+    await click(page, '[data-ai-act-run]')
+    await page.waitForSelector('[data-chat-tool-note]', { timeout: 15000 })
+    await page.waitForFunction(
+      () => [...document.querySelectorAll('[data-role="assistant"]')].some((el) => el.textContent?.includes('都看完了')),
+      { timeout: 15000 },
+    )
+    // 自动续轮：两次模型调用；第二条的最后一条消息同时带着两次读的产出
+    const sent = (await calls(page)).filter((c) => c.cmd === 'ai_chat')
+    expect(sent, '照做后自动续了一轮 = 两次模型调用').toHaveLength(2)
+    const last = sent[1].args.messages as { role: string; content: string }[]
+    const feed = last.at(-1)?.content ?? ''
+    expect(feed).toContain('（工具结果）')
+    expect(feed).toContain('交周报') // 多卡：待办那张
+    expect(feed).toContain('这是一段很长的速记') // 多卡：便签那张
+    expect(feed).toContain('（全文完）') // 全卡：200 字摘录截不到的尾巴，只有 full 读才带得回来
+    // 只读不写：版面卡数没动
+    expect(await page.evaluate(() => document.querySelectorAll('.cell').length)).toBe(2)
+    expect(errs, `页面不该有报错：${errs.join(' | ')}`).toEqual([])
+  }, 90_000)
+
+  it('AI 动手 v1.6（第二十笔）：按内容找卡 —— query 指名找写到过某个词的卡', async () => {
+    const errs: string[] = []
+    const replies = [
+      '帮我找找哪张卡写到过「周报」。\n@@act {"type":"context.read","query":"周报"}',
+      '找到了。',
+    ]
+    const page = await open({ replies }, errs)
+    await expand(page)
+    await ask(page, '找找哪张卡写到过周报')
+    await page.waitForSelector('[data-ai-act-run]', { timeout: 15000 })
+    expect(await text(page, '[data-ai-act]')).toBe('找一找写有「周报」的卡')
+    await click(page, '[data-ai-act-run]')
+    await page.waitForSelector('[data-chat-tool-note]', { timeout: 15000 })
+    await page.waitForFunction(
+      () => [...document.querySelectorAll('[data-role="assistant"]')].some((el) => el.textContent?.includes('找到了')),
+      { timeout: 15000 },
+    )
+    // 自动续轮：两次模型调用；第二条的最后一条消息带着找卡结果（两张卡都命中）
+    const sent = (await calls(page)).filter((c) => c.cmd === 'ai_chat')
+    expect(sent, '照做后自动续了一轮 = 两次模型调用').toHaveLength(2)
+    const last = sent[1].args.messages as { role: string; content: string }[]
+    const feed = last.at(-1)?.content ?? ''
+    expect(feed).toContain('（工具结果）')
+    expect(feed).toContain('找一找写有「周报」的卡：')
+    expect(feed).toContain('交周报') // 待办那张命中
+    expect(feed).toContain('发给老板') // 便签那张命中
+    // 只读不写：版面卡数没动
+    expect(await page.evaluate(() => document.querySelectorAll('.cell').length)).toBe(2)
     expect(errs, `页面不该有报错：${errs.join(' | ')}`).toEqual([])
   }, 90_000)
 })
