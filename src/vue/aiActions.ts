@@ -35,6 +35,10 @@ export const ACTION_CENTS_MAX = 1_000_000_000
 export const ACTION_LABEL_MAX = 20
 /** 读类动作带回的内容上限（字）—— 回喂文本里每条读只占这么多 */
 export const ACTION_READ_MAX = 200
+/** 一次最多读几张卡（v1.5 多卡并行读） */
+export const ACTION_READ_MULTI_MAX = 5
+/** 读全卡的内容上限（字）—— `full` 也不是无界读（v1.5） */
+export const ACTION_READ_FULL_MAX = 2000
 
 export type AiAction =
   | { type: 'addCard'; moduleId: string; variant?: string }
@@ -46,7 +50,16 @@ export type AiAction =
   | { type: 'memory.add'; text: string }
   // 读类（第十六笔）：**不改任何东西** —— 看一眼版面清单，或某张卡里的内容
   // （第十八笔起可带 instanceId 定点读第二实例；moduleId 与 instanceId 必须指向同一张卡）
-  | { type: 'context.read'; moduleId?: string; instanceId?: string }
+  // （第十九笔起可带 moduleIds 一次读一组、full 读全卡不截断）
+  | {
+      type: 'context.read'
+      moduleId?: string
+      instanceId?: string
+      /** v1.5：一次读这组卡（≤ ACTION_READ_MULTI_MAX），回喂一条结果 */
+      moduleIds?: string[]
+      /** v1.5：读全卡（上限 ACTION_READ_FULL_MAX）；只对 moduleId / moduleIds / instanceId 有效 */
+      full?: boolean
+    }
 
 /**
  * 版面上的一张卡实例（胶水层从板上 items 解析给纯层校验用，第十八笔）。
@@ -216,8 +229,34 @@ function parseLine(raw: string, ctx: ActionContext): AiAction | { bad: string } 
         return { bad: `它想看「${clip(moduleId, 24)}」里的「${clip(instanceId, 24)}」，但这张卡是「${clip(inst.module, 24)}」的实例（moduleId 与 instanceId 对不上）` }
       }
     }
-    if (!moduleId) return instanceId ? { type: 'context.read', instanceId } : { type: 'context.read' }
-    return instanceId ? { type: 'context.read', moduleId, instanceId } : { type: 'context.read', moduleId }
+    // v1.5 多卡并行读：一组卡（moduleIds）与一张卡（moduleId / instanceId）互斥 ——
+    // 混着写就不知道到底读哪张，同「不接受猜」那条纪律。
+    let moduleIds: string[] | undefined
+    if (o.moduleIds !== undefined) {
+      if (!Array.isArray(o.moduleIds)) return { bad: '它想一次读一组卡，但 moduleIds 不是数组（要写成 ["todo","habit"]）' }
+      if (moduleId || instanceId) {
+        return { bad: '它一会儿说读一张卡、一会儿说读一组卡（moduleIds 与 moduleId / instanceId 只能给一个）' }
+      }
+      moduleIds = o.moduleIds.map((x) => str(x).trim()).filter(Boolean)
+      if (!moduleIds.length) return { bad: '它想一次读一组卡，但 moduleIds 是空的' }
+      if (moduleIds.length > ACTION_READ_MULTI_MAX) {
+        return { bad: `它想一次读 ${moduleIds.length} 张卡，太多了（最多 ${ACTION_READ_MULTI_MAX} 张）—— 分开几次看` }
+      }
+      if (new Set(moduleIds).size !== moduleIds.length) {
+        return { bad: `它想一次读一组卡，但里面有重复的卡（${clip(moduleIds.join('、'), 40)}）` }
+      }
+      const unknown = moduleIds.find((id) => !ctx.moduleIds.includes(id))
+      if (unknown) return { bad: `它想看一张「${clip(unknown, 24)}」卡的内容，但注册表里没有这张卡` }
+    }
+    // v1.5 读全卡：只对「读卡内容」有意义 —— 配 roster（看清单）一律拒收
+    const full = o.full === true
+    if (full && !moduleId && !moduleIds && !instanceId) {
+      return { bad: '它想读全卡，但没说读哪张（full 要配 moduleId / moduleIds / instanceId；看清单用不上）' }
+    }
+    if (!moduleId && !moduleIds) return instanceId ? { type: 'context.read', instanceId } : { type: 'context.read' }
+    const tail = full ? { full: true as const } : {}
+    if (moduleIds) return { type: 'context.read', moduleIds, ...tail }
+    return instanceId ? { type: 'context.read', moduleId, instanceId, ...tail } : { type: 'context.read', moduleId, ...tail }
   }
   return { bad: `它想做「${clip(type || '（没写 type）', 24)}」这件事 —— 这一版还不会` }
 }
@@ -289,9 +328,16 @@ export function actionLabel(
       return `${fixed}给习惯卡打上今天的卡`
     case 'memory.add':
       return `记住：${a.text}`
-    case 'context.read':
+    case 'context.read': {
       if (a.instanceId) return `${fixed}看一眼这张卡`
-      return a.moduleId ? `看一眼「${titleOf?.(a.moduleId) || a.moduleId}」卡` : '看一眼版面清单'
+      if (a.moduleIds) {
+        const names = a.moduleIds.map((id) => titleOf?.(id) || id)
+        return `看一眼 ${a.moduleIds.length} 张卡（${names.join('、')}）`
+      }
+      const name = a.moduleId ? titleOf?.(a.moduleId) || a.moduleId : ''
+      if (a.full && name) return `看一眼整张「${name}」`
+      return a.moduleId ? `看一眼「${name}」卡` : '看一眼版面清单'
+    }
   }
 }
 
@@ -400,7 +446,9 @@ export function actionPrompt(): string {
     `- \`${ACTION_PREFIX} {"type":"countdown.set","label":"纪念日","date":"2026-12-01"}\` —— 设一张倒数日（名字 + 日期）；`,
     `- \`${ACTION_PREFIX} {"type":"habit.check"}\` —— 给习惯卡打上今天的卡；`,
     `- \`${ACTION_PREFIX} {"type":"memory.add","text":"…"}\` —— 记住一件关于用户的事（跨对话有效，用户可在设置里删）；`,
-    `- \`${ACTION_PREFIX} {"type":"context.read"}\` —— 看一眼版面清单（有哪些卡、每张的实例 id）；\`${ACTION_PREFIX} {"type":"context.read","moduleId":"todo"}\` —— 看一眼某张卡里的内容（**只读**，不会改任何东西；看到的内容会随执行结果回给你）。`,
+    `- \`${ACTION_PREFIX} {"type":"context.read"}\` —— 看一眼版面清单（有哪些卡、每张的实例 id）；\`${ACTION_PREFIX} {"type":"context.read","moduleId":"todo"}\` —— 看一眼某张卡里的内容（**只读**，不会改任何东西；看到的内容会随执行结果回给你）；`,
+    `- \`${ACTION_PREFIX} {"type":"context.read","moduleIds":["todo","habit"]}\` —— 一次看一组卡（最多 ${ACTION_READ_MULTI_MAX} 张，看到的内容一条消息带回）；`,
+    `- \`${ACTION_PREFIX} {"type":"context.read","moduleId":"sticky","full":true}\` —— 读整张卡不截断（长内容用，最多 ${ACTION_READ_FULL_MAX} 字；不给 full 就只取开头 ${ACTION_READ_MAX} 字）。`,
     `同一张卡开了多张实例时（比如两块「习惯」），在动作里加 \`"instanceId":"habit:2"\` 就能定点写那一张；不给就写第一张。实例 id 从 \`context.read\` 看一眼版面清单里抄。`,
     `一次最多 ${ACTION_MAX_PER_REPLY} 个。动作只是提议 —— 用户点「照做」才会生效，所以正文里照常把你要做的事说清楚；不需要动手就不要写动作行。`,
     `动作执行之后，系统会把结果以一条「${ACTION_RESULT_MARK}」开头的消息发回来 —— 收到它就接着干：还有要做的继续按格式提议（别重复已经做过的），都完成了就用一两句话收尾。`,

@@ -287,6 +287,98 @@ describe('AI 动作 v1.4：多实例定点（instanceId）', () => {
   })
 })
 
+describe('AI 动作 v1.5：读侧增强（moduleIds 多卡 + full 全卡）', () => {
+  const readCtx = (): ActionContext => ({
+    ...ctx(),
+    moduleIds: ['todo', 'sticky', 'ledger', 'clock', 'habit', 'notes'],
+    instances: [{ id: 'todo', module: 'todo' }],
+  })
+
+  it('多卡并行读：moduleIds 数组原样解析（不给时与 v1.4 逐字同形）', () => {
+    expect(parseActions(act({ type: 'context.read', moduleIds: ['todo', 'habit', 'ledger'] }), readCtx()).actions).toEqual([
+      { type: 'context.read', moduleIds: ['todo', 'habit', 'ledger'] },
+    ])
+    expect(parseActions(act({ type: 'context.read' }), readCtx()).actions).toEqual([{ type: 'context.read' }])
+    expect(parseActions(act({ type: 'context.read', moduleId: 'todo' }), readCtx()).actions).toEqual([
+      { type: 'context.read', moduleId: 'todo' },
+    ])
+  })
+
+  it('moduleIds 与 moduleId / instanceId 互斥（混写不知道读哪张）', () => {
+    const both = parseActions(act({ type: 'context.read', moduleIds: ['todo'], moduleId: 'todo' }), readCtx())
+    expect(both.actions).toEqual([])
+    expect(both.bad[0]).toContain('只能给一个')
+    const withInst = parseActions(act({ type: 'context.read', moduleIds: ['todo'], instanceId: 'todo' }), readCtx())
+    expect(withInst.actions).toEqual([])
+    expect(withInst.bad[0]).toContain('只能给一个')
+  })
+
+  it('moduleIds 的闸门：非数组 / 空 / 超上限 / 重复 / 未知 id 逐条人话拒收', () => {
+    const notArr = parseActions(act({ type: 'context.read', moduleIds: 'todo' }), readCtx())
+    expect(notArr.actions).toEqual([])
+    expect(notArr.bad[0]).toContain('不是数组')
+    const empty = parseActions(act({ type: 'context.read', moduleIds: [] }), readCtx())
+    expect(empty.actions).toEqual([])
+    expect(empty.bad[0]).toContain('空的')
+    const tooMany = parseActions(
+      act({ type: 'context.read', moduleIds: ['todo', 'sticky', 'ledger', 'clock', 'habit', 'notes'] }),
+      readCtx(),
+    )
+    expect(tooMany.actions).toEqual([])
+    expect(tooMany.bad[0]).toContain('太多了')
+    const dup = parseActions(act({ type: 'context.read', moduleIds: ['todo', 'todo'] }), readCtx())
+    expect(dup.actions).toEqual([])
+    expect(dup.bad[0]).toContain('重复')
+    const unknown = parseActions(act({ type: 'context.read', moduleIds: ['todo', 'nope'] }), readCtx())
+    expect(unknown.actions).toEqual([])
+    expect(unknown.bad[0]).toContain('注册表里没有这张卡')
+  })
+
+  it('full：配 moduleId / moduleIds / instanceId 都过，配 roster 拒收（看清单用不上）', () => {
+    expect(parseActions(act({ type: 'context.read', moduleId: 'notes', full: true }), readCtx()).actions).toEqual([
+      { type: 'context.read', moduleId: 'notes', full: true },
+    ])
+    expect(
+      parseActions(act({ type: 'context.read', moduleIds: ['todo', 'habit'], full: true }), readCtx()).actions,
+    ).toEqual([{ type: 'context.read', moduleIds: ['todo', 'habit'], full: true }])
+    const instCtx = (): ActionContext => ({
+      ...readCtx(),
+      instances: [
+        { id: 'notes', module: 'notes' },
+        { id: 'notes:2', module: 'notes' },
+      ],
+    })
+    expect(
+      parseActions(act({ type: 'context.read', moduleId: 'notes', instanceId: 'notes:2', full: true }), instCtx()).actions,
+    ).toEqual([{ type: 'context.read', moduleId: 'notes', instanceId: 'notes:2', full: true }])
+    const roster = parseActions(act({ type: 'context.read', full: true }), readCtx())
+    expect(roster.actions).toEqual([])
+    expect(roster.bad[0]).toContain('full 要配')
+    // full 缺省 = 不带：既有读法逐字不变
+    expect(parseActions(act({ type: 'context.read', moduleId: 'notes' }), readCtx()).actions).toEqual([
+      { type: 'context.read', moduleId: 'notes' },
+    ])
+  })
+
+  it('actionLabel：多卡一组 + 全卡的人话', () => {
+    expect(
+      actionLabel({ type: 'context.read', moduleIds: ['todo', 'habit'] }, (id) => (id === 'todo' ? '待办' : '习惯')),
+    ).toBe('看一眼 2 张卡（待办、习惯）')
+    expect(actionLabel({ type: 'context.read', moduleId: 'notes', full: true }, (id) => (id === 'notes' ? '速记' : id))).toBe(
+      '看一眼整张「速记」',
+    )
+    expect(actionLabel({ type: 'context.read', moduleId: 'todo' })).toBe('看一眼「todo」卡')
+  })
+
+  it('actionPrompt：多卡与全卡的写法都写进指令，上限数在', () => {
+    const p = actionPrompt()
+    expect(p).toContain('moduleIds')
+    expect(p).toContain('"full":true')
+    expect(p).toContain('5 张')
+    expect(p).toContain('2000 字')
+  })
+})
+
 describe('AI 动作 v1.2：工具结果回喂（agent 循环）', () => {
   const acts: AiAction[] = [
     { type: 'todo.add', text: '买牛奶' },

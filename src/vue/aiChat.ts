@@ -299,6 +299,42 @@ export function excerptFor(choice: CardChoice, data: ExcerptSource): string {
 }
 
 /**
+ * 一张卡的**全文**（v1.5「读全卡」用）。与 `excerptFor` 分开：那份是给 `@卡片` 的摘录
+ * （有 `EXCERPT_MAX` 与逐字段的条数上限），这份是给 AI 读整张卡的 —— 同一份数据、不同的量。
+ * 没有专门读面的卡（联网卡 / 计算卡）落回 `excerptFor`：机器采来的内容不当成"板上写的字"喂。
+ */
+export function fullContentFor(choice: CardChoice, data: ExcerptSource): string {
+  switch (choice.module) {
+    case 'sticky':
+      return stickyOf(data, choice.module, choice.id).trim()
+    case 'todo':
+      // 全文 = 每一条都列出（摘录只取前 8 条未完成的）
+      return todosOf(data, choice.module, choice.id)
+        .map((t) => `${t.done ? '✓' : '·'} ${t.text.trim()}`)
+        .join('\n')
+        .trim()
+    case 'matrix':
+      return matrixOf(data, choice.module, choice.id)
+        .map((t) => `${t.done ? '✓' : '·'} ${t.text.trim()}`)
+        .join('\n')
+        .trim()
+    case 'notes':
+      // 全文 = 每条速记的标题 + 正文都列出（摘录只取前 3 条、每条 120 字）
+      return notesOf(data, choice.module, choice.id)
+        .map((n) => `${n.title || '无标题'}：${n.body}`.replace(/\s+/g, ' ').trim())
+        .join('\n')
+    case 'ledger':
+      // 全文 = 每一条都列出（摘录只取末 5 条）
+      return ledgerEntriesOf(data, choice.module, choice.id)
+        .map((r) => `${r.date} ${r.category || '未分类'} ${r.note} ${(r.cents / 100).toFixed(2)}${data.ledger.symbol || ''}`)
+        .join('\n')
+        .trim()
+    default:
+      return excerptFor(choice, data)
+  }
+}
+
+/**
  * 引用块（system 消息）。整块有预算：卡片多了按顺序截断，并在末尾明说被截了 ——
  * 静默截断会让模型以为"就这些"，那比不带上下文更糟。
  */

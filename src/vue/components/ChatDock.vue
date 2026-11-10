@@ -39,6 +39,7 @@ import {
   excerptFor,
   filesSummary,
   filterChoices,
+  fullContentFor,
   mentionQuery,
   permNote,
   stripMention,
@@ -54,7 +55,16 @@ import {
 import { docChoices, excerptWithDocs } from '../knowledge'
 import type { KnowledgeApi } from '../useKnowledge'
 import type { MemoryApi } from '../useMemory'
-import { ACTION_READ_MAX, actionLabel, actionResultLines, actionResultText, isActionResult, parseActions, runActions } from '../aiActions'
+import {
+  ACTION_READ_FULL_MAX,
+  ACTION_READ_MAX,
+  actionLabel,
+  actionResultLines,
+  actionResultText,
+  isActionResult,
+  parseActions,
+  runActions,
+} from '../aiActions'
 import { localDay } from '../reminders'
 import { habitOf, stickyOf, writeCountdown, writeHabit, writeSticky } from '../instanceData'
 
@@ -412,22 +422,38 @@ const instanceLabelOf = (id: string): string => {
 }
 
 /**
- * 读类动作的执行体（第十六笔起；第十八笔起可带 instanceId 定点读第二实例）：
+ * 读类动作的执行体（第十六笔起；第十八笔起可带 instanceId 定点读第二实例；
+ * 第十九笔起可带 moduleIds 一次读一组、full 读全卡）：
  * **只取不写**，走与 `@卡片` 同一套读路径。
- * 无 moduleId / instanceId = 版面清单（有哪些卡、实例 id 是多少）；有 instanceId =
- * 那一张实例的摘录；有 moduleId 无 instanceId = 那张卡第一实例的摘录（同 `excerptFor`
- * 口径，单条封顶 `ACTION_READ_MAX`）。版面上没有那张卡 ⇒ 抛（首败即停会把它写进结果）。
+ * 无 moduleId / instanceId / moduleIds = 版面清单（有哪些卡、实例 id 是多少）；
+ * 有 moduleIds = 一组卡（一条结果消息逐张列出）；有 instanceId = 那一张实例的摘录；
+ * 有 moduleId 无 instanceId = 那张卡第一实例的摘录。默认走 `excerptFor`（单条封顶
+ * `ACTION_READ_MAX`）；`full` 走 `fullContentFor`（封顶 `ACTION_READ_FULL_MAX`，
+ * 超长时注明全卡字数）。版面上没有那张卡 ⇒ 抛（首败即停会把它写进结果）。
  */
-function readContext(moduleId?: string, instanceId?: string): string {
+function readContext(a: { moduleId?: string; instanceId?: string; moduleIds?: string[]; full?: boolean }): string {
   const cards = cardChoices(store.doc.value.items, (m) => E.findModule(store.reg, m)?.title ?? m)
-  if (!moduleId && !instanceId) {
+  if (!a.moduleId && !a.instanceId && !a.moduleIds) {
     return cards.length ? cards.map((c) => `${c.label}（id ${c.id}）`).join('、') : '版面上没有卡'
   }
-  const c = instanceId ? cards.find((x) => x.id === instanceId) : cards.find((x) => x.module === moduleId)
-  if (!c) throw new Error(`版面上没有「${titleOf(moduleId ?? instanceId ?? '') ?? instanceId ?? moduleId}」这张卡`)
-  const text = excerptFor(c, cardDataApi.state).trim()
-  if (!text) return `${c.label}：这张卡里没有可读的文字内容`
-  return text.length > ACTION_READ_MAX ? `${text.slice(0, ACTION_READ_MAX)}…` : text
+  const cap = a.full ? ACTION_READ_FULL_MAX : ACTION_READ_MAX
+  const readOne = (c: CardChoice): string => {
+    const text = (a.full ? fullContentFor(c, cardDataApi.state) : excerptFor(c, cardDataApi.state)).trim()
+    if (!text) return `${c.label}：这张卡里没有可读的文字内容`
+    return text.length > cap ? `${text.slice(0, cap)}…（全卡共 ${text.length} 字）` : text
+  }
+  if (a.moduleIds) {
+    return a.moduleIds
+      .map((id) => {
+        const c = cards.find((x) => x.module === id)
+        if (!c) throw new Error(`版面上没有「${titleOf(id) ?? id}」这张卡`)
+        return `${titleOf(id) ?? id}：${readOne(c)}`
+      })
+      .join('\n')
+  }
+  const c = a.instanceId ? cards.find((x) => x.id === a.instanceId) : cards.find((x) => x.module === a.moduleId)
+  if (!c) throw new Error(`版面上没有「${titleOf(a.moduleId ?? a.instanceId ?? '') ?? a.instanceId ?? a.moduleId}」这张卡`)
+  return readOne(c)
 }
 
 /**
@@ -490,8 +516,9 @@ function runActs(i: number): void {
       const rejected = memory.add(a.text)
       if (rejected.length) throw new Error(rejected.join('；'))
     } else if (a.type === 'context.read') {
-      // 读类（第十六笔）：只取不写 —— 产出随结果回喂给模型（第十八笔起可定点读第二实例）
-      return readContext(a.moduleId, a.instanceId)
+      // 读类（第十六笔）：只取不写 —— 产出随结果回喂给模型（第十八笔起可定点读第二实例，
+      // 第十九笔起可一次读一组 / 读全卡）
+      return readContext(a)
     }
   })
   const note = r.ok
