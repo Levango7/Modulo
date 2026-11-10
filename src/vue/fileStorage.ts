@@ -8,8 +8,10 @@ import { MIGRATE_BACKUP_KEY } from './migrate'
 import { AI_DOC_KEY } from './aiSettings'
 import { KNOWLEDGE_DOC_KEY } from './knowledge'
 import { CRON_DOC_KEY } from './cron'
+import { SKILL_DOC_KEY } from './skills'
 import { WORKFLOW_DOC_KEY } from './workflow'
 import { MEMORY_DOC_KEY } from './aiMemory'
+import { MCP_DOC_KEY } from './mcp'
 
 /**
  * 桌面壳的数据落盘。
@@ -78,6 +80,10 @@ export const DATA_KEYS: readonly string[] = [
   // 与资料同一条纪律：漏登记的症状是"建了任务、重启就没了"。
   // 不进备份/同步（显式清单）：定时任务绑定这台机器的模型服务与作息，见 §12.67。
   CRON_DOC_KEY,
+  // 「技能」（PR-F3）：用户存的提示词模板，聊天里 `@` 展开进 system 块。**必须登记** ——
+  // 同 F1/F2：漏登记的症状不是报错，是"存完界面看得见、重启就没了"（E2E 用 reload 钉住）。
+  // 不进完整备份、也不进多端同步（两者都是显式清单）—— 与资料同一条取舍，见 §12.68。
+  SKILL_DOC_KEY,
   // 「工作流」（第十一笔）：流程定义（名字 + 每一步要做的事）+ 最近运行记录，同一格。
   // 与定时任务同一条纪律：漏登记的症状是"建了流程、重启就没了"。
   // 不进备份/同步（显式清单）：工作流绑定这台机器的模型服务，见 §12.69。
@@ -86,6 +92,10 @@ export const DATA_KEYS: readonly string[] = [
   // 与资料同一条纪律：漏登记的症状是"它记住了、重启就忘了"。
   // 不进备份/同步（显式清单）：记忆是"这台机器上你跟它的相处记录"，见 §12.73。
   MEMORY_DOC_KEY,
+  // 「MCP 服务」（PR-F4a）：登记的本机 server 配置（名字 / 命令 / argv / 启停）。
+  // 同一条纪律：漏登记的症状是"配好了、重启就没了"。
+  // 不进备份/同步（显式清单）：命令与参数绑定这台机器装了什么，搬走多半跑不起来，见 §12.76。
+  MCP_DOC_KEY,
 ]
 
 

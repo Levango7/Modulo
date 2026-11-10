@@ -952,6 +952,65 @@ describe.skipIf(skip)('聊天任脊柱（E1）', () => {
     expect(sys2.content).toContain('不是当前指令')
     expect(errs, `页面不该有报错：${errs.join(' | ')}`).toEqual([])
   }, 90_000)
+  it('技能（PR-F3）：存一段模板 → 左栏列出且**重启还在** → `@` 全文进 system → 与卡片同选只有一个上下文块 → 两步移除', async () => {
+    const errs: string[] = []
+    // 技能节在左栏里，而栏只在 ≥1480 的窗口常驻（PR-D 规则）—— 与资料用例同为宽屏
+    const page = await open({ wide: true }, errs)
+    await page.waitForSelector('[data-skill-add]', { timeout: 10000 })
+
+    // 存一条技能：手写名字 + 正文（不是导入文件，v1 只是纯文本模板）
+    await click(page, '[data-skill-add]')
+    await page.type('[data-skill-name]', '周报助手')
+    await page.type('[data-skill-text]', '把下面的要点写成三句话，用中文，不要用列表。')
+    await click(page, '[data-skill-submit]')
+    await page.waitForSelector('[data-skill]', { timeout: 10000 })
+    expect(await text(page, '[data-skill]')).toContain('周报助手')
+
+    // 点开看到的就是 @ 选中时展开的那一段全文（不是摘录、不是另一种样子）
+    await click(page, '[data-skill]')
+    await page.waitForSelector('[data-skill-preview]', { timeout: 5000 })
+    expect(await text(page, '[data-skill-preview]')).toContain('不要用列表')
+
+    // 聊天里 @ 到它：技能与资料、卡片共用同一条候选通道
+    await expand(page)
+    await page.type('[data-chat-input]', '@周报')
+    await page.waitForSelector('[data-chat-picker] [data-pick]', { timeout: 10000 })
+    expect(await text(page, '[data-chat-picker]')).toContain('周报助手')
+    await click(page, '[data-chat-picker] [data-pick]')
+    await new Promise((r) => setTimeout(r, 200))
+    expect(await text(page, '[data-chat-chips]')).toContain('周报助手')
+
+    // 再选一张卡片：技能 + 卡片同选，权限行把三档口径说清（F1 起两档、F3 起第三档）
+    await page.type('[data-chat-input]', '@便')
+    await page.waitForSelector('[data-chat-picker] [data-pick="sticky"]', { timeout: 10000 })
+    await click(page, '[data-chat-picker] [data-pick="sticky"]')
+    await new Promise((r) => setTimeout(r, 200))
+    expect(await text(page, '[data-chat-perm]')).toContain('1 份技能')
+
+    await ask(page, '按技能整理这段')
+    await page.waitForSelector('[data-role="assistant"][data-status="done"]', { timeout: 15000 })
+    const chat = (await calls(page)).filter((c) => c.cmd === 'ai_chat')
+    expect(chat).toHaveLength(1)
+    const msgs = (chat[0].args as { messages: { role: string; content: string }[] }).messages
+    // 要点：三者（卡片/资料/技能）共用同一条 @ 通道，只有一个 system 块，不出现第二个上下文块
+    const systems = msgs.filter((m) => m.role === 'system')
+    expect(systems, '卡片 + 技能同选只合成一个上下文块').toHaveLength(1)
+    expect(systems[0].content, '技能正文全文进了 system 块').toContain('不要用列表')
+    expect(systems[0].content, '同一块里也有卡片内容').toContain('周五前把周报发给老板')
+
+    // 要点：这一条钉住 DATA_KEYS 登记，漏登记的症状就是"存完看得见、重启就没了"
+    await page.reload({ waitUntil: 'networkidle2' })
+    await page.waitForSelector('[data-skill]', { timeout: 15000 })
+    expect(await text(page, '[data-skill]'), '重启后技能还在').toContain('周报助手')
+
+    // 两步移除：第一次只标记，第二次同一行才真删（与会话行、资料行同一手法）
+    await click(page, '[aria-label^="移除技能"]')
+    await new Promise((r) => setTimeout(r, 200))
+    expect(await exists(page, '[data-skill]'), '第一次点击不删').toBe(true)
+    await click(page, '[aria-label^="移除技能"]')
+    await page.waitForFunction(() => !document.querySelector('[data-skill]'), { timeout: 5000 })
+    expect(errs, `页面不该有报错：${errs.join(' | ')}`).toEqual([])
+  })
 
   it('AI 动手 v1.3（第十六笔）：read 类 —— 先看再动（看到的内容回喂给模型，版面一动不动）', async () => {
     const errs: string[] = []

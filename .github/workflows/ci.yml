@@ -173,7 +173,10 @@ jobs:
   # 去掉 rust-cache 只是变慢，去掉 rust-toolchain 则要确认 runner 预装的工具链带 clippy+rustfmt。
   desktop:
     name: 桌面壳（Rust 门禁 + 真打包）
-    runs-on: windows-latest
+    # 钉 2022：windows-latest 已切到 win25-vs2026，而该镜像**不含 NSIS**
+    # （2026-11-10 实测：镜像 readme 只列 Chocolatey 2.7.5；2022 镜像有 NSIS 3.10）。
+    # 自检缺 makensis 就红是刻意设计（拿不到编译器不许空跑），所以环境要显式钉住。
+    runs-on: windows-2022
     timeout-minutes: 35
     steps:
       - uses: actions/checkout@v4
@@ -184,24 +187,68 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: clippy, rustfmt
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: src-tauri
       - name: 取 sherpa-onnx 预编译库（sha256 校验 → 解压 → SHERPA_ONNX_LIB_DIR）
+        timeout-minutes: 10
         shell: pwsh
         run: |
           $dir = Join-Path $env:RUNNER_TEMP 'sherpa'
           New-Item -ItemType Directory -Force -Path $dir | Out-Null
           $file = Join-Path $dir $env:SHERPA_ONNX_ARCHIVE
           $url = "https://github.com/k2-fsa/sherpa-onnx/releases/download/v$env:SHERPA_ONNX_VERSION/$env:SHERPA_ONNX_ARCHIVE"
-          Invoke-WebRequest -Uri $url -OutFile $file
+          # 8MB 的档挂了七轮（2026-11-09/10）。前几轮都以为是下载僵死（IWR → curl 逐个
+          # 换），第八轮逐语句计时实测翻案：DNS/TCP 通、302→release-assets 200、7.66M
+          # 0.6s 下完、sha256 0.03s 过，**挂点在解压**（tar start 之后 10 分钟零输出到
+          # 步级超时）。第九轮显式钉死 C:\Windows\System32\tar.exe（自带 libbz2、不外壳
+          # bzip2.exe）实测**仍挂** ⇒ Git tar/PATH 假设作废，是 runner 上 tar.exe 本身
+          # 对这归档的行为问题（本机同归档同工具解压正常，差异只在 runner 环境）。本轮
+          # 起解压主路径换成 python tarfile（bz2 绑定在 Python 里，不经过 tar.exe），
+          # 配合 job 级 setup-python 钉死解释器。下载仍官方源、仍 sha256 钉死。任何一站
+          # 失败响亮地红。
+          Write-Host '--- DNS github.com ---'
+          try { (Resolve-DnsName github.com -Type A -ErrorAction Stop | Select-Object -First 3 IPAddress).IPAddress } catch { Write-Host "FAIL: $_" }
+          Write-Host '--- DNS objects.githubusercontent.com ---'
+          try { (Resolve-DnsName objects.githubusercontent.com -Type A -ErrorAction Stop | Select-Object -First 3 IPAddress).IPAddress } catch { Write-Host "FAIL: $_" }
+          foreach ($h in @('github.com', 'objects.githubusercontent.com')) {
+            $t = Test-NetConnection $h -Port 443 -WarningAction SilentlyContinue
+            Write-Host "TCP443 $h = $($t.TcpTestSucceeded)"
+          }
+          Write-Host '--- curl start (primary) ---'
+          $sw = [System.Diagnostics.Stopwatch]::StartNew()
+          $out = curl.exe -4 -v --connect-timeout 15 --location --fail --show-error --retry 3 --max-time 60 --output $file $url 2>&1
+          $code = $LASTEXITCODE
+          $out | ForEach-Object { Write-Host "curl| $_" }
+          Write-Host "[$($sw.Elapsed.TotalSeconds)s] curl exit=$code"
+          if ($code -ne 0) {
+            Write-Host "[$($sw.Elapsed.TotalSeconds)s] primary failed, fallback start"
+            try {
+              $rel = Invoke-RestMethod -Uri "https://api.github.com/repos/k2-fsa/sherpa-onnx/releases/tags/v$env:SHERPA_ONNX_VERSION" -Headers @{ Authorization = "token ${{ secrets.GITHUB_TOKEN }}" } -TimeoutSec 30
+              $asset = $rel.assets | Where-Object { $_.name -eq $env:SHERPA_ONNX_ARCHIVE }
+              $out2 = curl.exe -4 -v --connect-timeout 15 --location --fail --show-error --retry 3 --max-time 60 -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" -H 'Accept: application/octet-stream' --output $file $asset.url 2>&1
+              $code2 = $LASTEXITCODE
+              $out2 | ForEach-Object { Write-Host "curl-fallback| $_" }
+              Write-Host "[$($sw.Elapsed.TotalSeconds)s] fallback curl exit=$code2"
+              if ($code2 -ne 0) { Write-Error "sherpa-onnx 归档下载失败（主路径退出码 $code、API 回退退出码 $code2）"; exit 1 }
+            } catch {
+              Write-Error "sherpa-onnx 归档下载失败（主路径退出码 $code；API 回退异常：$_）"; exit 1
+            }
+          }
+          Write-Host "[$($sw.Elapsed.TotalSeconds)s] sha256 start"
           $got = (Get-FileHash -Algorithm SHA256 $file).Hash.ToLower()
+          Write-Host "[$($sw.Elapsed.TotalSeconds)s] sha256 done: $got"
           if ($got -ne $env:SHERPA_ONNX_ARCHIVE_SHA256) {
             Write-Error "sherpa-onnx 归档 sha256 不匹配（期望 $env:SHERPA_ONNX_ARCHIVE_SHA256，实际 $got）"
             exit 1
           }
-          tar -xjf $file -C $dir
-          if ($LASTEXITCODE -ne 0) { Write-Error "解压 sherpa-onnx 归档失败（tar 退出码 $LASTEXITCODE）"; exit 1 }
+          Write-Host "[$($sw.Elapsed.TotalSeconds)s] extract start (python tarfile)"
+          python -c "import tarfile,sys; tarfile.open(sys.argv[1]).extractall(sys.argv[2])" $file $dir
+          if ($LASTEXITCODE -ne 0) { Write-Error '解压 sherpa-onnx 归档失败（python tarfile 退出码非 0）'; exit 1 }
+          Write-Host "[$($sw.Elapsed.TotalSeconds)s] dll check"
           $lib = Join-Path (Join-Path $dir ($env:SHERPA_ONNX_ARCHIVE -replace '\.tar\.bz2$', '')) 'lib'
           # 这 7 个必须齐（3 导入库 + 4 运行时 DLL，清单由来见文件头 D-14）。缺 `.lib` 时
           # build.rs 一声不吭，会拖到几十秒后以 linker 的 LNK1181 冒出来，看日志的人无从下手。
@@ -212,6 +259,7 @@ jobs:
           if ($missing) { Write-Error "sherpa-onnx 解压后缺少：$($missing -join '、')（目录 $lib）"; exit 1 }
           # build.rs 里优先级最高的那条分支：指到哪用哪，**完全不经过 target/**（理由见文件头）
           "SHERPA_ONNX_LIB_DIR=$lib" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          Write-Host "[$($sw.Elapsed.TotalSeconds)s] step done, lib=$lib"
       - run: npm ci
       # 安装包必须带 sherpa 的 4 个运行时 DLL：exe 静态依赖它们，缺了装完起不来
       # （2026-10-22 本机探针实测 0xC0000135）。bundle.resources 只认构建时存在的相对路径，
@@ -231,8 +279,10 @@ jobs:
       - name: NSIS 卸载钩子自检（宏真的会清「删数据」状态）
         shell: pwsh
         run: |
-          # runner 镜像文档写着装了 NSIS 3.10，但落点不一定是 Program Files（可能只有 choco shim）。
-          # 先查 PATH，再查两个常见目录，最后用 choco 装一次兜底 —— 都拿不到就红，不许空跑。
+          # 镜像钉在 windows-2022（该镜像含 NSIS 3.10；win25-vs2026 不含，2026-11-10 实测）。
+          # 落点不一定是 Program Files（可能只有 choco shim）：先查 PATH，再查两个常见目录，
+          # 最后用 choco 装一次兜底 —— 兜底失败要**说出来**（旧写法 | Out-Null 把原因吞了），
+          # 都拿不到就红，不许空跑。
           $findMk = {
             $cmd = Get-Command makensis -ErrorAction SilentlyContinue
             if ($cmd) { return $cmd.Source }
@@ -246,7 +296,8 @@ jobs:
           $mk = & $findMk
           if (-not $mk) {
             Write-Output 'PATH 与常见目录都没有 makensis，尝试 choco install nsis …'
-            choco install nsis -y --no-progress | Out-Null
+            choco install nsis -y --no-progress
+            if ($LASTEXITCODE -ne 0) { Write-Error "choco install nsis 失败（退出码 $LASTEXITCODE）"; exit 1 }
             $mk = & $findMk
           }
           if (-not $mk) { Write-Error 'runner 上没有 makensis（拿不到编译器就拒绝空跑）'; exit 1 }
@@ -298,7 +349,8 @@ jobs:
     if: >
       (github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')) ||
       (github.event_name == 'workflow_dispatch' && inputs.release_tag != '')
-    runs-on: windows-latest
+    # 与桌面壳同一个镜像（NSIS 3.10 在 2022 上；2025 镜像不含 NSIS）。
+    runs-on: windows-2022
     timeout-minutes: 60
     # 需要写权限才能用 gh 创建 Release；Secrets 里得先配 TAURI_SIGNING_PRIVATE_KEY。
     # `id-token: write` 是给 npm 的 OIDC 用的：2026-10-20 起它一身二责 ——
@@ -343,24 +395,68 @@ jobs:
         run: node scripts/release-gate.mjs --tag ${{ github.event.inputs.release_tag || github.ref_name }}
 
       - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: src-tauri
       - name: 取 sherpa-onnx 预编译库（sha256 校验 → 解压 → SHERPA_ONNX_LIB_DIR）
+        timeout-minutes: 10
         shell: pwsh
         run: |
           $dir = Join-Path $env:RUNNER_TEMP 'sherpa'
           New-Item -ItemType Directory -Force -Path $dir | Out-Null
           $file = Join-Path $dir $env:SHERPA_ONNX_ARCHIVE
           $url = "https://github.com/k2-fsa/sherpa-onnx/releases/download/v$env:SHERPA_ONNX_VERSION/$env:SHERPA_ONNX_ARCHIVE"
-          Invoke-WebRequest -Uri $url -OutFile $file
+          # 8MB 的档挂了七轮（2026-11-09/10）。前几轮都以为是下载僵死（IWR → curl 逐个
+          # 换），第八轮逐语句计时实测翻案：DNS/TCP 通、302→release-assets 200、7.66M
+          # 0.6s 下完、sha256 0.03s 过，**挂点在解压**（tar start 之后 10 分钟零输出到
+          # 步级超时）。第九轮显式钉死 C:\Windows\System32\tar.exe（自带 libbz2、不外壳
+          # bzip2.exe）实测**仍挂** ⇒ Git tar/PATH 假设作废，是 runner 上 tar.exe 本身
+          # 对这归档的行为问题（本机同归档同工具解压正常，差异只在 runner 环境）。本轮
+          # 起解压主路径换成 python tarfile（bz2 绑定在 Python 里，不经过 tar.exe），
+          # 配合 job 级 setup-python 钉死解释器。下载仍官方源、仍 sha256 钉死。任何一站
+          # 失败响亮地红。
+          Write-Host '--- DNS github.com ---'
+          try { (Resolve-DnsName github.com -Type A -ErrorAction Stop | Select-Object -First 3 IPAddress).IPAddress } catch { Write-Host "FAIL: $_" }
+          Write-Host '--- DNS objects.githubusercontent.com ---'
+          try { (Resolve-DnsName objects.githubusercontent.com -Type A -ErrorAction Stop | Select-Object -First 3 IPAddress).IPAddress } catch { Write-Host "FAIL: $_" }
+          foreach ($h in @('github.com', 'objects.githubusercontent.com')) {
+            $t = Test-NetConnection $h -Port 443 -WarningAction SilentlyContinue
+            Write-Host "TCP443 $h = $($t.TcpTestSucceeded)"
+          }
+          Write-Host '--- curl start (primary) ---'
+          $sw = [System.Diagnostics.Stopwatch]::StartNew()
+          $out = curl.exe -4 -v --connect-timeout 15 --location --fail --show-error --retry 3 --max-time 60 --output $file $url 2>&1
+          $code = $LASTEXITCODE
+          $out | ForEach-Object { Write-Host "curl| $_" }
+          Write-Host "[$($sw.Elapsed.TotalSeconds)s] curl exit=$code"
+          if ($code -ne 0) {
+            Write-Host "[$($sw.Elapsed.TotalSeconds)s] primary failed, fallback start"
+            try {
+              $rel = Invoke-RestMethod -Uri "https://api.github.com/repos/k2-fsa/sherpa-onnx/releases/tags/v$env:SHERPA_ONNX_VERSION" -Headers @{ Authorization = "token ${{ secrets.GITHUB_TOKEN }}" } -TimeoutSec 30
+              $asset = $rel.assets | Where-Object { $_.name -eq $env:SHERPA_ONNX_ARCHIVE }
+              $out2 = curl.exe -4 -v --connect-timeout 15 --location --fail --show-error --retry 3 --max-time 60 -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" -H 'Accept: application/octet-stream' --output $file $asset.url 2>&1
+              $code2 = $LASTEXITCODE
+              $out2 | ForEach-Object { Write-Host "curl-fallback| $_" }
+              Write-Host "[$($sw.Elapsed.TotalSeconds)s] fallback curl exit=$code2"
+              if ($code2 -ne 0) { Write-Error "sherpa-onnx 归档下载失败（主路径退出码 $code、API 回退退出码 $code2）"; exit 1 }
+            } catch {
+              Write-Error "sherpa-onnx 归档下载失败（主路径退出码 $code；API 回退异常：$_）"; exit 1
+            }
+          }
+          Write-Host "[$($sw.Elapsed.TotalSeconds)s] sha256 start"
           $got = (Get-FileHash -Algorithm SHA256 $file).Hash.ToLower()
+          Write-Host "[$($sw.Elapsed.TotalSeconds)s] sha256 done: $got"
           if ($got -ne $env:SHERPA_ONNX_ARCHIVE_SHA256) {
             Write-Error "sherpa-onnx 归档 sha256 不匹配（期望 $env:SHERPA_ONNX_ARCHIVE_SHA256，实际 $got）"
             exit 1
           }
-          tar -xjf $file -C $dir
-          if ($LASTEXITCODE -ne 0) { Write-Error "解压 sherpa-onnx 归档失败（tar 退出码 $LASTEXITCODE）"; exit 1 }
+          Write-Host "[$($sw.Elapsed.TotalSeconds)s] extract start (python tarfile)"
+          python -c "import tarfile,sys; tarfile.open(sys.argv[1]).extractall(sys.argv[2])" $file $dir
+          if ($LASTEXITCODE -ne 0) { Write-Error '解压 sherpa-onnx 归档失败（python tarfile 退出码非 0）'; exit 1 }
+          Write-Host "[$($sw.Elapsed.TotalSeconds)s] dll check"
           $lib = Join-Path (Join-Path $dir ($env:SHERPA_ONNX_ARCHIVE -replace '\.tar\.bz2$', '')) 'lib'
           # 这 7 个必须齐（3 导入库 + 4 运行时 DLL，清单由来见文件头 D-14）。缺 `.lib` 时
           # build.rs 一声不吭，会拖到几十秒后以 linker 的 LNK1181 冒出来，看日志的人无从下手。
@@ -371,6 +467,7 @@ jobs:
           if ($missing) { Write-Error "sherpa-onnx 解压后缺少：$($missing -join '、')（目录 $lib）"; exit 1 }
           # build.rs 里优先级最高的那条分支：指到哪用哪，**完全不经过 target/**（理由见文件头）
           "SHERPA_ONNX_LIB_DIR=$lib" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          Write-Host "[$($sw.Elapsed.TotalSeconds)s] step done, lib=$lib"
       - run: npm ci
       # 安装包必须带 sherpa 的 4 个运行时 DLL：exe 静态依赖它们，缺了装完起不来
       # （2026-10-22 本机探针实测 0xC0000135）。bundle.resources 只认构建时存在的相对路径，
