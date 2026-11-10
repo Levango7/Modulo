@@ -1054,4 +1054,35 @@ describe.skipIf(skip)('聊天任脊柱（E1）', () => {
     expect(await page.evaluate(() => document.querySelectorAll('.cell').length)).toBe(2)
     expect(errs, `页面不该有报错：${errs.join(' | ')}`).toEqual([])
   }, 90_000)
+
+  it('AI 动手 v1.6（第二十笔）：按内容找卡 —— query 指名找写到过某个词的卡', async () => {
+    const errs: string[] = []
+    const replies = [
+      '帮我找找哪张卡写到过「周报」。\n@@act {"type":"context.read","query":"周报"}',
+      '找到了。',
+    ]
+    const page = await open({ replies }, errs)
+    await expand(page)
+    await ask(page, '找找哪张卡写到过周报')
+    await page.waitForSelector('[data-ai-act-run]', { timeout: 15000 })
+    expect(await text(page, '[data-ai-act]')).toBe('找一找写有「周报」的卡')
+    await click(page, '[data-ai-act-run]')
+    await page.waitForSelector('[data-chat-tool-note]', { timeout: 15000 })
+    await page.waitForFunction(
+      () => [...document.querySelectorAll('[data-role="assistant"]')].some((el) => el.textContent?.includes('找到了')),
+      { timeout: 15000 },
+    )
+    // 自动续轮：两次模型调用；第二条的最后一条消息带着找卡结果（两张卡都命中）
+    const sent = (await calls(page)).filter((c) => c.cmd === 'ai_chat')
+    expect(sent, '照做后自动续了一轮 = 两次模型调用').toHaveLength(2)
+    const last = sent[1].args.messages as { role: string; content: string }[]
+    const feed = last.at(-1)?.content ?? ''
+    expect(feed).toContain('（工具结果）')
+    expect(feed).toContain('找一找写有「周报」的卡：')
+    expect(feed).toContain('交周报') // 待办那张命中
+    expect(feed).toContain('发给老板') // 便签那张命中
+    // 只读不写：版面卡数没动
+    expect(await page.evaluate(() => document.querySelectorAll('.cell').length)).toBe(2)
+    expect(errs, `页面不该有报错：${errs.join(' | ')}`).toEqual([])
+  }, 90_000)
 })

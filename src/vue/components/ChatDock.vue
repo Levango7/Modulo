@@ -58,6 +58,8 @@ import type { MemoryApi } from '../useMemory'
 import {
   ACTION_READ_FULL_MAX,
   ACTION_READ_MAX,
+  ACTION_SEARCH_MAX,
+  ACTION_SEARCH_RADIUS,
   actionLabel,
   actionResultLines,
   actionResultText,
@@ -421,18 +423,53 @@ const instanceLabelOf = (id: string): string => {
   return title ? `${title}（${id}）` : id
 }
 
+/** 找卡片段：关键词前后各留 `ACTION_SEARCH_RADIUS` 字，超出两端画省略号 */
+function snippetAround(text: string, at: number, len: number): string {
+  const from = Math.max(0, at - ACTION_SEARCH_RADIUS)
+  const to = Math.min(text.length, at + len + ACTION_SEARCH_RADIUS)
+  return `${from > 0 ? '…' : ''}${text.slice(from, to).replace(/\s+/g, ' ').trim()}${to < text.length ? '…' : ''}`
+}
+
+/**
+ * 按内容找卡（v1.6）：卡名或全文里含关键词就算命中，大小写不敏感；每张给「卡名 + 关键词
+ * 前后一小段」。最多 `ACTION_SEARCH_MAX` 张，超了明说还有几张没列 —— 找卡是为了定位，
+ * 不是读完。**只读**：与读类其他分支一样不写任何东西。
+ */
+function searchCards(cards: CardChoice[], query: string): string[] {
+  const q = query.toLowerCase()
+  const hits: string[] = []
+  for (const c of cards) {
+    const full = fullContentFor(c, cardDataApi.state)
+    const at = full.toLowerCase().indexOf(q)
+    if (at < 0 && !c.label.toLowerCase().includes(q)) continue
+    const snippet = at >= 0 ? snippetAround(full, at, query.length) : '（标题对得上，卡里没有可读正文）'
+    hits.push(`${c.label}：「${snippet}」`)
+  }
+  const shown = hits.slice(0, ACTION_SEARCH_MAX)
+  if (hits.length > shown.length) shown.push(`（另有 ${hits.length - shown.length} 张也提到了，没列出来）`)
+  return shown
+}
+
 /**
  * 读类动作的执行体（第十六笔起；第十八笔起可带 instanceId 定点读第二实例；
- * 第十九笔起可带 moduleIds 一次读一组、full 读全卡）：
+ * 第十九笔起可带 moduleIds 一次读一组、full 读全卡；第二十笔起可带 query 按内容找卡）：
  * **只取不写**，走与 `@卡片` 同一套读路径。
- * 无 moduleId / instanceId / moduleIds = 版面清单（有哪些卡、实例 id 是多少）；
+ * query = 按内容找卡；无 query / moduleId / instanceId / moduleIds = 版面清单（有哪些卡、实例 id 是多少）；
  * 有 moduleIds = 一组卡（一条结果消息逐张列出）；有 instanceId = 那一张实例的摘录；
  * 有 moduleId 无 instanceId = 那张卡第一实例的摘录。默认走 `excerptFor`（单条封顶
  * `ACTION_READ_MAX`）；`full` 走 `fullContentFor`（封顶 `ACTION_READ_FULL_MAX`，
  * 超长时注明全卡字数）。版面上没有那张卡 ⇒ 抛（首败即停会把它写进结果）。
  */
-function readContext(a: { moduleId?: string; instanceId?: string; moduleIds?: string[]; full?: boolean }): string {
+function readContext(a: {
+  moduleId?: string
+  instanceId?: string
+  moduleIds?: string[]
+  full?: boolean
+  query?: string
+}): string {
   const cards = cardChoices(store.doc.value.items, (m) => E.findModule(store.reg, m)?.title ?? m)
+  // v1.6 按内容找卡：与「读某张」互斥，回喂一条
+  if (a.query) return searchCards(cards, a.query).join('\n') || `版面上没有写到「${a.query}」的卡`
   if (!a.moduleId && !a.instanceId && !a.moduleIds) {
     return cards.length ? cards.map((c) => `${c.label}（id ${c.id}）`).join('、') : '版面上没有卡'
   }
@@ -517,7 +554,7 @@ function runActs(i: number): void {
       if (rejected.length) throw new Error(rejected.join('；'))
     } else if (a.type === 'context.read') {
       // 读类（第十六笔）：只取不写 —— 产出随结果回喂给模型（第十八笔起可定点读第二实例，
-      // 第十九笔起可一次读一组 / 读全卡）
+      // 第十九笔起可一次读一组 / 读全卡，第二十笔起可按内容找卡）
       return readContext(a)
     }
   })

@@ -379,6 +379,48 @@ describe('AI 动作 v1.5：读侧增强（moduleIds 多卡 + full 全卡）', ()
   })
 })
 
+describe('AI 动作 v1.6：按内容找卡（query）', () => {
+  const readCtx = (): ActionContext => ({ ...ctx(), moduleIds: ['todo', 'sticky', 'ledger'] })
+
+  it('query trim 后原样解析，人话叫「找一找写有「…」的卡」', () => {
+    expect(parseActions(act({ type: 'context.read', query: '  体检  ' }), readCtx()).actions).toEqual([
+      { type: 'context.read', query: '体检' },
+    ])
+    expect(actionLabel({ type: 'context.read', query: '体检' })).toBe('找一找写有「体检」的卡')
+  })
+
+  it('query 与 moduleId / moduleIds / instanceId / full 互斥（找卡 vs 读卡）', () => {
+    const m = parseActions(act({ type: 'context.read', query: '体检', moduleId: 'todo' }), readCtx())
+    expect(m.actions).toEqual([])
+    expect(m.bad[0]).toContain('只能给一个')
+    const f = parseActions(act({ type: 'context.read', query: '体检', full: true }), readCtx())
+    expect(f.actions).toEqual([])
+    expect(f.bad[0]).toContain('只能给一个')
+    const instCtx = (): ActionContext => ({ ...readCtx(), instances: [{ id: 'todo', module: 'todo' }] })
+    const i = parseActions(act({ type: 'context.read', query: '体检', instanceId: 'todo' }), instCtx())
+    expect(i.actions).toEqual([])
+    expect(i.bad[0]).toContain('只能给一个')
+  })
+
+  it('闸门：不是文字 / 空 / 超长逐条人话拒收', () => {
+    const notStr = parseActions(act({ type: 'context.read', query: 12 }), readCtx())
+    expect(notStr.actions).toEqual([])
+    expect(notStr.bad[0]).toContain('不是文字')
+    const empty = parseActions(act({ type: 'context.read', query: '   ' }), readCtx())
+    expect(empty.actions).toEqual([])
+    expect(empty.bad[0]).toContain('空的')
+    const long = parseActions(act({ type: 'context.read', query: 'x'.repeat(41) }), readCtx())
+    expect(long.actions).toEqual([])
+    expect(long.bad[0]).toContain('太长了')
+  })
+
+  it('actionPrompt：找卡写法与「互斥」说明都在', () => {
+    const p = actionPrompt()
+    expect(p).toContain('"query":"体检"')
+    expect(p).toContain('互斥')
+  })
+})
+
 describe('AI 动作 v1.2：工具结果回喂（agent 循环）', () => {
   const acts: AiAction[] = [
     { type: 'todo.add', text: '买牛奶' },

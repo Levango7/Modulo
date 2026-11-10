@@ -39,6 +39,12 @@ export const ACTION_READ_MAX = 200
 export const ACTION_READ_MULTI_MAX = 5
 /** 读全卡的内容上限（字）—— `full` 也不是无界读（v1.5） */
 export const ACTION_READ_FULL_MAX = 2000
+/** 找卡关键词上限（字，v1.6） */
+export const ACTION_QUERY_MAX = 40
+/** 一次最多列几张匹配卡（v1.6） */
+export const ACTION_SEARCH_MAX = 5
+/** 匹配片段里关键词前后各留多少字（v1.6） */
+export const ACTION_SEARCH_RADIUS = 40
 
 export type AiAction =
   | { type: 'addCard'; moduleId: string; variant?: string }
@@ -59,6 +65,8 @@ export type AiAction =
       moduleIds?: string[]
       /** v1.5：读全卡（上限 ACTION_READ_FULL_MAX）；只对 moduleId / moduleIds / instanceId 有效 */
       full?: boolean
+      /** v1.6：按内容找卡（关键词）—— 与 moduleId / moduleIds / instanceId / full 互斥 */
+      query?: string
     }
 
 /**
@@ -248,6 +256,20 @@ function parseLine(raw: string, ctx: ActionContext): AiAction | { bad: string } 
       const unknown = moduleIds.find((id) => !ctx.moduleIds.includes(id))
       if (unknown) return { bad: `它想看一张「${clip(unknown, 24)}」卡的内容，但注册表里没有这张卡` }
     }
+    // v1.6 按内容找卡：与「读某张」互斥 —— 一个是搜索、一个是读这一张，混写不知道要哪个
+    if (o.query !== undefined) {
+      if (typeof o.query !== 'string') return { bad: '它想找卡，但 query 不是文字（要写成 "体检"）' }
+      if (moduleId || instanceId || moduleIds) {
+        return { bad: '它一会儿说找卡、一会儿说读某一张（query 与 moduleId / moduleIds / instanceId 只能给一个）' }
+      }
+      if (o.full === true) return { bad: '它想读全卡，又想找卡（query 与 full 只能给一个）' }
+      const q = o.query.trim()
+      if (!q) return { bad: '它想找卡，但 query 是空的（要写关键词，比如 "体检"）' }
+      if (q.length > ACTION_QUERY_MAX) {
+        return { bad: `它想找的关键词太长了（超过 ${ACTION_QUERY_MAX} 字）—— 换短一点的词，多找几次` }
+      }
+      return { type: 'context.read', query: q }
+    }
     // v1.5 读全卡：只对「读卡内容」有意义 —— 配 roster（看清单）一律拒收
     const full = o.full === true
     if (full && !moduleId && !moduleIds && !instanceId) {
@@ -329,6 +351,7 @@ export function actionLabel(
     case 'memory.add':
       return `记住：${a.text}`
     case 'context.read': {
+      if (a.query) return `找一找写有「${a.query}」的卡`
       if (a.instanceId) return `${fixed}看一眼这张卡`
       if (a.moduleIds) {
         const names = a.moduleIds.map((id) => titleOf?.(id) || id)
@@ -448,7 +471,8 @@ export function actionPrompt(): string {
     `- \`${ACTION_PREFIX} {"type":"memory.add","text":"…"}\` —— 记住一件关于用户的事（跨对话有效，用户可在设置里删）；`,
     `- \`${ACTION_PREFIX} {"type":"context.read"}\` —— 看一眼版面清单（有哪些卡、每张的实例 id）；\`${ACTION_PREFIX} {"type":"context.read","moduleId":"todo"}\` —— 看一眼某张卡里的内容（**只读**，不会改任何东西；看到的内容会随执行结果回给你）；`,
     `- \`${ACTION_PREFIX} {"type":"context.read","moduleIds":["todo","habit"]}\` —— 一次看一组卡（最多 ${ACTION_READ_MULTI_MAX} 张，看到的内容一条消息带回）；`,
-    `- \`${ACTION_PREFIX} {"type":"context.read","moduleId":"sticky","full":true}\` —— 读整张卡不截断（长内容用，最多 ${ACTION_READ_FULL_MAX} 字；不给 full 就只取开头 ${ACTION_READ_MAX} 字）。`,
+    `- \`${ACTION_PREFIX} {"type":"context.read","moduleId":"sticky","full":true}\` —— 读整张卡不截断（长内容用，最多 ${ACTION_READ_FULL_MAX} 字；不给 full 就只取开头 ${ACTION_READ_MAX} 字）；`,
+    `- \`${ACTION_PREFIX} {"type":"context.read","query":"体检"}\` —— 按内容找卡（在版面上找写到过这个词的卡，最多 ${ACTION_SEARCH_MAX} 张，每张给关键词前后一小段；与 moduleId / instanceId / full 互斥）。`,
     `同一张卡开了多张实例时（比如两块「习惯」），在动作里加 \`"instanceId":"habit:2"\` 就能定点写那一张；不给就写第一张。实例 id 从 \`context.read\` 看一眼版面清单里抄。`,
     `一次最多 ${ACTION_MAX_PER_REPLY} 个。动作只是提议 —— 用户点「照做」才会生效，所以正文里照常把你要做的事说清楚；不需要动手就不要写动作行。`,
     `动作执行之后，系统会把结果以一条「${ACTION_RESULT_MARK}」开头的消息发回来 —— 收到它就接着干：还有要做的继续按格式提议（别重复已经做过的），都完成了就用一两句话收尾。`,
