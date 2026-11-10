@@ -187,6 +187,9 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: clippy, rustfmt
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: src-tauri
@@ -198,14 +201,15 @@ jobs:
           New-Item -ItemType Directory -Force -Path $dir | Out-Null
           $file = Join-Path $dir $env:SHERPA_ONNX_ARCHIVE
           $url = "https://github.com/k2-fsa/sherpa-onnx/releases/download/v$env:SHERPA_ONNX_VERSION/$env:SHERPA_ONNX_ARCHIVE"
-          # 8MB 的档挂了六轮（2026-11-09/10）。前几轮都以为是下载僵死（IWR → curl 逐个
+          # 8MB 的档挂了七轮（2026-11-09/10）。前几轮都以为是下载僵死（IWR → curl 逐个
           # 换），第八轮逐语句计时实测翻案：DNS/TCP 通、302→release-assets 200、7.66M
-          # 0.6s 下完、sha256 0.03s 过，**挂点在 tar -xjf**（tar start 之后 10 分钟零输出
-          # 到步级超时）。本机同归档 sha256 与钉值一致、System32 tar.exe 解压正常，但 Git
-          # Bash 的 tar（外壳 bzip2.exe）在本机同样异常 —— 高度怀疑 runner 的 PATH 把 Git
-          # 的 tar 排在前面、pwsh 下其 bzip2 子进程僵死。本轮显式钉死
-          # C:\Windows\System32\tar.exe（自带 libbz2、不外壳 bzip2.exe），失败再走 python
-          # tarfile 回退。下载仍官方源、仍 sha256 钉死。任何一站失败响亮地红。
+          # 0.6s 下完、sha256 0.03s 过，**挂点在解压**（tar start 之后 10 分钟零输出到
+          # 步级超时）。第九轮显式钉死 C:\Windows\System32\tar.exe（自带 libbz2、不外壳
+          # bzip2.exe）实测**仍挂** ⇒ Git tar/PATH 假设作废，是 runner 上 tar.exe 本身
+          # 对这归档的行为问题（本机同归档同工具解压正常，差异只在 runner 环境）。本轮
+          # 起解压主路径换成 python tarfile（bz2 绑定在 Python 里，不经过 tar.exe），
+          # 配合 job 级 setup-python 钉死解释器。下载仍官方源、仍 sha256 钉死。任何一站
+          # 失败响亮地红。
           Write-Host '--- DNS github.com ---'
           try { (Resolve-DnsName github.com -Type A -ErrorAction Stop | Select-Object -First 3 IPAddress).IPAddress } catch { Write-Host "FAIL: $_" }
           Write-Host '--- DNS objects.githubusercontent.com ---'
@@ -241,14 +245,9 @@ jobs:
             Write-Error "sherpa-onnx 归档 sha256 不匹配（期望 $env:SHERPA_ONNX_ARCHIVE_SHA256，实际 $got）"
             exit 1
           }
-          Write-Host "[$($sw.Elapsed.TotalSeconds)s] tar start (PATH 上的 tar = $((Get-Command tar).Source))"
-          & C:\Windows\System32\tar.exe -xjf $file -C $dir
-          Write-Host "[$($sw.Elapsed.TotalSeconds)s] tar exit=$LASTEXITCODE"
-          if ($LASTEXITCODE -ne 0) {
-            Write-Host 'System32 tar 失败，走 python tarfile 回退'
-            python -c "import tarfile,sys; tarfile.open(sys.argv[1]).extractall(sys.argv[2])" $file $dir
-            if ($LASTEXITCODE -ne 0) { Write-Error '解压 sherpa-onnx 归档失败（tar 与 python 双路径都失败）'; exit 1 }
-          }
+          Write-Host "[$($sw.Elapsed.TotalSeconds)s] extract start (python tarfile)"
+          python -c "import tarfile,sys; tarfile.open(sys.argv[1]).extractall(sys.argv[2])" $file $dir
+          if ($LASTEXITCODE -ne 0) { Write-Error '解压 sherpa-onnx 归档失败（python tarfile 退出码非 0）'; exit 1 }
           Write-Host "[$($sw.Elapsed.TotalSeconds)s] dll check"
           $lib = Join-Path (Join-Path $dir ($env:SHERPA_ONNX_ARCHIVE -replace '\.tar\.bz2$', '')) 'lib'
           # 这 7 个必须齐（3 导入库 + 4 运行时 DLL，清单由来见文件头 D-14）。缺 `.lib` 时
@@ -396,6 +395,9 @@ jobs:
         run: node scripts/release-gate.mjs --tag ${{ github.event.inputs.release_tag || github.ref_name }}
 
       - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: src-tauri
@@ -407,14 +409,15 @@ jobs:
           New-Item -ItemType Directory -Force -Path $dir | Out-Null
           $file = Join-Path $dir $env:SHERPA_ONNX_ARCHIVE
           $url = "https://github.com/k2-fsa/sherpa-onnx/releases/download/v$env:SHERPA_ONNX_VERSION/$env:SHERPA_ONNX_ARCHIVE"
-          # 8MB 的档挂了六轮（2026-11-09/10）。前几轮都以为是下载僵死（IWR → curl 逐个
+          # 8MB 的档挂了七轮（2026-11-09/10）。前几轮都以为是下载僵死（IWR → curl 逐个
           # 换），第八轮逐语句计时实测翻案：DNS/TCP 通、302→release-assets 200、7.66M
-          # 0.6s 下完、sha256 0.03s 过，**挂点在 tar -xjf**（tar start 之后 10 分钟零输出
-          # 到步级超时）。本机同归档 sha256 与钉值一致、System32 tar.exe 解压正常，但 Git
-          # Bash 的 tar（外壳 bzip2.exe）在本机同样异常 —— 高度怀疑 runner 的 PATH 把 Git
-          # 的 tar 排在前面、pwsh 下其 bzip2 子进程僵死。本轮显式钉死
-          # C:\Windows\System32\tar.exe（自带 libbz2、不外壳 bzip2.exe），失败再走 python
-          # tarfile 回退。下载仍官方源、仍 sha256 钉死。任何一站失败响亮地红。
+          # 0.6s 下完、sha256 0.03s 过，**挂点在解压**（tar start 之后 10 分钟零输出到
+          # 步级超时）。第九轮显式钉死 C:\Windows\System32\tar.exe（自带 libbz2、不外壳
+          # bzip2.exe）实测**仍挂** ⇒ Git tar/PATH 假设作废，是 runner 上 tar.exe 本身
+          # 对这归档的行为问题（本机同归档同工具解压正常，差异只在 runner 环境）。本轮
+          # 起解压主路径换成 python tarfile（bz2 绑定在 Python 里，不经过 tar.exe），
+          # 配合 job 级 setup-python 钉死解释器。下载仍官方源、仍 sha256 钉死。任何一站
+          # 失败响亮地红。
           Write-Host '--- DNS github.com ---'
           try { (Resolve-DnsName github.com -Type A -ErrorAction Stop | Select-Object -First 3 IPAddress).IPAddress } catch { Write-Host "FAIL: $_" }
           Write-Host '--- DNS objects.githubusercontent.com ---'
@@ -450,14 +453,9 @@ jobs:
             Write-Error "sherpa-onnx 归档 sha256 不匹配（期望 $env:SHERPA_ONNX_ARCHIVE_SHA256，实际 $got）"
             exit 1
           }
-          Write-Host "[$($sw.Elapsed.TotalSeconds)s] tar start (PATH 上的 tar = $((Get-Command tar).Source))"
-          & C:\Windows\System32\tar.exe -xjf $file -C $dir
-          Write-Host "[$($sw.Elapsed.TotalSeconds)s] tar exit=$LASTEXITCODE"
-          if ($LASTEXITCODE -ne 0) {
-            Write-Host 'System32 tar 失败，走 python tarfile 回退'
-            python -c "import tarfile,sys; tarfile.open(sys.argv[1]).extractall(sys.argv[2])" $file $dir
-            if ($LASTEXITCODE -ne 0) { Write-Error '解压 sherpa-onnx 归档失败（tar 与 python 双路径都失败）'; exit 1 }
-          }
+          Write-Host "[$($sw.Elapsed.TotalSeconds)s] extract start (python tarfile)"
+          python -c "import tarfile,sys; tarfile.open(sys.argv[1]).extractall(sys.argv[2])" $file $dir
+          if ($LASTEXITCODE -ne 0) { Write-Error '解压 sherpa-onnx 归档失败（python tarfile 退出码非 0）'; exit 1 }
           Write-Host "[$($sw.Elapsed.TotalSeconds)s] dll check"
           $lib = Join-Path (Join-Path $dir ($env:SHERPA_ONNX_ARCHIVE -replace '\.tar\.bz2$', '')) 'lib'
           # 这 7 个必须齐（3 导入库 + 4 运行时 DLL，清单由来见文件头 D-14）。缺 `.lib` 时
