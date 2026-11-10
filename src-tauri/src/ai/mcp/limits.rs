@@ -95,7 +95,7 @@ mod tests {
     fn 混合字符的切点不劈开代理对() {
         let mut s = String::from("前");
         s.push_str(&"😀".repeat(100));
-        s.push_str("后");
+        s.push('后');
         let (cut, flag) = truncate_by_points(&s, 50);
         assert!(flag);
         assert_eq!(point_count(&cut), 50);

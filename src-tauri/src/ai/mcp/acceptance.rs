@@ -301,7 +301,7 @@ fn 未声明工具能力文案逐字可断言() {
     // 直接构造，别用 replace 去猜 `json!` 宏的紧凑输出格式。
     let line = r#"{"jsonrpc":"2.0","id":1,"result":{"protocolVersion":"2025-06-18","capabilities":{},"serverInfo":{"name":"demo"}}}"#;
     let (phase, _) = initialize_request();
-    let (next, _) = on_incoming(&phase, decode_line(&line).unwrap());
+    let (next, _) = on_incoming(&phase, decode_line(line).unwrap());
     assert_eq!(next, Phase::Failed("这个服务没有声明工具能力".into()));
 }
 
