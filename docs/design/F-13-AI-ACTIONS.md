@@ -113,5 +113,36 @@ README 第一支柱写的是「**对话即指令**」——"说一句，它就�
 3. **看哪张卡 = registry 白名单校验**：无 `moduleId` 看版面清单；有则过注册表；
    未知 id 整行拒收。
 
-**v1.3 仍未开的**：多卡并行读（一轮一条结果消息）；多实例定点（看哪张卡只认 module id）；
-看之前先筛选/搜索（清单较大时先检索）—— 随"读"的需求长出来再加。
+**v1.3 仍未开的**：多卡并行读（一轮一条结果消息）；看之前先筛选/搜索（清单较大时先检索）
+—— 随"读"的需求长出来再加。（多实例定点已在 v1.4 补上，见下。）
+
+## v1.4（第十八笔）：多实例定点 —— 指名道姓写到那一张
+
+v1.3 补上了"看"，但写侧仍默认作用在第一张实例：动作都只认 **module id**，版面上同一模块
+开多张实例时（F-01 起就有这能力），AI 没法说"往第二张习惯卡上打卡"。`sticky.append` /
+`habit.check` 都作用在第一张，多开实例的定点写留到这一档补。
+
+v1.4 给六个动作各加一个可选 `instanceId`（板上 item 的 id，如 `habit:2`）：
+
+| 动作 | 写法 |
+|---|---|
+| `todo.add` / `ledger.add` / `sticky.append` / `countdown.set` / `habit.check` | 在原有参数外加 `"instanceId":"habit:2"` |
+| `context.read` | `"moduleId":"habit","instanceId":"habit:2"` —— 两者必须指向同一张卡 |
+
+**刻意保守的三点**：
+1. **缺省逐字不变**：`instanceId` 可选，缺省 = 第一实例，与既有可选字段同形状；不给它的
+   动作行为与 v1.3 一字不差（既有测试零改动即证）；
+2. **校验全在纯层**：`instanceId` 必须在 `ActionContext.instances`（胶水层从版面 items
+   解析出的清单）里，未知 id 整行拒收并说人话；`context.read` 的 `moduleId` 与
+   `instanceId` 必须互相对得上，对不上也拒收 —— 纯函数逐字可测；
+3. **只定点、不新增动作**：`addCard` 不加（摆卡本来就是造新实例），`memory.add` 不加
+   （记忆是全局的，没有实例概念）；`ActionContext.instances` 本身可选（旧 ctx 对象
+   照常通过类型检查）。
+
+胶水层把 `instanceId` 解析成板上 item 的 module + instance，走**既有写入口**
+（`cardData` 的 moduleId/instanceId 重载）—— 第二实例的数据落在 `byInstance` 切片、
+整片替换 ⇒ Vue 深监与防抖落盘照旧；执行层找不到这个 id（板刚被改过）时如实报错，
+不静默写去第一张。`context.read` 的版面清单从此带上每张卡的实例 id，模型"抄 id"即可。
+
+**v1.4 仍未开的**：多卡并行读（一轮一条结果消息）；看之前先筛选/搜索（清单较大时先检索）；
+按标题模糊定点（`instanceId` 只能从 `context.read` 的清单里抄 id，不做自然语言猜卡）。

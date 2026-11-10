@@ -414,15 +414,29 @@ async function send(): Promise<void> {
 const titleOf = (id: string): string | undefined => store.reg.find((m) => m.id === id)?.title
 
 /**
- * 读类动作的执行体（第十六笔）：**只取不写**，走与 `@卡片` 同一套读路径。
- * 无 moduleId = 版面清单（有哪些卡）；有 = 那张卡的摘录（同 `excerptFor` 口径，
- * 单条封顶 `ACTION_READ_MAX`）。版面上没有那张卡 ⇒ 抛（首败即停会把它写进结果）。
+ * 实例 id → 人话（第十八笔）：定点动作的前缀里要让人看清是哪一张。
+ * 板上找不到（刚被删）就落回 id 本身。
  */
-function readContext(moduleId?: string): string {
+const instanceLabelOf = (id: string): string => {
+  const it = store.doc.value.items.find((x) => x.id === id)
+  const title = it ? titleOf(it.module ?? it.id) : undefined
+  return title ? `${title}（${id}）` : id
+}
+
+/**
+ * 读类动作的执行体（第十六笔起；第十八笔起可带 instanceId 定点读第二实例）：
+ * **只取不写**，走与 `@卡片` 同一套读路径。
+ * 无 moduleId / instanceId = 版面清单（有哪些卡、实例 id 是多少）；有 instanceId =
+ * 那一张实例的摘录；有 moduleId 无 instanceId = 那张卡第一实例的摘录（同 `excerptFor`
+ * 口径，单条封顶 `ACTION_READ_MAX`）。版面上没有那张卡 ⇒ 抛（首败即停会把它写进结果）。
+ */
+function readContext(moduleId?: string, instanceId?: string): string {
   const cards = cardChoices(store.doc.value.items, (m) => E.findModule(store.reg, m)?.title ?? m)
-  if (!moduleId) return cards.length ? cards.map((c) => c.label).join('、') : '版面上没有卡'
-  const c = cards.find((x) => x.module === moduleId)
-  if (!c) throw new Error(`版面上没有「${titleOf(moduleId) ?? moduleId}」这张卡`)
+  if (!moduleId && !instanceId) {
+    return cards.length ? cards.map((c) => `${c.label}（id ${c.id}）`).join('、') : '版面上没有卡'
+  }
+  const c = instanceId ? cards.find((x) => x.id === instanceId) : cards.find((x) => x.module === moduleId)
+  if (!c) throw new Error(`版面上没有「${titleOf(moduleId ?? instanceId ?? '') ?? instanceId ?? moduleId}」这张卡`)
   const text = excerptFor(c, cardDataApi.state).trim()
   if (!text) return `${c.label}：这张卡里没有可读的文字内容`
   return text.length > ACTION_READ_MAX ? `${text.slice(0, ACTION_READ_MAX)}…` : text
@@ -438,6 +452,8 @@ function attachActions(i: number): void {
   const r = parseActions(t.content, {
     moduleIds: store.reg.map((m) => m.id),
     today: localDay(new Date()),
+    // 多实例定点（第十八笔）：版面上每张 item 都是一张可定点的实例
+    instances: store.doc.value.items.map((it) => ({ id: it.id, module: it.module ?? it.id })),
   })
   if (!r.actions.length && !r.bad.length) return
   turns.value[i] = { ...t, content: r.clean, actions: r.actions, badActions: r.bad, actionsState: 'pending' }
@@ -459,19 +475,25 @@ function runActs(i: number): void {
   const t = turns.value[i]
   if (!t?.actions?.length || t.actionsState !== 'pending') return
   const r = runActions(t.actions, (a) => {
+    // 多实例定点（第十八笔）：instanceId 先解析成板上那个 item 的 (module, instance)，走既有
+    // 写入口；找不到（板刚被改过）就如实报错 —— 不静默写去第一张
+    const instId = 'instanceId' in a ? a.instanceId : undefined
+    const inst = instId ? store.doc.value.items.find((it) => it.id === instId) : undefined
+    if (instId && !inst) throw new Error(`它想定点写到「${instId}」，但版面上没有这张卡（可能刚被删了）`)
+    const mId = inst ? inst.module ?? inst.id : undefined
     if (a.type === 'addCard') store.add(a.moduleId, 0, 0, a.variant)
-    else if (a.type === 'todo.add') cardDataApi.addTodo(a.text)
-    else if (a.type === 'ledger.add') cardDataApi.addLedger(a.date, a.cents, a.category, a.note ?? '')
+    else if (a.type === 'todo.add') cardDataApi.addTodo(a.text, mId, instId)
+    else if (a.type === 'ledger.add') cardDataApi.addLedger(a.date, a.cents, a.category, a.note ?? '', mId, instId)
     else if (a.type === 'sticky.append') {
       // 追加不覆盖（v1.1）—— 便签是用户的原文，AI 只往上添，不改写
-      const cur = stickyOf(cardDataApi.state)
-      writeSticky(cardDataApi.state, undefined, undefined, cur ? `${cur}\n${a.text}` : a.text)
+      const cur = stickyOf(cardDataApi.state, mId, instId)
+      writeSticky(cardDataApi.state, mId, instId, cur ? `${cur}\n${a.text}` : a.text)
     } else if (a.type === 'countdown.set') {
-      writeCountdown(cardDataApi.state, undefined, undefined, { label: a.label, date: a.date })
+      writeCountdown(cardDataApi.state, mId, instId, { label: a.label, date: a.date })
     } else if (a.type === 'habit.check') {
       // 幂等：今天已打过就不重复加（days 是去重后的日历日清单）
-      const h = habitOf(cardDataApi.state)
-      writeHabit(cardDataApi.state, undefined, undefined, {
+      const h = habitOf(cardDataApi.state, mId, instId)
+      writeHabit(cardDataApi.state, mId, instId, {
         name: h.name,
         days: [...new Set([...h.days, localDay(new Date())])].sort(),
       })
@@ -480,8 +502,8 @@ function runActs(i: number): void {
       const rejected = memory.add(a.text)
       if (rejected.length) throw new Error(rejected.join('；'))
     } else if (a.type === 'context.read') {
-      // 读类（第十六笔）：只取不写 —— 产出随结果回喂给模型
-      return readContext(a.moduleId)
+      // 读类（第十六笔）：只取不写 —— 产出随结果回喂给模型（第十八笔起可定点读第二实例）
+      return readContext(a.moduleId, a.instanceId)
     }
   })
   const note = r.ok
@@ -494,7 +516,7 @@ function runActs(i: number): void {
   // 就是"办吧"，办完不汇报等于让 agent 断在半路。**只续这一轮**：它再提议，还是要等
   // 下一次点头（循环由"确认"这件事自然限流，不是无限自动跑）。
   void runTurn(
-    actionResultText(actionResultLines(t.actions, r, (a) => actionLabel(a, titleOf))),
+    actionResultText(actionResultLines(t.actions, r, (a) => actionLabel(a, titleOf, instanceLabelOf))),
     t.usedChips ?? [],
     [],
   )
@@ -641,7 +663,7 @@ onBeforeUnmount(() => {
           <div v-if="t.actions?.length || t.badActions?.length" class="acts" data-ai-acts>
             <p class="acts-head">{{ actsHead(t) }}</p>
             <ul v-if="t.actions?.length" class="acts-list">
-              <li v-for="(a, k) in t.actions" :key="k" data-ai-act>{{ actionLabel(a, titleOf) }}</li>
+              <li v-for="(a, k) in t.actions" :key="k" data-ai-act>{{ actionLabel(a, titleOf, instanceLabelOf) }}</li>
             </ul>
             <p v-if="t.badActions?.length" class="acts-bad" data-ai-act-bad>{{ t.badActions.join('；') }}</p>
             <div v-if="t.actionsState === 'pending' && t.actions?.length" class="acts-btns">
