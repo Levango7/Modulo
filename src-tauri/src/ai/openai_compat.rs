@@ -116,7 +116,12 @@ pub struct ConversationRef {
     pub conversation_id: String,
 }
 
+// Tauri command 的扁平参数就是 IPC 契约：前端 `invoke('ai_chat', …)` 按名字逐字段传，
+// 三个调用点（ChatDock.vue / useCron.ts / useWorkflow.ts）与 F-15 §2.3 都钉死了这个形状。
+// P1a 加 `tools` / `round` 后参数到 9 个，越过 clippy 的 7 个阈值 —— 这里显式豁免，
+// 不为过 lint 而把参数打包成对象、改动线上 IPC 形状。
 #[tauri::command]
+#[allow(clippy::too_many_arguments)]
 pub async fn ai_chat(
     app: AppHandle,
     provider_id: String,
