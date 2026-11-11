@@ -8,7 +8,7 @@
  */
 import { describe, expect, it } from 'vitest'
 import puppeteer from 'puppeteer-core'
-import { chromePath } from './chrome'
+import { chromePath, enterWorkbench, gotoWorkbench } from './chrome'
 
 const EXE = chromePath()
 const skip = !EXE
@@ -63,7 +63,7 @@ describe.skipIf(skip)('提醒横幅', () => {
       // 不种提醒设置：默认就是"不静默"（start === end）。若以后有人把默认改成夜间静默，
       // 这条用例会在夜里红 —— 那是**应该**红：它说明用例开始依赖当前时刻了。
     })
-    await page.goto(url, { waitUntil: 'networkidle2', timeout: 30000 })
+    await gotoWorkbench(page, url)
     // 时钟真的钉住了才算这条修法生效 —— 否则上面整段就是装饰，而后面那条"同一天不重复提醒"
     // 依旧在看运气。判据用 `Date.now() === 构造出来的那个时刻`：冻结生效时两者恒等，
     // 没生效时右边是真实的那一毫秒、左边是现在（除了一毫秒的巧合，必然不等）。
@@ -84,6 +84,7 @@ describe.skipIf(skip)('提醒横幅', () => {
 
     // 刷新：「已提醒过」记在盘上（localStorage），同一条不该再弹
     await page.reload({ waitUntil: 'networkidle2' })
+    await enterWorkbench(page)
     await page.waitForSelector('.grid', { timeout: 15000 })
     await wait(1000)
     expect(await page.evaluate(() => !!document.querySelector('.reminder-strip')), '同一天不重复提醒').toBe(false)

@@ -6,7 +6,9 @@
  * 历史读/删走的是真命令。纯判定（归并/触发词/预算/时间格式）在
  * `tests/vue/aiChat.test.ts`，这里不重复。
  *
- * 桩的形状照 Rust：`ai_chat` 经 Channel 按 index 推 `{delta, done, error}` 帧，
+ * 桩的形状照 Rust：`ai_chat` 经 Channel 按 index 推 `AiEvent` 事件
+ * （`{t:'text'|'toolStart'|'toolEnd'|'round'|'done'|'error'}`，与 `ai/events.rs` 逐字对应），
+ * **只写新形状**；旧 `{delta, done, error}` 的读取兼容在前端 `normalizeEvent` 里，由单测钉着。
  * 历史落在 `modulo.__stubai.hist`（与配置文档、密钥都分开存）。
  */
 import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
@@ -15,7 +17,7 @@ import { join, resolve } from 'node:path'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import puppeteer from 'puppeteer-core'
 import type { Browser, ElementHandle, Page } from 'puppeteer-core'
-import { chromePath } from './chrome'
+import { chromePath, enterWorkbench, gotoWorkbench } from './chrome'
 
 const EXE = chromePath()
 const skip = !EXE
@@ -88,6 +90,11 @@ interface Seed {
   reply?: string
   /** 回复序列（v1.2）：按 ai_chat 调用次数依次取 —— agent 循环要两轮回复（先提议、收到工具结果后收尾） */
   replies?: string[]
+  /**
+   * 结构化工具事件（F-15 P1a）：`[{ round, tools: [{ id, name, ok, result?, error? }] }]`，
+   * 桩按轮次逐条推 `round` → `toolStart` → `toolEnd`。用于「工具时间线可见」那条用例。
+   */
+  tools?: unknown[]
   /** 版面上再加两张倒数日 + 两张记账（见 `TWIN_ITEMS`） */
   twins?: boolean
   /** 把便签换成一段超过摘录上限的长文（v1.5 读全卡用例） */
@@ -114,7 +121,7 @@ async function open(seed: Seed = {}, errs?: string[]): Promise<Page> {
   const card = seed.longSticky ? { ...baseCard, sticky: LONG_STICKY } : baseCard
   const desktop = seed.desktop !== false
   await page.evaluateOnNewDocument(
-    (src: string, docJson: string, cardJson: string, aiJson: string | null, histJson: string | null, hang: boolean, reply: string | null, cronJson: string | null, installStub: boolean, workflowJson: string | null, repliesJson: string | null) => {
+    (src: string, docJson: string, cardJson: string, aiJson: string | null, histJson: string | null, hang: boolean, reply: string | null, cronJson: string | null, installStub: boolean, workflowJson: string | null, repliesJson: string | null, toolsJson: string | null) => {
       if (installStub) new Function(src)()
       localStorage.setItem('modulo.layout.v1', docJson)
       localStorage.setItem('modulo.__stubdoc.modulo.carddata.v1', cardJson)
@@ -135,6 +142,8 @@ async function open(seed: Seed = {}, errs?: string[]): Promise<Page> {
       }
       // 回复序列（v1.2 agent 循环）：每次导航重置 —— 游标跟着页面走，不该跨导航累积
       if (repliesJson) (window as unknown as { __STUB_AI_REPLIES__: string[] }).__STUB_AI_REPLIES__ = JSON.parse(repliesJson)
+      // 工具事件（P1a）：同样每次导航重置（它描述的是"这一次 ai_chat 会推什么"）
+      if (toolsJson) (window as unknown as { __STUB_AI_TOOLS__: unknown[] }).__STUB_AI_TOOLS__ = JSON.parse(toolsJson)
     },
     STUB_SOURCE,
     JSON.stringify(doc),
@@ -147,8 +156,9 @@ async function open(seed: Seed = {}, errs?: string[]): Promise<Page> {
     desktop,
     seed.workflow ? JSON.stringify({ schemaVersion: 1, flows: seed.workflow.flows, runs: seed.workflow.runs ?? [] }) : null,
     seed.replies ? JSON.stringify(seed.replies) : null,
+    seed.tools ? JSON.stringify(seed.tools) : null,
   )
-  await page.goto(url, { waitUntil: 'networkidle2', timeout: 30000 })
+  await gotoWorkbench(page, url)
   // web 形态没有坞（AI 后端不在）⇒ 等左栏出现即可
   await page.waitForSelector(desktop ? '[data-chat-bar], [data-chat-panel]' : '[data-mode="chat"]', { timeout: 15000 })
   return page
@@ -248,6 +258,62 @@ describe.skipIf(skip)('F-12 二期：底部对话坞（桌面形态）', () => {
     // 历史面板已搬进左栏（PR-D）：发完之后栏里的清单应该出现这条
     await page.waitForSelector('[data-session]', { timeout: 10000 })
     expect(await text(page, '.rail')).toContain('帮我看看待办')
+    expect(errs, `页面不该有报错：${errs.join(' | ')}`).toEqual([])
+  })
+
+  /**
+   * F-15 P1a 契约 §2.5：桩改新形状后仍绿，且**工具时间线可见**。
+   * 这条测的是"两条路径并存不打架"：工具行来自 `toolStart`/`toolEnd` 事件，
+   * 提议行来自正文里的 `@@act` —— 属性名分成 `data-tool-*` / `data-ai-act*`，
+   * 所以同一屏上按各自的选择器数行，不会把两条路径加在一起。
+   */
+  it('工具时间线（P1a）：模型自己动手时逐行可见 —— 轮次分组、成功/失败状态、名字查不到照实说', async () => {
+    const errs: string[] = []
+    const page = await open(
+      {
+        reply: '办好了。',
+        tools: [
+          { round: 1, tools: [{ id: 'c1', name: 'todo_add', args: { text: '买牛奶' }, ok: true, result: '已加：买牛奶' }] },
+          {
+            round: 2,
+            tools: [
+              { id: 'c2', name: 'ledger_add', args: { cents: 1200 }, ok: false, error: '账本没开' },
+              { id: 'c3', name: 'teleport', ok: false, error: '没有这个工具' },
+            ],
+          },
+        ],
+      },
+      errs,
+    )
+    await expand(page)
+    await ask(page, '记一笔午饭，再摆一条待办')
+
+    await page.waitForSelector('[data-tool-steps]', { timeout: 15000 })
+    // 收尾只认 done：气泡必须是 done（不是一直 streaming），工具行也必须结完
+    await page.waitForSelector('[data-role="assistant"][data-status="done"]', { timeout: 15000 })
+    expect(await text(page, '[data-role="assistant"]')).toContain('办好了。')
+
+    expect(await text(page, '[data-tool-head]')).toBe('它自己动手的步骤')
+    // 按轮次分组：两轮两个组，行序与流里的顺序逐条对齐
+    const rounds = await page.$$eval('[data-tool-round]', (els) => els.map((e) => e.textContent ?? ''))
+    expect(rounds).toEqual(['第 1 轮', '第 2 轮'])
+
+    const labels = await page.$$eval('[data-tool-step] [data-tool-act]', (els) => els.map((e) => e.textContent ?? ''))
+    expect(labels).toEqual(['加一条待办', '记一笔账', '调用工具「teleport」'])
+
+    // 状态词是给人看的，`data-tool-step` 是给断言用的：两者必须同源
+    const words = await page.$$eval('[data-tool-step] [data-tool-step-word]', (els) => els.map((e) => e.textContent ?? ''))
+    expect(words).toEqual(['成功', '失败', '失败'])
+    const steps = await page.$$eval('[data-tool-step]', (els) => els.map((e) => e.getAttribute('data-tool-step')))
+    expect(steps).toEqual(['ok', 'fail', 'fail'])
+
+    // 结果 / 原因要落在行上：只画"失败"不说为什么等于没说
+    const details = await page.$$eval('[data-tool-step] .detail', (els) => els.map((e) => e.textContent ?? ''))
+    expect(details).toEqual(['已加：买牛奶', '账本没开', '没有这个工具'])
+
+    // 两条路径并存不打架：这一轮正文里没有动作行 ⇒ 提议块（含它的空盒子）一个都不该有
+    expect(await exists(page, '[data-ai-acts]')).toBe(false)
+    expect(await exists(page, '[data-ai-act]')).toBe(false)
     expect(errs, `页面不该有报错：${errs.join(' | ')}`).toEqual([])
   })
 
@@ -459,13 +525,19 @@ describe.skipIf(skip)('聊天任脊柱（E1）', () => {
     const chatState = await page.evaluate(() => ({
       mode: !!document.querySelector('[data-chat-mode]'),
       panel: !!document.querySelector('[data-chat-panel]'),
-      grid: !!document.querySelector('.cell'),
+      // 「画布让位」量的是**工作台那块画布**（`.stage` 的直接子级）—— F-15 P0 起 chat 视图
+      // 右栏的产物面板里也有一个 `.grid`（它就是版面的另一个视图），用裸 `.cell` 会把
+      // "右栏正显示版面"误判成"画布还在主区"
+      grid: !!document.querySelector('.stage > .grid .cell'),
+      window: !!document.querySelector('[data-artifact-panel]'),
       panelH: Math.round((document.querySelector('[data-chat-panel]') as HTMLElement)?.getBoundingClientRect().height ?? 0),
     }))
     expect(chatState.mode, 'chat 容器在').toBe(true)
     expect(chatState.panel, '全高对话面板在').toBe(true)
     expect(chatState.panelH, '面板撑满内容列（≥600px）').toBeGreaterThan(600)
     expect(chatState.grid, '画布让位').toBe(false)
+    // 让位出去的那块版面没有消失：它在右栏产物里（P0 的"对话 + 右栏产物"两栏）
+    expect(chatState.window, '右栏产物接手版面').toBe(true)
 
     // 切回来：画布回来、坞回底部形态（互斥可逆）
     await click(page, '[data-mode="workbench"]')
@@ -663,6 +735,7 @@ describe.skipIf(skip)('聊天任脊柱（E1）', () => {
     // ★ 这一条是"资料库"与"一次性附件"的分界：落盘了，reload 之后还在
     //（漏登记 DATA_KEYS 的症状就是这里写着一份、重启后一份都不见）
     await page.reload({ waitUntil: 'networkidle2' })
+    await enterWorkbench(page)
     await page.waitForSelector('[data-doc]', { timeout: 15000 })
     expect(await text(page, '[data-doc]'), '重启后资料还在').toContain('验收清单.md')
 
@@ -719,6 +792,7 @@ describe.skipIf(skip)('聊天任脊柱（E1）', () => {
     await click(page, '[data-cron-toggle="c1"]')
     await new Promise((r) => setTimeout(r, 300))
     await page.reload({ waitUntil: 'networkidle2' })
+    await enterWorkbench(page)
     await page.waitForSelector('[data-cron-status="c1"]', { timeout: 15000 })
     expect(await text(page, '[data-cron-status="c1"]'), '运行记录落盘了').toContain('跑完')
     const off = await page.$eval('[data-cron-task="c1"]', (el) => el.closest('.doc-line')?.classList.contains('off') ?? false)
@@ -777,6 +851,7 @@ describe.skipIf(skip)('聊天任脊柱（E1）', () => {
 
     // 落盘：reload 后流程与运行记录都还在（漏登记 DATA_KEYS 的症状就是"重启就没了"）
     await page.reload({ waitUntil: 'networkidle2' })
+    await enterWorkbench(page)
     await page.waitForSelector('[data-wf-status="w1"]', { timeout: 15000 })
     expect(await text(page, '[data-wf-status="w1"]'), '运行记录落盘了').toContain('跑完')
     expect(errs, `页面不该有报错：${errs.join(' | ')}`).toEqual([])
@@ -1000,6 +1075,7 @@ describe.skipIf(skip)('聊天任脊柱（E1）', () => {
 
     // 要点：这一条钉住 DATA_KEYS 登记，漏登记的症状就是"存完看得见、重启就没了"
     await page.reload({ waitUntil: 'networkidle2' })
+    await enterWorkbench(page)
     await page.waitForSelector('[data-skill]', { timeout: 15000 })
     expect(await text(page, '[data-skill]'), '重启后技能还在').toContain('周报助手')
 

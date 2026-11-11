@@ -275,9 +275,10 @@
         }
         localStorage.removeItem('modulo.__stubai.key.' + String(args?.providerId ?? ''))
         return Promise.resolve(undefined)
-      // —— AI 对话与历史（F-12 二期）：形状照 ai/openai_compat.rs 的 `ConversationRef` /
-      //    `AiChunk` 与 history.rs 的四个命令。**流式是真的按帧推**（走 Channel 的
-      //    index 协议），否则"增量拼接/停止/错误"这几条前端行为测的都不是真东西。
+      // —— AI 对话与历史（F-12 二期 / F-15 P1a 事件流）：形状照 ai/openai_compat.rs 的
+      //    `ConversationRef`、`events.rs` 的 `AiEvent` 与 history.rs 的四个命令。
+      //    **只写新形状**（`{t:'text'|'toolStart'|'toolEnd'|'round'|'done'|'error'}`）——
+      //    读侧的旧形状兼容在前端 `normalizeEvent` 里，由单测钉着；桩是写入端，不产旧帧。
       //    回复内容与节奏由 `__STUB_AI_REPLY__` / `__STUB_AI_HANG__` 控制；
       //    历史落在 `modulo.__stubai.hist`（与配置文档、密钥都分开存）。
       case 'ai_chat': {
@@ -297,7 +298,7 @@
           const entry = callbacks.get(ch?.id)
           if (entry) entry.cb({ index: idx++, message: msg })
         }
-        const finish = () => {
+        const finish = (reason = 'stop') => {
           const all = msgs
             .map((m) => ({ role: String(m?.role ?? ''), content: String(m?.content ?? '') }))
             .filter((m) => m.role === 'user' || m.role === 'assistant')
@@ -312,18 +313,44 @@
             messages: all.map((m) => ({ ...m, ts: now })),
           })
           aiHistSave(list)
-          push({ delta: '', done: true, error: null })
+          // 契约 §2.2：每条流有且只有一条 `done`，错误路径也是 —— 前端只认它收尾
+          push({ t: 'done', reason })
         }
         if (window.__STUB_AI_HANG__ === true) {
           // 「一直不结束」的流：测试在此之上点「停止」，断言 ai_chat_cancel 真发了命令
           aiPending.set(convId, { push })
-          setTimeout(() => push({ delta: '写到一半', done: false, error: null }), 0)
+          setTimeout(() => push({ t: 'text', delta: '写到一半' }), 0)
           return Promise.resolve({ conversationId: convId })
         }
-        // 两帧增量 + 一帧收尾：前端必须把两段拼成一句，而不是只留最后一帧
+        // 结构化工具事件（P1a）：`__STUB_AI_TOOLS__` 摆一条「它自己动手」的流。
+        // 形状：`[{ round: 1, tools: [{ id, name, args?, ok, result?, error? }] }, …]` ——
+        // 每轮先发 `round`，每个工具 `toolStart` → `toolEnd`（Rust 拒收的也是这个形状，
+        // 只是 ok:false；这正是"So it shows a named failed row"那条契约）。
+        const rounds = Array.isArray(window.__STUB_AI_TOOLS__) ? window.__STUB_AI_TOOLS__ : null
+        if (rounds) {
+          setTimeout(() => {
+            for (const r of rounds) {
+              push({ t: 'round', n: Number(r?.round ?? 1) })
+              for (const step of Array.isArray(r?.tools) ? r.tools : []) {
+                const id = String(step?.id ?? '')
+                push({ t: 'toolStart', id, name: String(step?.name ?? ''), args: step?.args ?? {} })
+                push(
+                  step?.ok === true
+                    ? { t: 'toolEnd', id, ok: true, result: step?.result ?? null, error: null }
+                    : { t: 'toolEnd', id, ok: false, result: null, error: String(step?.error ?? '这一步没做成') },
+                )
+              }
+            }
+            if (reply.trim()) push({ t: 'text', delta: reply })
+            finish('tool')
+          }, 0)
+          return Promise.resolve({ conversationId: convId })
+        }
+        // 一帧轮次 + 两帧增量 + 一条 done：前端必须把两段拼成一句，而不是只留最后一帧
         setTimeout(() => {
-          push({ delta: reply.slice(0, 2), done: false, error: null })
-          push({ delta: reply.slice(2), done: false, error: null })
+          push({ t: 'round', n: 1 })
+          push({ t: 'text', delta: reply.slice(0, 2) })
+          push({ t: 'text', delta: reply.slice(2) })
           finish()
         }, 0)
         return Promise.resolve({ conversationId: convId })
@@ -333,8 +360,9 @@
         const pending = aiPending.get(id)
         if (pending) {
           aiPending.delete(id)
-          // Rust 侧中止后补的是 error 帧（"已中止"），前端据此把气泡标红
-          pending.push({ delta: '', done: true, error: '已中止' })
+          // Rust 侧中止后补的是 error + done{error}（两条，契约 §2.2）—— 前端据此标红并收尾
+          pending.push({ t: 'error', message: '已中止' })
+          pending.push({ t: 'done', reason: 'error' })
         }
         return Promise.resolve(undefined)
       }

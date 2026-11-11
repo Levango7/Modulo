@@ -11,6 +11,7 @@ import {
   actionPrompt,
   actionResultLines,
   actionResultText,
+  actStepStatuses,
   ACTION_CENTS_MAX,
   ACTION_MAX_PER_REPLY,
   ACTION_NOTE_MAX,
@@ -20,6 +21,7 @@ import {
   parseActions,
   runActions,
   stripActionLines,
+  timelineRows,
   type AiAction,
   type ActionContext,
 } from '../../src/vue/aiActions'
@@ -493,5 +495,78 @@ describe('AI 动作：人话与指令', () => {
     // 实测逃逸：v1.1 初版示例写了 "label":"发版" ⇒ 那条用例红。这里把禁用词钉住，秒级反馈。
     const p = actionPrompt()
     for (const w of ['发版', '团建餐', '跑步']) expect(p).not.toContain(w)
+  })
+})
+
+/**
+ * 执行时间线（F-15 P0 §1.5）：把「提议 → 照做 → 结果」摊成纵向一行一步。
+ *
+ * 这一层的输入全是**已经在内存里的东西**（动作 / 提议状态 / 执行结果的逐条状态），
+ * 所以它能在 node 里穷举 —— 组件那半只负责把行画成点。
+ */
+describe('执行时间线：一行一步、状态点与执行结果同源', () => {
+  const A = (t: string): AiAction => ({ type: 'todo.add', text: t })
+
+  it('actStepStatuses 与 actionResultLines 讲的是同一件事（首败即停的三段）', () => {
+    const actions = [A('a'), A('b'), A('c')]
+    // 第 2 个失败：前 1 个成功、第 2 个失败、第 3 个没执行
+    const run = { ok: false, done: 1, error: '版面上没有这张卡', values: [] }
+    expect(actStepStatuses(actions, run)).toEqual(['ok', 'fail', 'skipped'])
+    // 同一份 run 喂给回喂文本：措辞不同、判断一致（失败的那条明说原因，后面的说没执行）
+    expect(actionResultLines(actions, run, (a) => (a.type === 'todo.add' ? a.text : ''))).toEqual([
+      'a：成功',
+      'b：失败（版面上没有这张卡）',
+      'c：没有执行（前一步失败了）',
+    ])
+  })
+
+  it('全成功 ⇒ 全 ok；一个都没跑成 ⇒ 首条失败、其余未执行', () => {
+    const actions = [A('a'), A('b')]
+    expect(actStepStatuses(actions, { ok: true, done: 2 })).toEqual(['ok', 'ok'])
+    expect(actStepStatuses(actions, { ok: false, done: 0, error: 'x' })).toEqual(['fail', 'skipped'])
+  })
+
+  it('还没点头 ⇒ 全部「待确认」', () => {
+    expect(timelineRows({ labels: ['加一条待办'], following: false })).toEqual([
+      { label: '加一条待办', step: 'pending' },
+    ])
+    expect(timelineRows({ labels: ['加一条待办'], state: 'pending', following: false })[0].step).toBe('pending')
+  })
+
+  it('「算了」⇒ 全部「未执行」（一条都没写，不是"成功"）', () => {
+    expect(timelineRows({ labels: ['a', 'b'], state: 'dismissed', following: false })).toEqual([
+      { label: 'a', step: 'skipped' },
+      { label: 'b', step: 'skipped' },
+    ])
+  })
+
+  it('「照做」⇒ 用逐条状态；缺步骤表时按全成功（老的数据形状不画红点）', () => {
+    expect(
+      timelineRows({ labels: ['a', 'b', 'c'], state: 'done', steps: ['ok', 'fail', 'skipped'], following: false }),
+    ).toEqual([
+      { label: 'a', step: 'ok' },
+      { label: 'b', step: 'fail' },
+      { label: 'c', step: 'skipped' },
+    ])
+    expect(timelineRows({ labels: ['a'], state: 'done', following: false })[0].step).toBe('ok')
+  })
+
+  it('坏行**不进**时间线（它是"这一版照做不了"，不是提议的一步；界面另起一行说）', () => {
+    // 混进同一列会被读成"它也提议了这个" —— 这里是那条纪律的钉子
+    expect(timelineRows({ labels: ['a'], following: false })).toEqual([{ label: 'a', step: 'pending' }])
+  })
+
+  it('照做后那轮还在流式 ⇒ 末尾补一行「执行中」；流完了那行就没了', () => {
+    const base = { labels: ['a'], state: 'done' as const, steps: ['ok' as const] }
+    const withFollow = timelineRows({ ...base, following: true })
+    expect(withFollow.at(-1)?.step).toBe('running')
+    expect(withFollow.at(-1)?.label).toContain('接着')
+    // 同一条 turn 在流式结束后：只剩动作本身，没有"执行中"那行
+    expect(timelineRows({ ...base, following: false })).toHaveLength(1)
+  })
+
+  it('没点头 / 没坏行时不会长出「执行中」（那行只属于"已照做"）', () => {
+    expect(timelineRows({ labels: ['a'], following: true })).toHaveLength(1)
+    expect(timelineRows({ labels: [], following: true })).toEqual([])
   })
 })

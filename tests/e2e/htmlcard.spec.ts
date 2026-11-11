@@ -9,7 +9,7 @@
  */
 import { describe, expect, it } from 'vitest'
 import puppeteer from 'puppeteer-core'
-import { chromePath } from './chrome'
+import { chromePath, gotoWorkbench } from './chrome'
 
 const EXE = chromePath()
 const skip = !EXE
@@ -28,7 +28,7 @@ describe.skipIf(skip)('自定卡：沙箱隔离与输入边界', () => {
     const page = await browser.newPage()
     await page.setViewport({ width: 1440, height: 900, deviceScaleFactor: 1 })
     await page.evaluateOnNewDocument(() => localStorage.setItem('modulo.template.v1', 'general'))
-    await page.goto(url, { waitUntil: 'networkidle2', timeout: 30000 })
+    await gotoWorkbench(page, url)
     await wait(800)
 
     // 进编辑器加「自定卡」并回工作台

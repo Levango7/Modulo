@@ -6,9 +6,11 @@
  * 坞该不该出现的条件、Esc/Ctrl+J 的意图。组件那半（Channel、invoke、焦点）留给 E2E。
  *
  * 三条纪律：
- * 1. **流式状态只有一个写入口**（`applyChunk`）：Rust 侧 `AiChunk` 是
- *    `{delta, done, error}`，三种情况的优先级（error > delta > done）必须一处定死 ——
- *    分散在组件里就会出现"错误被下一秒的 delta 盖掉"这类只在慢网络下复现的毛病。
+ * 1. **流式状态只有一个写入口**（`applyEvent`）：Rust 侧推的是 tagged union
+ *    `AiEvent`（`text` / `toolStart` / `toolEnd` / `round` / `done` / `error`，见
+ *    `ai/events.rs` 与本文件的 `AiEvent` —— 两端唯一真相），优先级与终止条件必须一处定死：
+ *    错误压过一切、**只认 `done` 收尾**。分散在组件里就会出现"错误被下一秒的 delta 盖掉"
+ *    这类只在慢网络下复现的毛病。
  * 2. **引用卡片只带真内容**：`excerptFor` 只读 `cardData` 里确实存在的字段，
  *    没写过的就是空 —— 不替用户编一句"这张卡里有……"。上限也在这里定（每张 400 字 /
  *    整块 2000 字），否则一张长便签就能把上下文撑爆。
@@ -28,7 +30,7 @@ import type {
   StoredBirthday,
   Todo,
 } from './cardDataTypes'
-import { actionPrompt, stripActionLines, type AiAction } from './aiActions'
+import { actionPrompt, stripActionLines, type ActStep, type AiAction } from './aiActions'
 import { memoryBlock, type MemoryEntry } from './aiMemory'
 import { countdownOf, elapsedOf, habitOf, ledgerEntriesOf, matrixOf, notesOf, stickyOf, todosOf } from './instanceData'
 // 单向依赖：knowledge 只从这边拿**类型**（`import type`，运行时擦除），这边从这里拿一个常量。
@@ -71,11 +73,108 @@ export interface ChatTurn {
   usedChips?: CardChoice[]
 }
 
-/** Rust `AiChunk`（camelCase，`error` 为 null 表示正常帧） */
-export interface ChatChunk {
-  delta: string
-  done: boolean
-  error: string | null
+/**
+ * 本轮结束的原因（契约 §2.2）：话说完了 / 要调工具 / 通道破了。
+ * `error` 一定配着一条先到的 `error` 事件 —— 两者不是同义词，别合并。
+ */
+export type DoneReason = 'stop' | 'tool' | 'error'
+
+/**
+ * 流式通道上的一条事件（F-15 P1a 契约 §2.2）。
+ *
+ * **与 `src-tauri/src/ai/events.rs` 的 `AiEvent` 逐字对应**（那边有 `cargo test` 逐字对拍，
+ * 变体名 / 字段名改一处，前端拿到的是 `undefined` —— 不报错、只是界面空了）。
+ * `t` 是判别标签，值是变体名的 camelCase。
+ *
+ * 三条不变量（P1a 定型，不可再改）：
+ * 1. **每条流有且只有一条 `done`**，错误路径也是（先 `error` 再 `done{reason:'error'}`）；
+ *    所以**收尾只认 `done`**，不许靠"最后一帧"判断结束。
+ * 2. 每轮第一条是 `round`；工具事件在流收尾时按 index 顺序一次性到。
+ * 3. `toolEnd` **不带 name** —— 它靠 `id` 跟 `toolStart` 配对（时间线要拿这个 id 起止对齐）。
+ */
+export type AiEvent =
+  | { t: 'text'; delta: string }
+  | { t: 'toolStart'; id: string; name: string; args: unknown }
+  | { t: 'toolEnd'; id: string; ok: boolean; result: string | null; error: string | null }
+  | { t: 'round'; n: number }
+  | { t: 'done'; reason: DoneReason }
+  | { t: 'error'; message: string }
+
+const isRec = (v: unknown): v is Record<string, unknown> =>
+  !!v && typeof v === 'object' && !Array.isArray(v)
+
+const strOrNull = (v: unknown): string | null => (typeof v === 'string' ? v : null)
+
+/**
+ * 一帧原始数据 → 事件数组。**唯一的解析入口**（Channel 的 `onmessage` 只碰这个）。
+ *
+ * 为什么返回数组而不是单个事件：旧形状 `{delta, done, error}` 里"错"与"尾"是**同一帧**
+ * （老 Rust 合成的一条）。拆成 `[error, done{reason:'error'}]` 之后，下游只认 `done` 收尾
+ * 这条不变量在旧帧上也成立 —— 否则退到老后端时 busy 永远清不掉。
+ * 新形状一帧就是一事件，数组长度 1。
+ *
+ * 未知 `t` 返回空数组（**忽略**而不是抛）：前端的版本总会比后端松一档，
+ * 多出来一种它不认识的事件不该把整条流打断。
+ */
+export function normalizeEvent(raw: unknown): AiEvent[] {
+  if (!isRec(raw)) return []
+  const t = raw.t
+  if (typeof t !== 'string') return legacyEvents(raw)
+  switch (t) {
+    case 'text':
+      return [{ t: 'text', delta: typeof raw.delta === 'string' ? raw.delta : '' }]
+    case 'toolStart':
+      return [
+        {
+          t: 'toolStart',
+          id: typeof raw.id === 'string' ? raw.id : '',
+          name: typeof raw.name === 'string' ? raw.name : '',
+          args: raw.args,
+        },
+      ]
+    case 'toolEnd':
+      return [
+        {
+          t: 'toolEnd',
+          id: typeof raw.id === 'string' ? raw.id : '',
+          ok: raw.ok === true,
+          result: strOrNull(raw.result),
+          error: strOrNull(raw.error),
+        },
+      ]
+    case 'round': {
+      const n = typeof raw.n === 'number' && Number.isFinite(raw.n) && raw.n >= 1 ? Math.floor(raw.n) : 1
+      return [{ t: 'round', n }]
+    }
+    case 'done': {
+      const r = raw.reason
+      // 未知原因按 `stop` 收：它只影响"要不要继续调工具"，而继续调工具的判断还要求
+      // 真有排队的工具 —— 一个不认识的 reason 不该把界面卡在"进行中"
+      return [{ t: 'done', reason: r === 'tool' || r === 'error' ? r : 'stop' }]
+    }
+    case 'error':
+      return [
+        {
+          t: 'error',
+          message:
+            typeof raw.message === 'string' && raw.message.trim() ? raw.message : '模型服务报了个错，但没给原因',
+        },
+      ]
+    default:
+      return []
+  }
+}
+
+/** 旧形状 `{delta, done, error}`（≤0.8.12）。**只读兼容**：写入端只产新格式 */
+function legacyEvents(raw: Record<string, unknown>): AiEvent[] {
+  const out: AiEvent[] = []
+  const err = strOrNull(raw.error)
+  const delta = typeof raw.delta === 'string' ? raw.delta : ''
+  if (err) out.push({ t: 'error', message: err })
+  if (delta) out.push({ t: 'text', delta })
+  // 老后端把收尾塞在每一帧的 done 上；没有 done 的帧（心跳 / 半截增量）不产生终止信号
+  if (raw.done === true) out.push({ t: 'done', reason: err ? 'error' : 'stop' })
+  return out
 }
 
 /** 历史条目（Rust `HistoryItem`，不带消息体） */
@@ -177,24 +276,153 @@ export function stripMention(text: string, start: number, caret: number): { text
 }
 
 /**
- * 流式增量的唯一归并点。
+ * 气泡状态的唯一归并点（`ChatTurn` 那半）。
  *
- * 优先级是**错误压过一切**：出错时已经收到的增量要留着（用户看到的是"写了一半然后报错"，
- * 而不是整段消失），但状态必须是 error，不能被随后的 done 帧洗成"完成"。
- * 空增量 + 未结束 = SSE 的空行/心跳，原样返回（不产生新对象，省一次重渲染）。
+ * 三条与契约一一对应：
+ * - **错误压过一切**：出错时已经收到的增量要留着（用户看到的是"写了一半然后报错"，
+ *   而不是整段消失），但状态必须是 error，**不能被随后的 `done{reason:'error'}` 洗成"完成"**
+ *   —— 这就是顶上那句 `status === 'error'` 早退，它是契约里的不变量，不是防御性代码。
+ * - 空增量（SSE 心跳 / 空行）原样返回同一个对象：不产生新引用，省一次重渲染。
+ * - `toolStart` / `toolEnd` / `round` 不动气泡（它们属于时间线，见 `applyToolEvent`）。
  */
-export function applyChunk(turn: ChatTurn, chunk: ChatChunk): ChatTurn {
-  // 已经出错的这一轮是终态：后端在 error 帧之后还会补一个 done 帧，
-  // 不挡住的话状态会被洗成"完成"，用户看到一起失败的回复却没有任何失败痕迹
+export function applyEvent(turn: ChatTurn, ev: AiEvent): ChatTurn {
+  // 已经出错的这一轮是终态：契约保证 error 之后还有一条 done{reason:'error'}
   if (turn.status === 'error') return turn
-  if (chunk.error !== null && chunk.error !== undefined) {
-    return { ...turn, status: 'error', error: chunk.error }
-  }
-  if (chunk.delta) {
-    return { ...turn, content: turn.content + chunk.delta, status: 'streaming' }
-  }
-  if (chunk.done) return { ...turn, status: 'done' }
+  if (ev.t === 'error') return { ...turn, status: 'error', error: ev.message }
+  if (ev.t === 'text') return ev.delta ? { ...turn, content: turn.content + ev.delta, status: 'streaming' } : turn
+  if (ev.t === 'done') return { ...turn, status: 'done' }
   return turn
+}
+
+// ---- 时间线的第二条数据路径：结构化工具事件（P1a）----
+//
+// 与「提议 → 照做」那条并存：提议是**模型在正文里写动作行**、等用户点头才执行；
+// 工具是**模型直接调工具**、由本地（P1b 起）执行。两条都摊成同一种行，但两条的
+// 状态来源不同（一条来自 `RunResult`，一条来自 `toolStart`/`toolEnd` 事件），
+// 所以状态也各存一份，互不覆盖 —— 合并成一份就会出现"照做之后工具行的状态被冲掉"。
+
+/** 时间线上的一步工具调用 */
+export interface ToolStep {
+  /** 与 `toolStart` / `toolEnd` 配对用（`toolEnd` 不带 name） */
+  id: string
+  name: string
+  /** 人话名字（`toolLabel`）；查不到的落回工具名本身 */
+  label: string
+  /** 它在第几轮（`round` 事件给的；缺省 1） */
+  round: number
+  step: ActStep
+  result: string | null
+  error: string | null
+}
+
+/** 一条流里累积的工具状态。`round` 是"当前轮次"，新到的步骤记在它下面 */
+export interface ToolState {
+  round: number
+  steps: ToolStep[]
+}
+
+export const TOOL_STATE_EMPTY: ToolState = { round: 1, steps: [] }
+
+/**
+ * 工具名 → 人话。名字由前端在 P1b 从动作白名单生成（`todo.add` → `todo_add`），
+ * 所以这张表就是那套命名的镜像；**查不到不编**，落回「调用工具「xxx」」——
+ * 多一种工具时界面上最差也是一句真话。
+ */
+const TOOL_LABELS: Record<string, string> = {
+  add_card: '摆一张卡',
+  addCard: '摆一张卡',
+  todo_add: '加一条待办',
+  'todo.add': '加一条待办',
+  ledger_add: '记一笔账',
+  'ledger.add': '记一笔账',
+  sticky_append: '往便签里加一段',
+  'sticky.append': '往便签里加一段',
+  countdown_set: '设一张倒数日',
+  'countdown.set': '设一张倒数日',
+  habit_check: '给习惯卡打卡',
+  'habit.check': '给习惯卡打卡',
+  memory_add: '记住一件事',
+  'memory.add': '记住一件事',
+  context_read: '看一眼卡片',
+  'context.read': '看一眼卡片',
+}
+
+export function toolLabel(name: string): string {
+  return TOOL_LABELS[name] ?? `调用工具「${name || '（没写名字）'}」`
+}
+
+/**
+ * 时间线状态（`ToolState` 那半）的唯一归并点 —— 与 `applyEvent` 同一条纪律：
+ * 组件只负责把每一帧交给这两个函数，**不自己判断该写哪个字段**。
+ *
+ * `toolEnd` 找**最后一个**同 id 的步骤：同一轮里模型可能对同一个 id 重发一次，
+ * 而"最后那个才是这次的结论"比"第一个"更接近事实。
+ */
+export function applyToolEvent(state: ToolState | undefined, ev: AiEvent): ToolState {
+  const st = state ?? TOOL_STATE_EMPTY
+  if (ev.t === 'round') return { ...st, round: ev.n }
+  if (ev.t === 'toolStart') {
+    return {
+      ...st,
+      steps: [
+        ...st.steps,
+        { id: ev.id, name: ev.name, label: toolLabel(ev.name), round: st.round, step: 'running', result: null, error: null },
+      ],
+    }
+  }
+  if (ev.t === 'toolEnd') {
+    let hit = -1
+    for (let i = st.steps.length - 1; i >= 0; i--) {
+      if (st.steps[i].id === ev.id) {
+        hit = i
+        break
+      }
+    }
+    if (hit < 0) return st // 没配上的 end（不该发生）：忽略，而不是凭空造一行
+    const steps = st.steps.slice()
+    steps[hit] = { ...steps[hit], step: ev.ok ? 'ok' : 'fail', result: ev.result, error: ev.error }
+    return { ...st, steps }
+  }
+  return st
+}
+
+/**
+ * 流收尾（见到 `done`）时把还在 `running` 的行结掉。
+ *
+ * 为什么必须有：已提供工具的 `toolEnd` 要前端补（契约 §2.2），而**补不上的情况真的存在**
+ * （执行体抛错、页面在两步之间被卸载重挂）。让一行永远转下去，用户看到的是"它还在干活"，
+ * 而事实上这条流已经结束了 —— 那是在骗人。标成失败并说清原因，比转圈诚实。
+ */
+export function settleToolSteps(state: ToolState | undefined): ToolState {
+  const st = state ?? TOOL_STATE_EMPTY
+  if (!st.steps.some((x) => x.step === 'running')) return st
+  return {
+    ...st,
+    steps: st.steps.map((x) =>
+      x.step === 'running' ? { ...x, step: 'fail', error: x.error ?? '这一轮结束了，但这一步没拿到结果' } : x,
+    ),
+  }
+}
+
+/** 时间线上的一行（工具那半）。`detail` 是结果 / 失败原因的一小段，没有就给 null */
+export interface ToolRow {
+  id: string
+  round: number
+  label: string
+  step: ActStep
+  detail: string | null
+}
+
+/** 结果 / 失败原因压到一行能放下的长度（详情全文仍在 `ToolStep` 里，回喂时用得到） */
+export const TOOL_DETAIL_MAX = 80
+
+export function toolRows(state: ToolState | undefined): ToolRow[] {
+  const st = state ?? TOOL_STATE_EMPTY
+  return st.steps.map((x) => {
+    const raw = x.step === 'fail' ? x.error : x.result
+    const detail = raw && raw.trim() ? (raw.trim().length > TOOL_DETAIL_MAX ? `${raw.trim().slice(0, TOOL_DETAIL_MAX)}…` : raw.trim()) : null
+    return { id: x.id, round: x.round, label: x.label, step: x.step, detail }
+  })
 }
 
 /** 一条待发消息：从气泡列表里取"已经说完的"，流式中的占位与出错的整轮都不发 */

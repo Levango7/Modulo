@@ -12,6 +12,7 @@ import { SKILL_DOC_KEY } from './skills'
 import { WORKFLOW_DOC_KEY } from './workflow'
 import { MEMORY_DOC_KEY } from './aiMemory'
 import { MCP_DOC_KEY } from './mcp'
+import { ART_DOC_KEY } from './artifactPanel'
 
 /**
  * 桌面壳的数据落盘。
@@ -96,6 +97,9 @@ export const DATA_KEYS: readonly string[] = [
   // 同一条纪律：漏登记的症状是"配好了、重启就没了"。
   // 不进备份/同步（显式清单）：命令与参数绑定这台机器装了什么，搬走多半跑不起来，见 §12.76。
   MCP_DOC_KEY,
+  // 右栏产物面板（F-15 P0）：`{width, collapsed, view}`。**必须登记** ——
+  // 漏登记的症状同样是"拖完了、重启回到 420"（用户在 P0 里唯一会自己调的尺寸）。
+  ART_DOC_KEY,
 ]
 
 

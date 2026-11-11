@@ -12,7 +12,7 @@
  */
 import { describe, expect, it } from 'vitest'
 import puppeteer from 'puppeteer-core'
-import { chromePath } from './chrome'
+import { chromePath, gotoWorkbench } from './chrome'
 
 const EXE = chromePath()
 const skip = !EXE
@@ -32,7 +32,7 @@ describe.skipIf(skip)('命令面板：一入口三件事（命令 / 卡片 / 内
     const page = await browser.newPage()
     await page.setViewport({ width: 1280, height: 800, deviceScaleFactor: 1 })
     await page.evaluateOnNewDocument(() => localStorage.setItem('modulo.template.v1', 'general'))
-    await page.goto(url, { waitUntil: 'networkidle2', timeout: 30000 })
+    await gotoWorkbench(page, url)
     await wait(800)
 
     const openPalette = async () => {
