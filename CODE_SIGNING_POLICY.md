@@ -104,6 +104,18 @@ Evidence (2026-11-11 / 2026-11-07 / 2026-11-02 / 2026-10-31 / 2026-10-29 / 2026-
   The official desktop probe ran against that installed binary: **56/56** (`2026-11-10T23:50:06.846Z`,
   `PROBE_NET=1`). User data was restored byte-exactly (14/14 files, empty two-way directory diff, identical
   `HKCU\Software\Modulo` export).
+- Separately from Authenticode, the **updater signature** shipped for v0.8.12 was verified cryptographically
+  (2026-11-11, maintainer machine): the published triple — installer `Modulo_0.8.12_x64-setup.exe`
+  (sha256 above), its `.sig` asset (436 B, sha256 `7203fa5459dbb36fa942c60401db8b5d42895ac813eb71ec7ddbba2a71e2a70d`,
+  byte-identical to the `signature` field of the published `latest.json`), and the `pubkey` embedded in
+  `src-tauri/tauri.conf.json` — passes the repo's own release gate `cargo test --release --test release_signature
+  -- --ignored` (`src-tauri/tests/release_signature.rs`, the same `minisign-verify` crate `tauri-plugin-updater`
+  2.13.1 uses). Output: `✓ Modulo_0.8.12_x64-setup.exe 的更新签名验证通过；版本绑定: timestamp:1794353085
+  \tfile:Modulo_0.8.12_x64-setup.exe\tversion:0.8.12` then `test result: ok. 1 passed`. The gate is not vacuous:
+  the same run against a `.sig` with one flipped bit in the signature body fails with
+  `签名验证失败 —— 这个包客户端会拒收，绝不能发: InvalidSignature`, and a freshly produced signature from the
+  maintainer key over the same installer bytes passes. (Note for the next release: hand-rolled Ed25519 checks
+  against the raw file bytes do **not** reproduce the crate's verdict — the crate is the spec, run it.)
 - The v0.8.11 installer was downloaded from its GitHub Release (draft stage) in full: **10,034,920 bytes**,
   sha256 **`7b70401cda88d6e74f4110b0a63355ff57d9302eb88d5e8caf99b8fa554a1834`** — matching the GitHub release
   asset digest and `release-manifest.json` (three independent sources, all read 2026-11-07).
