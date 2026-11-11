@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import {
   addFiles,
-  applyChunk,
+  applyEvent,
+  applyToolEvent,
   attachFile,
   ATTACH_CHARS_MAX,
   ATTACH_MAX_FILES,
@@ -19,35 +20,39 @@ import {
   fullContentFor,
   historyWhen,
   mentionQuery,
+  normalizeEvent,
   outgoingFromTurns,
   permNote,
+  settleToolSteps,
   stripMention,
   summaryText,
   THINKING_LEVELS,
   thinkingLabel,
+  TOOL_DETAIL_MAX,
+  toolLabel,
+  toolRows,
+  TOOL_STATE_EMPTY,
   turnsFromHistory,
+  type AiEvent,
   type CardChoice,
-  type ChatChunk,
   type ChatTurn,
   type ExcerptSource,
+  type ToolState,
 } from '../../src/vue/aiChat'
 
 /**
- * 对话坞的判定层（F-12 二期）。钉的是"慢网络与手滑最容易出事"的那几条：
- * 流式三态归并、`@` 触发词的边界、引用块的预算、历史里混进 system 的处理。
+ * 对话坞的判定层（F-12 二期 → F-15 P1a 换成事件流）。钉的是"慢网络与手滑最容易出事"的那几条：
+ * 流式事件归并、`@` 触发词的边界、引用块的预算、历史里混进 system 的处理。
+ *
+ * 事件流那组用例盯的是三条不变量（契约 §2.2）：**只认 `done` 收尾**、
+ * **`error` 之后来的 `done` 不许洗白**、**旧形状 `{delta,done,error}` 仍能读**。
+ * 这三条任一条破了，界面表现都是"转圈转到天荒地老"或"报错了还显示成功"。
  */
 
 const turn = (patch: Partial<ChatTurn> = {}): ChatTurn => ({
   role: 'user',
   content: '你好',
   status: 'done',
-  error: null,
-  ...patch,
-})
-
-const chunk = (patch: Partial<ChatChunk> = {}): ChatChunk => ({
-  delta: '',
-  done: false,
   error: null,
   ...patch,
 })
@@ -134,23 +139,217 @@ describe('候选筛选', () => {
   })
 })
 
-describe('流式三态归并', () => {
-  it('增量累积，状态仍是 streaming', () => {
-    const t = applyChunk(turn({ role: 'assistant', content: '', status: 'streaming' }), chunk({ delta: '你' }))
+describe('事件流归并（applyEvent）', () => {
+  it('text：增量累积，状态仍是 streaming', () => {
+    const t = applyEvent(turn({ role: 'assistant', content: '', status: 'streaming' }), { t: 'text', delta: '你' })
     expect(t).toMatchObject({ content: '你', status: 'streaming' })
+    expect(applyEvent(t, { t: 'text', delta: '好' }).content).toBe('你好')
+  })
+
+  it('空增量（SSE 心跳 / 空行）原样返回同一个对象 —— 不产生新引用，省一次重渲染', () => {
+    const t = turn()
+    expect(applyEvent(t, { t: 'text', delta: '' })).toBe(t)
   })
 
   it('错误压过一切：已经收到的一半留着，但状态不能被随后的 done 洗掉', () => {
-    const a = applyChunk(turn({ role: 'assistant', content: '半句', status: 'streaming' }), chunk({ error: '连接失败' }))
+    const a = applyEvent(turn({ role: 'assistant', content: '半句', status: 'streaming' }), {
+      t: 'error',
+      message: '连接失败',
+    })
     expect(a).toMatchObject({ content: '半句', status: 'error', error: '连接失败' })
-    const b = applyChunk(a, chunk({ done: true }))
-    expect(b).toBe(a) // error 之后再来 done：原样返回
+    // 契约：error 之后必有 done{reason:'error'} —— 它只说"流收尾了"，不说"成功了"
+    const b = applyEvent(a, { t: 'done', reason: 'error' })
+    expect(b).toBe(a)
+    // 再来一条 text 也拉不回 streaming（用户看到的是"写了一半然后报错"，不是"又活了"）
+    expect(applyEvent(b, { t: 'text', delta: '续' })).toBe(a)
   })
 
-  it('done 收尾；空帧（SSE 心跳）原样返回同一个对象', () => {
-    expect(applyChunk(turn({ status: 'streaming' }), chunk({ done: true })).status).toBe('done')
-    const t = turn()
-    expect(applyChunk(t, chunk())).toBe(t)
+  it('done 收尾：三种 reason 都只表示"这轮结束了"，气泡一律 done', () => {
+    const reasons = ['stop', 'tool', 'error'] as const
+    for (const reason of reasons) {
+      expect(applyEvent(turn({ status: 'streaming' }), { t: 'done', reason }).status).toBe('done')
+    }
+  })
+
+  it('工具事件与轮次不动气泡 —— 它们属于时间线（applyToolEvent），不是正文', () => {
+    const t = turn({ status: 'streaming' })
+    const idle: AiEvent[] = [
+      { t: 'round', n: 2 },
+      { t: 'toolStart', id: 'c1', name: 'todo_add', args: { text: '交周报' } },
+      { t: 'toolEnd', id: 'c1', ok: true, result: '已加', error: null },
+    ]
+    for (const ev of idle) expect(applyEvent(t, ev)).toBe(t)
+  })
+})
+
+describe('normalizeEvent：一帧 → 事件数组（唯一的解析入口）', () => {
+  it('text：增量原样带过；缺 delta 落成空串（不把 undefined 拼进正文）', () => {
+    expect(normalizeEvent({ t: 'text', delta: '你好' })).toEqual([{ t: 'text', delta: '你好' }])
+    expect(normalizeEvent({ t: 'text' })).toEqual([{ t: 'text', delta: '' }])
+  })
+
+  it('toolStart：args 原样透传（形状由具体工具决定，这一层不解释）', () => {
+    const args = { text: '交周报', due: null }
+    expect(normalizeEvent({ t: 'toolStart', id: 'c1', name: 'todo_add', args })).toEqual([
+      { t: 'toolStart', id: 'c1', name: 'todo_add', args },
+    ])
+    // 缺 id / name：给空串，让时间线还能落一个占位行，而不是 undefined 冒到模板里
+    expect(normalizeEvent({ t: 'toolStart' })).toEqual([{ t: 'toolStart', id: '', name: '', args: undefined }])
+  })
+
+  it('toolEnd：ok 只认严格的 true；result / error 非字符串落成 null', () => {
+    expect(normalizeEvent({ t: 'toolEnd', id: 'c1', ok: true, result: '已加', error: null })).toEqual([
+      { t: 'toolEnd', id: 'c1', ok: true, result: '已加', error: null },
+    ])
+    expect(normalizeEvent({ t: 'toolEnd', id: 'c1', ok: 'yes', result: 1, error: { x: 1 } })).toEqual([
+      { t: 'toolEnd', id: 'c1', ok: false, result: null, error: null },
+    ])
+    // 连 id 都没有：给空串（配不上任何 toolStart ⇒ 时间线上被忽略，而不是抛）
+    expect(normalizeEvent({ t: 'toolEnd' })).toEqual([{ t: 'toolEnd', id: '', ok: false, result: null, error: null }])
+  })
+
+  it('round：非正 / 非数字 / 非有限一律当第 1 轮 —— 轮次只影响分组，不该让整条流报错', () => {
+    expect(normalizeEvent({ t: 'round', n: 2 })).toEqual([{ t: 'round', n: 2 }])
+    expect(normalizeEvent({ t: 'round', n: 2.7 })).toEqual([{ t: 'round', n: 2 }])
+    expect(normalizeEvent({ t: 'round' })).toEqual([{ t: 'round', n: 1 }])
+    expect(normalizeEvent({ t: 'round', n: 0 })).toEqual([{ t: 'round', n: 1 }])
+    expect(normalizeEvent({ t: 'round', n: '3' })).toEqual([{ t: 'round', n: 1 }])
+    expect(normalizeEvent({ t: 'round', n: Number.POSITIVE_INFINITY })).toEqual([{ t: 'round', n: 1 }])
+  })
+
+  it('done：三个 reason 原样；不认识的按 stop 收（别把界面卡在"进行中"）', () => {
+    expect(normalizeEvent({ t: 'done', reason: 'tool' })).toEqual([{ t: 'done', reason: 'tool' }])
+    expect(normalizeEvent({ t: 'done', reason: 'error' })).toEqual([{ t: 'done', reason: 'error' }])
+    expect(normalizeEvent({ t: 'done', reason: 'stop' })).toEqual([{ t: 'done', reason: 'stop' }])
+    expect(normalizeEvent({ t: 'done', reason: 'canceled' })).toEqual([{ t: 'done', reason: 'stop' }])
+    expect(normalizeEvent({ t: 'done' })).toEqual([{ t: 'done', reason: 'stop' }])
+  })
+
+  it('error：空原因给一句人话，但这一帧不能吞（吞掉就成了"半句 + 一直转圈"）', () => {
+    expect(normalizeEvent({ t: 'error', message: '连接超时' })).toEqual([{ t: 'error', message: '连接超时' }])
+    expect(normalizeEvent({ t: 'error', message: '   ' })).toEqual([
+      { t: 'error', message: '模型服务报了个错，但没给原因' },
+    ])
+    expect(normalizeEvent({ t: 'error' })).toEqual([{ t: 'error', message: '模型服务报了个错，但没给原因' }])
+  })
+
+  it('旧形状 {delta,done,error}（≤0.8.12）仍能读：错的帧拆成 error + done{reason:error}', () => {
+    // 心跳 / 空帧：什么事件都不产生
+    expect(normalizeEvent({ delta: '', done: false, error: null })).toEqual([])
+    // delta 不是字符串（老桩里见过数字）：当空增量，不把 12 拼进正文
+    expect(normalizeEvent({ delta: 12, done: false })).toEqual([])
+    expect(normalizeEvent({ delta: '半句', done: false, error: null })).toEqual([{ t: 'text', delta: '半句' }])
+    expect(normalizeEvent({ delta: '', done: false, error: '连接失败' })).toEqual([{ t: 'error', message: '连接失败' }])
+    expect(normalizeEvent({ delta: '半句', done: true, error: null })).toEqual([
+      { t: 'text', delta: '半句' },
+      { t: 'done', reason: 'stop' },
+    ])
+    // 老后端把"错"和"尾"塞在同一帧：拆成两条，于是"只认 done 收尾"在老帧上也成立
+    const tail: AiEvent[] = normalizeEvent({ delta: '', done: true, error: '连接失败' })
+    expect(tail).toEqual([
+      { t: 'error', message: '连接失败' },
+      { t: 'done', reason: 'error' },
+    ])
+    // 老帧走完整条 applyEvent：状态是 error，且不被尾部那条 done 洗白
+    const t = tail.reduce<ChatTurn>((acc, ev) => applyEvent(acc, ev), turn({ status: 'streaming' }))
+    expect(t).toMatchObject({ status: 'error', error: '连接失败' })
+  })
+
+  it('未知 t / 非对象 / 数组一律忽略（不抛）：前端比后端松一档，多出一种事件不该打断整条流', () => {
+    expect(normalizeEvent({ t: 'thinking', text: '正在想' })).toEqual([])
+    expect(normalizeEvent(null)).toEqual([])
+    expect(normalizeEvent(undefined)).toEqual([])
+    expect(normalizeEvent('text')).toEqual([])
+    expect(normalizeEvent([{ t: 'text', delta: 'x' }])).toEqual([])
+  })
+})
+
+describe('工具时间线（toolStart / toolEnd / round 的归并点）', () => {
+  it('toolStart 起一行 running；toolEnd 靠 id 配对改状态（它本身不带 name）', () => {
+    let st: ToolState = applyToolEvent(undefined, { t: 'toolStart', id: 'c1', name: 'todo_add', args: {} })
+    expect(st.steps).toHaveLength(1)
+    expect(st.steps[0]).toMatchObject({ id: 'c1', label: '加一条待办', round: 1, step: 'running', result: null })
+    st = applyToolEvent(st, { t: 'toolEnd', id: 'c1', ok: true, result: '已加：交周报', error: null })
+    expect(st.steps[0]).toMatchObject({ step: 'ok', result: '已加：交周报' })
+
+    let bad: ToolState = applyToolEvent(undefined, { t: 'toolStart', id: 'c2', name: '不存在的工具', args: {} })
+    bad = applyToolEvent(bad, { t: 'toolEnd', id: 'c2', ok: false, result: null, error: '没有这个工具' })
+    expect(bad.steps[0]).toMatchObject({ step: 'fail', error: '没有这个工具' })
+    // 名字查不到就照实说，不编一个人话名字
+    expect(bad.steps[0].label).toBe('调用工具「不存在的工具」')
+    expect(toolLabel('')).toBe('调用工具「（没写名字）」')
+    // 下划线与点号两种写法都认（P1b 从动作白名单生成工具名时两种都可能出现）
+    expect(toolLabel('ledger.add')).toBe('记一笔账')
+  })
+
+  it('round：先记下轮次，其后的步骤挂在它下面；缺省就是第 1 轮', () => {
+    expect(TOOL_STATE_EMPTY).toEqual({ round: 1, steps: [] })
+    let st = applyToolEvent(undefined, { t: 'toolStart', id: 'c1', name: 'todo_add', args: {} })
+    st = applyToolEvent(st, { t: 'round', n: 2 })
+    st = applyToolEvent(st, { t: 'toolStart', id: 'c2', name: 'ledger_add', args: {} })
+    expect(st.round).toBe(2)
+    expect(st.steps.map((x) => x.round)).toEqual([1, 2])
+  })
+
+  it('同 id 重发：toolEnd 结最后一个（最后那个才是这次的结论）；配不上的 end 忽略，不凭空造行', () => {
+    let st = applyToolEvent(undefined, { t: 'toolStart', id: 'c1', name: 'todo_add', args: {} })
+    st = applyToolEvent(st, { t: 'toolStart', id: 'c1', name: 'todo_add', args: {} })
+    st = applyToolEvent(st, { t: 'toolEnd', id: 'c1', ok: false, result: null, error: '拒收' })
+    expect(st.steps.map((x) => x.step)).toEqual(['running', 'fail'])
+    const before = st
+    expect(applyToolEvent(st, { t: 'toolEnd', id: 'zzz', ok: true, result: 'x', error: null })).toBe(before)
+    // 非工具事件从这里过：原样返回，不产生新状态
+    expect(applyToolEvent(st, { t: 'text', delta: '好' })).toBe(before)
+    expect(applyToolEvent(undefined, { t: 'done', reason: 'stop' })).toEqual(TOOL_STATE_EMPTY)
+  })
+
+  it('settleToolSteps：流收尾把还在转的标成失败并给原因（让它一直转是骗人）', () => {
+    let st = applyToolEvent(undefined, { t: 'toolStart', id: 'c1', name: 'todo_add', args: {} })
+    st = settleToolSteps(st)
+    expect(st.steps[0]).toMatchObject({ step: 'fail', error: '这一轮结束了，但这一步没拿到结果' })
+    // 已经结完的：原样返回同一个对象（不产生新引用）
+    expect(settleToolSteps(st)).toBe(st)
+    expect(settleToolSteps(undefined)).toEqual(TOOL_STATE_EMPTY)
+    // 行上已经有原因（重挂后补进来的状态）就留着，不覆盖成那句通用的话
+    const kept: ToolState = {
+      round: 1,
+      steps: [{ id: 'c9', name: 'todo_add', label: '加一条待办', round: 1, step: 'running', result: null, error: '之前记下的' }],
+    }
+    expect(settleToolSteps(kept).steps[0].error).toBe('之前记下的')
+    // 混合态：只动还在转的那行，已经结完的行原样留着（不许把"成功"改写）
+    const mixed: ToolState = {
+      round: 1,
+      steps: [
+        { id: 'c1', name: 'todo_add', label: '加一条待办', round: 1, step: 'ok', result: '已加', error: null },
+        { id: 'c2', name: 'ledger_add', label: '记一笔账', round: 1, step: 'running', result: null, error: null },
+      ],
+    }
+    const settled = settleToolSteps(mixed)
+    expect(settled.steps.map((x) => x.step)).toEqual(['ok', 'fail'])
+    expect(settled.steps[0]).toBe(mixed.steps[0])
+  })
+
+  it('toolRows：失败给原因、成功给结果、空值给 null；超长截到 80 字加省略号', () => {
+    let st = applyToolEvent(undefined, { t: 'toolStart', id: 'c1', name: 'todo_add', args: {} })
+    st = applyToolEvent(st, { t: 'toolEnd', id: 'c1', ok: true, result: '已加：交周报', error: null })
+    st = applyToolEvent(st, { t: 'toolStart', id: 'c2', name: 'ledger_add', args: {} })
+    st = applyToolEvent(st, { t: 'toolEnd', id: 'c2', ok: false, result: null, error: '没有这个工具' })
+    const rows = toolRows(st)
+    expect(rows.map((r) => r.label)).toEqual(['加一条待办', '记一笔账'])
+    expect(rows.map((r) => r.detail)).toEqual(['已加：交周报', '没有这个工具'])
+
+    const long = 'x'.repeat(TOOL_DETAIL_MAX + 20)
+    let big = applyToolEvent(undefined, { t: 'toolStart', id: 'c3', name: 'todo_add', args: {} })
+    big = applyToolEvent(big, { t: 'toolEnd', id: 'c3', ok: true, result: long, error: null })
+    const detail = toolRows(big)[0].detail
+    expect(detail).toHaveLength(TOOL_DETAIL_MAX + 1)
+    expect(detail?.endsWith('…')).toBe(true)
+
+    // 只有空白的结果 = 没有详情，别画一行空话
+    let blank = applyToolEvent(undefined, { t: 'toolStart', id: 'c4', name: 'todo_add', args: {} })
+    blank = applyToolEvent(blank, { t: 'toolEnd', id: 'c4', ok: true, result: '   ', error: null })
+    expect(toolRows(blank)[0].detail).toBeNull()
+    expect(toolRows(undefined)).toEqual([])
   })
 })
 

@@ -13,7 +13,7 @@
  */
 import { describe, expect, it } from 'vitest'
 import puppeteer from 'puppeteer-core'
-import { chromePath } from './chrome'
+import { chromePath, gotoWorkbench } from './chrome'
 
 const EXE = chromePath()
 const skip = !EXE
@@ -86,7 +86,7 @@ async function open(twins: boolean, errs: string[]) {
     JSON.stringify(DOC),
     JSON.stringify(card),
   )
-  await page.goto(url, { waitUntil: 'networkidle2', timeout: 30000 })
+  await gotoWorkbench(page, url)
   // 等到图表卡真的渲染出来（它读的正是被聚合的那份数据）
   await page.waitForSelector('.card.chart[data-v="ledger"] .sum', { timeout: 15000 })
   return { browser, page }

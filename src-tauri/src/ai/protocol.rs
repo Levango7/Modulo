@@ -1,8 +1,11 @@
-//! AI 线协议纯函数集 —— URL 白名单 / SSE 行解析 / 错误人话化。
+//! AI 线协议纯函数集 —— URL 白名单 / 人话化 / composer 参数折文字。
 //!
 //! 从 openai_compat 拆出（300 行纪律，同 D-01/D-02 手法）：这一层**不碰 IO、
 //! 不持状态**，全部可在 cargo test 里跑；reqwest/tauri 相关的粘合留在外面。
 //! 单测就在本文件——测试与实现同文件是仓库惯例（sysmon.rs 同模式）。
+//!
+//! **SSE 行解析搬到 `sse.rs`**（F-15 §2.3）：工具调用的分片形状让那一块自己长成了
+//! 一个子功能，留在这里会把本文件继续撑大。
 
 use serde::{Deserialize, Serialize};
 
@@ -239,42 +242,6 @@ pub(crate) fn compose_messages(
     messages
 }
 
-// ---- SSE 行解析 ----
-
-/// 一行 `data:` 载荷 → 事件。忽略注释行/心跳/畸形行（诚实跳过，不中断流）
-pub(crate) enum SseEvent {
-    Delta(String),
-    Done,
-}
-
-pub(crate) fn parse_sse_data_line(line: &str) -> Option<SseEvent> {
-    let payload = line.trim().strip_prefix("data:")?.trim();
-    if payload == "[DONE]" {
-        return Some(SseEvent::Done);
-    }
-    #[derive(Deserialize)]
-    struct Wire {
-        #[serde(default)]
-        choices: Vec<WireChoice>,
-    }
-    #[derive(Deserialize)]
-    struct WireChoice {
-        #[serde(default)]
-        delta: WireDelta,
-    }
-    #[derive(Deserialize, Default)]
-    struct WireDelta {
-        content: Option<String>,
-    }
-    let wire: Wire = serde_json::from_str(payload).ok()?;
-    let delta = wire.choices.first()?.delta.content.clone()?;
-    if delta.is_empty() {
-        None // 空增量不推，省一次 IPC
-    } else {
-        Some(SseEvent::Delta(delta))
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -322,32 +289,6 @@ mod tests {
         assert!(is_local_base("http://127.0.0.1:11434/v1"));
         assert!(is_local_base("https://localhost:8443"));
         assert!(!is_local_base("https://api.example.com/v1"));
-    }
-
-    #[test]
-    fn sse_行解析() {
-        let delta = parse_sse_data_line(r#"data: {"choices":[{"delta":{"content":"你好"}}]}"#);
-        assert_eq!(
-            match delta {
-                Some(SseEvent::Delta(d)) => d,
-                _ => panic!("应是 Delta"),
-            },
-            "你好"
-        );
-        assert!(matches!(
-            parse_sse_data_line("data: [DONE]"),
-            Some(SseEvent::Done)
-        ));
-        // 忽略类：注释、无 data 前缀、畸形 JSON、role 帧（无 content）、空增量
-        for ignored in [
-            ": keep-alive",
-            "event: ping",
-            "data: {oops",
-            r#"data: {"choices":[{"delta":{"role":"assistant"}}]}"#,
-            r#"data: {"choices":[{"delta":{"content":""}}]}"#,
-        ] {
-            assert!(parse_sse_data_line(ignored).is_none(), "{ignored} 应被忽略");
-        }
     }
 
     #[test]

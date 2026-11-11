@@ -2,7 +2,7 @@ import { afterAll, beforeAll, expect, it } from 'vitest'
 import puppeteer from 'puppeteer-core'
 import type { Browser, Page } from 'puppeteer-core'
 import { REGISTRY } from '../../src/vue/cardRegistry'
-import { chromePath } from './chrome'
+import { chromePath, enterWorkbench, gotoWorkbench } from './chrome'
 
 let browser: Browser
 let url: string
@@ -16,7 +16,7 @@ async function freshPage(width: number, height: number): Promise<Page> {
   // 预置"已经挑过模板"：否则首启会自动弹选择器，挡住下面这些要真点鼠标的测试。
   // 首启行为本身另有专门一条测试覆盖（"首启：自动弹一次模板选择器"）。
   await page.evaluateOnNewDocument(() => localStorage.setItem('modulo.template.v1', 'general'))
-  await page.goto(url, { waitUntil: 'networkidle2', timeout: 30000 })
+  await gotoWorkbench(page, url)
   await new Promise((r) => setTimeout(r, 500))
   return page
 }
@@ -214,7 +214,7 @@ async function freshPageWithDoc(width: number, height: number, doc: unknown): Pr
   // 它在顶栏也有一枚「布局编辑」，会把测试的点击抢走（2026-10-12 实际踩到）
   await page.evaluateOnNewDocument(() => localStorage.setItem('modulo.template.v1', 'general'))
   await page.evaluateOnNewDocument((d: string) => localStorage.setItem('modulo.layout.v1', d), JSON.stringify(doc))
-  await page.goto(url, { waitUntil: 'networkidle2', timeout: 30000 })
+  await gotoWorkbench(page, url)
   await settle(500)
   return page
 }
@@ -477,6 +477,7 @@ it.skipIf(skip)('外观设置页：换皮肤会持久化，换强调色会写进
   ).toBe('#5b5bf5')
 
   await page.reload({ waitUntil: 'networkidle2' })
+  await enterWorkbench(page)
   await new Promise((r) => setTimeout(r, 400))
   expect(await skinAttr()).toBe('candy')
   expect(
@@ -791,7 +792,7 @@ it.skipIf(skip)('首启：弹的是向导而不是模板选择器；走完一次
   const ctx = await browser.createBrowserContext()
   const page = await ctx.newPage()
   await page.setViewport({ width: 1440, height: 900, deviceScaleFactor: 1 })
-  await page.goto(url, { waitUntil: 'networkidle2', timeout: 30000 })
+  await gotoWorkbench(page, url)
   await settle(700)
   // 2026-11-05 PR-C：首启从「三步向导」收成「一屏三动作」—— 还没获得价值之前
   // 不再分步、不摊 8 张模板；选择器仍从「先看模板」与顶栏/设置里进。
@@ -810,6 +811,7 @@ it.skipIf(skip)('首启：弹的是向导而不是模板选择器；走完一次
   expect(await page.evaluate(() => !!document.querySelector('.wizard')), '点了动作这一屏就该退场').toBe(false)
 
   await page.reload({ waitUntil: 'networkidle2' })
+  await enterWorkbench(page)
   await settle(700)
   expect(await page.evaluate(() => !!document.querySelector('.wizard')), '走完一次就不该再拦第二次').toBe(false)
   expect(await page.evaluate(() => !!document.querySelector('.picker')), '选择器也不该自己冒出来').toBe(false)
@@ -949,6 +951,7 @@ it.skipIf(skip)('方案册：新建空白可撤销，键盘与拖拽都能排序
   expect(await names()).toEqual(['从零', '甲'])
 
   await page.reload({ waitUntil: 'networkidle2' })
+  await enterWorkbench(page)
   await wait(500)
   await page.click('button[title="外观设置"]')
   await wait()
@@ -1307,7 +1310,7 @@ it.skipIf(skip)('触摸：划卡面只滚动不动卡；拖标题带才移动卡
   const page = await ctx.newPage()
   await page.setViewport({ width: 1440, height: 900, deviceScaleFactor: 1, hasTouch: true })
   await page.evaluateOnNewDocument(() => localStorage.setItem('modulo.template.v1', 'general'))
-  await page.goto(url, { waitUntil: 'networkidle2', timeout: 30000 })
+  await gotoWorkbench(page, url)
   await settle(600)
   await clickTool(page, '布局编辑')
   await settle(500)

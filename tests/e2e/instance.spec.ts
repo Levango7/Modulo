@@ -39,7 +39,7 @@
  */
 import { describe, expect, it } from 'vitest'
 import puppeteer from 'puppeteer-core'
-import { chromePath } from './chrome'
+import { chromePath, enterWorkbench, gotoWorkbench } from './chrome'
 
 const EXE = chromePath()
 const skip = !EXE
@@ -60,7 +60,7 @@ describe.skipIf(skip)('多实例内容（F-01 阶段 2）：两张卡各写各�
     const errs: string[] = []
     page.on('pageerror', (e: unknown) => errs.push('PAGEERROR ' + String((e as Error).message).slice(0, 160)))
     await page.evaluateOnNewDocument(() => localStorage.setItem('modulo.template.v1', 'general'))
-    await page.goto(url, { waitUntil: 'networkidle2', timeout: 30000 })
+    await gotoWorkbench(page, url)
     await wait(800)
 
     // `data-module` 是**模块** id：两张便签都叫 sticky —— 这个选择器本笔一行没改，
@@ -128,6 +128,7 @@ describe.skipIf(skip)('多实例内容（F-01 阶段 2）：两张卡各写各�
 
     // 刷新：写入必须落在对的那一份上，而不是只在内存里对
     await page.reload({ waitUntil: 'networkidle2' })
+    await enterWorkbench(page)
     await wait(800)
     const reloaded = await pads()
     expect(reloaded[0], '刷新后第一张还在').toBe('第一张写的')
@@ -163,7 +164,7 @@ describe.skipIf(skip)('多实例内容（F-01 阶段 2）：两张卡各写各�
     const errs: string[] = []
     page.on('pageerror', (e: unknown) => errs.push('PAGEERROR ' + String((e as Error).message).slice(0, 160)))
     await page.evaluateOnNewDocument(() => localStorage.setItem('modulo.template.v1', 'general'))
-    await page.goto(url, { waitUntil: 'networkidle2', timeout: 30000 })
+    await gotoWorkbench(page, url)
     await wait(800)
 
     /** 每张待办卡的**未完成**清单（`.done` 那张已完成列表不算） */
@@ -248,6 +249,7 @@ describe.skipIf(skip)('多实例内容（F-01 阶段 2）：两张卡各写各�
 
     // 刷新：写入必须落在对的那份上
     await page.reload({ waitUntil: 'networkidle2' })
+    await enterWorkbench(page)
     await wait(800)
     const reloaded = await lists()
     expect(reloaded[0], '刷新后第一张的东西还在').toContain('两张都叫这条')
@@ -293,7 +295,7 @@ describe.skipIf(skip)('多实例内容（F-01 阶段 2）：两张卡各写各�
     const errs: string[] = []
     page.on('pageerror', (e: unknown) => errs.push('PAGEERROR ' + String((e as Error).message).slice(0, 160)))
     await page.evaluateOnNewDocument(() => localStorage.setItem('modulo.template.v1', 'general'))
-    await page.goto(url, { waitUntil: 'networkidle2', timeout: 30000 })
+    await gotoWorkbench(page, url)
     await wait(800)
 
     /** 每张倒数日卡显示态的名字 / 大数字（空态和编辑态没这两个元素，给空串） */
@@ -386,6 +388,7 @@ describe.skipIf(skip)('多实例内容（F-01 阶段 2）：两张卡各写各�
 
     // 刷新：写入必须落在对的那份上
     await page.reload({ waitUntil: 'networkidle2' })
+    await enterWorkbench(page)
     await wait(800)
     const reloaded = await cards()
     expect(reloaded[0].label, '刷新后第一张还在').toBe('元旦')
@@ -423,7 +426,7 @@ describe.skipIf(skip)('多实例内容（F-01 阶段 2）：两张卡各写各�
     const errs: string[] = []
     page.on('pageerror', (e: unknown) => errs.push('PAGEERROR ' + String((e as Error).message).slice(0, 160)))
     await page.evaluateOnNewDocument(() => localStorage.setItem('modulo.template.v1', 'general'))
-    await page.goto(url, { waitUntil: 'networkidle2', timeout: 30000 })
+    await gotoWorkbench(page, url)
     await wait(800)
 
     /** 每张正计时卡显示态的名字 / 「第几天」 */
@@ -507,6 +510,7 @@ describe.skipIf(skip)('多实例内容（F-01 阶段 2）：两张卡各写各�
 
     // 刷新：写入必须落在对的那份上
     await page.reload({ waitUntil: 'networkidle2' })
+    await enterWorkbench(page)
     await wait(800)
     const reloaded = await cards()
     expect(reloaded[0].label, '刷新后第一张还在').toBe('开始戒糖')
@@ -546,7 +550,7 @@ describe.skipIf(skip)('多实例内容（F-01 阶段 2）：两张卡各写各�
     const errs: string[] = []
     page.on('pageerror', (e: unknown) => errs.push('PAGEERROR ' + String((e as Error).message).slice(0, 160)))
     await page.evaluateOnNewDocument(() => localStorage.setItem('modulo.template.v1', 'general'))
-    await page.goto(url, { waitUntil: 'networkidle2', timeout: 30000 })
+    await gotoWorkbench(page, url)
     await wait(800)
 
     /** 每张记账卡的本月总额（`.num`）、笔数行（`.cap` 里「N 笔」）、空态提示（`.hint`） */
@@ -638,6 +642,7 @@ describe.skipIf(skip)('多实例内容（F-01 阶段 2）：两张卡各写各�
 
     // 刷新：写入必须落在对的那份上
     await page.reload({ waitUntil: 'networkidle2' })
+    await enterWorkbench(page)
     await wait(800)
     const reloaded = await books()
     expect(reloaded[0].total, '刷新后第一张还在').toBe('¥12.50')
@@ -698,7 +703,7 @@ describe.skipIf(skip)('多实例内容（F-01 阶段 2）：两张卡各写各�
     const errs: string[] = []
     page.on('pageerror', (e: unknown) => errs.push('PAGEERROR ' + String((e as Error).message).slice(0, 160)))
     await page.evaluateOnNewDocument(() => localStorage.setItem('modulo.template.v1', 'general'))
-    await page.goto(url, { waitUntil: 'networkidle2', timeout: 30000 })
+    await gotoWorkbench(page, url)
     await wait(800)
 
     /** 每张习惯卡的名字、连续天数、今天那格是否已打卡 */
@@ -804,6 +809,7 @@ describe.skipIf(skip)('多实例内容（F-01 阶段 2）：两张卡各写各�
 
     // 刷新：写入必须落在对的那份上
     await page.reload({ waitUntil: 'networkidle2' })
+    await enterWorkbench(page)
     await wait(800)
     const reloaded = await cards()
     expect(reloaded[0].name, '刷新后第一张名字还在').toBe('第一张的跑步')
@@ -848,7 +854,7 @@ describe.skipIf(skip)('多实例内容（F-01 阶段 2）：两张卡各写各�
     const errs: string[] = []
     page.on('pageerror', (e: unknown) => errs.push('PAGEERROR ' + String((e as Error).message).slice(0, 160)))
     await page.evaluateOnNewDocument(() => localStorage.setItem('modulo.template.v1', 'general'))
-    await page.goto(url, { waitUntil: 'networkidle2', timeout: 30000 })
+    await gotoWorkbench(page, url)
     await wait(800)
 
     /** 每张四象限卡的条目：字 + 是否已勾（四象限不隐藏已完成的，只画删除线） */
@@ -942,6 +948,7 @@ describe.skipIf(skip)('多实例内容（F-01 阶段 2）：两张卡各写各�
 
     // 刷新：写入必须落在对的那份上
     await page.reload({ waitUntil: 'networkidle2' })
+    await enterWorkbench(page)
     await wait(800)
     const reloaded = await rows()
     expect(reloaded[0].map((r) => r.text), '刷新后第一张的东西还在').toEqual(['两张都叫这条'])
@@ -1025,7 +1032,7 @@ describe.skipIf(skip)('多实例内容（F-01 阶段 2）：两张卡各写各�
       localStorage.setItem('modulo.carddata.v1', JSON.stringify(seed))
       }
     })
-    await page.goto(url, { waitUntil: 'networkidle2', timeout: 30000 })
+    await gotoWorkbench(page, url)
     await wait(800)
 
     /**
@@ -1091,6 +1098,7 @@ describe.skipIf(skip)('多实例内容（F-01 阶段 2）：两张卡各写各�
 
     // 刷新：读的还是自己那份（不是"当时恰好相同"的同一份）
     await page.reload({ waitUntil: 'networkidle2' })
+    await enterWorkbench(page)
     await wait(800)
     expect(await titles(), '刷新后仍然各读各的').toEqual([
       ['第一张的速记'],
@@ -1125,6 +1133,7 @@ describe.skipIf(skip)('多实例内容（F-01 阶段 2）：两张卡各写各�
     // 刷新：各自写的那笔都落在盘上正确的位置
     await wait(600) // 写入防抖的合并窗口（300ms）内等它落盘
     await page.reload({ waitUntil: 'networkidle2' })
+    await enterWorkbench(page)
     await wait(800)
     expect(await titles(), '刷新后两笔都还在、仍各读各的').toEqual([
       ['第一张新记的', '第一张的速记'],

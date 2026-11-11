@@ -1,8 +1,9 @@
 //! AI 出口收敛层 —— OpenAI 兼容协议的命令与 IO（reqwest 0.13，Rust 出口，CSP 不动，ADR-004/010）。
 //!
-//! 分包（300 行纪律，同 D-01/D-02 手法）：**纯函数在 protocol.rs**（URL 白名单
-//! / SSE 解析 / 人话化，全部可单测），**配置读写在 settings.rs**（D-07），本文件
-//! 只留命令、请求执行、限流与取消。
+//! 分包（300 行纪律，同 D-01/D-02 手法）：**纯函数在 protocol.rs**（URL 白名单 /
+//! 人话化）与 **sse.rs**（SSE 行解析）、**request.rs**（请求体与 tools 线形状）、
+//! **tools.rs**（工具调用分片累积）、**events.rs**（流式事件契约），
+//! **配置读写在 settings.rs**（D-07），本文件只留命令、请求执行、限流与取消。
 //!
 //! 纪律：
 //! 1. 并发限流 Semaphore(2)（AC-12）；中止走 `ai_chat_cancel`（D-08）。
@@ -21,12 +22,12 @@ use tokio_util::sync::CancellationToken;
 use super::keys;
 // E3：消息与附件两个类型搬进 protocol（纯函数的家）—— 命令签名与线上字段一字不变，
 // 这里只是把它们重新导出，`ai::openai_compat::Msg` 的老路径继续可用。
-use super::protocol::{
-    compose_messages, humanize_connect, humanize_status, parse_sse_data_line, validate_base_url,
-    SseEvent,
-};
+use super::protocol::{compose_messages, humanize_connect, humanize_status, validate_base_url};
 pub use super::protocol::{Attachment, Msg};
+use super::request::chat_body;
 use super::settings::{load_provider, load_settings, ProviderCfg, ProviderView};
+use super::sse::parse_sse_data_line;
+use super::tools::ToolCallAccumulator;
 
 /// 一次性摘要的整体超时；流式对话不设整体超时（长对话合法），只有连接超时。
 ///
@@ -105,13 +106,9 @@ async fn probe_ready(c: &ProviderCfg, has_key: bool) -> bool {
     matches!(req.send().await, Ok(r) if r.status().is_success())
 }
 
-#[derive(Serialize, Clone)]
-#[serde(rename_all = "camelCase")]
-pub struct AiChunk {
-    pub delta: String,
-    pub done: bool,
-    pub error: Option<String>,
-}
+// 事件形状住在 `ai/events.rs`（契约 §2.2）。这里只重新导出，命令签名与前端那份
+// TS 类型共用同一批名字：`ai::openai_compat::AiEvent` / `ToolSpec`。
+pub use super::events::{AiEvent, DoneReason, ToolSpec};
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -130,7 +127,13 @@ pub async fn ai_chat(
     thinking: Option<String>,
     // E3 添加文件：只带文件名与正文，不带路径；上限由 protocol 那一层把关
     attachments: Option<Vec<Attachment>>,
-    on_chunk: Channel<AiChunk>,
+    // F-15 §2.3 原生 tool-calling：工具清单由前端从动作白名单生成后传入。
+    // **不传 = provider 不支持 tools**，行为与 v0.8.12 逐字一致（退回 `@@act` 文字约定）：
+    // 请求体里不会有这个字段（见 request::chat_body）。
+    tools: Option<Vec<ToolSpec>>,
+    // 前端驱动 agent 循环，所以轮次由它交上来；缺失按第 1 轮（老调用点不受影响）
+    round: Option<u32>,
+    on_chunk: Channel<AiEvent>,
 ) -> Result<ConversationRef, String> {
     let cfg = load_provider(&app, &provider_id)?;
     let key = keys::get_key(&provider_id)?;
@@ -159,23 +162,42 @@ pub async fn ai_chat(
             .collect();
         // 真正发出去的那一份：需要时在最前面并入/插入一条 system
         let outgoing = compose_messages(messages, thinking.as_deref(), &attachments);
-        match run_chat(&base, &model, key, outgoing, &token, &sink).await {
-            Ok(reply) => {
-                let _ = sink.send(AiChunk {
-                    delta: String::new(),
-                    done: true,
-                    error: None,
+        // 第一条就是轮次：时间线要先有"第 n 轮"这一行，再谈里面发生了什么。
+        // 推不出去（界面已关）不算错误 —— 后面的正文/工具事件会各自如实失败。
+        let _ = sink.send(AiEvent::Round {
+            n: round.unwrap_or(1),
+        });
+        match run_chat(
+            &base,
+            &model,
+            key,
+            outgoing,
+            tools.as_deref(),
+            &token,
+            &sink,
+        )
+        .await
+        {
+            Ok(out) => {
+                // 每条流都以且只以一条 Done 收尾（错误路径也是）—— 界面只盯这一个终止信号
+                let _ = sink.send(AiEvent::Done {
+                    reason: if out.used_tools {
+                        DoneReason::Tool
+                    } else {
+                        DoneReason::Stop
+                    },
                 });
-                if !reply.trim().is_empty() {
-                    full.push(("assistant".to_string(), reply));
+                if !out.reply.trim().is_empty() {
+                    full.push(("assistant".to_string(), out.reply));
                     let _ = super::history::upsert_conversation(&app2, &task_conv, &full);
                 }
             }
             Err(msg) => {
-                let _ = sink.send(AiChunk {
-                    delta: String::new(),
-                    done: true,
-                    error: Some(msg),
+                // 先说明"哪里破了"，再给终止信号。两者分开是契约要求：Error 是通道级错误，
+                // 工具没做成走的是 ToolEnd{ok:false}（在 tools.rs 里发）
+                let _ = sink.send(AiEvent::Error { message: msg });
+                let _ = sink.send(AiEvent::Done {
+                    reason: DoneReason::Error,
                 });
             }
         }
@@ -195,11 +217,10 @@ pub fn ai_chat_cancel(conversation_id: String) -> Result<(), String> {
     Ok(())
 }
 
-#[derive(Serialize)]
-struct ChatRequest<'a> {
-    model: &'a str,
-    messages: &'a [Msg],
-    stream: bool,
+/// 一轮流式对话的产出。`used_tools` 决定 `Done{reason}` 是 `tool` 还是 `stop`。
+struct ChatOutcome {
+    reply: String,
+    used_tools: bool,
 }
 
 async fn run_chat(
@@ -207,9 +228,10 @@ async fn run_chat(
     model: &str,
     key: Option<String>,
     messages: Vec<Msg>,
+    tools: Option<&[ToolSpec]>,
     token: &CancellationToken,
-    sink: &Channel<AiChunk>,
-) -> Result<String, String> {
+    sink: &Channel<AiEvent>,
+) -> Result<ChatOutcome, String> {
     ensure_crypto_provider();
     validate_base_url(base)?;
     let client = reqwest::Client::builder()
@@ -217,13 +239,11 @@ async fn run_chat(
         .connect_timeout(crate::net_policy::ai_connect())
         .build()
         .map_err(|e| format!("创建 HTTP 客户端失败：{e}"))?;
+    // 请求体在 request.rs 组装（`tools` 的线形状与"没有就不发"都由那边保证）
+    let body = chat_body(model, &messages, true, tools);
     let mut req = client
         .post(format!("{}/chat/completions", base.trim_end_matches('/')))
-        .json(&ChatRequest {
-            model,
-            messages: &messages,
-            stream: true,
-        });
+        .json(&body);
     if let Some(k) = &key {
         req = req.bearer_auth(k);
     }
@@ -250,32 +270,43 @@ async fn run_chat(
     // 累积 assistant 全文：流结束后原样交给 history 落盘（D-02）。
     // 只累积不做二次加工——前端已收到的 delta 与这里的一致，落盘即所见
     let mut reply = String::new();
-    loop {
+    // 工具调用分片按 index 累积（F-15 §2.3）：这里只喂，不做判断
+    let mut tool_calls =
+        ToolCallAccumulator::new(tools.map(|l| l.iter().map(|t| t.name.clone()).collect()));
+    'stream: loop {
         let bytes = token
             .run_until_cancelled(resp.chunk())
             .await
             .ok_or_else(|| "已中止".to_string())?
             .map_err(|e| format!("读模型响应失败：{e}"))?;
-        let Some(bytes) = bytes else { return Ok(reply) }; // 流正常收尾（无 [DONE] 也算完）
+        let Some(bytes) = bytes else { break 'stream }; // 流正常收尾（无 [DONE] 也算完）
         buf.extend_from_slice(&bytes);
         while let Some(pos) = buf.iter().position(|&b| b == b'\n') {
             let line_bytes: Vec<u8> = buf.drain(..=pos).collect();
             let line = String::from_utf8_lossy(&line_bytes[..line_bytes.len() - 1]);
-            match parse_sse_data_line(&line) {
-                Some(SseEvent::Delta(delta)) => {
-                    reply.push_str(&delta);
-                    sink.send(AiChunk {
-                        delta,
-                        done: false,
-                        error: None,
-                    })
+            let Some(frame) = parse_sse_data_line(&line) else {
+                continue;
+            };
+            if let Some(delta) = frame.content {
+                reply.push_str(&delta);
+                sink.send(AiEvent::Text { delta })
                     .map_err(|_| "输出通道已关闭，已停止".to_string())?;
-                }
-                Some(SseEvent::Done) => return Ok(reply),
-                None => {}
+            }
+            for delta in frame.tool_calls {
+                tool_calls.push(delta);
+            }
+            if frame.done {
+                break 'stream;
             }
         }
     }
+    // 结清工具调用：参数分片没闭合在这里变成协议错误（Err），不会伪装成"空参数"
+    let (events, used_tools) = tool_calls.finish()?;
+    for ev in events {
+        sink.send(ev)
+            .map_err(|_| "输出通道已关闭，已停止".to_string())?;
+    }
+    Ok(ChatOutcome { reply, used_tools })
 }
 
 #[derive(Serialize)]
@@ -320,16 +351,14 @@ pub async fn ai_summarize(
         .timeout(summarize_timeout())
         .build()
         .map_err(|e| format!("创建 HTTP 客户端失败：{e}"))?;
+    // 摘要永远不带 tools（它不是 agent 循环的一环），`None` 保证请求体里没这个字段
+    let body = chat_body(&cfg.model, &messages, false, None);
     let mut req = client
         .post(format!(
             "{}/chat/completions",
             cfg.base_url.trim_end_matches('/')
         ))
-        .json(&ChatRequest {
-            model: &cfg.model,
-            messages: &messages,
-            stream: false,
-        });
+        .json(&body);
     if let Some(k) = &key {
         req = req.bearer_auth(k);
     }

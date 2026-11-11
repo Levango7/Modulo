@@ -443,6 +443,71 @@ export function runActions(
   return { ok: true, done: actions.length, values }
 }
 
+/**
+ * 执行时间线上一步的状态（F-15 P0 §1.5 的五个状态点）。
+ *
+ * `running` 只出现在末尾那条"回喂给它了、它接着办"上 —— 单个动作的执行是同步的
+ * （`runActions` 一口气跑完），没有一个可观察的"正在调工具"窗口；P1a 的结构化事件
+ * 到位后才是真的逐条执行中（契约 §1.5 末句写的就是这个顺序）。
+ */
+export type ActStep = 'pending' | 'running' | 'ok' | 'fail' | 'skipped'
+
+/**
+ * `RunResult` → 逐条状态。**与 `actionResultLines` 同源**（同一份 `done` / `ok`）：
+ * 回喂文本里写"第 2 个失败"与时间线上把第 2 个点标红，必须是同一个判断 ——
+ * 两处各算一遍迟早会有一处改漏。
+ */
+export function actStepStatuses(actions: readonly AiAction[], run: RunResult): ActStep[] {
+  return actions.map((_, i) => {
+    if (i < run.done) return 'ok'
+    if (i === run.done && !run.ok) return 'fail'
+    return 'skipped'
+  })
+}
+
+/** 时间线上的一行：一条动作 */
+export interface TimelineRow {
+  label: string
+  step: ActStep
+}
+
+/**
+ * 把「提议 → 照做 → 结果」摊成一条纵向时间线的行（F-15 P0 §1.5）。
+ *
+ * 只用现有数据：`actions` / `actionsState` / 执行结果的逐条状态。
+ * 四种输入的映射：
+ * - 还没点头（`pending` / 没状态）⇒ 全部「待确认」；
+ * - 「算了」⇒ 全部「未执行」（一条都没写）；
+ * - 「照做」⇒ 按 `actStepStatuses` 逐条（成功 / 失败 / 未执行）；
+ * - 照做之后那轮还在流式（`following`）⇒ 末尾补一行「执行中」，
+ *   因为这时候真在发生的事就是"工具结果已回喂、它接着办"。
+ *
+ * **坏行不在这里**：它是"这一版根本照做不了"，不是提议的一步，界面上另起一行说明
+ * （`data-ai-act-bad`）—— 混进同一列会被读成"它也提议了这个"。
+ *
+ * 空数组 = 这一轮没有可画的东西（界面整块不出现，而不是画一个空框）。
+ */
+export function timelineRows(i: {
+  labels: readonly string[]
+  state?: 'pending' | 'done' | 'dismissed'
+  steps?: readonly ActStep[]
+  following: boolean
+}): TimelineRow[] {
+  const rows: TimelineRow[] = i.labels.map((label, n) => ({
+    label,
+    step:
+      i.state === 'dismissed'
+        ? 'skipped'
+        : i.state === 'done'
+          ? (i.steps?.[n] ?? 'ok')
+          : 'pending',
+  }))
+  if (i.state === 'done' && i.following) {
+    rows.push({ label: '把结果回喂给它，它接着往下办', step: 'running' })
+  }
+  return rows
+}
+
 /** 常用卡 id：写进指令的"词汇表"。校验仍按注册表全表来 —— 这个清单只是提示 */
 const CURATED_IDS = [
   'todo',

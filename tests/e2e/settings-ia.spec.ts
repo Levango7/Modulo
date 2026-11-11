@@ -14,7 +14,7 @@ import { resolve } from 'node:path'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import puppeteer from 'puppeteer-core'
 import type { Browser, Page } from 'puppeteer-core'
-import { chromePath } from './chrome'
+import { chromePath, enterWorkbench, gotoWorkbench } from './chrome'
 
 const EXE = chromePath()
 const skip = !EXE
@@ -70,7 +70,7 @@ async function open(opts: OpenOpts = {}, errs?: string[]): Promise<Page> {
     opts.seeded === false ? null : JSON.stringify(DOC),
     opts.onboarding ?? null,
   )
-  await page.goto(url, { waitUntil: 'networkidle2', timeout: 30000 })
+  await gotoWorkbench(page, url)
   await page.waitForSelector('button.wide[title="外观设置"]', { timeout: 15000 })
   return page
 }
@@ -245,6 +245,7 @@ describe.skipIf(skip)('首启一屏（2026-11-05 PR-C：三步向导收成一屏
       localStorage.removeItem('modulo.template.v1')
     })
     await page.reload({ waitUntil: 'networkidle2' })
+    await enterWorkbench(page)
     await page.waitForSelector('button.wide[title="外观设置"]', { timeout: 15000 })
     await new Promise((r) => setTimeout(r, 400))
     expect(await has(page, '.wizard'), '看过了就不该再弹（哪怕版面又被清空）').toBe(false)
@@ -257,6 +258,7 @@ describe.skipIf(skip)('首启一屏（2026-11-05 PR-C：三步向导收成一屏
       localStorage.removeItem('modulo.onboarding.v1')
     })
     await page.reload({ waitUntil: 'networkidle2' })
+    await enterWorkbench(page)
     await page.waitForSelector('.wizard', { timeout: 15000 })
     expect(errs, `页面不该有报错：${errs.join(' | ')}`).toEqual([])
   })
@@ -309,6 +311,7 @@ describe.skipIf(skip)('首启一屏（2026-11-05 PR-C：三步向导收成一屏
       ),
     )
     await page.reload({ waitUntil: 'networkidle2' })
+    await enterWorkbench(page)
     await openSettings(page)
     await clickGroup(page, 'lab')
     await page.waitForSelector('[data-ai-memory-item]', { timeout: 10000 })
