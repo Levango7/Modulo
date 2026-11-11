@@ -2,7 +2,7 @@
 
 **Project:** Modulo — a local-first card/layout workbench (Windows desktop + web).
 **Repository:** <https://github.com/Levango7/Modulo> (Apache-2.0)
-**Last updated:** 2026-10-18
+**Last updated:** 2026-11-11
 
 > 本页按代码签名服务方（SignPath Foundation）的要求用英文撰写，供其审核与安全研究人员阅读；
 > 仓库其余文档以中文为主。
@@ -19,7 +19,7 @@ that will apply once signing is active, and are marked where that is the case.
 
 ## What is signed
 
-- **Nothing is Authenticode-signed today** (baseline: v0.8.11, 2026-11-07; see Current status).
+- **Nothing is Authenticode-signed today** (baseline: v0.8.12, 2026-11-11; see Current status).
 - Once the SignPath program is active, the artifact to be signed will be the Windows installer
   published on GitHub Releases: `Modulo_<version>_x64-setup.exe` (an NSIS installer containing
   the application binary `modulo.exe`).
@@ -89,9 +89,21 @@ on the GitHub account and on the SignPath account used for review and approval.
 
 ## Current status
 
-As of **2026-11-07** (baseline release: **v0.8.11**), releases are **not yet Authenticode-signed**.
-Evidence (2026-11-07 / 2026-11-02 / 2026-10-31 / 2026-10-29 / 2026-10-27 / 2026-10-25 / 2026-10-22 / 2026-10-18, maintainer machine):
+As of **2026-11-11** (baseline release: **v0.8.12**), releases are **not yet Authenticode-signed**.
+Evidence (2026-11-11 / 2026-11-07 / 2026-11-02 / 2026-10-31 / 2026-10-29 / 2026-10-27 / 2026-10-25 / 2026-10-22 / 2026-10-18, maintainer machine):
 
+- The v0.8.12 installer was downloaded from its GitHub Release (draft stage) in full: **10,075,157 bytes**,
+  sha256 **`95facf7e11af3c6f5151381a072b78ef22260c48ded4779d38f5a60436996a73`** — matching the GitHub release
+  asset digest and `release-manifest.json` (three independent sources, all read 2026-11-11).
+  `Get-AuthenticodeSignature` on it reports **NotSigned**; control: the same command on
+  `C:\Windows\System32\cmd.exe` reports **Valid** on the same machine. Checked 2026-11-11 during the
+  pre-release drill (hard step 5 of the release process). The installer's `FileVersion` / `ProductVersion` both
+  read `0.8.12`, and so do the `modulo.exe` / `uninstall.exe` installed from it (silent upgrade to
+  `D:\Program Files (x86)\Modulo`, exit 0, four sherpa/onnxruntime DLLs present; the installed `modulo.exe` is
+  15,636,992 bytes / sha256 `263e88a857997857b38bc722c392d5f18f1d50dbd4e3873dbd221b609aeb3ee5`).
+  The official desktop probe ran against that installed binary: **56/56** (`2026-11-10T23:50:06.846Z`,
+  `PROBE_NET=1`). User data was restored byte-exactly (14/14 files, empty two-way directory diff, identical
+  `HKCU\Software\Modulo` export).
 - The v0.8.11 installer was downloaded from its GitHub Release (draft stage) in full: **10,034,920 bytes**,
   sha256 **`7b70401cda88d6e74f4110b0a63355ff57d9302eb88d5e8caf99b8fa554a1834`** — matching the GitHub release
   asset digest and `release-manifest.json` (three independent sources, all read 2026-11-07).
