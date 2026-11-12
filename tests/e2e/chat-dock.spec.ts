@@ -1137,7 +1137,7 @@ describe.skipIf(skip)('聊天任脊柱（E1）', () => {
     await expand(page)
     await ask(page, '找找哪张卡写到过周报')
     await page.waitForSelector('[data-ai-act-run]', { timeout: 15000 })
-    expect(await text(page, '[data-ai-act]')).toBe('找一找写有「周报」的卡')
+    expect(await text(page, '[data-ai-act]')).toBe('找一找写有「周报」的东西')
     await click(page, '[data-ai-act-run]')
     await page.waitForSelector('[data-chat-tool-note]', { timeout: 15000 })
     await page.waitForFunction(
