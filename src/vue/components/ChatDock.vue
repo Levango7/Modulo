@@ -442,31 +442,60 @@ function snippetAround(text: string, at: number, len: number): string {
   return `${from > 0 ? '…' : ''}${text.slice(from, to).replace(/\s+/g, ' ').trim()}${to < text.length ? '…' : ''}`
 }
 
+/** 一条可搜的东西（v1.7）：来源前缀 + 名字 + 全文 */
+interface Searchable {
+  /** 展示名（资料名 / 技能名 / 卡名） */
+  label: string
+  /** 来源前缀：「资料」/「技能」；卡片留空（卡名本身已经说明了） */
+  source: string
+  /** 全文 —— 匹配用 */
+  text: string
+}
+
 /**
- * 按内容找卡（v1.6）：卡名或全文里含关键词就算命中，大小写不敏感；每张给「卡名 + 关键词
- * 前后一小段」。最多 `ACTION_SEARCH_MAX` 张，超了明说还有几张没列 —— 找卡是为了定位，
- * 不是读完。**只读**：与读类其他分支一样不写任何东西。
+ * 按内容找东西（v1.6 找卡 → v1.7 找我的东西）：**卡片 / 资料 / 技能**三类一起搜，
+ * 多个词**全部命中**才算（AND，大小写不敏感）；每条给「来源 + 名字 + 关键词前后一小段」。
+ * 最多 `ACTION_SEARCH_MAX` 条，超了明说还有几条没列 —— 找东西是为了定位，不是读完。
+ * **只读**：与读类其他分支一样不写任何东西。
  */
-function searchCards(cards: CardChoice[], query: string): string[] {
-  const q = query.toLowerCase()
+function searchMine(query: string): string[] {
+  const words = query.toLowerCase().split(/\s+/).filter(Boolean)
+  const cards = cardChoices(store.doc.value.items, (m) => E.findModule(store.reg, m)?.title ?? m)
+  const all: Searchable[] = [
+    ...knowledge.docs.value.map((d) => ({ label: d.name, source: '资料', text: d.text })),
+    ...skills.skills.value.map((s) => ({ label: s.name, source: '技能', text: s.text })),
+    ...cards.map((c) => ({ label: c.label, source: '', text: fullContentFor(c, cardDataApi.state) })),
+  ]
   const hits: string[] = []
-  for (const c of cards) {
-    const full = fullContentFor(c, cardDataApi.state)
-    const at = full.toLowerCase().indexOf(q)
-    if (at < 0 && !c.label.toLowerCase().includes(q)) continue
-    const snippet = at >= 0 ? snippetAround(full, at, query.length) : '（标题对得上，卡里没有可读正文）'
-    hits.push(`${c.label}：「${snippet}」`)
+  for (const it of all) {
+    const hay = it.text.toLowerCase()
+    const name = it.label.toLowerCase()
+    // 每个词都要出现（内容里或名字里，大小写不敏感）
+    if (!words.every((w) => hay.includes(w) || name.includes(w))) continue
+    // 片段锚点取最早出现的那个词（只在名字里对上时用说明句）
+    let at = -1
+    let len = 0
+    for (const w of words) {
+      const i = hay.indexOf(w)
+      if (i >= 0 && (at < 0 || i < at)) {
+        at = i
+        len = w.length
+      }
+    }
+    const snippet = at >= 0 ? snippetAround(it.text, at, len) : '（名字对得上，里面没有可读正文）'
+    hits.push(`${it.source ? `${it.source}「${it.label}」` : it.label}：「${snippet}」`)
   }
   const shown = hits.slice(0, ACTION_SEARCH_MAX)
-  if (hits.length > shown.length) shown.push(`（另有 ${hits.length - shown.length} 张也提到了，没列出来）`)
+  if (hits.length > shown.length) shown.push(`（另有 ${hits.length - shown.length} 条也提到了，没列出来）`)
   return shown
 }
 
 /**
  * 读类动作的执行体（第十六笔起；第十八笔起可带 instanceId 定点读第二实例；
- * 第十九笔起可带 moduleIds 一次读一组、full 读全卡；第二十笔起可带 query 按内容找卡）：
+ * 第十九笔起可带 moduleIds 一次读一组、full 读全卡；第二十笔起可带 query 按内容找东西）：
  * **只取不写**，走与 `@卡片` 同一套读路径。
- * query = 按内容找卡；无 query / moduleId / instanceId / moduleIds = 版面清单（有哪些卡、实例 id 是多少）；
+ * query = 按内容找东西（卡片 / 资料 / 技能，多词全部命中才算）；无 query / moduleId /
+ * instanceId / moduleIds = 版面清单（有哪些卡、实例 id 是多少）；
  * 有 moduleIds = 一组卡（一条结果消息逐张列出）；有 instanceId = 那一张实例的摘录；
  * 有 moduleId 无 instanceId = 那张卡第一实例的摘录。默认走 `excerptFor`（单条封顶
  * `ACTION_READ_MAX`）；`full` 走 `fullContentFor`（封顶 `ACTION_READ_FULL_MAX`，
@@ -480,8 +509,8 @@ function readContext(a: {
   query?: string
 }): string {
   const cards = cardChoices(store.doc.value.items, (m) => E.findModule(store.reg, m)?.title ?? m)
-  // v1.6 按内容找卡：与「读某张」互斥，回喂一条
-  if (a.query) return searchCards(cards, a.query).join('\n') || `版面上没有写到「${a.query}」的卡`
+  // v1.7 按内容找东西：三类来源一起搜，与「读某一张」互斥，回喂一条
+  if (a.query) return searchMine(a.query).join('\n') || `卡片、资料、技能里都没有写到「${a.query}」的`
   if (!a.moduleId && !a.instanceId && !a.moduleIds) {
     return cards.length ? cards.map((c) => `${c.label}（id ${c.id}）`).join('、') : '版面上没有卡'
   }

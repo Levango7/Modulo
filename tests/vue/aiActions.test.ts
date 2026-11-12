@@ -382,11 +382,11 @@ describe('AI 动作 v1.5：读侧增强（moduleIds 多卡 + full 全卡）', ()
 describe('AI 动作 v1.6：按内容找卡（query）', () => {
   const readCtx = (): ActionContext => ({ ...ctx(), moduleIds: ['todo', 'sticky', 'ledger'] })
 
-  it('query trim 后原样解析，人话叫「找一找写有「…」的卡」', () => {
+  it('query trim 后原样解析，人话叫「找一找写有「…」的东西」（v1.7 起「卡」→「东西」）', () => {
     expect(parseActions(act({ type: 'context.read', query: '  体检  ' }), readCtx()).actions).toEqual([
       { type: 'context.read', query: '体检' },
     ])
-    expect(actionLabel({ type: 'context.read', query: '体检' })).toBe('找一找写有「体检」的卡')
+    expect(actionLabel({ type: 'context.read', query: '体检' })).toBe('找一找写有「体检」的东西')
   })
 
   it('query 与 moduleId / moduleIds / instanceId / full 互斥（找卡 vs 读卡）', () => {
@@ -418,6 +418,36 @@ describe('AI 动作 v1.6：按内容找卡（query）', () => {
     const p = actionPrompt()
     expect(p).toContain('"query":"体检"')
     expect(p).toContain('互斥')
+  })
+})
+
+describe('AI 动作 v1.7：找我的东西（多关键词 + 三类来源）', () => {
+  const readCtx = (): ActionContext => ({ ...ctx(), moduleIds: ['todo', 'sticky', 'ledger'] })
+
+  it('多关键词：空格分隔，多个空格归一成一个', () => {
+    expect(parseActions(act({ type: 'context.read', query: '  体检   挂号  ' }), readCtx()).actions).toEqual([
+      { type: 'context.read', query: '体检 挂号' },
+    ])
+    expect(actionLabel({ type: 'context.read', query: '体检 挂号' })).toBe('找一找写有「体检 挂号」的东西')
+  })
+
+  it('词数上限 4：超了整行拒收（人话里说清最多几个）', () => {
+    const bad = parseActions(act({ type: 'context.read', query: '一 二 三 四 五' }), readCtx())
+    expect(bad.actions).toEqual([])
+    expect(bad.bad[0]).toContain('最多 4 个')
+  })
+
+  it('单关键词与缺省行为逐字不变（人话里「东西」替换「卡」）', () => {
+    expect(parseActions(act({ type: 'context.read', query: '体检' }), readCtx()).actions).toEqual([
+      { type: 'context.read', query: '体检' },
+    ])
+    expect(actionLabel({ type: 'context.read', query: '体检' })).toBe('找一找写有「体检」的东西')
+  })
+
+  it('actionPrompt：三类来源与「都要出现」都写进指令', () => {
+    const p = actionPrompt()
+    expect(p).toContain('卡片 / 资料 / 技能')
+    expect(p).toContain('都要出现')
   })
 })
 

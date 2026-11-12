@@ -101,6 +101,10 @@ interface Seed {
   cron?: { tasks: unknown[]; runs?: unknown[] }
   /** 预置工作流（PR-F3）：原样写进 `modulo.__stubdoc.modulo.workflow.v1`（flows + runs） */
   workflow?: { flows: unknown[]; runs?: unknown[] }
+  /** 预置资料（知识库，PR-F1）：写进 `modulo.__stubdoc.modulo.knowledge.v1`（v1.7 找东西用例） */
+  docs?: { id: string; name: string; text: string }[]
+  /** 预置技能（PR-F3）：写进 `modulo.__stubdoc.modulo.skills.v1`（v1.7 找东西用例） */
+  skills?: { id: string; name: string; text: string }[]
 }
 
 /** 开一张桌面形态的页面。`ai: false` = 没配任何模型服务（空态那条路） */
@@ -114,7 +118,7 @@ async function open(seed: Seed = {}, errs?: string[]): Promise<Page> {
   const card = seed.longSticky ? { ...baseCard, sticky: LONG_STICKY } : baseCard
   const desktop = seed.desktop !== false
   await page.evaluateOnNewDocument(
-    (src: string, docJson: string, cardJson: string, aiJson: string | null, histJson: string | null, hang: boolean, reply: string | null, cronJson: string | null, installStub: boolean, workflowJson: string | null, repliesJson: string | null) => {
+    (src: string, docJson: string, cardJson: string, aiJson: string | null, histJson: string | null, hang: boolean, reply: string | null, cronJson: string | null, installStub: boolean, workflowJson: string | null, repliesJson: string | null, docsJson: string | null, skillsJson: string | null) => {
       if (installStub) new Function(src)()
       localStorage.setItem('modulo.layout.v1', docJson)
       localStorage.setItem('modulo.__stubdoc.modulo.carddata.v1', cardJson)
@@ -133,6 +137,13 @@ async function open(seed: Seed = {}, errs?: string[]): Promise<Page> {
       if (workflowJson && localStorage.getItem('modulo.__stubdoc.modulo.workflow.v1') === null) {
         localStorage.setItem('modulo.__stubdoc.modulo.workflow.v1', workflowJson)
       }
+      // 资料（PR-F1）/ 技能（PR-F3）：同一条通道、同一条守卫 —— v1.7「找我的东西」要搜它们
+      if (docsJson && localStorage.getItem('modulo.__stubdoc.modulo.knowledge.v1') === null) {
+        localStorage.setItem('modulo.__stubdoc.modulo.knowledge.v1', docsJson)
+      }
+      if (skillsJson && localStorage.getItem('modulo.__stubdoc.modulo.skills.v1') === null) {
+        localStorage.setItem('modulo.__stubdoc.modulo.skills.v1', skillsJson)
+      }
       // 回复序列（v1.2 agent 循环）：每次导航重置 —— 游标跟着页面走，不该跨导航累积
       if (repliesJson) (window as unknown as { __STUB_AI_REPLIES__: string[] }).__STUB_AI_REPLIES__ = JSON.parse(repliesJson)
     },
@@ -147,6 +158,8 @@ async function open(seed: Seed = {}, errs?: string[]): Promise<Page> {
     desktop,
     seed.workflow ? JSON.stringify({ schemaVersion: 1, flows: seed.workflow.flows, runs: seed.workflow.runs ?? [] }) : null,
     seed.replies ? JSON.stringify(seed.replies) : null,
+    seed.docs ? JSON.stringify({ schemaVersion: 1, docs: seed.docs }) : null,
+    seed.skills ? JSON.stringify({ schemaVersion: 1, skills: seed.skills }) : null,
   )
   await page.goto(url, { waitUntil: 'networkidle2', timeout: 30000 })
   // web 形态没有坞（AI 后端不在）⇒ 等左栏出现即可
@@ -1137,9 +1150,48 @@ describe.skipIf(skip)('聊天任脊柱（E1）', () => {
     const last = sent[1].args.messages as { role: string; content: string }[]
     const feed = last.at(-1)?.content ?? ''
     expect(feed).toContain('（工具结果）')
-    expect(feed).toContain('找一找写有「周报」的卡：')
+    expect(feed).toContain('找一找写有「周报」的东西：')
     expect(feed).toContain('交周报') // 待办那张命中
     expect(feed).toContain('发给老板') // 便签那张命中
+    // 只读不写：版面卡数没动
+    expect(await page.evaluate(() => document.querySelectorAll('.cell').length)).toBe(2)
+    expect(errs, `页面不该有报错：${errs.join(' | ')}`).toEqual([])
+  }, 90_000)
+
+  it('AI 动手 v1.7（第二十一笔）：找我的东西 —— 多关键词 AND，卡片 / 资料 / 技能一起搜', async () => {
+    const errs: string[] = []
+    const replies = [
+      '帮我找找哪些东西写到过「周报 体检」。\n@@act {"type":"context.read","query":"周报 体检"}',
+      '找到了。',
+    ]
+    const page = await open(
+      {
+        replies,
+        docs: [{ id: 'd1', name: '体检记账', text: '体检挂号费 39 元，已记进周报。' }],
+        skills: [{ id: 's1', name: '周报模板', text: '周报模板：先把本周的体检安排写进去。' }],
+      },
+      errs,
+    )
+    await expand(page)
+    await ask(page, '找找写到过周报和体检的东西')
+    await page.waitForSelector('[data-ai-act-run]', { timeout: 15000 })
+    expect(await text(page, '[data-ai-act]')).toBe('找一找写有「周报 体检」的东西')
+    await click(page, '[data-ai-act-run]')
+    await page.waitForSelector('[data-chat-tool-note]', { timeout: 15000 })
+    await page.waitForFunction(
+      () => [...document.querySelectorAll('[data-role="assistant"]')].some((el) => el.textContent?.includes('找到了')),
+      { timeout: 15000 },
+    )
+    // 自动续轮：两次模型调用；第二条的最后一条消息带着找东西结果
+    const sent = (await calls(page)).filter((c) => c.cmd === 'ai_chat')
+    expect(sent, '照做后自动续了一轮 = 两次模型调用').toHaveLength(2)
+    const last = sent[1].args.messages as { role: string; content: string }[]
+    const feed = last.at(-1)?.content ?? ''
+    expect(feed).toContain('（工具结果）')
+    expect(feed).toContain('找一找写有「周报 体检」的东西：')
+    expect(feed).toContain('资料「体检记账」') // 资料命中（两个词都在）
+    expect(feed).toContain('技能「周报模板」') // 技能命中（两个词都在）
+    expect(feed).not.toContain('便签：「') // 便签只命中「周报」一个词 ⇒ AND 不算命中
     // 只读不写：版面卡数没动
     expect(await page.evaluate(() => document.querySelectorAll('.cell').length)).toBe(2)
     expect(errs, `页面不该有报错：${errs.join(' | ')}`).toEqual([])
