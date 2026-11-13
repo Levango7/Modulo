@@ -141,7 +141,7 @@ git merge-base --is-ancestor origin/<分支> origin/master && echo 已并入
 git merge-base --is-ancestor <tag>^{commit} origin/master && echo 可达 || echo 只靠锚点
 ```
 
-#### 一、只靠锚点存活 —— 删了就真没了（9 个）
+#### 一、只靠锚点存活 —— 删了就真没了（10 个）
 
 squash 合并的产物：内容进了 master，但**原始提交在 master 上没有任何 ref**。
 
@@ -156,6 +156,7 @@ squash 合并的产物：内容进了 master，但**原始提交在 master 上�
 | `anchor/docs-coord-wrap79` | `813181d` | `docs/coord-wrap79` 分支 tip —— 与 #80 同一笔板行收口的**重复分支**（那一行的内容早已在 master，保的是提交本身） |
 | `anchor/docs-hygiene-oct17` | `e939f70` | PR #110（C/B-1 账面收口）分支 tip —— squash 进 master，保的是提交本身 |
 | `anchor/docs-release-ledger-0.8.2` | `94790fc` | PR #111（v0.8.2 台账回写）分支 tip —— squash 进 master，保的是提交本身 |
+| `anchor/feat-agent-ui-5bcb45b` | `5bcb45b` | F-15 agent-ui 线原始提交链（#292 head；内容已随 #299 squash `9de98e2` 入 master，原始提交在 master 上无 ref） |
 
 另有一份同内容备份在 **`stash@{0}`**（"wip(appearance): aurora 行高抬升收尾（未验完）"）——
 板上另有一条明确写了「请勿删」，它与 `f722a9c` 内容相同，是双保险。
