@@ -24,7 +24,7 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import puppeteer from 'puppeteer-core'
 import type { Browser, Page } from 'puppeteer-core'
-import { chromePath } from './chrome'
+import { chromePath, enterWorkbench } from './chrome'
 
 const EXE = chromePath()
 const skip = !EXE
@@ -98,6 +98,7 @@ async function seed(page: Page, layout: unknown = LAYOUT): Promise<void> {
     KEYS,
   )
   await page.goto(addr(), { waitUntil: 'networkidle2', timeout: 30000 })
+  await enterWorkbench(page)
   await page.waitForSelector('.cell[data-module="sticky"] textarea', { timeout: 15000 })
   await wait(400)
 }
@@ -146,6 +147,7 @@ describe.skipIf(skip)('老档整包启动：上一版的数据带着升级', () 
 
     // ② 刷新：读进来之后又写回去，两件事没有互相踩
     await page.reload({ waitUntil: 'networkidle2' })
+    await enterWorkbench(page)
     await page.waitForSelector('.cell[data-module="sticky"] textarea', { timeout: 15000 })
     await wait(500)
     const second = await snapshot(page)

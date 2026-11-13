@@ -126,6 +126,10 @@ const GATED_VUE_MODULES = [
   // 单独成文件 —— 组件那半（按钮 + invoke）在桌面态，E2E 注 Tauri 桩与本仓安全钩的
   // 动态执行禁令冲突，跑不了；Rust 侧 scan_cards_dir 由 cargo 单测兜底。
   'src/vue/extcardScan.ts',
+  // 右栏产物面板（F-15 P0）：宽度夹取 / 存档逐字段回落 / 窄屏浮层 / 对话区保底 480 ——
+  // 全是纯判定，而组件那半（拖拽 + 三个版面视图）只能靠 E2E。锁 100 的语义同 floatList：
+  // 以后这里长出 if / 兜底而没测，当场红。
+  'src/vue/artifactPanel.ts',
 ]
 
 /** 仓库内按源码解析引擎包（与 vite.config.ts 同一条约定） */
@@ -245,6 +249,9 @@ export default defineConfig({
         // 原生卡目录扫描（2026-10-28）：落袋循环 5 条断言钉满（装 / 跳 / 空目录 / 摘要两支），
         // 分支数写完用例后由 `coverage-summary.json` 实测回填，锁 100。
         'src/vue/extcardScan.ts': { branches: 100 },
+        // 右栏产物面板（F-15 P0）：分支数在写完用例后由 `coverage-summary.json` 实测回填，
+        // 锁 100 —— 每一条都是"坏输入也必须给得出合法值"那一类，没有理由留余量。
+        'src/vue/artifactPanel.ts': { branches: 100 },
         // 设置分组 / 首启引导（F-10，2026-10-28）：两处都是显式清单 + 纯函数，分支在写完用例后
         // 由 `coverage-summary.json` 回填为 100 —— 以后长出没测的兜底，这里当场红。
         'src/vue/settingsNav.ts': { branches: 100 },

@@ -21,7 +21,7 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import puppeteer from 'puppeteer-core'
 import type { Browser, Page } from 'puppeteer-core'
-import { chromePath } from './chrome'
+import { chromePath, enterWorkbench } from './chrome'
 
 const EXE = chromePath()
 const skip = !EXE
@@ -85,6 +85,7 @@ async function seed(page: Page): Promise<void> {
     JSON.stringify(CARD),
   )
   await page.goto(addr(), { waitUntil: 'networkidle2', timeout: 30000 })
+  await enterWorkbench(page)
   await page.waitForSelector(`${SEL} button.del`, { timeout: 15000 })
   await wait(500)
 }
@@ -186,6 +187,7 @@ describe.skipIf(skip)('内容级撤销（F-02）：删掉的东西撤得回来',
     await pressUndo(page)
     await wait(120) // 故意远小于 cardData 的 300ms 落盘窗口：刷新必须靠卸载时的 flush 兜住
     await page.reload({ waitUntil: 'networkidle2' })
+    await enterWorkbench(page)
     await page.waitForSelector(`${SEL} button.del`, { timeout: 15000 })
     await wait(500)
 

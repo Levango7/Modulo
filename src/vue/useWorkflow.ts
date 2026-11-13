@@ -14,7 +14,7 @@
 import { ref, type Ref } from 'vue'
 import { Channel, invoke } from '@tauri-apps/api/core'
 import type { StorageAdapter } from './store'
-import type { ChatChunk } from './aiChat'
+import { normalizeEvent } from './aiChat'
 import {
   appendRun,
   addFlow,
@@ -112,11 +112,15 @@ export function createWorkflow(opts: WorkflowOptions = {}): WorkflowApi {
         if (failed !== null) resolve({ text: full, error: failed })
         else resolve({ text: full })
       }
-      const ch = new Channel<ChatChunk>()
-      ch.onmessage = (c) => {
-        if (c.error !== null && c.error !== undefined) failed = c.error
-        else if (c.delta) full += c.delta
-        if (c.done) settle()
+      // 事件流（F-15 P1a §2.2）：解析只走 `normalizeEvent`，收尾只认 `done`。
+      // 定时任务 / 工作流不需要工具与轮次 —— 它们只取「说了什么」与「成没成」。
+      const ch = new Channel<unknown>()
+      ch.onmessage = (raw) => {
+        for (const ev of normalizeEvent(raw)) {
+          if (ev.t === 'error') failed = ev.message
+          else if (ev.t === 'text') full += ev.delta
+          else if (ev.t === 'done') settle()
+        }
       }
       guard = setTimeout(() => {
         if (settled) return

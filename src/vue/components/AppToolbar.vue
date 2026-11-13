@@ -22,7 +22,7 @@
  * 渲染上没有任何变化：Vue 对 `:disabled="false"` 本来就不输出属性，
  * 删掉绑定与保留恒假的绑定，产出的是同一份 HTML。
  */
-import { LayoutGrid, LayoutTemplate, Redo2, Settings, SlidersHorizontal, Undo2, Wand2, Check, ChevronDown, X, AppWindow } from 'lucide-vue-next'
+import { LayoutGrid, LayoutTemplate, PanelRight, Redo2, Settings, SlidersHorizontal, Undo2, Wand2, Check, ChevronDown, X, AppWindow } from 'lucide-vue-next'
 import BrandMark from './BrandMark.vue'
 import type { ArrangeAction } from '../arrangeActions'
 import type { FloatItem } from '../floatList'
@@ -46,6 +46,8 @@ const props = defineProps<{
   hasRows: boolean
   /** 「回工作台可用」提示文案（App 的常量，顶栏只是展示） */
   onlyWorkbench: string
+  /** 右栏产物面板是否在场（F-15 P0：chat 视图才有这枚开关） */
+  artifactOpen: boolean
 }>()
 
 const emit = defineEmits<{
@@ -64,6 +66,7 @@ const emit = defineEmits<{
   (e: 'arrange-floats'): void
   (e: 'open-templates'): void
   (e: 'open-settings'): void
+  (e: 'toggle-artifact'): void
 }>()
 </script>
 
@@ -103,6 +106,19 @@ const emit = defineEmits<{
         <span class="sep" aria-hidden="true"></span>
         <!-- 「整理/紧凑/收紧/撑满」四个动作语义高度重叠，平铺时只能靠 title 区分 ——
              这是顶栏最乱的一处。收进下拉后每项都有一整行说明，反而比四个按钮更分得清。 -->
+        <!-- F-15 P0：产物面板的开关。只在 chat 视图出现 —— 别的视图里版面本来就在主区，
+             再给一枚「产物」是同一件事的第二个入口。折叠之后没有它就没有回来的路。 -->
+        <button
+          v-if="view === 'chat'"
+          class="wide"
+          data-toggle-artifact
+          :class="{ primary: artifactOpen }"
+          :aria-pressed="artifactOpen"
+          title="显示 / 收起右侧的产物面板（版面、画布、堆叠）"
+          @click="emit('toggle-artifact')"
+        >
+          <PanelRight :size="14" /> <span class="label">产物</span>
+        </button>
         <span class="add-wrap">
           <button
             class="wide"

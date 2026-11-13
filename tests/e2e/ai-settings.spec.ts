@@ -15,7 +15,7 @@ import { resolve } from 'node:path'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import puppeteer from 'puppeteer-core'
 import type { Browser, Page } from 'puppeteer-core'
-import { chromePath } from './chrome'
+import { chromePath, enterWorkbench, gotoWorkbench } from './chrome'
 
 const EXE = chromePath()
 const skip = !EXE
@@ -61,7 +61,7 @@ async function openLab(errs?: string[]): Promise<Page> {
     STUB_SOURCE,
     JSON.stringify(DOC),
   )
-  await page.goto(url, { waitUntil: 'networkidle2', timeout: 30000 })
+  await gotoWorkbench(page, url)
   await page.waitForSelector('button.wide[title="外观设置"]', { timeout: 15000 })
   await click(page, 'button.wide[title="外观设置"]')
   await page.waitForSelector('.panel .nav-item[data-group="lab"]', { timeout: 10000 })
@@ -157,6 +157,7 @@ describe.skipIf(skip)('F-12 AI 模型服务（桌面形态）', () => {
 
     // reload：漏登记 DATA_KEYS 的症状就是"这里写着一条、重启后一条都不见了"
     await page.reload({ waitUntil: 'networkidle2' })
+    await enterWorkbench(page)
     await page.waitForSelector('button.wide[title="外观设置"]', { timeout: 15000 })
     await click(page, 'button.wide[title="外观设置"]')
     await page.waitForSelector('.panel .nav-item[data-group="lab"]', { timeout: 10000 })

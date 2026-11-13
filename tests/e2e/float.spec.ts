@@ -15,7 +15,7 @@ import { resolve } from 'node:path'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import puppeteer from 'puppeteer-core'
 import type { Browser } from 'puppeteer-core'
-import { chromePath } from './chrome'
+import { chromePath, gotoWorkbench } from './chrome'
 
 // CI 上没装 Chrome 就整体跳过（与 layout.spec 同一约定）——本地 Windows 有 Chrome 照常跑
 const EXE = chromePath()
@@ -57,7 +57,7 @@ describe.skipIf(skip)('脱离浮窗：前端整链（Tauri 桩）', () => {
     }, STUB_SOURCE)
     const errs: string[] = []
     page.on('pageerror', (e: unknown) => errs.push('PAGEERROR ' + String((e as Error).message).slice(0, 160)))
-    await page.goto(url, { waitUntil: 'networkidle2', timeout: 30000 })
+    await gotoWorkbench(page, url)
     await wait(900)
 
     expect(errs, `页面不该有报错：${errs.join(' | ')}`).toEqual([])
@@ -104,7 +104,7 @@ describe.skipIf(skip)('脱离浮窗：前端整链（Tauri 桩）', () => {
     }, STUB_SOURCE)
     const errs: string[] = []
     page.on('pageerror', (e: unknown) => errs.push('PAGEERROR ' + String((e as Error).message).slice(0, 160)))
-    await page.goto(url, { waitUntil: 'networkidle2', timeout: 30000 })
+    await gotoWorkbench(page, url)
     await wait(900)
 
     // 页面里的读数助手：清单在浮动集合变后就重算，所以每次都重新查 DOM
@@ -208,7 +208,7 @@ describe.skipIf(skip)('脱离浮窗：前端整链（Tauri 桩）', () => {
     }, STUB_SOURCE)
     const errs: string[] = []
     page.on('pageerror', (e: unknown) => errs.push('PAGEERROR ' + String((e as Error).message).slice(0, 160)))
-    await page.goto(url, { waitUntil: 'networkidle2', timeout: 30000 })
+    await gotoWorkbench(page, url)
     await wait(900)
 
     // 脱离第一张与最后一张（版面里相距最远的两格，重摆后坐标必须不同）

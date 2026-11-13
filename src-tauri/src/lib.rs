@@ -390,7 +390,8 @@ pub fn run() {
             ai::keys::ai_set_key,
             ai::keys::ai_delete_key,
             // 对话与历史（F-12 二期，2026-10-29）：底部对话坞是它们唯一的前端调用点。
-            // 流式走 Channel<AiChunk>，中断走 ai_chat_cancel，历史由 Rust 单点落盘。
+            // 流式走 Channel<AiEvent>（F-15 §2.2 的 tagged union：正文 / 工具起止 /
+            // 轮次 / 收尾 / 错误各成一条），中断走 ai_chat_cancel，历史由 Rust 单点落盘。
             ai::openai_compat::ai_chat,
             ai::openai_compat::ai_chat_cancel,
             ai::history::ai_history_list,

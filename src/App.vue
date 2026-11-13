@@ -47,7 +47,16 @@ import OnboardingWizard from './vue/components/OnboardingWizard.vue'
 import TemplatePicker from './vue/components/TemplatePicker.vue'
 import TitleBar from './vue/components/TitleBar.vue'
 import ChatDock from './vue/components/ChatDock.vue'
+import ArtifactPanel from './vue/components/ArtifactPanel.vue'
 import SessionRail from './vue/components/SessionRail.vue'
+import {
+  ART_DOC_KEY,
+  artLayout,
+  clampArtWidth,
+  parseArtState,
+  serializeArtState,
+  type ArtifactView,
+} from './vue/artifactPanel'
 import { createAiSessions } from './vue/useAiSessions'
 import { createKnowledge } from './vue/useKnowledge'
 import { createMemory } from './vue/useMemory'
@@ -165,10 +174,14 @@ const reminders = useReminders(() => cardDataApi.state, {
 provide('reminders', reminders)
 
 /**
- * 三态视图（改天换地 E1）：chat = 聊天任脊柱（中央全高对话）/ workbench = 画布 + 底部坞 /
- * edit = 布局编辑。左栏三个 tab；顶栏的「工作台 / 布局编辑」按钮保留成快捷方式。
+ * 三态视图（F-15 P0 起）：**chat = 对话主轴**（对话占满剩余宽度 + 右栏产物面板）/
+ * workbench = 画布 + 底部坞 / edit = 布局编辑。
+ *
+ * 默认值是 `'chat'`（用户裁决 11-11，见 `docs/design/F-15-AGENT-UI.md`）：打开就在对话里，
+ * 版面不再是被藏起来的另一个界面，而是右侧那块**产物**面板 —— 这是"agent 应用"与
+ * "带聊天功能的看板"在布局上的那条分界。
  */
-const view = ref<'workbench' | 'chat' | 'edit'>('workbench')
+const view = ref<'workbench' | 'chat' | 'edit'>('chat')
 
 /**
  * 撤销/重做（2026-10-20 起，2026-10-24 Cut B 抽成 `useUndoRedo.ts`）：版面与内容各有一份历史，
@@ -491,6 +504,45 @@ onBeforeUnmount(() => window.removeEventListener('resize', onWindowResize))
 const RAIL_MIN_VIEWPORT = 1480
 const railVisible = computed(() => windowW.value >= RAIL_MIN_VIEWPORT)
 
+/**
+ * 右栏产物面板（F-15 P0 §1.2）：宽度 / 折叠 / 当前视图落盘，摆法由纯判定层
+ * `artifactPanel.ts` 的 `artLayout` 算 —— 这里只做两件组件级的事：
+ * ① 量「对话那一行」的真实可用宽（面板宽度要按它夹"对话保底 480"）；
+ * ② 窄屏那个**不落盘**的浮层开关（它属于"这一次看了一眼"，跨启动记住是错的）。
+ *
+ * 存档键 `ART_DOC_KEY` 登记在 `fileStorage.ts` 的 `DATA_KEYS` 里 ——
+ * 漏登记的症状不是报错，是"拖完了、重启回到 420"。
+ */
+const artState = ref(parseArtState(storage.get(ART_DOC_KEY)))
+const artRowEl = ref<HTMLElement | null>(null)
+const { width: artRowW } = useElementSize(artRowEl, 1200, 0)
+const artOverlayOpen = ref(false)
+const art = computed(() =>
+  artLayout({
+    winW: windowW.value,
+    available: artRowW.value,
+    state: artState.value,
+    overlayOpen: artOverlayOpen.value,
+  }),
+)
+/** 面板此刻是否在场（折叠 / 窄屏未展开 ⇒ 不在场，对话拿回满宽） */
+const artOpen = computed(() => art.value.overlay || art.value.width > 0)
+watch(artState, (s) => storage.set(ART_DOC_KEY, serializeArtState(s)), { deep: true })
+/**
+ * 顶栏那枚「产物」的开合。宽屏切的是**落盘的折叠态**，窄屏切的是这一次的浮层 ——
+ * 两种形态的"关掉"不是同一件事，混成一个 ref 会让用户改一次窗口宽度就丢掉偏好。
+ */
+function toggleArtifact(): void {
+  if (art.value.narrow) artOverlayOpen.value = !artOverlayOpen.value
+  else artState.value = { ...artState.value, collapsed: !artState.value.collapsed }
+}
+function resizeArtifact(w: number): void {
+  artState.value = { ...artState.value, width: clampArtWidth(w) }
+}
+function setArtifactView(v: ArtifactView): void {
+  artState.value = { ...artState.value, view: v }
+}
+
 /** 面板里"跳到某张卡"：切到布局编辑并交给编辑器选中+滚动到视野 */
 function goCard(id: string): void {
   enterEdit()
@@ -503,16 +555,26 @@ function goCard(id: string): void {
  * Esc 级联与 Ctrl+J 都要问它（`keyboard.ts` 的最底一层）。
  */
 const dockExpanded = ref(false)
-const dockVisible = computed(() =>
-  canShowDock({
-    desktop: isDesktop,
-    view: view.value,
-    floats: detached.value.size,
-    settingsOpen: settingsOpen.value,
-    templatesOpen: templatesOpen.value,
-    paletteOpen: paletteOpen.value,
-    onboardingOpen: !!onboarding.visible.value,
-  }),
+/**
+ * 坞只在 `workbench` 出现（F-15 P0 契约 §1.1）。`canShowDock` 里那句
+ * `view === 'chat' || 'workbench'` 是 E1 的旧口径（chat 用坞当脊柱），
+ * 那时 chat 视图只有坞这一块；现在 chat 视图自带对话主轴，再浮一个坞就是两个输入框。
+ *
+ * 为什么门加在这里而不是改 `canShowDock`：契约 §三.4 划了"P0 不碰 aiChat.ts"
+ * （P1a 要往那儿加事件类型）。等 P1a 落地后可以把这句并回去。
+ */
+const dockVisible = computed(
+  () =>
+    view.value === 'workbench' &&
+    canShowDock({
+      desktop: isDesktop,
+      view: view.value,
+      floats: detached.value.size,
+      settingsOpen: settingsOpen.value,
+      templatesOpen: templatesOpen.value,
+      paletteOpen: paletteOpen.value,
+      onboardingOpen: !!onboarding.visible.value,
+    }),
 )
 // 坞被撤掉（切编辑/开设置/有浮窗）就收回展开态：回来时"自己弹开"是没有道理的
 watch(dockVisible, (v) => {
@@ -563,6 +625,7 @@ const onGlobalKey = useGlobalKeys({
       :floats="floats"
       :has-rows="!!store.doc.value.rows?.length"
       :only-workbench="onlyWorkbench"
+      :artifact-open="artOpen"
       @select-view="onSelectView"
       @enter-edit="enterEdit"
       @cancel-edit="cancelEdit"
@@ -578,6 +641,7 @@ const onGlobalKey = useGlobalKeys({
       @arrange-floats="arrangeFloatsByLayout"
       @open-templates="templatesOpen = true"
       @open-settings="settingsOpen = true"
+      @toggle-artifact="toggleArtifact"
     />
 
     <main ref="stageEl" class="stage">
@@ -590,20 +654,35 @@ const onGlobalKey = useGlobalKeys({
         @export-backup="backup.exportBackup()"
       />
       <!--
-        聊天任脊柱（E1）：chat 态时画布整块让位给全高对话。桌面有 AI 后端（Tauri IPC），
-        全高坞；web 没有后端 —— 这里给**诚实占位**（说明 AI 为什么只在桌面 + 出路在哪），
-        而不是一个发不出消息的假输入框。
+        对话主轴（F-15 P0）：chat 态是**两栏** —— 左边对话占满剩余宽度，右边是产物面板。
+        桌面有 AI 后端（Tauri IPC）⇒ 全高坞当对话列；web 没有后端 ⇒ **诚实占位**
+        （说明 AI 为什么只在桌面 + 出路在哪），而不是一个发不出消息的假输入框。
+        产物面板两边都有：它只是版面的一个视图，不依赖任何 IPC。
       -->
-      <div v-if="view === 'chat'" class="chat-mode" data-chat-mode>
-        <ChatDock v-if="isDesktop" :expanded="true" full @update:expanded="() => {}" />
-        <section v-else class="chat-web-note" data-chat-web-note>
-          <h2>AI 对话在桌面版里</h2>
-          <p>
-            AI 的请求由桌面壳直接发给模型服务（不经过任何第三方服务器，你的密钥也不出本机）——
-            网页版没有这条通道，所以这里不摆一个发不出消息的输入框。
-          </p>
-          <p>画布、卡片、本地数据这些都不受影响，随时切回「工作台」继续用。</p>
-        </section>
+      <div v-if="view === 'chat'" ref="artRowEl" class="chat-mode" data-chat-mode>
+        <div class="chat-col">
+          <ChatDock v-if="isDesktop" :expanded="true" full @update:expanded="() => {}" />
+          <section v-else class="chat-web-note" data-chat-web-note>
+            <h2>AI 对话在桌面版里</h2>
+            <p>
+              AI 的请求由桌面壳直接发给模型服务（不经过任何第三方服务器，你的密钥也不出本机）——
+              网页版没有这条通道，所以这里不摆一个发不出消息的输入框。
+            </p>
+            <p>画布、卡片、本地数据这些都不受影响，随时切回「工作台」继续用。</p>
+          </section>
+        </div>
+        <ArtifactPanel
+          v-if="artOpen"
+          :width="art.width"
+          :overlay="art.overlay"
+          :view="artState.view"
+          :hidden="detached"
+          :can-detach="floatingSupported()"
+          @resize="resizeArtifact"
+          @update:view="setArtifactView"
+          @collapse="toggleArtifact"
+          @detach="detachCard"
+        />
       </div>
       <template v-else-if="view === 'workbench'">
         <p v-if="projection.collapsed.length" class="collapsed muted">
@@ -697,22 +776,30 @@ const onGlobalKey = useGlobalKeys({
   padding: var(--space-4);
   gap: var(--space-4);
 }
-/* E1 聊天态：画布让位，对话撑满内容列 */
+/* 对话主轴（F-15 P0）：两栏 —— 对话占满剩余宽度 + 右栏产物。
+   `position: relative` 是窄屏浮层形态的落点（ArtifactPanel 靠它 absolute 到底部） */
 .chat-mode {
   flex: 1;
+  min-height: 0;
+  position: relative;
+  display: flex;
+  flex-direction: row;
+  gap: var(--space-4);
+}
+.chat-col {
+  flex: 1;
+  min-width: 0;
   min-height: 0;
   display: flex;
   flex-direction: column;
 }
-/* 坞常驻容器在 chat 态要撑满（收起态那条 46px 老规则不能压着它），
-   全高面板再撑满容器 —— 两级的 height 都覆盖掉才真的是"全高" */
-.chat-mode .dock {
+/* 坞当对话列时要撑满（收起态那条 46px 老规则不能压着它）。
+   面板本身的高度由 ChatDock 自己的 `.dock[data-full='1'] .panel` 给 ——
+   这里再写一条 `.panel` 是死规则（scoped 属性加不到子组件的后代上），E1 时就没生效过。 */
+.chat-col .dock {
   flex: 1;
   min-height: 0;
   height: auto !important;
-}
-.chat-mode .panel {
-  height: 100%;
 }
 .chat-web-note {
   flex: 1;

@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, inject } from 'vue'
+import { Lock, Unlock } from 'lucide-vue-next'
 import * as E from '@levango7/engine'
 import type { LayoutStore } from '../store'
 
@@ -48,7 +49,14 @@ function step(p: E.Placement, dw: number, dh: number) {
         >
           {{ v.name }}
         </button>
-        <button :data-active="p.locked" @click="store.toggleLock(p.id)">{{ p.locked ? '🔒' : '🔓' }}</button>
+        <button
+          :data-active="p.locked"
+          :title="p.locked ? '解锁这张卡' : '锁定这张卡'"
+          @click="store.toggleLock(p.id)"
+        >
+          <Lock v-if="p.locked" :size="12" />
+          <Unlock v-else :size="12" />
+        </button>
         <button @click="store.remove(p.id)">×</button>
       </div>
     </div>

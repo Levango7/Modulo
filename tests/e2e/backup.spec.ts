@@ -30,7 +30,7 @@ import { resolve } from 'node:path'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import puppeteer from 'puppeteer-core'
 import type { Browser, Page } from 'puppeteer-core'
-import { chromePath } from './chrome'
+import { chromePath, enterWorkbench, gotoWorkbench } from './chrome'
 
 const EXE = chromePath()
 const skip = !EXE
@@ -116,7 +116,7 @@ async function freshPage(seed: Seed = {}, errs?: string[]): Promise<Page> {
     seed.cardData ?? null,
     seed.autoIndex ?? null,
   )
-  await page.goto(url, { waitUntil: 'networkidle2', timeout: 30000 })
+  await gotoWorkbench(page, url)
   await page.waitForSelector('button.wide[title="外观设置"]', { timeout: 15000 })
   return page
 }
@@ -273,6 +273,7 @@ describe.skipIf(skip)('F-04 自动备份：设置面板链（Tauri 桩，桌面�
       localStorage.setItem('modulo.__stubdoc.modulo.carddata.v1', cardJson)
     }, MODIFIED)
     await page.reload({ waitUntil: 'networkidle2' })
+    await enterWorkbench(page)
     await page.waitForSelector('button.wide[title="外观设置"]', { timeout: 15000 })
 
     await openSettings(page)

@@ -7,7 +7,7 @@
  */
 import { describe, expect, it } from 'vitest'
 import puppeteer from 'puppeteer-core'
-import { chromePath } from './chrome'
+import { chromePath, enterWorkbench, gotoWorkbench } from './chrome'
 
 const EXE = chromePath()
 const skip = !EXE
@@ -24,7 +24,7 @@ describe.skipIf(skip)('写入防抖：输入后立刻刷新不丢字', () => {
     const page = await browser.newPage()
     await page.setViewport({ width: 1440, height: 900, deviceScaleFactor: 1 })
     await page.evaluateOnNewDocument(() => localStorage.setItem('modulo.template.v1', 'general'))
-    await page.goto(url, { waitUntil: 'networkidle2', timeout: 30000 })
+    await gotoWorkbench(page, url)
     await page.waitForSelector('textarea.pad', { timeout: 15000 })
 
     const text = '防抖也要留住'
@@ -36,6 +36,7 @@ describe.skipIf(skip)('写入防抖：输入后立刻刷新不丢字', () => {
 
     // **故意不等** 300ms 防抖窗口：立刻刷新，flush 必须在 unloading 时写盘
     await page.reload({ waitUntil: 'networkidle2' })
+    await enterWorkbench(page)
     await page.waitForSelector('textarea.pad', { timeout: 15000 })
     const value = await page.evaluate(() => document.querySelector<HTMLTextAreaElement>('textarea.pad')?.value ?? '')
     expect(value).toBe(text)

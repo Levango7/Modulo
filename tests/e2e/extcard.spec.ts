@@ -28,7 +28,7 @@
 import { describe, expect, it } from 'vitest'
 import puppeteer from 'puppeteer-core'
 import type { Browser, Page } from 'puppeteer-core'
-import { chromePath } from './chrome'
+import { chromePath, enterWorkbench, gotoWorkbench } from './chrome'
 
 const EXE = chromePath()
 const skip = !EXE
@@ -50,6 +50,7 @@ async function openManager(): Promise<{ browser: Browser; page: Page }> {
   await page.setViewport({ width: 1440, height: 900, deviceScaleFactor: 1 })
   await page.evaluateOnNewDocument(() => localStorage.setItem('modulo.template.v1', 'general'))
   await page.goto(process.env.MODULO_URL ?? url, { waitUntil: 'networkidle2', timeout: 30000 })
+  await enterWorkbench(page)
   await wait(800)
   await enterLayout(page)
   await page.evaluate(() => document.querySelector<HTMLElement>('.add-cat')?.click())
@@ -106,7 +107,7 @@ describe.skipIf(skip)('原生卡：导入、入库、上版与桥', () => {
     const page = await browser.newPage()
     await page.setViewport({ width: 1440, height: 900, deviceScaleFactor: 1 })
     await page.evaluateOnNewDocument(() => localStorage.setItem('modulo.template.v1', 'general'))
-    await page.goto(url, { waitUntil: 'networkidle2', timeout: 30000 })
+    await gotoWorkbench(page, url)
     await wait(800)
 
     // 进编辑器，把「原生卡」放上版面并保存回工作台
@@ -248,6 +249,7 @@ describe.skipIf(skip)('原生卡：导入、入库、上版与桥', () => {
 
     // ⑤ 刷新：版面还在、状态还在
     await page.reload({ waitUntil: 'networkidle2' })
+    await enterWorkbench(page)
     await wait(1000)
     expect(await page.evaluate(() => document.querySelectorAll('.xframe').length), '刷新后运行态还在').toBe(1)
     const frames2 = page.frames().filter((f) => f !== page.mainFrame())

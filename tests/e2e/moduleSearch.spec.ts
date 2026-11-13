@@ -16,7 +16,7 @@
  */
 import { describe, expect, it } from 'vitest'
 import puppeteer from 'puppeteer-core'
-import { chromePath } from './chrome'
+import { chromePath, gotoWorkbench } from './chrome'
 
 const EXE = chromePath()
 const skip = !EXE
@@ -36,7 +36,7 @@ describe.skipIf(skip)('模块库搜索：输入即缩小范围，无命中给空
     const page = await browser.newPage()
     await page.setViewport({ width: 1440, height: 900, deviceScaleFactor: 1 })
     await page.evaluateOnNewDocument(() => localStorage.setItem('modulo.template.v1', 'general'))
-    await page.goto(url, { waitUntil: 'networkidle2', timeout: 30000 })
+    await gotoWorkbench(page, url)
     await wait(800)
 
     // 进编辑器（找不到按钮就抛 —— 静默失败会让后面一串断言在浏览态上瞎量）

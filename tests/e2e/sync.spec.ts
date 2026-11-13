@@ -22,7 +22,7 @@ import { resolve } from 'node:path'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import puppeteer from 'puppeteer-core'
 import type { Browser, Page } from 'puppeteer-core'
-import { chromePath } from './chrome'
+import { chromePath, enterWorkbench, gotoWorkbench } from './chrome'
 
 const EXE = chromePath()
 const skip = !EXE
@@ -141,7 +141,7 @@ async function freshPage(seed: Seed = {}, errs?: string[]): Promise<Page> {
   if (errs) page.on('pageerror', (e: unknown) => errs.push(String((e as Error).message).slice(0, 160)))
   await page.setViewport({ width: 1440, height: 900, deviceScaleFactor: 1 })
   await seedInto(page, seed)
-  await page.goto(url, { waitUntil: 'networkidle2', timeout: 30000 })
+  await gotoWorkbench(page, url)
   await installHelpers(page)
   await page.waitForSelector('button.wide[title="外观设置"]', { timeout: 15000 })
   return page
@@ -627,6 +627,7 @@ describe.skipIf(skip)('多端同步：设置面板链（Tauri 桩 + 网盘桩，
     await setField(page, 'user', USER)
     expect(await pwPlaceholder(page), 'init() 查过凭据库，占位文案要说清"留空即用它"').toContain('已保存在系统凭据库')
     await page.reload({ waitUntil: 'networkidle2' })
+    await enterWorkbench(page)
     await installHelpers(page)
     await openSettings(page)
     // reload 后 init() 是在本节 onMounted 里**重跑**的：`hasStored.value = await credStatus`
@@ -712,7 +713,7 @@ describe.skipIf(skip)('多端同步：设置面板链（Tauri 桩 + 网盘桩，
     await page.evaluateOnNewDocument(() => {
       localStorage.setItem('modulo.template.v1', 'general')
     })
-    await page.goto(url, { waitUntil: 'networkidle2', timeout: 30000 })
+    await gotoWorkbench(page, url)
     await page.click('button.wide[title="外观设置"]')
     // F-10 之后设置分六组（网页版五组）：多端同步在「数据」组里，先进那一组再看
     await page.waitForSelector('.panel .nav-item[data-group="data"]', { timeout: 15000 })
