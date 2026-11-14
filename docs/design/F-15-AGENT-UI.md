@@ -112,6 +112,8 @@ TS 侧一一对应，类型定义放 `src/vue/aiChat.ts`，导出 `AiEvent`。
 （`arguments` 是分片的，name + 完整 args 同时可用的时刻只能是收尾）。**已提供工具的 `ToolEnd`
 由前端补** —— Rust 没有执行权，也不该有；Rust 只在自己拒收时发 `ToolEnd{ok:false}`，
 且拒收前**先发 `ToolStart`**（`ToolEnd` 不带 name，否则时间线上只剩一行没名字的失败）。
+（2026-11-14 F4c-1 把这半截补上了：`done{reason:'tool'}` 之后由 `ChatDock.vue` 的
+`runToolPhase` 逐条执行、逐条回写 `ToolEnd`，同一 `id` 只执行一次。）
 
 **兼容**：桌面端前后端同版本发布，允许直接改字段。但 `tests/e2e/tauri-stub.js`
 必须同步产出新形状，且保留对旧 `{ delta, done }` 的容忍（读取端兼容，写入端只写新格式）。
@@ -125,9 +127,22 @@ TS 侧一一对应，类型定义放 `src/vue/aiChat.ts`，导出 `AiEvent`。
 - **命令签名多两个可选参数**：`tools: Option<Vec<ToolSpec>>`、`round: Option<u32>`。
   语义按 tauri `deserialize_option`：**键缺失 = `None`（老调用点零改动）；键在但形状不对 = invoke 报错**，
   不许静默降级成缺省。
-- 仅在 provider 配置 `supportsTools: true` 时附带；否则退回 `@@act` 文字约定。
-  当前 `settings.rs` 尚无这一位 ⇒ **实际语义是「前端不传 tools 就等于不支持」**，
-  加 `supportsTools` 要同时改设置面板，留待 P1b。
+- ~~仅在 provider 配置 `supportsTools: true` 时附带；否则退回 `@@act` 文字约定。
+  当前 `settings.rs` 尚无这一位 ⇒ 实际语义是「前端不传 tools 就等于不支持」。~~
+  **2026-11-14（F4c-1）改判：无条件附带。** 理由与代价都记在这里：
+  - **为什么取消这刀闸**：`supportsTools` 这一位至今不存在，而"前端不传"等于功能在线上等于零 ——
+    P1a 合入后到 F4c-1 之间的实际状态就是如此（`ChatDock.vue` 的 `invoke('ai_chat')` 从来没带过
+    `tools`，模型因此永远不可能发 `tool_calls`，`toolStart` 一次都没出现过）。再挂一道
+    "默认关"的开关，等于把这个功能藏起来等人发现。
+  - **代价（如实记，不粉饰）**：这改变了**所有**对话的请求体。OpenAI 兼容端里不认 `tools`
+    这一顶层字段的实现会直接 400，那一轮对话就是报错。`@@act` 文字约定**仍然在 system 里**
+    （`actionPrompt()`），所以"忽略 tools"的 provider 不受影响，坏的是"拒绝 tools"的那种。
+    已知的主流实现（官方 / DeepSeek / 千问兼容层 / vLLM / Ollama）都收这个字段。
+  - **出问题时的退路**：`ChatDock.vue` 的 `streamTurn` 里那一行 `tools: toolSpecs()`
+    改成 `tools: undefined` 即退回改动前的行为（前端一处，Rust 零改动）。
+  - **后续**：真要按 provider 区分，正确做法是在 `settings.rs` / 设置面板加 `supportsTools`
+    并在这一行按它取值 —— 那时这条 bullet 恢复原意。已记入 backlog。
+
 - **流式解析 `tool_calls` 增量**：`delta.tool_calls[i].function.arguments` 是分片拼接的，
   必须按 `index` 累积；JSON 未闭合前不得解析（半个 JSON 是畸形，不是空参数）。
 - 参数校验仍走现有 `aiActions.ts` 的白名单与闸门 —— **Rust 只做搬运，不做业务判断**。

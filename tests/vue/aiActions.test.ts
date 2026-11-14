@@ -7,6 +7,8 @@
  */
 import { describe, expect, it } from 'vitest'
 import {
+  actionFromObject,
+  actionFromToolCall,
   actionLabel,
   actionPrompt,
   actionResultLines,
@@ -20,8 +22,12 @@ import {
   isActionResult,
   parseActions,
   runActions,
+  runOneAction,
   stripActionLines,
   timelineRows,
+  toolNameOf,
+  toolResultText,
+  toolSpecs,
   type AiAction,
   type ActionContext,
 } from '../../src/vue/aiActions'
@@ -598,5 +604,175 @@ describe('执行时间线：一行一步、状态点与执行结果同源', () =
   it('没点头 / 没坏行时不会长出「执行中」（那行只属于"已照做"）', () => {
     expect(timelineRows({ labels: ['a'], following: true })).toHaveLength(1)
     expect(timelineRows({ labels: [], following: true })).toEqual([])
+  })
+})
+
+/**
+ * F4c-1「工具执行闭环」：`runActions` 拆出单步、工具调用走同一道闸门。
+ *
+ * 这一组钉的是**两处不许各算一遍**：单步与整体是同一份 `done` / `values` 口径；
+ * 原生 tool-calling 的参数与 `@@act` 文本是同一份校验（含同一句错误文案）。
+ */
+describe('F4c-1：单步执行与整体执行是同一份判断', () => {
+  const acts: AiAction[] = [
+    { type: 'todo.add', text: 'a' },
+    { type: 'todo.add', text: 'b' },
+    { type: 'todo.add', text: 'c' },
+  ]
+
+  /** 同一个 apply 语义：`todo.add` 有产出（方便看 values 的落点），其余没有 */
+  const applyOf =
+    (failAt?: string) =>
+    (a: AiAction): string | undefined => {
+      if (a.type !== 'todo.add') return undefined
+      if (a.text === failAt) throw new Error('盘子满了')
+      return `ok:${a.text}`
+    }
+
+  /** 手工按 `runOneAction` 拼一遍 —— 规格要求 runActions 就是这段循环 */
+  const stepwise = (list: readonly AiAction[], apply: (a: AiAction) => string | void | undefined) => {
+    const values: (string | undefined)[] = []
+    for (let i = 0; i < list.length; i++) {
+      const one = runOneAction(list[i], apply)
+      if (!one.ok) return { ok: false as const, done: i, error: one.error, values }
+      values.push(one.value)
+    }
+    return { ok: true as const, done: list.length, values }
+  }
+
+  it('全成功：runActions 与「依次 runOneAction」逐字段相等', () => {
+    expect(runActions(acts, applyOf())).toEqual(stepwise(acts, applyOf()))
+    expect(runActions(acts, applyOf())).toEqual({ ok: true, done: 3, values: ['ok:a', 'ok:b', 'ok:c'] })
+  })
+
+  it('第 2 个抛错：两条路同为 done=1、error 同一句、values 只到失败之前', () => {
+    const whole = runActions(acts, applyOf('b'))
+    expect(whole).toEqual(stepwise(acts, applyOf('b')))
+    expect(whole.ok).toBe(false)
+    expect(whole.done).toBe(1)
+    expect(whole.values).toEqual(['ok:a'])
+    expect(whole.error).toContain('盘子满了')
+  })
+
+  it('runOneAction 抛错 → {ok:false,error}，自己**不抛**', () => {
+    const one = runOneAction(acts[0], () => {
+      throw new Error('盘子满了')
+    })
+    expect(one).toStrictEqual({ ok: false, error: 'Error: 盘子满了' })
+    expect(() =>
+      runOneAction(acts[0], () => {
+        throw new Error('x')
+      }),
+    ).not.toThrow()
+  })
+
+  it('runOneAction 成功：没产出 ⇒ value 是 undefined；有产出 ⇒ 原样带出', () => {
+    expect(runOneAction(acts[0], () => undefined)).toStrictEqual({ ok: true, value: undefined })
+    expect(runOneAction(acts[0], () => '看到三条待办')).toStrictEqual({ ok: true, value: '看到三条待办' })
+  })
+})
+
+describe('F4c-1：工具调用走与 @@act 同一道闸门', () => {
+  it('两条兜底文案逐字不变（搬到闸门里也不许改一个标点）', () => {
+    // 「JSON 不合法」留在 parseLine（只有它知道原文）；「不是对象」在 actionFromObject，
+    // 原文由 parseLine 传进去 —— 这两条是用户唯一能拿到的定位信息。
+    expect(parseActions('@@act {oops', ctx()).bad).toEqual(['有一行动作没看懂（JSON 不合法）：@@act {oops'])
+    expect(parseActions('@@act [1,2]', ctx()).bad).toEqual(['有一行动作没看懂（不是对象）：@@act [1,2]'])
+  })
+
+  it('actionFromObject 与 parseActions 对同一段 JSON 结论相等（好的、坏的都比）', () => {
+    const good = { type: 'ledger.add', cents: 1234, category: '餐饮', date: '2026-01-31' }
+    expect(actionFromObject(good, ctx())).toEqual(parseActions(act(good), ctx()).actions[0])
+    const bad = { type: 'ledger.add', cents: 12.34, category: '餐饮' }
+    expect(actionFromObject(bad, ctx())).toEqual({ bad: parseActions(act(bad), ctx()).bad[0] })
+  })
+
+  it('工具名按 OpenAI 约束换成下划线（点 → 下划线）', () => {
+    expect(toolNameOf('todo.add')).toBe('todo_add')
+    expect(toolNameOf('context.read')).toBe('context_read')
+    expect(toolNameOf('addCard')).toBe('add_card')
+  })
+
+  it('todo_add：必填字段过桥后就是一条 todo.add；没给 instanceId 时该字段不出现', () => {
+    expect(actionFromToolCall('todo_add', { text: '买牛奶' }, ctx())).toEqual({ type: 'todo.add', text: '买牛奶' })
+  })
+
+  it('未知工具名 ⇒ bad 且把名字说出来（不静默丢）', () => {
+    const r = actionFromToolCall('canvas_clear', {}, ctx())
+    expect('bad' in r).toBe(true)
+    if ('bad' in r) {
+      expect(r.bad).toContain('canvas_clear')
+      expect(r.bad).toContain('没有提供')
+    }
+  })
+
+  it('参数不是对象（null / 数组 / 基本类型）⇒ bad', () => {
+    for (const args of [null, [1, 2], 'x', 3]) {
+      const r = actionFromToolCall('todo_add', args, ctx())
+      expect('bad' in r, `args=${JSON.stringify(args)} 不该过`).toBe(true)
+      if ('bad' in r) expect(r.bad).toContain('参数不是一个对象')
+    }
+  })
+
+  it('args 里瞎写的 type 被工具名覆盖（类型以函数名为准）', () => {
+    expect(actionFromToolCall('todo_add', { type: 'memory.add', text: 'x' }, ctx())).toEqual({
+      type: 'todo.add',
+      text: 'x',
+    })
+  })
+
+  it('闸门同源：不是整数分的金额，两条路拒收并且是同一句文案', () => {
+    const viaTool = actionFromToolCall('ledger_add', { cents: 12.34, category: '餐饮' }, ctx())
+    const viaText = parseActions(act({ type: 'ledger.add', cents: 12.34, category: '餐饮' }), ctx())
+    expect(viaText.actions).toEqual([])
+    expect(viaTool).toEqual({ bad: viaText.bad[0] })
+  })
+
+  it('toolSpecs：8 条、名字合法且不重复、描述非空、required 的键都在 properties 里', () => {
+    const specs = toolSpecs()
+    expect(specs).toHaveLength(8)
+    const names = specs.map((s) => s.name)
+    for (const n of names) expect(n).toMatch(/^[a-zA-Z0-9_-]{1,64}$/)
+    expect(new Set(names).size).toBe(names.length)
+    expect(names).toEqual(
+      expect.arrayContaining([
+        'add_card',
+        'todo_add',
+        'ledger_add',
+        'sticky_append',
+        'countdown_set',
+        'habit_check',
+        'memory_add',
+        'context_read',
+      ]),
+    )
+    for (const s of specs) {
+      expect(s.description.trim(), `${s.name} 没写描述`).not.toBe('')
+      expect(s.parameters.type, `${s.name} 的参数不是 object`).toBe('object')
+      const props = s.parameters.properties as Record<string, unknown>
+      const required = s.parameters.required as string[]
+      expect(Array.isArray(required), `${s.name} 的 required 不是数组`).toBe(true)
+      for (const k of required) expect(Object.keys(props), `${s.name}.${k} 没写 schema`).toContain(k)
+    }
+    // habit.check 没有必填字段（打今天的卡不需要参数）
+    expect(specs.find((s) => s.name === 'habit_check')?.parameters.required).toEqual([])
+  })
+
+  it('toolSpecs 的描述里不许出现 E2E 夹具词（这段字会进 system 块）', () => {
+    const blob = JSON.stringify(toolSpecs())
+    for (const w of ['发版', '团建餐', '跑步']) expect(blob).not.toContain(w)
+  })
+
+  it('toolResultText：带 ACTION_RESULT_MARK 的三段结构逐字对拍', () => {
+    const t = toolResultText(['a：成功', 'b：失败（原因）'])
+    expect(t.startsWith(ACTION_RESULT_MARK)).toBe(true)
+    expect(t.split('\n')).toEqual([
+      `${ACTION_RESULT_MARK}你刚才调用的工具已经执行完了：`,
+      '- a：成功',
+      '- b：失败（原因）',
+      '如果还要继续调用工具，照常调用（不要重复已经做过的）；都完成了就用一两句话收尾。',
+    ])
+    // 与动作回喂同一套标记：界面据此渲染小条、回填时也认得出
+    expect(isActionResult(t)).toBe(true)
   })
 })

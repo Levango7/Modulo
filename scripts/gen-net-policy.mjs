@@ -60,6 +60,8 @@ const numbers = {
   MAX_URL_LENGTH: need(raw, 'limits.urlLength'),
   MAX_HTTP_BODY_BYTES: need(raw, 'limits.httpBodyBytes'),
   MAX_FEED_BODY_BYTES: need(raw, 'limits.feedBodyBytes'),
+  MCP_CALL_TIMEOUT_MS: need(raw, 'timeouts.mcpCallMs'),
+  MCP_MAX_ROUNDS: need(raw, 'limits.mcpMaxRounds'),
 }
 
 // ── connect-src ────────────────────────────────────────────────────────────

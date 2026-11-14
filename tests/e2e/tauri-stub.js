@@ -293,6 +293,12 @@
           (seq ? seq[Math.min(callN, seq.length - 1)] : null) ?? window.__STUB_AI_REPLY__ ?? '桩回复：收到。',
         )
         const convId = String(args?.conversationId ?? '') || 'conv-stub-' + String(Date.now())
+        // 探针（F4c-1）：把这一趟的真实入参记下来，测试才能断言「tools 真传了 / round 真进到 2」
+        window.__STUB_AI_LAST_ROUND__ = Number(args?.round ?? 1)
+        window.__STUB_AI_LAST_TOOLS__ = Array.isArray(args?.tools)
+          ? args.tools.map((t) => String(t?.name ?? ''))
+          : null
+        window.__STUB_AI_LAST_ROLES__ = msgs.map((m) => String(m?.role ?? ''))
         let idx = 0
         const push = (msg) => {
           const entry = callbacks.get(ch?.id)
@@ -322,6 +328,24 @@
           setTimeout(() => push({ t: 'text', delta: '写到一半' }), 0)
           return Promise.resolve({ conversationId: convId })
         }
+        // 工具执行闭环（F4c-1）：第 1 次只发 `toolStart`（**不发 toolEnd**）再 `done{tool}`，
+        // 第 2 次落回下面的普通回复。真实形状就是这样：已提供的工具 Rust 不代跑。
+        const loop = Array.isArray(window.__STUB_AI_TOOL_LOOP__) ? window.__STUB_AI_TOOL_LOOP__ : null
+        if (loop && callN === 0) {
+          setTimeout(() => {
+            push({ t: 'round', n: Number(args?.round ?? 1) })
+            for (const step of loop) {
+              push({
+                t: 'toolStart',
+                id: String(step?.id ?? ''),
+                name: String(step?.name ?? ''),
+                args: step?.args ?? {},
+              })
+            }
+            finish('tool')
+          }, 0)
+          return Promise.resolve({ conversationId: convId })
+        }
         // 结构化工具事件（P1a）：`__STUB_AI_TOOLS__` 摆一条「它自己动手」的流。
         // 形状：`[{ round: 1, tools: [{ id, name, args?, ok, result?, error? }] }, …]` ——
         // 每轮先发 `round`，每个工具 `toolStart` → `toolEnd`（Rust 拒收的也是这个形状，
@@ -348,7 +372,7 @@
         }
         // 一帧轮次 + 两帧增量 + 一条 done：前端必须把两段拼成一句，而不是只留最后一帧
         setTimeout(() => {
-          push({ t: 'round', n: 1 })
+          push({ t: 'round', n: Number(args?.round ?? 1) })
           push({ t: 'text', delta: reply.slice(0, 2) })
           push({ t: 'text', delta: reply.slice(2) })
           finish()
@@ -491,6 +515,20 @@
   /** 本页 ai_chat 已调用次数（序列取值的游标；测试可读） */
   window.__STUB_AI_CALL_N__ = 0
   window.__STUB_AI_HANG__ = false
+  /**
+   * 工具执行闭环（F4c-1）：`[{ id, name, args? }]`。
+   *
+   * 与 `__STUB_AI_TOOLS__` 的差别是**这一份不发 `toolEnd`** —— 那正是真实的形状：
+   * 已提供的工具，Rust 只发 `toolStart`，`ToolEnd` 要前端真跑完补。第 1 次 `ai_chat`
+   * 走这条（以 `done{reason:'tool'}` 收尾），第 2 次走普通回复。
+   */
+  window.__STUB_AI_TOOL_LOOP__ = null
+  /** 最近一次 `ai_chat` 收到的 `round`（断言"续跑用的是第 2 轮"用） */
+  window.__STUB_AI_LAST_ROUND__ = null
+  /** 最近一次 `ai_chat` 收到的工具清单名字（断言"前端真的把 tools 传下去了"用） */
+  window.__STUB_AI_LAST_TOOLS__ = null
+  /** 每一次 `ai_chat` 收到的 messages 角色序列（断言工具结果真的以消息回灌了） */
+  window.__STUB_AI_LAST_ROLES__ = null
   /** 一次性摘要的返回正文（三期）：它与对话回复分开，测试才能区分"走的是哪条命令" */
   window.__STUB_AI_SUMMARY__ = '桩摘要：这三句是要点。'
   /** 历史原文（测试预置 / 复核"真的写进去了"都走它，绕开界面） */

@@ -313,6 +313,14 @@ export interface ToolStep {
   step: ActStep
   result: string | null
   error: string | null
+  /**
+   * 模型给的参数（`toolStart.args`，已由 Rust 解析成对象）。
+   *
+   * 必须**留在状态里**（F4c-1）：执行发生在 `done{reason:'tool'}` 之后，
+   * 那时早已离开 `onmessage` 那一帧的作用域 —— 只留 id / name 的话，
+   * 到了要动手的那一刻手里没有参数，只能回头去翻事件流。
+   */
+  args: unknown
 }
 
 /** 一条流里累积的工具状态。`round` 是"当前轮次"，新到的步骤记在它下面 */
@@ -347,8 +355,19 @@ const TOOL_LABELS: Record<string, string> = {
   'context.read': '看一眼卡片',
 }
 
+/**
+ * 工具名 → 人话；**查不到返回 `null`**。
+ *
+ * 与 `toolLabel` 分开是有来由的：时间线上「查不到就落回『调用工具「xx」』」是对的
+ * （那一行本来就是一整句话），但拼进别的句子里会变成「调用「调用工具「xx」」」这种
+ * 套娃 —— 所以拼句子的地方要能得到"没有这个名字"这个事实本身。
+ */
+export function knownToolLabel(name: string): string | null {
+  return TOOL_LABELS[name] ?? null
+}
+
 export function toolLabel(name: string): string {
-  return TOOL_LABELS[name] ?? `调用工具「${name || '（没写名字）'}」`
+  return knownToolLabel(name) ?? `调用工具「${name || '（没写名字）'}」`
 }
 
 /**
@@ -366,7 +385,7 @@ export function applyToolEvent(state: ToolState | undefined, ev: AiEvent): ToolS
       ...st,
       steps: [
         ...st.steps,
-        { id: ev.id, name: ev.name, label: toolLabel(ev.name), round: st.round, step: 'running', result: null, error: null },
+        { id: ev.id, name: ev.name, label: toolLabel(ev.name), round: st.round, step: 'running', result: null, error: null, args: ev.args },
       ],
     }
   }
@@ -423,6 +442,62 @@ export function toolRows(state: ToolState | undefined): ToolRow[] {
     const detail = raw && raw.trim() ? (raw.trim().length > TOOL_DETAIL_MAX ? `${raw.trim().slice(0, TOOL_DETAIL_MAX)}…` : raw.trim()) : null
     return { id: x.id, round: x.round, label: x.label, step: x.step, detail }
   })
+}
+
+// ---- F4c-1：工具执行的结算与回灌 ----
+//
+// `done{reason:'tool'}` 之前，工具只是"模型说要调"；执行发生在流结束之后，
+// 所以结果需要一个容器（`ToolResult`）和一条回灌文本。回灌**不走 `role:"tool"`**：
+// OpenAI 兼容端要求 `role:"tool"` 前面必须有一条带 `tool_calls` 的 assistant 消息，
+// 而本仓的 `OutgoingMsg` 只有 role + content —— 直接把 tool 消息发出去会被判非法。
+// 走既有的「合成 user 消息 + 标记」那条路（`aiActions.ts` 的 `ACTION_RESULT_MARK`，
+// v1.2 已上线、跨 provider 验过），Rust 侧零改动。
+
+/** 一次工具执行的结算结果 */
+export interface ToolResult {
+  /** 与 `toolStart` / `toolEnd` 同源，回灌时用它说清"是哪一次" */
+  id: string
+  name: string
+  ok: boolean
+  /** 成功时的产出（调用方已按 `TOOL_RESULT_MAX` 截断） */
+  result: string | null
+  /** 失败时的人话原因 */
+  error: string | null
+  /** 结果被截断过 —— 回灌时必须说，静默截会让模型以为"就这些" */
+  truncated: boolean
+}
+
+/**
+ * 一次工具结果回灌给模型的字数上限（**码点**）。与 Rust `MCP_RESULT_MAX` 同值：
+ * 那个数是 MCP 侧单条结果的闸门，这边是"回灌成一条消息"的闸门。两道闸门同口径，
+ * 才不会出现"前端先截一半、后端再截一半"的两段式切法（用户看到的字数对不上）。
+ */
+export const TOOL_RESULT_MAX = 8000
+
+/** 按码点截断（emoji 不会被劈成两个半截），顺带把"截过"这件事带出去 */
+export function truncateResult(
+  s: string,
+  max: number = TOOL_RESULT_MAX,
+): { text: string; truncated: boolean } {
+  const points = Array.from(s)
+  if (points.length <= max) return { text: s, truncated: false }
+  return { text: points.slice(0, max).join(''), truncated: true }
+}
+
+/**
+ * 一条工具结果 → 回灌文本里的一行。
+ *
+ * 三态都要能一眼分清：成功有产出 / 成功但没产出 / 失败及原因。
+ * 中间那态**不许**写成"成功了，但没有输出" —— 写类动作（加待办、记一笔）本来就没有
+ * 返回值，那句话会让模型以为"它什么都没做"，转头再调一次同一条。
+ */
+export function toolResultLine(r: ToolResult): string {
+  // 查不到人话名字时用工具名本身（不拿「调用工具「xx」」整句去套娃，见 `knownToolLabel`）
+  const head = `调用「${knownToolLabel(r.name) ?? (r.name || '（没写名字）')}」`
+  if (!r.ok) return `${head}：失败（${r.error?.trim() || '原因未知'}）`
+  const body = r.result?.trim()
+  if (!body) return `${head}：成功了`
+  return `${head}：${r.truncated ? `${body}…（结果过长，只带了前 ${TOOL_RESULT_MAX} 字）` : body}`
 }
 
 /** 一条待发消息：从气泡列表里取"已经说完的"，流式中的占位与出错的整轮都不发 */
