@@ -112,6 +112,12 @@ interface Seed {
   docs?: { id: string; name: string; text: string }[]
   /** 预置技能（PR-F3）：写进 `modulo.__stubdoc.modulo.skills.v1`（v1.7 找东西用例） */
   skills?: { id: string; name: string; text: string }[]
+  /**
+   * 工具执行闭环（F4c-1）：第 1 次 `ai_chat` 只发 `toolStart`（**不发 `toolEnd`**）
+   * 再以 `done{reason:'tool'}` 收尾；第 2 次走普通回复。真实形状就是这样 ——
+   * 已提供的工具 Rust 不代跑，`ToolEnd` 要前端真跑完补。
+   */
+  toolLoop?: { id: string; name: string; args?: Record<string, unknown> }[]
 }
 
 /** 开一张桌面形态的页面。`ai: false` = 没配任何模型服务（空态那条路） */
@@ -125,7 +131,7 @@ async function open(seed: Seed = {}, errs?: string[]): Promise<Page> {
   const card = seed.longSticky ? { ...baseCard, sticky: LONG_STICKY } : baseCard
   const desktop = seed.desktop !== false
   await page.evaluateOnNewDocument(
-    (src: string, docJson: string, cardJson: string, aiJson: string | null, histJson: string | null, hang: boolean, reply: string | null, cronJson: string | null, installStub: boolean, workflowJson: string | null, repliesJson: string | null, docsJson: string | null, skillsJson: string | null, toolsJson: string | null) => {
+    (src: string, docJson: string, cardJson: string, aiJson: string | null, histJson: string | null, hang: boolean, reply: string | null, cronJson: string | null, installStub: boolean, workflowJson: string | null, repliesJson: string | null, docsJson: string | null, skillsJson: string | null, toolsJson: string | null, toolLoopJson: string | null) => {
       if (installStub) new Function(src)()
       localStorage.setItem('modulo.layout.v1', docJson)
       localStorage.setItem('modulo.__stubdoc.modulo.carddata.v1', cardJson)
@@ -155,6 +161,8 @@ async function open(seed: Seed = {}, errs?: string[]): Promise<Page> {
       if (repliesJson) (window as unknown as { __STUB_AI_REPLIES__: string[] }).__STUB_AI_REPLIES__ = JSON.parse(repliesJson)
       // 工具事件（P1a）：同样每次导航重置（它描述的是"这一次 ai_chat 会推什么"）
       if (toolsJson) (window as unknown as { __STUB_AI_TOOLS__: unknown[] }).__STUB_AI_TOOLS__ = JSON.parse(toolsJson)
+      // 工具执行闭环（F4c-1）：同上，每次导航重置
+      if (toolLoopJson) (window as unknown as { __STUB_AI_TOOL_LOOP__: unknown[] }).__STUB_AI_TOOL_LOOP__ = JSON.parse(toolLoopJson)
     },
     STUB_SOURCE,
     JSON.stringify(doc),
@@ -170,6 +178,7 @@ async function open(seed: Seed = {}, errs?: string[]): Promise<Page> {
     seed.docs ? JSON.stringify({ schemaVersion: 1, docs: seed.docs }) : null,
     seed.skills ? JSON.stringify({ schemaVersion: 1, skills: seed.skills }) : null,
     seed.tools ? JSON.stringify(seed.tools) : null,
+    seed.toolLoop ? JSON.stringify(seed.toolLoop) : null,
   )
   await gotoWorkbench(page, url)
   // web 形态没有坞（AI 后端不在）⇒ 等左栏出现即可
@@ -327,6 +336,74 @@ describe.skipIf(skip)('F-12 二期：底部对话坞（桌面形态）', () => {
     // 两条路径并存不打架：这一轮正文里没有动作行 ⇒ 提议块（含它的空盒子）一个都不该有
     expect(await exists(page, '[data-ai-acts]')).toBe(false)
     expect(await exists(page, '[data-ai-act]')).toBe(false)
+    expect(errs, `页面不该有报错：${errs.join(' | ')}`).toEqual([])
+  })
+
+  /**
+   * F4c-1：**真的执行**。与上面那条 P1a 用例的差别在于桩的形状 —— 这里只发 `toolStart`、
+   * 不发 `toolEnd`（已提供的工具 Rust 不代跑，`ToolEnd` 要前端真跑完补）。
+   * 所以这条测的是三件以前没测过的事：
+   * ① 工具真的落到了数据上（不是画一行「成功」）；② 结果以一条「（工具结果）」消息回灌；
+   * ③ 第 2 轮请求的 `round` 是 2，且 `tools` 清单真的传下去了。
+   */
+  it('工具执行闭环（F4c-1）：toolStart 之后前端真跑、结果回灌、续第 2 轮收尾', async () => {
+    const errs: string[] = []
+    const page = await open(
+      {
+        reply: '加好了。',
+        toolLoop: [{ id: 'call-1', name: 'todo_add', args: { text: '买牛奶' } }],
+      },
+      errs,
+    )
+    await expand(page)
+    await ask(page, '帮我加一条待办：买牛奶')
+
+    // 时间线出现，且那一行**结了** —— 永远转下去是骗人（`settleToolSteps` 的整条理由）
+    await page.waitForSelector('[data-tool-steps]', { timeout: 15000 })
+    await page.waitForFunction(
+      () => document.querySelector('[data-tool-step]')?.getAttribute('data-tool-step') === 'ok',
+      { timeout: 15000 },
+    )
+    expect(
+      await page.$$eval('[data-tool-step] [data-tool-step-word]', (els) => els.map((e) => e.textContent ?? '')),
+    ).toEqual(['成功'])
+
+    // ① 真的写进去了：画一行「成功」而不落数据，就是这一层最容易犯的假
+    await page.waitForFunction(
+      () => (localStorage.getItem('modulo.__stubdoc.modulo.carddata.v1') ?? '').includes('买牛奶'),
+      { timeout: 15000 },
+    )
+
+    // ③ 续跑：第 2 次 ai_chat，`round` 是 2
+    await page.waitForFunction(
+      () => Number((window as unknown as { __STUB_AI_CALL_N__?: number }).__STUB_AI_CALL_N__ ?? 0) >= 2,
+      { timeout: 15000 },
+    )
+    const probe = await page.evaluate(() => {
+      const w = window as unknown as {
+        __STUB_AI_LAST_ROUND__?: number
+        __STUB_AI_LAST_TOOLS__?: string[] | null
+        __STUB_AI_LAST_ROLES__?: string[] | null
+      }
+      return { round: w.__STUB_AI_LAST_ROUND__, tools: w.__STUB_AI_LAST_TOOLS__, roles: w.__STUB_AI_LAST_ROLES__ }
+    })
+    expect(probe.round, '续跑用的是第 2 轮').toBe(2)
+    // 工具清单必须真传下去 —— 不传的话模型根本不可能发 toolStart（P1a 在线上一直是这个状态）
+    expect([...(probe.tools ?? [])].sort()).toEqual(
+      ['add_card', 'todo_add', 'ledger_add', 'sticky_append', 'countdown_set', 'habit_check', 'memory_add', 'context_read'].sort(),
+    )
+    // ② 回灌：第 2 轮的消息里多了一条 user（那条带着标记的工具结果）
+    expect((probe.roles ?? []).filter((r) => r === 'user')).toHaveLength(2)
+
+    // 第 2 轮收尾
+    await page.waitForFunction(
+      () => document.querySelector('[data-role="assistant"]')?.getAttribute('data-status') === 'done',
+      { timeout: 15000 },
+    )
+    const bubbles = await page.$$eval('[data-role="assistant"]', (els) => els.map((e) => e.textContent ?? ''))
+    expect(bubbles.join('')).toContain('加好了。')
+    // 工具结果渲染成小条，不是用户气泡 —— 用户没说过这句话
+    expect(await exists(page, '[data-chat-tool-note]')).toBe(true)
     expect(errs, `页面不该有报错：${errs.join(' | ')}`).toEqual([])
   })
 

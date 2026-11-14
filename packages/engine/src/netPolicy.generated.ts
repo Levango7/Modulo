@@ -28,6 +28,8 @@ export const AI_CONNECT_TIMEOUT_MS = 5000
 export const MAX_URL_LENGTH = 300
 export const MAX_HTTP_BODY_BYTES = 1048576
 export const MAX_FEED_BODY_BYTES = 262144
+export const MCP_CALL_TIMEOUT_MS = 30000
+export const MCP_MAX_ROUNDS = 4
 
 /**
  * 允许外连的源清单（生产 CSP 的 `connect-src`）。

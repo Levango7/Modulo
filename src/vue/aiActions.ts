@@ -15,6 +15,10 @@
  * 为什么走文字约定而不是 tool-calling：各家网关对未知顶层字段的容忍度不同（E3 的教训：
  * 有的直接 400），本仓要同时伺候官方 / DeepSeek / 千问 / vLLM / Ollama。文字约定零协议
  * 面、零 Rust 改动，代价是模型可能写坏 —— 所以解析必须宽容、失败必须可见。
+ *
+ * F4c-1 起多了第二条入口：模型直接调工具（原生 tool-calling）。它给的是**已解析的对象**，
+ * 所以只多一层「工具名 → 动作类型」的桥（`actionFromToolCall`），校验仍回
+ * `actionFromObject` 这道同一个闸门 —— 两条路的结论必须一样，测试里有钉子。
  */
 
 import { MEMORY_TEXT_MAX } from './aiMemory'
@@ -125,16 +129,18 @@ function actBody(line: string): string | null {
   return t.slice(ACTION_PREFIX.length).trim().replace(/[`\s]+$/, '')
 }
 
-/** 单行 → 动作或一条"为什么不行"。**不抛** —— 坏行是常态，不是异常 */
-function parseLine(raw: string, ctx: ActionContext): AiAction | { bad: string } {
-  const body = actBody(raw) ?? ''
-  let o: unknown = null
-  try {
-    o = JSON.parse(body)
-  } catch {
-    return { bad: `有一行动作没看懂（JSON 不合法）：${clip(raw.trim(), 60)}` }
-  }
-  if (!isRec(o)) return { bad: `有一行动作没看懂（不是对象）：${clip(raw.trim(), 60)}` }
+/**
+ * 已解析好的对象 → 动作或一条"为什么不行"。
+ *
+ * 这一段是**唯一的校验闸门**：`@@act` 文本（`parseLine`）与模型的原生 tool-calling 参数
+ * （`actionFromToolCall`）都从这里过。两份校验迟早漂移，而这里每一条都是
+ * 「能不能写用户数据」的门槛 —— 宁可多绕一层，不留第二条路。
+ *
+ * `raw` 只有文本那条路给：坏行要回显原文，用户才认得出是哪一行（工具调用没有原文，
+ * 它就是一张参数表，不带尾巴也不影响定位）。
+ */
+export function actionFromObject(o: unknown, ctx: ActionContext, raw?: string): AiAction | { bad: string } {
+  if (!isRec(o)) return { bad: `有一行动作没看懂（不是对象）${raw === undefined ? '' : `：${clip(raw, 60)}`}` }
   const type = str(o.type)
   if (type === 'addCard') {
     const moduleId = str(o.moduleId).trim()
@@ -290,6 +296,151 @@ function parseLine(raw: string, ctx: ActionContext): AiAction | { bad: string } 
   return { bad: `它想做「${clip(type || '（没写 type）', 24)}」这件事 —— 这一版还不会` }
 }
 
+/**
+ * 单行 → 动作或一条"为什么不行"。**不抛** —— 坏行是常态，不是异常。
+ * 只剩"取正文 + 解析 JSON"这一层：`JSON 不合法` 那句只有它知道原文，其余全交给闸门。
+ */
+function parseLine(raw: string, ctx: ActionContext): AiAction | { bad: string } {
+  const body = actBody(raw) ?? ''
+  let o: unknown = null
+  try {
+    o = JSON.parse(body)
+  } catch {
+    return { bad: `有一行动作没看懂（JSON 不合法）：${clip(raw.trim(), 60)}` }
+  }
+  return actionFromObject(o, ctx, raw.trim())
+}
+
+/** 动作类型 → 工具名。约束是 OpenAI 的 `^[a-zA-Z0-9_-]{1,64}$`，所以点换成下划线 */
+const TOOL_NAME_OF: Record<AiAction['type'], string> = {
+  addCard: 'add_card',
+  'todo.add': 'todo_add',
+  'ledger.add': 'ledger_add',
+  'sticky.append': 'sticky_append',
+  'countdown.set': 'countdown_set',
+  'habit.check': 'habit_check',
+  'memory.add': 'memory_add',
+  'context.read': 'context_read',
+}
+
+/** 反查表（工具名 → 动作类型）。`actionFromToolCall` 用它，不靠遍历猜 */
+const TYPE_OF_TOOL: Record<string, AiAction['type']> = Object.fromEntries(
+  (Object.keys(TOOL_NAME_OF) as AiAction['type'][]).map((t) => [TOOL_NAME_OF[t], t]),
+)
+
+/** 动作类型 → 工具名（对外只有这一个入口，免得调用方自己拼下划线） */
+export function toolNameOf(type: AiAction['type']): string {
+  return TOOL_NAME_OF[type]
+}
+
+/**
+ * 工具名 → 一句给人看的话。`aiChat.ts` 的 `TOOL_LABELS` 是这张表的镜像，两处都改。
+ * 只用于**描述工具**，不参与执行；界面上的"这一步在干什么"走 `TOOL_LABELS`。
+ */
+const TOOL_DESC_OF: Record<AiAction['type'], string> = {
+  addCard: '把一张卡摆上版面；moduleId 必须是已装卡片的 id，variant 可选。',
+  'todo.add': '往待办里加一条；正文最多 200 字，多实例可用 instanceId 定点。',
+  'ledger.add': '记一笔账；金额用正整数分（12.34 元写成 1234），分类必填、日期写 YYYY-MM-DD，缺省今天。',
+  'sticky.append': '往便签里追加一段（不覆盖原有内容）；正文最多 200 字。',
+  'countdown.set': '设一张倒数日；名字最多 20 字，日期必须写成 YYYY-MM-DD。',
+  'habit.check': '给习惯卡打上今天的卡；多实例用 instanceId 定点，不给就写第一张。',
+  'memory.add': '记住一件关于用户的事（跨对话有效，用户可在设置里删）；正文最多 200 字。',
+  'context.read': '只读地看一眼版面清单或某张卡的内容（moduleId / instanceId / moduleIds / query / full），不改任何东西。',
+}
+
+/** 这次提供给模型的工具清单（OpenAI `tools[].function` 的本地形状） */
+export interface ToolSpecLite {
+  name: string
+  description: string
+  parameters: Record<string, unknown>
+}
+
+/**
+ * 工具清单。**与 `@@act` 白名单是同一份**：加一个动作，这里也要加一行，
+ * 否则模型永远调不到它（而文字那条路还能用）—— 两处必须一起动。
+ */
+export function toolSpecs(): ToolSpecLite[] {
+  const id = { type: 'string', description: '卡实例 id（多实例时定点到某一实例；从 context.read 的清单里抄）' }
+  const spec = (type: AiAction['type'], properties: Record<string, unknown>, required: string[] = []): ToolSpecLite => ({
+    name: TOOL_NAME_OF[type],
+    description: TOOL_DESC_OF[type],
+    parameters: { type: 'object', properties, required },
+  })
+  return [
+    spec(
+      'addCard',
+      {
+        moduleId: { type: 'string', description: '要摆的卡 id（必须是已装卡片）' },
+        variant: { type: 'string', description: '卡片变体（可选，卡侧不认识就自己兜底）' },
+      },
+      ['moduleId'],
+    ),
+    spec(
+      'todo.add',
+      {
+        text: { type: 'string', description: '待办正文' },
+        instanceId: id,
+      },
+      ['text'],
+    ),
+    spec(
+      'ledger.add',
+      {
+        cents: { type: 'integer', description: '金额，正整数分（12.34 元 = 1234）' },
+        category: { type: 'string', description: '分类，最多 20 字' },
+        note: { type: 'string', description: '备注（可选，最多 200 字）' },
+        date: { type: 'string', description: '日期 YYYY-MM-DD（可选，缺省今天）' },
+        instanceId: id,
+      },
+      ['cents', 'category'],
+    ),
+    spec(
+      'sticky.append',
+      {
+        text: { type: 'string', description: '要追加的那一段' },
+        instanceId: id,
+      },
+      ['text'],
+    ),
+    spec(
+      'countdown.set',
+      {
+        label: { type: 'string', description: '倒数日名字，最多 20 字' },
+        date: { type: 'string', description: '目标日期 YYYY-MM-DD' },
+        instanceId: id,
+      },
+      ['label', 'date'],
+    ),
+    // 没有必填字段：打今天的卡不需要参数
+    spec('habit.check', { instanceId: id }),
+    spec('memory.add', { text: { type: 'string', description: '要记住的那件事' } }, ['text']),
+    spec('context.read', {
+      moduleId: { type: 'string', description: '看这张卡（可选）' },
+      instanceId: id,
+      query: { type: 'string', description: '按内容找（可选，与读某一张互斥）' },
+      moduleIds: { type: 'array', items: { type: 'string' }, description: '一次看一组卡（最多 5 张）' },
+      full: { type: 'boolean', description: '读全卡不截断（要配 moduleId / moduleIds / instanceId）' },
+    }),
+  ]
+}
+
+/**
+ * 模型给的一次工具调用 → 可执行动作。**走与 `@@act` 完全相同的校验闸门**（`actionFromObject`），
+ * 不另写一份 —— 两份校验迟早漂移，而这里每一条都是「能不能写用户数据」的门槛。
+ *
+ * `type` 放最后展开：模型爱在参数里顺手再写一个 type，那个字段一律以函数名为准。
+ */
+export function actionFromToolCall(
+  name: string,
+  args: unknown,
+  ctx: ActionContext,
+): AiAction | { bad: string } {
+  const type = TYPE_OF_TOOL[name]
+  if (!type) return { bad: `模型调了一个这次没有提供的工具「${clip(name, 24)}」` }
+  if (!isRec(args)) return { bad: `工具「${clip(name, 24)}」的参数不是一个对象` }
+  return actionFromObject({ ...args, type }, ctx)
+}
+
 /** 折叠多余空行（剥掉动作行之后容易留下两条连着） */
 const tidy = (s: string): string => s.replace(/\n{3,}/g, '\n\n').replace(/[ \t]+$/gm, '').trimEnd()
 
@@ -424,9 +575,51 @@ export function isActionResult(content: string): boolean {
 }
 
 /**
+ * 一批**原生工具调用**的执行结果 → 回喂给模型的一条 user 消息正文。
+ *
+ * 与 `actionResultText` 同族、同一套标记：界面按标记渲染成小条，Rust 单点落盘后
+ * 回填也走同一条规则。为什么不走 `role:"tool"` —— OpenAI 兼容端要求前一条 assistant
+ * 消息带 `tool_calls` 才认 tool 角色，我们回放历史时没送，会 400。
+ */
+export function toolResultText(lines: readonly string[]): string {
+  return [
+    `${ACTION_RESULT_MARK}你刚才调用的工具已经执行完了：`,
+    ...lines.map((l) => `- ${l}`),
+    '如果还要继续调用工具，照常调用（不要重复已经做过的）；都完成了就用一两句话收尾。',
+  ].join('\n')
+}
+
+/** 单步执行的结果（`ok:false` 时 `error` 一定非空） */
+export interface OneAction {
+  ok: boolean
+  value?: string
+  error?: string
+}
+
+/**
+ * 执行一步。**不抛** —— 异常在这里转成 `ok:false`，调用方据此继续或中止。
+ *
+ * 拆出来是为了"逐条可观察"：每一步要能单独回写时间线一行状态，
+ * 而 `runActions` 自述是"一口气跑完、没有可观察的单步窗口"。
+ */
+export function runOneAction(
+  a: AiAction,
+  apply: (a: AiAction) => string | void | undefined,
+): OneAction {
+  try {
+    return { ok: true, value: apply(a) ?? undefined }
+  } catch (err) {
+    return { ok: false, error: String(err) }
+  }
+}
+
+/**
  * 顺次执行提议。**首败即停**（与工作流同一条纪律）：后面几条的前提可能依赖前面，
  * 前一条没落成还往下走，只会留下一串半成品。已执行的不回滚 —— 撤销是用户的事
  * （所有动作都经过既有写入口，Ctrl+Z 撤得掉）。
+ *
+ * 只是 `runOneAction` 的循环外壳：`done` / `values` 的口径与单步那份**同一个判断**，
+ * 不在这里另算一遍。
  */
 export function runActions(
   actions: readonly AiAction[],
@@ -434,11 +627,9 @@ export function runActions(
 ): RunResult {
   const values: (string | undefined)[] = []
   for (let i = 0; i < actions.length; i++) {
-    try {
-      values.push(apply(actions[i]) ?? undefined)
-    } catch (err) {
-      return { ok: false, done: i, error: String(err), values }
-    }
+    const one = runOneAction(actions[i], apply)
+    if (!one.ok) return { ok: false, done: i, error: one.error, values }
+    values.push(one.value)
   }
   return { ok: true, done: actions.length, values }
 }

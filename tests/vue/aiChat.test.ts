@@ -30,13 +30,17 @@ import {
   thinkingLabel,
   TOOL_DETAIL_MAX,
   toolLabel,
+  TOOL_RESULT_MAX,
+  toolResultLine,
   toolRows,
   TOOL_STATE_EMPTY,
+  truncateResult,
   turnsFromHistory,
   type AiEvent,
   type CardChoice,
   type ChatTurn,
   type ExcerptSource,
+  type ToolResult,
   type ToolState,
 } from '../../src/vue/aiChat'
 
@@ -313,15 +317,15 @@ describe('工具时间线（toolStart / toolEnd / round 的归并点）', () => 
     // 行上已经有原因（重挂后补进来的状态）就留着，不覆盖成那句通用的话
     const kept: ToolState = {
       round: 1,
-      steps: [{ id: 'c9', name: 'todo_add', label: '加一条待办', round: 1, step: 'running', result: null, error: '之前记下的' }],
+      steps: [{ id: 'c9', name: 'todo_add', label: '加一条待办', round: 1, step: 'running', result: null, error: '之前记下的', args: {} }],
     }
     expect(settleToolSteps(kept).steps[0].error).toBe('之前记下的')
     // 混合态：只动还在转的那行，已经结完的行原样留着（不许把"成功"改写）
     const mixed: ToolState = {
       round: 1,
       steps: [
-        { id: 'c1', name: 'todo_add', label: '加一条待办', round: 1, step: 'ok', result: '已加', error: null },
-        { id: 'c2', name: 'ledger_add', label: '记一笔账', round: 1, step: 'running', result: null, error: null },
+        { id: 'c1', name: 'todo_add', label: '加一条待办', round: 1, step: 'ok', result: '已加', error: null, args: {} },
+        { id: 'c2', name: 'ledger_add', label: '记一笔账', round: 1, step: 'running', result: null, error: null, args: {} },
       ],
     }
     const settled = settleToolSteps(mixed)
@@ -350,6 +354,74 @@ describe('工具时间线（toolStart / toolEnd / round 的归并点）', () => 
     blank = applyToolEvent(blank, { t: 'toolEnd', id: 'c4', ok: true, result: '   ', error: null })
     expect(toolRows(blank)[0].detail).toBeNull()
     expect(toolRows(undefined)).toEqual([])
+  })
+
+  it('toolStart 的参数留在状态里 —— 执行发生在流结束之后，那时已经拿不到那一帧了', () => {
+    const st = applyToolEvent(undefined, {
+      t: 'toolStart',
+      id: 'c1',
+      name: 'todo_add',
+      args: { text: '交周报', instanceId: 'todo:2' },
+    })
+    expect(st.steps[0].args).toEqual({ text: '交周报', instanceId: 'todo:2' })
+    // 配对的 end 不改参数：它只说结论
+    const done = applyToolEvent(st, { t: 'toolEnd', id: 'c1', ok: true, result: '已加', error: null })
+    expect(done.steps[0].args).toEqual({ text: '交周报', instanceId: 'todo:2' })
+  })
+})
+
+// F4c-1：工具执行的结算与回灌（`done{reason:'tool'}` 之后那半）
+describe('工具结果的截断与回灌', () => {
+  const res = (over: Partial<ToolResult> = {}): ToolResult => ({
+    id: 'c1',
+    name: 'todo_add',
+    ok: true,
+    result: '已加：交周报',
+    error: null,
+    truncated: false,
+    ...over,
+  })
+
+  it('截断按码点算：8000 以内原样、多一个就截到 8000 并记下"截过"', () => {
+    expect(truncateResult('短')).toEqual({ text: '短', truncated: false })
+    const exact = 'x'.repeat(TOOL_RESULT_MAX)
+    expect(truncateResult(exact)).toEqual({ text: exact, truncated: false })
+
+    const over = 'x'.repeat(TOOL_RESULT_MAX + 1)
+    const cut = truncateResult(over)
+    expect(cut.truncated).toBe(true)
+    expect(cut.text).toHaveLength(TOOL_RESULT_MAX)
+  })
+
+  it('emoji 不会被劈成半个 —— 按码点而不是 UTF-16 单元计数', () => {
+    // 😀 是 2 个 UTF-16 单元：按 `.length` 截会留下半个（渲染成 ）且字数对不上
+    const emoji = '😀'.repeat(TOOL_RESULT_MAX + 5)
+    const cut = truncateResult(emoji)
+    expect(cut.truncated).toBe(true)
+    expect(Array.from(cut.text)).toHaveLength(TOOL_RESULT_MAX)
+    expect(cut.text.endsWith('😀')).toBe(true)
+  })
+
+  it('回灌一行：成功带产出 / 成功没产出 / 失败带原因 —— 三态不许混成一句话', () => {
+    expect(toolResultLine(res())).toBe('调用「加一条待办」：已加：交周报')
+    // 写类动作没有产出是常态 ⇒ 直说「成功了」。说成「成功了，但没有输出」会让模型以为没生效、再调一次
+    expect(toolResultLine(res({ result: null }))).toBe('调用「加一条待办」：成功了')
+    expect(toolResultLine(res({ result: '   ' }))).toBe('调用「加一条待办」：成功了')
+    expect(toolResultLine(res({ ok: false, result: null, error: '没写内容' }))).toBe(
+      '调用「加一条待办」：失败（没写内容）',
+    )
+    // 原因缺失时也得有话说，不能吐一句「失败（）」
+    expect(toolResultLine(res({ ok: false, result: null, error: null }))).toBe(
+      '调用「加一条待办」：失败（原因未知）',
+    )
+    // 未知工具名落回工具名本身，不编一个人话名字、也不许套娃成「调用「调用工具「x」」」
+    expect(toolResultLine(res({ name: 'mcp__weird' }))).toBe('调用「mcp__weird」：已加：交周报')
+    expect(toolResultLine(res({ name: '' }))).toBe('调用「（没写名字）」：已加：交周报')
+  })
+
+  it('截断过就必须说出来 —— 静默截会让模型以为「就这些」', () => {
+    const line = toolResultLine(res({ truncated: true }))
+    expect(line).toContain(`只带了前 ${TOOL_RESULT_MAX} 字`)
   })
 })
 

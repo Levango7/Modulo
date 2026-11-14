@@ -51,10 +51,10 @@ function wired(name, file, needle) {
 // ── 1. 单源本身 ────────────────────────────────────────────────────────────
 const policy = JSON.parse(read('net-policy.json'))
 ok('单源有 version', typeof policy.version === 'number')
-for (const k of ['fetchMs', 'desktopFetchMs', 'aiSummarizeMs', 'aiProbeMs', 'aiConnectMs']) {
+for (const k of ['fetchMs', 'desktopFetchMs', 'aiSummarizeMs', 'aiProbeMs', 'aiConnectMs', 'mcpCallMs']) {
   ok(`单源 timeouts.${k} 是正数`, Number.isInteger(policy.timeouts?.[k]) && policy.timeouts[k] > 0)
 }
-for (const k of ['urlLength', 'httpBodyBytes', 'feedBodyBytes']) {
+for (const k of ['urlLength', 'httpBodyBytes', 'feedBodyBytes', 'mcpMaxRounds']) {
   ok(`单源 limits.${k} 是正数`, Number.isInteger(policy.limits?.[k]) && policy.limits[k] > 0)
 }
 ok(
@@ -79,6 +79,8 @@ const expectNumbers = {
   MAX_URL_LENGTH: policy.limits.urlLength,
   MAX_HTTP_BODY_BYTES: policy.limits.httpBodyBytes,
   MAX_FEED_BODY_BYTES: policy.limits.feedBodyBytes,
+  MCP_CALL_TIMEOUT_MS: policy.timeouts.mcpCallMs,
+  MCP_MAX_ROUNDS: policy.limits.mcpMaxRounds,
 }
 for (const [name, value] of Object.entries(expectNumbers)) {
   const m = new RegExp(`export const ${name} = (\\d+)`).exec(generated)
@@ -96,6 +98,15 @@ for (const f of ['src/vue/useRemote.ts', 'src/vue/useWeather.ts', 'src/vue/useUp
 }
 
 // ── 3. Rust 侧 ─────────────────────────────────────────────────────────────
+// 工具轮次上限的消费点在前端（F4c-1 的 agent 循环）。**这条断言是防"定义了没人消费"** ——
+// 单源里躺着一个谁也不读的数，下一个人照着它改，改完没人受影响，漂移就这么开始了。
+// `timeouts.mcpCallMs` 暂时没有消费点：它挡的是「一次工具调用卡死」，而 F4c-1 执行的都是
+// 同步的本地动作，真正需要它的异步往返在 F4c-2（MCP stdio）。届时在这里补第二行。
+wired(
+  'ChatDock.vue 读单源的 MCP_MAX_ROUNDS',
+  'src/vue/components/ChatDock.vue',
+  'E.MCP_MAX_ROUNDS',
+)
 wired('net_policy.rs 内嵌单源 JSON', 'src-tauri/src/net_policy.rs', 'include_str!("../../net-policy.json")')
 ok('net_policy.rs 在 lib.rs 里登记了模块', read('src-tauri/src/lib.rs').includes('mod net_policy;'))
 for (const f of [

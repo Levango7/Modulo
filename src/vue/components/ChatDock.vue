@@ -48,10 +48,14 @@ import {
   permNote,
   stripMention,
   summaryText,
+  toolResultLine,
+  truncateResult,
   turnsFromHistory,
   type CardChoice,
   type ChatTurn,
+  type ToolResult,
   type ToolState,
+  type ToolStep,
   type MountedFile,
   type PickedText,
 } from '../aiChat'
@@ -65,6 +69,7 @@ import {
   ACTION_READ_MAX,
   ACTION_SEARCH_MAX,
   ACTION_SEARCH_RADIUS,
+  actionFromToolCall,
   actionLabel,
   actionResultLines,
   actionResultText,
@@ -72,8 +77,13 @@ import {
   isActionResult,
   parseActions,
   runActions,
+  runOneAction,
   timelineRows,
+  toolResultText,
+  toolSpecs,
+  type ActionContext,
   type ActStep,
+  type AiAction,
 } from '../aiActions'
 import { localDay } from '../reminders'
 import { habitOf, stickyOf, writeCountdown, writeHabit, writeSticky } from '../instanceData'
@@ -122,6 +132,17 @@ const busy = ref(false)
 const notice = ref<string | null>(null)
 /** 每次发送/新对话自增：上一轮的迟到帧按 token 丢弃，不会写进新会话 */
 let streamToken = 0
+/**
+ * 用户按了「停止」。F4c-1 起工具是在**流结束之后**才执行的，那时 `ai_chat_cancel`
+ * 已经没有在跑的请求可取消 —— 光靠它拦不住执行与续跑，所以单独记一个标志。
+ * 每次用户主动发新消息时清掉（`runTurn`）。
+ */
+let aborted = false
+/**
+ * 一轮对话里最多几次工具往返。真源是单源 `net-policy.json` 的 `limits.mcpMaxRounds`
+ * （生成产物 `packages/engine/src/netPolicy.generated.ts` 带过来），这里不另写数字。
+ */
+const MAX_TOOL_ROUNDS = E.MCP_MAX_ROUNDS
 
 const chips = ref<CardChoice[]>([])
 const picker = ref<CardChoice[]>([])
@@ -315,12 +336,32 @@ function missingProvider(): boolean {
 }
 
 /**
- * 真正发出一轮（用户手打的 `send` 与「照做」之后的自动续轮共用）。
+ * 用户主动发起一轮（手打的 `send`，以及「照做」之后的自动续轮）。
  * 引用与附件都是**调用方在那一刻的快照**：发出去之后用户再删，不改已发出的请求；
  * 续轮沿用产生那批动作的那一轮的引用快照（`usedChips` 存在助手占位上）。
  */
 async function runTurn(text: string, usedChips: CardChoice[], usedFiles: MountedFile[]): Promise<void> {
   if (!text || busy.value) return
+  // 用户又发了话：上一轮的「停止」不再作数（F4c-1 的工具循环读这个标志）
+  aborted = false
+  await streamTurn(text, usedChips, usedFiles, 1)
+}
+
+/**
+ * 一轮流式请求本身 —— **不查 `busy`**。
+ *
+ * 为什么和 `runTurn` 分成两个：`done{reason:'tool'}` 之后，「执行工具 → 回灌 → 续跑」
+ * 整个过程要一直占着 `busy`（停止按钮得在、输入框得锁），而续跑又不能再过一遍
+ * `busy` 闸门 —— 那道闸门拦的是"用户又发了一条"，不是"循环自己往下走"。
+ *
+ * `round` 由前端交上去（Rust 只把它回显成 `round` 事件），循环的计数权在这一侧。
+ */
+async function streamTurn(
+  text: string,
+  usedChips: CardChoice[],
+  usedFiles: MountedFile[],
+  round: number,
+): Promise<void> {
   if (missingProvider()) return
   turns.value = [
     ...turns.value,
@@ -352,7 +393,18 @@ async function runTurn(text: string, usedChips: CardChoice[], usedFiles: Mounted
       turns.value[idx] = applyEvent(cur, ev)
       if (ev.t !== 'done') continue
       const t = turns.value[idx]
-      // 还在 running 的行结掉：流结束了就没有"还在干活"这回事（`settleToolSteps` 的注释）
+      if (ev.reason === 'tool' && t.status !== 'error') {
+        // 流结束了，活没干完：工具还在排队（契约 §2.2 的 `done{tool}`）。
+        // **这里既不结 running 行、也不清 busy** —— `settleToolSteps` 结的是"没人会去执行"
+        // 的那种情况，而这一轮恰恰有人执行（`runToolPhase` 接棒）。
+        attachActions(idx)
+        streamConv.value = null
+        void runToolPhase(idx, usedChips, round, token)
+        scrollDown()
+        continue
+      }
+      // 顺序不能反：`settleToolSteps` 那一行是**整轮 spread**，先结行再解析；
+      // 反了就会拿着解析前的 `t` 覆盖回去，把刚解出来的动作行静默吃掉。
       turns.value[idx] = { ...t, tools: settleToolSteps(t.tools) }
       if (t.status !== 'error') attachActions(idx)
       busy.value = false
@@ -370,6 +422,10 @@ async function runTurn(text: string, usedChips: CardChoice[], usedFiles: Mounted
       messages,
       thinking: thinking.value,
       attachments: usedFiles.map((f) => ({ name: f.name, content: f.content })),
+      // F4c-1：工具清单由前端从动作白名单生成（`toolSpecs`），与 `@@act` 文字约定同一份口径。
+      // 不传 = provider 不支持 tools，请求体里就不会有这个字段（`request::chat_body` 保证）。
+      tools: toolSpecs(),
+      round,
       onChunk: ch,
     })
     if (token !== streamToken) return
@@ -381,6 +437,93 @@ async function runTurn(text: string, usedChips: CardChoice[], usedFiles: Mounted
     busy.value = false
     streamConv.value = null
   }
+}
+
+/**
+ * 工具执行阶段（F4c-1 的闭环）。
+ *
+ * 顺序执行所有还在 `running` 的步骤 —— 一期**不并行**：每条动作都会写用户数据，
+ * 并行会让"哪一步先落盘"变成竞态，而时间线上根本看不出来。
+ *
+ * 四条不变量（契约之外的补充，都落在这里）：
+ * 1. **同一 `id` 只执行一次**：`toolStart` 可能因重连/重放来两次，执行前查集合。
+ * 2. **失败不终止循环**：失败结果照常回灌，让模型自己决定下一步（它可能换个做法）。
+ * 3. **停止立即生效**：每一步之前都查 `aborted` 与 token。已经写下去的不回滚（那是撤销栈的事），
+ *    但绝不再往下走一步。
+ * 4. **收尾只有一条路**：要么续跑（`streamTurn`），要么清掉 `busy` 并说明为什么停 ——
+ *    不许出现"界面在转、实际没人干活"。
+ */
+async function runToolPhase(
+  idx: number,
+  usedChips: CardChoice[],
+  round: number,
+  token: number,
+): Promise<void> {
+  const steps = (turns.value[idx]?.tools?.steps ?? []).filter((s) => s.step === 'running')
+  const results: ToolResult[] = []
+  const executed = new Set<string>()
+  for (const s of steps) {
+    if (token !== streamToken || aborted) break
+    if (executed.has(s.id)) continue
+    executed.add(s.id)
+    const r = executeToolStep(s)
+    results.push(r)
+    // 回写时间线：这一步的结论。仍走 `applyToolEvent`，不另造一条写状态的路
+    const cur = turns.value[idx]
+    turns.value[idx] = {
+      ...cur,
+      tools: applyToolEvent(cur.tools, { t: 'toolEnd', id: r.id, ok: r.ok, result: r.result, error: r.error }),
+    }
+  }
+
+  // 被新对话顶掉：那一轮已经收过尾，这里什么都不许动
+  if (token !== streamToken) return
+  if (aborted) {
+    finishToolPhase(idx)
+    return
+  }
+  if (!results.length) {
+    // `done{tool}` 却一条可跑的都没有 —— 这种事只会发生在 Rust 侧已经逐条拒收之后
+    // （工具名不在这次提供的清单里，`ToolEnd{ok:false}` 已经到过了）。那些行在时间线上
+    // 就是明摆着的失败，再补一句 notice 只是噪音；**关键是别空转**（不再发请求）。
+    finishToolPhase(idx)
+    return
+  }
+  if (round >= MAX_TOOL_ROUNDS) {
+    // 用尽：把话说明白，**不再发请求** —— 放开就是模型自己跟自己聊，
+    // 把上下文和账单一起撑爆（这也是单源里那个 4 的来由）
+    notice.value = `工具已经连续用了 ${round} 轮，到上限了（最多 ${MAX_TOOL_ROUNDS} 轮）—— 先停在这儿，做过的都留着了`
+    finishToolPhase(idx)
+    return
+  }
+  await streamTurn(toolResultText(results.map(toolResultLine)), usedChips, [], round + 1)
+}
+
+/** 工具阶段的收尾（三条"不再续跑"的路共用）：结掉剩余 running 行、清 busy、刷历史 */
+function finishToolPhase(idx: number): void {
+  turns.value[idx] = { ...turns.value[idx], tools: settleToolSteps(turns.value[idx].tools) }
+  busy.value = false
+  streamConv.value = null
+  void sessions.refresh()
+}
+
+/**
+ * 执行一步工具调用。**不抛**（异常一律折成 `ok:false`，见不变量 2）。
+ *
+ * 校验走 `actionFromToolCall` —— 与 `@@act` 那几条**完全同一套闸门**：白名单、字段、
+ * 上限、实例定点。模型换一条路进来，门槛不许跟着变低。
+ */
+function executeToolStep(s: ToolStep): ToolResult {
+  const one = actionFromToolCall(s.name, s.args, actionCtx())
+  if ('bad' in one) {
+    return { id: s.id, name: s.name, ok: false, result: null, error: one.bad, truncated: false }
+  }
+  const run = runOneAction(one, applyAction)
+  if (!run.ok) {
+    return { id: s.id, name: s.name, ok: false, result: null, error: run.error ?? '原因未知', truncated: false }
+  }
+  const cut = truncateResult(run.value ?? '')
+  return { id: s.id, name: s.name, ok: true, result: cut.text || null, error: null, truncated: cut.truncated }
 }
 
 async function send(): Promise<void> {
@@ -514,13 +657,62 @@ function readContext(a: {
 function attachActions(i: number): void {
   const t = turns.value[i]
   if (!t || t.role !== 'assistant' || !t.content) return
-  const r = parseActions(t.content, {
+  const r = parseActions(t.content, actionCtx())
+  if (!r.actions.length && !r.bad.length) return
+  turns.value[i] = { ...t, content: r.clean, actions: r.actions, badActions: r.bad, actionsState: 'pending' }
+}
+
+/**
+ * 动作校验的上下文（纯层要的那几个量）。提议解析与工具调用**共用这一份** ——
+ * 两处各建一份，迟早出现"文字约定能过、工具调用过不了"这种只有模型才碰得到的偏差。
+ */
+function actionCtx(): ActionContext {
+  return {
     moduleIds: store.reg.map((m) => m.id),
     today: localDay(new Date()),
     instances: store.doc.value.items.map((it) => ({ id: it.id, module: it.module ?? it.id })),
-  })
-  if (!r.actions.length && !r.bad.length) return
-  turns.value[i] = { ...t, content: r.clean, actions: r.actions, badActions: r.bad, actionsState: 'pending' }
+  }
+}
+
+/**
+ * 执行一条**已校验**的动作，返回它的产出（读类动作才有）。
+ *
+ * **唯一的写入口**：提议「照做」与工具调用两条路都走它。两条路各写一份，
+ * 就会出现"照着做能撤销、工具做的撤不掉"这种最难查的分叉 —— 底下每一个 `write*`
+ * 都进内容历史，撤销栈才认得。
+ *
+ * 失败一律 `throw`（不返回错误值）：调用方是 `runActions` / `runOneAction`，
+ * 它俩把异常转成 `ok:false` 并继续/中止，那是它们的事。
+ */
+function applyAction(a: AiAction): string | undefined {
+  // 多实例定点：instanceId 先解析成板上那个 item 的 (module, instance)，找不到就如实报错
+  const instId = 'instanceId' in a ? a.instanceId : undefined
+  const inst = instId ? store.doc.value.items.find((it) => it.id === instId) : undefined
+  if (instId && !inst) throw new Error(`它想定点写到「${instId}」，但版面上没有这张卡（可能刚被删了）`)
+  const mId = inst ? inst.module ?? inst.id : undefined
+  if (a.type === 'addCard') store.add(a.moduleId, 0, 0, a.variant)
+  else if (a.type === 'todo.add') cardDataApi.addTodo(a.text, mId, instId)
+  else if (a.type === 'ledger.add') cardDataApi.addLedger(a.date, a.cents, a.category, a.note ?? '', mId, instId)
+  else if (a.type === 'sticky.append') {
+    // 追加不覆盖：便签是用户的原文，AI 只往上添
+    const cur = stickyOf(cardDataApi.state, mId, instId)
+    writeSticky(cardDataApi.state, mId, instId, cur ? `${cur}\n${a.text}` : a.text)
+  } else if (a.type === 'countdown.set') {
+    writeCountdown(cardDataApi.state, mId, instId, { label: a.label, date: a.date })
+  } else if (a.type === 'habit.check') {
+    // 幂等：今天已打过就不重复加
+    const h = habitOf(cardDataApi.state, mId, instId)
+    writeHabit(cardDataApi.state, mId, instId, {
+      name: h.name,
+      days: [...new Set([...h.days, localDay(new Date())])].sort(),
+    })
+  } else if (a.type === 'memory.add') {
+    const rejected = memory.add(a.text)
+    if (rejected.length) throw new Error(rejected.join('；'))
+  } else if (a.type === 'context.read') {
+    return readContext(a)
+  }
+  return undefined
 }
 
 /** 提议块顶上一句话（按状态变；只有坏行时单独一句 —— 别写成"等你点头"） */
@@ -535,41 +727,13 @@ function actsHead(t: Turn): string {
 }
 
 /**
- * 「照做」：顺次执行（首败即停），全部走既有写入口 —— `store.add` 进版面历史、
- * `cardData` 的写进内容历史 ⇒ **Ctrl+Z 撤得掉**。往哪写在这里，"能不能做"在纯层。
+ * 「照做」：顺次执行（首败即停），全部走 `applyAction` —— `store.add` 进版面历史、
+ * `cardData` 的写进内容历史 ⇒ **Ctrl+Z 撤得掉**。往哪写在那里，"能不能做"在纯层。
  */
 function runActs(i: number): void {
   const t = turns.value[i]
   if (!t?.actions?.length || t.actionsState !== 'pending') return
-  const r = runActions(t.actions, (a) => {
-    // 多实例定点：instanceId 先解析成板上那个 item 的 (module, instance)，找不到就如实报错
-    const instId = 'instanceId' in a ? a.instanceId : undefined
-    const inst = instId ? store.doc.value.items.find((it) => it.id === instId) : undefined
-    if (instId && !inst) throw new Error(`它想定点写到「${instId}」，但版面上没有这张卡（可能刚被删了）`)
-    const mId = inst ? inst.module ?? inst.id : undefined
-    if (a.type === 'addCard') store.add(a.moduleId, 0, 0, a.variant)
-    else if (a.type === 'todo.add') cardDataApi.addTodo(a.text, mId, instId)
-    else if (a.type === 'ledger.add') cardDataApi.addLedger(a.date, a.cents, a.category, a.note ?? '', mId, instId)
-    else if (a.type === 'sticky.append') {
-      // 追加不覆盖：便签是用户的原文，AI 只往上添
-      const cur = stickyOf(cardDataApi.state, mId, instId)
-      writeSticky(cardDataApi.state, mId, instId, cur ? `${cur}\n${a.text}` : a.text)
-    } else if (a.type === 'countdown.set') {
-      writeCountdown(cardDataApi.state, mId, instId, { label: a.label, date: a.date })
-    } else if (a.type === 'habit.check') {
-      // 幂等：今天已打过就不重复加
-      const h = habitOf(cardDataApi.state, mId, instId)
-      writeHabit(cardDataApi.state, mId, instId, {
-        name: h.name,
-        days: [...new Set([...h.days, localDay(new Date())])].sort(),
-      })
-    } else if (a.type === 'memory.add') {
-      const rejected = memory.add(a.text)
-      if (rejected.length) throw new Error(rejected.join('；'))
-    } else if (a.type === 'context.read') {
-      return readContext(a)
-    }
-  })
+  const r = runActions(t.actions, applyAction)
   const note = r.ok
     ? '做完了 —— Ctrl+Z 可以撤销'
     : r.done > 0
@@ -650,6 +814,9 @@ async function summarize(): Promise<void> {
 }
 
 async function stop(): Promise<void> {
+  // 先立牌子再取消：F4c-1 起工具是在流结束之后执行的，那时已经没有在跑的请求可取消，
+  // 只有这个标志能拦住「执行下一步」和「回灌续跑」（`runToolPhase` 每步都查它）。
+  aborted = true
   const id = streamConv.value
   if (!id) return
   try {
