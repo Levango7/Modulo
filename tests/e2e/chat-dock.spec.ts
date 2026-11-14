@@ -1272,4 +1272,44 @@ describe.skipIf(skip)('聊天任脊柱（E1）', () => {
     expect(await page.evaluate(() => document.querySelectorAll('.cell').length)).toBe(2)
     expect(errs, `页面不该有报错：${errs.join(' | ')}`).toEqual([])
   }, 90_000)
+
+  it('AI 动手 v1.8（第二十三笔）：版面清单三类一起列，docId / skillId 单读资料 / 技能（只读）', async () => {
+    const errs: string[] = []
+    const replies = [
+      '看一遍。\n@@act {"type":"context.read"}\n@@act {"type":"context.read","docId":"d1"}\n@@act {"type":"context.read","skillId":"s1"}',
+      '读完了。',
+    ]
+    const page = await open(
+      {
+        replies,
+        docs: [{ id: 'd1', name: '体检记账', text: '体检挂号费 39 元，已记进周报。' }],
+        skills: [{ id: 's1', name: '周报模板', text: '周报模板：先把本周的体检安排写进去。' }],
+      },
+      errs,
+    )
+    await expand(page)
+    await ask(page, '看看版面上有什么，再把那份资料和那条技能读一遍')
+    await page.waitForSelector('[data-ai-act-run]', { timeout: 15000 })
+    await click(page, '[data-ai-act-run]')
+    await page.waitForSelector('[data-chat-tool-note]', { timeout: 15000 })
+    await page.waitForFunction(
+      () => [...document.querySelectorAll('[data-role="assistant"]')].some((el) => el.textContent?.includes('读完了')),
+      { timeout: 15000 },
+    )
+    // 一个提议块里三个动作一次照做 = 两次模型调用；最后一条工具结果带三类读结果
+    const sent = (await calls(page)).filter((c) => c.cmd === 'ai_chat')
+    expect(sent, '照做后自动续一轮 = 两次模型调用').toHaveLength(2)
+    const last = sent[1].args.messages as { role: string; content: string }[]
+    const feed = last.at(-1)?.content ?? ''
+    expect(feed).toContain('（工具结果）')
+    expect(feed).toContain('看一眼版面清单：')
+    expect(feed).toContain('卡：')
+    expect(feed).toContain('资料：「体检记账」（id d1）')
+    expect(feed).toContain('技能：「周报模板」（id s1）')
+    expect(feed).toContain('看一眼资料「体检记账」：体检挂号费 39 元')
+    expect(feed).toContain('看一眼技能「周报模板」：周报模板：先把本周的体检安排写进去。')
+    // 只读不写：版面卡数没动
+    expect(await page.evaluate(() => document.querySelectorAll('.cell').length)).toBe(2)
+    expect(errs, `页面不该有报错：${errs.join(' | ')}`).toEqual([])
+  }, 90_000)
 })

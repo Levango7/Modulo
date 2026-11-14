@@ -55,8 +55,8 @@ import {
   type MountedFile,
   type PickedText,
 } from '../aiChat'
-import { docChoices, excerptWithDocs } from '../knowledge'
-import { skillChoices, excerptWithSkills } from '../skills'
+import { docChoices, docExcerpt, excerptWithDocs } from '../knowledge'
+import { skillChoices, excerptWithSkills, skillExcerpt } from '../skills'
 import type { KnowledgeApi } from '../useKnowledge'
 import type { MemoryApi } from '../useMemory'
 import type { SkillsApi } from '../useSkills'
@@ -403,6 +403,12 @@ function pickIdea(text: string): void {
 
 /** 卡的中文名（提议列表里的人话）；查不到落回 id */
 const titleOf = (id: string): string | undefined => store.reg.find((m) => m.id === id)?.title
+/**
+ * 动作人话的 id → 名字（第二十三笔起）：卡 / 资料 / 技能三类共用一条解析 ——
+ * `actionLabel` 只收一个回调，谁的名字归谁管在这里分（卡名查不到落回 id）。
+ */
+const idLabel = (id: string): string | undefined =>
+  titleOf(id) ?? knowledge.docs.value.find((d) => d.id === id)?.name ?? skills.skills.value.find((s) => s.id === id)?.name
 
 /** 实例 id → 人话：定点动作的前缀里要让人看清是哪一张 */
 const instanceLabelOf = (id: string): string => {
@@ -468,14 +474,16 @@ function searchMine(query: string): string[] {
 
 /**
  * 读类动作的执行体（第十六笔起；第十八笔起可带 instanceId 定点读第二实例；
- * 第十九笔起可带 moduleIds 一次读一组、full 读全卡；第二十笔起可带 query 按内容找东西）：
+ * 第十九笔起可带 moduleIds 一次读一组、full 读全卡不截断；第二十笔起可带 query 按内容找东西；
+ * 第二十三笔起可带 docId / skillId 单读一份资料 / 一条技能）：
  * **只取不写**，走与 `@卡片` 同一套读路径。
  * query = 按内容找东西（卡片 / 资料 / 技能，多词全部命中才算）；无 query / moduleId /
- * instanceId / moduleIds = 版面清单（有哪些卡、实例 id 是多少）；
+ * instanceId / moduleIds / docId / skillId = 版面清单（卡 / 资料 / 技能三类，各带 id）；
  * 有 moduleIds = 一组卡（一条结果消息逐张列出）；有 instanceId = 那一张实例的摘录；
- * 有 moduleId 无 instanceId = 那张卡第一实例的摘录。默认走 `excerptFor`（单条封顶
- * `ACTION_READ_MAX`）；`full` 走 `fullContentFor`（封顶 `ACTION_READ_FULL_MAX`，
- * 超长时注明全卡字数）。版面上没有那张卡 ⇒ 抛（首败即停会把它写进结果）。
+ * 有 moduleId 无 instanceId = 那张卡第一实例的摘录；有 docId / skillId = 那份资料 / 那条技能
+ * （资料走 `docExcerpt` 同口径、技能走 `skillExcerpt` 全文）。默认走 `excerptFor`（单条封顶
+ * `ACTION_READ_MAX`）；`full` 走 `fullContentFor` / `ACTION_READ_FULL_MAX`（超长注明全文字数）。
+ * 版面上没有那张卡 / 那份资料 / 那条技能 ⇒ 抛（首败即停会把它写进结果）。
  */
 function readContext(a: {
   moduleId?: string
@@ -483,12 +491,35 @@ function readContext(a: {
   moduleIds?: string[]
   full?: boolean
   query?: string
+  docId?: string
+  skillId?: string
 }): string {
   const cards = cardChoices(store.doc.value.items, (m) => E.findModule(store.reg, m)?.title ?? m)
   // v1.7 按内容找东西：三类来源一起搜，与「读某一张」互斥，回喂一条
   if (a.query) return searchMine(a.query).join('\n') || `卡片、资料、技能里都没有写到「${a.query}」的`
+  // v1.8 单读资料 / 技能：与读卡互斥（纯层已拦），id 是资料 / 技能自己的 id
+  if (a.docId) {
+    const d = knowledge.docs.value.find((x) => x.id === a.docId)
+    if (!d) throw new Error(`版面上没有「${a.docId}」这份资料（可能刚被删了）`)
+    const text = docExcerpt(d, a.full ? ACTION_READ_FULL_MAX : ACTION_READ_MAX).trim()
+    return text || '这份资料里没有可读的文字内容'
+  }
+  if (a.skillId) {
+    const s = skills.skills.value.find((x) => x.id === a.skillId)
+    if (!s) throw new Error(`版面上没有「${a.skillId}」这条技能（可能刚被删了）`)
+    const text = skillExcerpt(s).trim()
+    if (!text) return '这条技能里没有可读的文字内容'
+    return text.length > ACTION_READ_FULL_MAX ? `${text.slice(0, ACTION_READ_FULL_MAX)}…（全文共 ${text.length} 字）` : text
+  }
   if (!a.moduleId && !a.instanceId && !a.moduleIds) {
-    return cards.length ? cards.map((c) => `${c.label}（id ${c.id}）`).join('、') : '版面上没有卡'
+    // v1.8 版面清单三类一起列：卡 / 资料 / 技能，各带 id（读资料用 docId、读技能用 skillId）
+    const lines: string[] = []
+    if (cards.length) lines.push(`卡：${cards.map((c) => `${c.label}（id ${c.id}）`).join('、')}`)
+    const docs = knowledge.docs.value
+    if (docs.length) lines.push(`资料：${docs.map((d) => `「${d.name}」（id ${d.id}）`).join('、')}`)
+    const sk = skills.skills.value
+    if (sk.length) lines.push(`技能：${sk.map((x) => `「${x.name}」（id ${x.id}）`).join('、')}`)
+    return lines.length ? lines.join('\n') : '版面上没有卡，也没有资料和技能'
   }
   const cap = a.full ? ACTION_READ_FULL_MAX : ACTION_READ_MAX
   const readOne = (c: CardChoice): string => {
@@ -518,6 +549,8 @@ function attachActions(i: number): void {
     moduleIds: store.reg.map((m) => m.id),
     today: localDay(new Date()),
     instances: store.doc.value.items.map((it) => ({ id: it.id, module: it.module ?? it.id })),
+    docIds: knowledge.docs.value.map((d) => d.id),
+    skillIds: skills.skills.value.map((x) => x.id),
   })
   if (!r.actions.length && !r.bad.length) return
   turns.value[i] = { ...t, content: r.clean, actions: r.actions, badActions: r.bad, actionsState: 'pending' }
@@ -579,7 +612,7 @@ function runActs(i: number): void {
   // v1.2（agent 循环）：把逐条结果回喂给模型，让它接着往下办。**只续这一轮** ——
   // 它再提议，还是要等下一次点头（循环由"确认"这件事自然限流）。
   void runTurn(
-    actionResultText(actionResultLines(t.actions, r, (a) => actionLabel(a, titleOf, instanceLabelOf))),
+    actionResultText(actionResultLines(t.actions, r, (a) => actionLabel(a, idLabel, instanceLabelOf))),
     t.usedChips ?? [],
     [],
   )
@@ -595,7 +628,7 @@ function skipActs(i: number): void {
 /** 这一轮的时间线行。`following` = 它已经照做、而回喂那轮还在流式（末尾补一行「执行中」） */
 function rowsOf(t: Turn, i: number): ReturnType<typeof timelineRows> {
   return timelineRows({
-    labels: (t.actions ?? []).map((a) => actionLabel(a, titleOf, instanceLabelOf)),
+    labels: (t.actions ?? []).map((a) => actionLabel(a, idLabel, instanceLabelOf)),
     state: t.actionsState,
     steps: t.actSteps,
     following: busy.value && t.actionsState === 'done' && i === turns.value.length - 1,

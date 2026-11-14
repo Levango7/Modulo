@@ -453,6 +453,60 @@ describe('AI 动作 v1.7：找我的东西（多关键词 + 三类来源）', ()
   })
 })
 
+describe('AI 动作 v1.8：read 扩到资料 / 技能（docId / skillId 单读）', () => {
+  const dCtx = (): ActionContext => ({
+    ...ctx(),
+    docIds: ['k1', 'k2'],
+    skillIds: ['s1'],
+    instances: [{ id: 'habit:2', module: 'habit' }],
+  })
+
+  it('docId / skillId 过各自白名单，未知 id 拒收说人话（先看清单拿 id）', () => {
+    expect(parseActions(act({ type: 'context.read', docId: 'k1' }), dCtx()).actions).toEqual([
+      { type: 'context.read', docId: 'k1' },
+    ])
+    expect(parseActions(act({ type: 'context.read', skillId: 's1' }), dCtx()).actions).toEqual([
+      { type: 'context.read', skillId: 's1' },
+    ])
+    expect(parseActions(act({ type: 'context.read', docId: 'k9' }), dCtx()).bad[0]).toContain('资料清单里没有')
+    expect(parseActions(act({ type: 'context.read', skillId: 's9' }), dCtx()).bad[0]).toContain('技能清单里没有')
+    // 旧 ctx 没有 docIds / skillIds（可选字段）⇒ 任何 docId / skillId 都判不在清单
+    expect(parseActions(act({ type: 'context.read', docId: 'k1' }), ctx()).bad[0]).toContain('资料清单里没有')
+  })
+
+  it('互斥：docId 与 skillId 互斥；与 moduleId / moduleIds / instanceId 互斥；与 query 互斥', () => {
+    const both = parseActions(act({ type: 'context.read', docId: 'k1', skillId: 's1' }), dCtx())
+    expect(both.bad[0]).toContain('只能给一个')
+    const withCard = parseActions(act({ type: 'context.read', docId: 'k1', moduleId: 'todo' }), dCtx())
+    expect(withCard.bad[0]).toContain('只能给一个')
+    const withInst = parseActions(act({ type: 'context.read', skillId: 's1', instanceId: 'habit:2' }), dCtx())
+    expect(withInst.bad[0]).toContain('只能给一个')
+    const withQuery = parseActions(act({ type: 'context.read', docId: 'k1', query: '体检' }), dCtx())
+    expect(withQuery.bad[0]).toContain('只能给一个')
+  })
+
+  it('full 配 docId 合法（读全份资料）；full 不配任何目标仍拒收', () => {
+    expect(parseActions(act({ type: 'context.read', docId: 'k1', full: true }), dCtx()).actions).toEqual([
+      { type: 'context.read', docId: 'k1', full: true },
+    ])
+    const lonely = parseActions(act({ type: 'context.read', full: true }), dCtx())
+    expect(lonely.bad[0]).toContain('full 要配')
+  })
+
+  it('人话：看一眼资料 / 技能（名字查不到落回 id）', () => {
+    expect(actionLabel({ type: 'context.read', docId: 'k1' }, () => '体检笔记')).toBe('看一眼资料「体检笔记」')
+    expect(actionLabel({ type: 'context.read', skillId: 's1' })).toBe('看一眼技能「s1」')
+    expect(actionLabel({ type: 'context.read', docId: 'k1' }, () => undefined)).toBe('看一眼资料「k1」')
+  })
+
+  it('actionPrompt：docId / skillId 两种格式在，roster 说清三类', () => {
+    const p = actionPrompt()
+    expect(p).toContain('"docId"')
+    expect(p).toContain('"skillId"')
+    expect(p).toContain('有哪些卡 / 资料 / 技能')
+  })
+})
+
 describe('AI 动作 v1.2：工具结果回喂（agent 循环）', () => {
   const acts: AiAction[] = [
     { type: 'todo.add', text: '买牛奶' },

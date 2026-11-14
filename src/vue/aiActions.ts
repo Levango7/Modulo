@@ -69,6 +69,10 @@ export type AiAction =
       full?: boolean
       /** v1.6：按内容找卡（关键词）—— 与 moduleId / moduleIds / instanceId / full 互斥 */
       query?: string
+      /** v1.8：读这一份资料（知识库）—— 与读卡 / 搜索互斥 */
+      docId?: string
+      /** v1.8：读这一条技能（提示词模板）—— 与读卡 / 搜索互斥 */
+      skillId?: string
     }
 
 /**
@@ -88,6 +92,10 @@ export interface ActionContext {
   today: string
   /** 版面上的卡实例清单（多实例定点校验用；可选 —— 旧 ctx 对象照常通过类型检查） */
   instances?: readonly ActionInstance[]
+  /** 已入库的资料 id（v1.8：docId 的校验白名单；可选 —— 旧 ctx 照常通过） */
+  docIds?: readonly string[]
+  /** 已存的技能 id（v1.8：skillId 的校验白名单；可选 —— 旧 ctx 照常通过） */
+  skillIds?: readonly string[]
   /** 覆盖上限（测试用；默认 `ACTION_MAX_PER_REPLY`） */
   max?: number
 }
@@ -258,11 +266,33 @@ function parseLine(raw: string, ctx: ActionContext): AiAction | { bad: string } 
       const unknown = moduleIds.find((id) => !ctx.moduleIds.includes(id))
       if (unknown) return { bad: `它想看一张「${clip(unknown, 24)}」卡的内容，但注册表里没有这张卡` }
     }
+    // v1.8 单读资料 / 技能：与「读卡」「搜索」都互斥（同「不接受猜」纪律）——
+    // 先是 docId 与 skillId 互斥，再是与卡片三字段互斥，最后过各自白名单
+    const docId = str(o.docId).trim()
+    const skillId = str(o.skillId).trim()
+    if (docId && skillId) {
+      return { bad: '它一会儿看一份资料、一会儿看一条技能（docId 与 skillId 只能给一个）' }
+    }
+    if ((docId || skillId) && (moduleId || instanceId || moduleIds || o.query !== undefined)) {
+      return { bad: '它一会儿看卡 / 找东西、一会儿看资料 / 技能（docId / skillId 与 moduleId / moduleIds / instanceId / query 只能给一个）' }
+    }
+    if (docId) {
+      if (!ctx.docIds?.includes(docId)) {
+        return { bad: `它想看一份「${clip(docId, 24)}」资料，但资料清单里没有这份（先 context.read 看一眼版面清单拿 id）` }
+      }
+      return { type: 'context.read', docId, ...(o.full === true ? { full: true as const } : {}) }
+    }
+    if (skillId) {
+      if (!ctx.skillIds?.includes(skillId)) {
+        return { bad: `它想看一条「${clip(skillId, 24)}」技能，但技能清单里没有这条（先 context.read 看一眼版面清单拿 id）` }
+      }
+      return { type: 'context.read', skillId, ...(o.full === true ? { full: true as const } : {}) }
+    }
     // v1.6 按内容找 / v1.7 起多词 + 三类来源：与「读某一张」互斥 —— 一个是搜索、一个是读这一张
     if (o.query !== undefined) {
       if (typeof o.query !== 'string') return { bad: '它想找东西，但 query 不是文字（要写成 "体检"）' }
       if (moduleId || instanceId || moduleIds) {
-        return { bad: '它一会儿说找东西、一会儿说读某一张（query 与 moduleId / moduleIds / instanceId 只能给一个）' }
+        return { bad: '它一会儿说找东西、一会儿说读某一张（query 与 moduleId / moduleIds / instanceId / docId / skillId 只能给一个）' }
       }
       if (o.full === true) return { bad: '它想读全卡，又想找东西（query 与 full 只能给一个）' }
       const q = o.query.trim()
@@ -280,7 +310,7 @@ function parseLine(raw: string, ctx: ActionContext): AiAction | { bad: string } 
     // v1.5 读全卡：只对「读卡内容」有意义 —— 配 roster（看清单）一律拒收
     const full = o.full === true
     if (full && !moduleId && !moduleIds && !instanceId) {
-      return { bad: '它想读全卡，但没说读哪张（full 要配 moduleId / moduleIds / instanceId；看清单用不上）' }
+      return { bad: '它想读全卡，但没说读哪张（full 要配 moduleId / moduleIds / instanceId / docId / skillId；看清单用不上）' }
     }
     if (!moduleId && !moduleIds) return instanceId ? { type: 'context.read', instanceId } : { type: 'context.read' }
     const tail = full ? { full: true as const } : {}
@@ -359,6 +389,8 @@ export function actionLabel(
       return `记住：${a.text}`
     case 'context.read': {
       if (a.query) return `找一找写有「${a.query}」的东西`
+      if (a.docId) return `看一眼资料「${titleOf?.(a.docId) || a.docId}」`
+      if (a.skillId) return `看一眼技能「${titleOf?.(a.skillId) || a.skillId}」`
       if (a.instanceId) return `${fixed}看一眼这张卡`
       if (a.moduleIds) {
         const names = a.moduleIds.map((id) => titleOf?.(id) || id)
@@ -541,10 +573,11 @@ export function actionPrompt(): string {
     `- \`${ACTION_PREFIX} {"type":"countdown.set","label":"纪念日","date":"2026-12-01"}\` —— 设一张倒数日（名字 + 日期）；`,
     `- \`${ACTION_PREFIX} {"type":"habit.check"}\` —— 给习惯卡打上今天的卡；`,
     `- \`${ACTION_PREFIX} {"type":"memory.add","text":"…"}\` —— 记住一件关于用户的事（跨对话有效，用户可在设置里删）；`,
-    `- \`${ACTION_PREFIX} {"type":"context.read"}\` —— 看一眼版面清单（有哪些卡、每张的实例 id）；\`${ACTION_PREFIX} {"type":"context.read","moduleId":"todo"}\` —— 看一眼某张卡里的内容（**只读**，不会改任何东西；看到的内容会随执行结果回给你）；`,
+    `- \`${ACTION_PREFIX} {"type":"context.read"}\` —— 看一眼版面清单（有哪些卡 / 资料 / 技能，各带 id）；\`${ACTION_PREFIX} {"type":"context.read","moduleId":"todo"}\` —— 看一眼某张卡里的内容（**只读**，不会改任何东西；看到的内容会随执行结果回给你）；`,
+    `- \`${ACTION_PREFIX} {"type":"context.read","docId":"k…"}\` —— 看一眼某份资料的内容（**只读**，资料 id 从版面清单抄）；\`${ACTION_PREFIX} {"type":"context.read","skillId":"s…"}\` —— 看一眼某条技能的全文（**只读**）；`,
     `- \`${ACTION_PREFIX} {"type":"context.read","moduleIds":["todo","habit"]}\` —— 一次看一组卡（最多 ${ACTION_READ_MULTI_MAX} 张，看到的内容一条消息带回）；`,
     `- \`${ACTION_PREFIX} {"type":"context.read","moduleId":"sticky","full":true}\` —— 读整张卡不截断（长内容用，最多 ${ACTION_READ_FULL_MAX} 字；不给 full 就只取开头 ${ACTION_READ_MAX} 字）；`,
-    `- \`${ACTION_PREFIX} {"type":"context.read","query":"体检"}\` —— 按内容找东西（在**卡片 / 资料 / 技能**里找写到过这些词的那些，最多 ${ACTION_SEARCH_MAX} 条，每条给关键词前后一小段；词与词之间是「都要出现」；与 moduleId / instanceId / full 互斥）。`,
+    `- \`${ACTION_PREFIX} {"type":"context.read","query":"体检"}\` —— 按内容找东西（在**卡片 / 资料 / 技能**里找写到过这些词的那些，最多 ${ACTION_SEARCH_MAX} 条，每条给关键词前后一小段；词与词之间是「都要出现」；与 moduleId / instanceId / full / docId / skillId 互斥）。`,
     `同一张卡开了多张实例时（比如两块「习惯」），在动作里加 \`"instanceId":"habit:2"\` 就能定点写那一张；不给就写第一张。实例 id 从 \`context.read\` 看一眼版面清单里抄。`,
     `一次最多 ${ACTION_MAX_PER_REPLY} 个。动作只是提议 —— 用户点「照做」才会生效，所以正文里照常把你要做的事说清楚；不需要动手就不要写动作行。`,
     `动作执行之后，系统会把结果以一条「${ACTION_RESULT_MARK}」开头的消息发回来 —— 收到它就接着干：还有要做的继续按格式提议（别重复已经做过的），都完成了就用一两句话收尾。`,
