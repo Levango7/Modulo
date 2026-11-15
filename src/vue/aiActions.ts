@@ -51,6 +51,8 @@ export const ACTION_QUERY_WORDS_MAX = 4
 export const ACTION_SEARCH_MAX = 5
 /** 匹配片段里关键词前后各留多少字（v1.6） */
 export const ACTION_SEARCH_RADIUS = 40
+/** 标题上限（码点；v1.9：按标题定点 —— 标题要一字不差，太长就别用标题） */
+export const ACTION_TITLE_MAX = 40
 
 export type AiAction =
   | { type: 'addCard'; moduleId: string; variant?: string }
@@ -100,8 +102,22 @@ export interface ActionContext {
   docIds?: readonly string[]
   /** 已存的技能 id（v1.8：skillId 的校验白名单；可选 —— 旧 ctx 照常通过） */
   skillIds?: readonly string[]
+  /** v1.9：版面上每张卡的标题清单（按标题定点用；标签规则与 context.read 回喂的一致） */
+  titles?: readonly ActionTitle[]
   /** 覆盖上限（测试用；默认 `ACTION_MAX_PER_REPLY`） */
   max?: number
+}
+
+/**
+ * v1.9：按标题定点用的清单条目。`title` 是卡在人话里的标签（单实例就是卡名，
+ * 多实例是带序号的「卡名（n）」）；`moduleId` 是卡类型 id；`instanceId` 只在非第一
+ * 实例才填（第一实例的 id 就等于 module id，折进行为见 `foldTitle`）。
+ */
+export interface ActionTitle {
+  title: string
+  moduleId: string
+  /** 非第一实例才填（标签是「卡名（n）」的那一张） */
+  instanceId?: string
 }
 
 export interface ParsedActions {
@@ -137,6 +153,57 @@ function actBody(line: string): string | null {
   return t.slice(ACTION_PREFIX.length).trim().replace(/[`\s]+$/, '')
 }
 
+/** v1.9：接受 title 的 7 个动作（都带卡目标；memory.add 没有卡目标，title 一律拒收） */
+const TITLE_TYPES: ReadonlySet<string> = new Set([
+  'addCard',
+  'todo.add',
+  'ledger.add',
+  'sticky.append',
+  'countdown.set',
+  'habit.check',
+  'context.read',
+])
+
+/**
+ * v1.9：把 `title` 对清单精确折进 `moduleId` / `instanceId` —— 折完后面的校验与执行
+ * 路径零改动。标题要一字不差（从 context.read 的清单里抄），0 个 / 多个 / 空 / 非文字 /
+ * 太长 / 与 id 类参数共存，都退回一条说人话的坏行。
+ */
+function foldTitle(
+  o: Record<string, unknown>,
+  ctx: ActionContext,
+  type: string,
+): { bad: string } | { ok: Record<string, unknown> } {
+  if (o.title === undefined) return { ok: o }
+  if (type === 'memory.add') {
+    return { bad: '它想记住一件事，但这个动作没有能填标题的目标（title 只在卡类动作上接受）' }
+  }
+  if (!TITLE_TYPES.has(type)) return { ok: o }
+  const title = o.title
+  if (typeof title !== 'string') return { bad: '它想按标题定点，但 title 不是文字（要写成 "title":"待办"）' }
+  const t = title.trim()
+  if (!t) return { bad: '它想按标题定点，但标题是空的（标题要一字不差，从 context.read 的清单里抄）' }
+  if (t.length > ACTION_TITLE_MAX) return { bad: `它想按标题定点，但标题太长（超过 ${ACTION_TITLE_MAX} 字）—— 用 id 定点更稳` }
+  if (
+    o.moduleId !== undefined ||
+    o.instanceId !== undefined ||
+    o.moduleIds !== undefined ||
+    (type === 'context.read' && (o.docId !== undefined || o.skillId !== undefined || o.query !== undefined))
+  ) {
+    return { bad: '它一会儿按标题、一会儿按 id 找（title 与 moduleId / instanceId / moduleIds 只能给一个）' }
+  }
+  if (!ctx.titles?.length) return { bad: '它想按标题定点，但这份上下文没有标题清单（先 context.read 看一眼版面清单）' }
+  const hits = ctx.titles.filter((x) => x.title === t)
+  if (!hits.length) return { bad: `没有叫「${clip(t, 24)}」的卡（标题要一字不差；先 context.read 看一眼版面清单拿标题）` }
+  if (hits.length > 1) return { bad: `「${clip(t, 24)}」对上了多张卡（用 id 定点更稳）` }
+  const hit = hits[0]
+  const out: Record<string, unknown> = { ...o }
+  delete out.title
+  if (hit.instanceId) out.instanceId = hit.instanceId
+  else out.moduleId = hit.moduleId
+  return { ok: out }
+}
+
 /**
  * 已解析好的对象 → 动作或一条"为什么不行"。
  *
@@ -149,6 +216,17 @@ function actBody(line: string): string | null {
  */
 export function actionFromObject(o: unknown, ctx: ActionContext, raw?: string): AiAction | { bad: string } {
   if (!isRec(o)) return { bad: `有一行动作没看懂（不是对象）${raw === undefined ? '' : `：${clip(raw, 60)}`}` }
+  // v1.9：title 先对清单精确折进 moduleId / instanceId，后面的校验与执行路径零改动
+  const folded = foldTitle(o, ctx, str(o.type))
+  if ('bad' in folded) return folded
+  return actionFromFolded(folded.ok, ctx)
+}
+
+/**
+ * 闸门的后半：title 已在 actionFromObject 折完，本段与 v1.8 逐字一致 ——
+ * 只按型校验 + 拒收人话，不碰任何执行路径。
+ */
+function actionFromFolded(o: Record<string, unknown>, ctx: ActionContext): AiAction | { bad: string } {
   const type = str(o.type)
   if (type === 'addCard') {
     const moduleId = str(o.moduleId).trim()
@@ -368,14 +446,14 @@ export function toolNameOf(type: AiAction['type']): string {
  * 只用于**描述工具**，不参与执行；界面上的"这一步在干什么"走 `TOOL_LABELS`。
  */
 const TOOL_DESC_OF: Record<AiAction['type'], string> = {
-  addCard: '把一张卡摆上版面；moduleId 必须是已装卡片的 id，variant 可选。',
-  'todo.add': '往待办里加一条；正文最多 200 字，多实例可用 instanceId 定点。',
-  'ledger.add': '记一笔账；金额用正整数分（12.34 元写成 1234），分类必填、日期写 YYYY-MM-DD，缺省今天。',
-  'sticky.append': '往便签里追加一段（不覆盖原有内容）；正文最多 200 字。',
-  'countdown.set': '设一张倒数日；名字最多 20 字，日期必须写成 YYYY-MM-DD。',
-  'habit.check': '给习惯卡打上今天的卡；多实例用 instanceId 定点，不给就写第一张。',
+  addCard: '把一张卡摆上版面；moduleId 必须是已装卡片的 id，variant 可选；也可以用 title 按标题定点。',
+  'todo.add': '往待办里加一条；正文最多 200 字；多实例可用 instanceId 定点，也可以用 title 按标题定点。',
+  'ledger.add': '记一笔账；金额用正整数分（12.34 元写成 1234），分类必填、日期写 YYYY-MM-DD，缺省今天；多实例可用 instanceId 定点，也可以用 title 按标题定点。',
+  'sticky.append': '往便签里追加一段（不覆盖原有内容）；正文最多 200 字；多实例可用 instanceId 定点，也可以用 title 按标题定点。',
+  'countdown.set': '设一张倒数日；名字最多 20 字，日期必须写成 YYYY-MM-DD；多实例可用 instanceId 定点，也可以用 title 按标题定点。',
+  'habit.check': '给习惯卡打上今天的卡；多实例用 instanceId 定点，不给就写第一张；也可以用 title 按标题定点。',
   'memory.add': '记住一件关于用户的事（跨对话有效，用户可在设置里删）；正文最多 200 字。',
-  'context.read': '只读地看一眼版面清单 / 某张卡 / 一份资料 / 一条技能（moduleId / instanceId / moduleIds / query / docId / skillId / full），不改任何东西。',
+  'context.read': '只读地看一眼版面清单 / 某张卡 / 一份资料 / 一条技能（moduleId / instanceId / moduleIds / query / docId / skillId / full），不改任何东西；也可以用 title 按标题定点到一张卡。',
 }
 
 /** 这次提供给模型的工具清单（OpenAI `tools[].function` 的本地形状） */
@@ -391,6 +469,7 @@ export interface ToolSpecLite {
  */
 export function toolSpecs(): ToolSpecLite[] {
   const id = { type: 'string', description: '卡实例 id（多实例时定点到某一实例；从 context.read 的清单里抄）' }
+  const title = { type: 'string', description: '按标题定点（标签从 context.read 的清单里抄，要一字不差；与 id 类参数只能给一个）' }
   const spec = (type: AiAction['type'], properties: Record<string, unknown>, required: string[] = []): ToolSpecLite => ({
     name: TOOL_NAME_OF[type],
     description: TOOL_DESC_OF[type],
@@ -400,6 +479,7 @@ export function toolSpecs(): ToolSpecLite[] {
     spec(
       'addCard',
       {
+        title,
         moduleId: { type: 'string', description: '要摆的卡 id（必须是已装卡片）' },
         variant: { type: 'string', description: '卡片变体（可选，卡侧不认识就自己兜底）' },
       },
@@ -410,6 +490,7 @@ export function toolSpecs(): ToolSpecLite[] {
       {
         text: { type: 'string', description: '待办正文' },
         instanceId: id,
+        title,
       },
       ['text'],
     ),
@@ -421,6 +502,7 @@ export function toolSpecs(): ToolSpecLite[] {
         note: { type: 'string', description: '备注（可选，最多 200 字）' },
         date: { type: 'string', description: '日期 YYYY-MM-DD（可选，缺省今天）' },
         instanceId: id,
+        title,
       },
       ['cents', 'category'],
     ),
@@ -429,6 +511,7 @@ export function toolSpecs(): ToolSpecLite[] {
       {
         text: { type: 'string', description: '要追加的那一段' },
         instanceId: id,
+        title,
       },
       ['text'],
     ),
@@ -438,11 +521,12 @@ export function toolSpecs(): ToolSpecLite[] {
         label: { type: 'string', description: '倒数日名字，最多 20 字' },
         date: { type: 'string', description: '目标日期 YYYY-MM-DD' },
         instanceId: id,
+        title,
       },
       ['label', 'date'],
     ),
     // 没有必填字段：打今天的卡不需要参数
-    spec('habit.check', { instanceId: id }),
+    spec('habit.check', { instanceId: id, title }),
     spec('memory.add', { text: { type: 'string', description: '要记住的那件事' } }, ['text']),
     spec('context.read', {
       moduleId: { type: 'string', description: '看这张卡（可选）' },
@@ -452,6 +536,7 @@ export function toolSpecs(): ToolSpecLite[] {
       docId: { type: 'string', description: '看这一份资料（可选，与读卡 / 搜索互斥；id 从 context.read 的清单抄）' },
       skillId: { type: 'string', description: '看这一条技能（可选，与读卡 / 搜索互斥；id 从 context.read 的清单抄）' },
       full: { type: 'boolean', description: '读全卡不截断（要配 moduleId / moduleIds / instanceId / docId / skillId）' },
+      title,
     }),
   ]
 }
@@ -772,6 +857,7 @@ export function actionPrompt(): string {
     `- \`${ACTION_PREFIX} {"type":"context.read","moduleId":"sticky","full":true}\` —— 读整张卡不截断（长内容用，最多 ${ACTION_READ_FULL_MAX} 字；不给 full 就只取开头 ${ACTION_READ_MAX} 字）；`,
     `- \`${ACTION_PREFIX} {"type":"context.read","query":"体检"}\` —— 按内容找东西（在**卡片 / 资料 / 技能**里找写到过这些词的那些，最多 ${ACTION_SEARCH_MAX} 条，每条给关键词前后一小段；词与词之间是「都要出现」；与 moduleId / instanceId / full / docId / skillId 互斥）。`,
     `同一张卡开了多张实例时（比如两块「习惯」），在动作里加 \`"instanceId":"habit:2"\` 就能定点写那一张；不给就写第一张。实例 id 从 \`context.read\` 看一眼版面清单里抄。`,
+    `不想数 id 也可以：在要定点的动作里加 \`"title":"习惯（2）"\`（单实例写卡名，比如 \`"title":"待办"\`；多实例写带序号的标签，从 \`context.read\` 的清单里一字不差地抄）；title 与 moduleId / instanceId / moduleIds 只能给一个。`,
     `一次最多 ${ACTION_MAX_PER_REPLY} 个。动作只是提议 —— 用户点「照做」才会生效，所以正文里照常把你要做的事说清楚；不需要动手就不要写动作行。`,
     `动作执行之后，系统会把结果以一条「${ACTION_RESULT_MARK}」开头的消息发回来 —— 收到它就接着干：还有要做的继续按格式提议（别重复已经做过的），都完成了就用一两句话收尾。`,
     `常用卡 id：${CURATED_IDS.join(' / ')}（其它卡也能摆，摆不上会说明）。`,
