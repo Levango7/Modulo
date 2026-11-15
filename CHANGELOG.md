@@ -11,6 +11,35 @@
 
 ## 未发布
 
+### MCP stdio 客户端：懒连接 + 进程表 + 未确认即拒（2026-11-15）
+
+§12.77 那一笔只做了 MCP 的**编解码**：盘上 `modulo.mcp.v1` 里配的服务，没有一行代码会去连。
+这一笔补上真正会起子进程的那层（`ai::mcp::client`）：
+
+- **懒连接、按服务长驻**：启动时不连任何 server；第一次真正要列工具 / 调工具时才 spawn 并
+  完成 `initialize` 握手，之后同一进程复用。进程死了下次调用重建一次，退出时 `kill` + `wait`，
+  不留后台进程。
+- **零新 crate**：`tokio` 只开了 `sync` / `time` / `macros`，没有 `process` / `io-util`。所以是
+  `std::process::Child` + 专用读线程按 `\n` 切行，整行经 `tokio::sync::mpsc` 递回异步侧；
+  分帧复用 F4b 的 `LineReader`，超时复用现有 `tokio::time::timeout`。
+- **未确认即拒，列工具也算**：确认记录按服务存在 Rust 状态里，**默认全空**；闸门在**起进程
+  之前**，`mcp_list_tools` 与 `mcp_call` **都要过**（列工具的第一步同样是 spawn 子进程），
+  没确认直接报「需要你点一次确认」，另给 `mcp_confirm` 记确认。不写「配置里有就能跑」。
+- **`mcpCallMs` 真参与判定**：一次往返由 `tokio::time::timeout(net_policy::mcp_call_timeout())`
+  包住，真读 `net-policy.json` 的 30s；原来「本键目前没有任何消费点」的 notes 同步销掉，
+  `net-policy-check.mjs` 补两条 `wired` 钉住这处判定。**超时即终止并重建**：`kill` 后 `wait`
+  收尸、phase 置 `Failed`，下次调用重起子进程；重建判据先看 phase 再看进程状态（`kill` 是
+  异步的，刚 kill 完 `try_wait` 可能仍为空），不让一次超时退化成「以后每次都等满 30 秒」。
+- **协议错误与工具失败分开**：JSON-RPC 的 `error` 上抛；`result.isError:true` 是正常响应，
+  原样交给界面。
+
+**这一笔不提供可用入口，也不许写成「MCP 工具可调用」**：三条命令
+（`mcp_list_tools` / `mcp_call` / `mcp_confirm`）的函数体已写好，但**没有注册进
+`generate_handler!`** —— 前端 J1（工具清单合并 / 执行分流 / 确认弹窗）还没接，按 F-11②
+「注册面 == 调用点面」先注册会让 `verify` 当场变红，也给 webview 留了一个能起外部进程的
+高权限开关。第二笔接前端时回注册一行并补调用点。`env` / 钥匙串、清单翻页、服务主动请求、
+并发多请求同样留到后面。
+
 ### AI 动手 v1.9：按标题定点 —— 卡的目标可以用标题代替 id（2026-11-15）
 
 「动手」的目标终于可以不写 id：用户嘴里没有 `m123`，只有「那张体检卡」。

@@ -373,6 +373,10 @@ pub fn run() {
         .manage(HideOnClose::default())
         .manage(Shortcuts::default())
         .manage(floatwin::initial_state())
+        // MCP 进程表（F4c-2 第一笔）：**只挂状态，不注册命令**（规格 §11.8 裁决 C）。
+        // 三条 `mcp_*` 命令已写好但尚未进 `generate_handler!`，第二笔接前端时补一行注册；
+        // 先把状态挂上，是为了让那一步只改注册面一处，不必再动 builder。
+        .manage(ai::mcp::client::McpState::default())
         .invoke_handler(tauri::generate_handler![
             set_hide_on_close,
             global_shortcuts,

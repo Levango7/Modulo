@@ -36,7 +36,7 @@
     "aiSummarizeMs": "AI 一次性摘要的整体超时（src-tauri/src/ai/openai_compat.rs 的 SUMMARIZE_TIMEOUT）。模型生成慢，给 120s；流式对话不设整体超时（长对话合法），只受 aiConnectMs 约束。",
     "aiProbeMs": "AI 就绪探测（GET /models）超时（PROBE_TIMEOUT）。要快失败：填错地址时不该让人等。",
     "aiConnectMs": "AI 客户端的连接超时（reqwest 的 connect_timeout）。",
-    "mcpCallMs": "单次工具调用（含未来的 MCP 子进程往返）的墙钟上限，30s。它挡的是「一个工具卡死不返回、把整轮对话钉住」，而不是模型生成慢 —— 所以远小于 aiSummarizeMs 的 120s。如实记：**本键目前没有任何消费点** —— F4c-1 执行的都是同步的本地动作（加待办 / 记账 / 读卡），没有可超时的等待；真正需要它的是 F4c-2 接 MCP stdio 之后的客户端往返（src-tauri/src/ai/mcp/_client 一侧）。net-policy-check.mjs 因此只断言了 mcpMaxRounds 的消费点，这一条的断言等 F4c-2 一起补。",
+    "mcpCallMs": "单次 MCP stdio 工具调用往返的墙钟上限，30s。它挡的是「一个工具卡死不返回、把整轮对话钉住」，而不是模型生成慢 —— 所以远小于 aiSummarizeMs 的 120s。**消费点（F4c-2 第一笔已接）**：Rust 侧 `src-tauri/src/ai/mcp/wire.rs` 的 `Session::recv_matching` 用 `tokio::time::timeout(net_policy::mcp_call_timeout(), rx.recv())` 包住一次子进程往返，`mcp_call_timeout()` 真读本键（`POLICY.timeouts.mcp_call_ms`）；`scripts/net-policy-check.mjs` 的第二条 `wired` 断言钉住这处真实判定，防「定义了常量不参与判定」。",
     "aiEgress": "AI 出站**不经过 webview 的 CSP**（F-12 一期，2026-10-29）：请求由 Rust 进程（reqwest）发出，而 connectOrigins 只生成 CSP 的 connect-src —— 它管的是页面里的 fetch。所以下面的清单里没有、也**不需要**有模型服务域名；用户填的地址由 src-tauri/src/ai/protocol.rs 的 validate_base_url 逐个过私网/保留地址黑名单（与 net::blocked_reason 同一张表，本机三写法除外）。看到「清单里没有 AI 域名」不等于漏配。",
     "urlLength": "URL 长度上限：packages/engine/src/watch.ts 的 MAX_URL 与 packages/engine/src/http.ts 的 MAX_HTTP_URL 同源，此前两处各写各的、靠注释维系。",
     "httpBodyBytes": "1 MiB：通用网页/JSON 取数的响应体上限（src-tauri/src/net.rs 的 MAX_BODY）。够任何正常接口塞下片段，又能挡住「指向一个无限流的大文件」把内存吃光。",

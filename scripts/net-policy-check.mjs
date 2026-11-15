@@ -98,14 +98,27 @@ for (const f of ['src/vue/useRemote.ts', 'src/vue/useWeather.ts', 'src/vue/useUp
 }
 
 // ── 3. Rust 侧 ─────────────────────────────────────────────────────────────
-// 工具轮次上限的消费点在前端（F4c-1 的 agent 循环）。**这条断言是防"定义了没人消费"** ——
+// 两个键都必须有**真实消费点**，下面这几条断言是防"定义了没人消费"（铁律 4）——
 // 单源里躺着一个谁也不读的数，下一个人照着它改，改完没人受影响，漂移就这么开始了。
-// `timeouts.mcpCallMs` 暂时没有消费点：它挡的是「一次工具调用卡死」，而 F4c-1 执行的都是
-// 同步的本地动作，真正需要它的异步往返在 F4c-2（MCP stdio）。届时在这里补第二行。
+// - limits.mcpMaxRounds 的消费点在前端（F4c-1 的 agent 循环，ChatDock.vue）;
+// - timeouts.mcpCallMs 的消费点：Rust 侧 net_policy.rs 的 mcp_call_timeout() 真读
+//   POLICY.timeouts.mcp_call_ms，wire.rs 的 Session::recv_matching 用 tokio::time::timeout
+//   包住一次 MCP 子进程往返（F4c-2 第一笔）。两条 wired 一起钉住「常量 → 被读 →
+//   真参与超时判定」这条完整链路，缺任何一环都不算 wired（不许只定义不参与就补断言）。
 wired(
   'ChatDock.vue 读单源的 MCP_MAX_ROUNDS',
   'src/vue/components/ChatDock.vue',
   'E.MCP_MAX_ROUNDS',
+)
+wired(
+  'wire.rs 用 tokio::time::timeout(mcp_call_timeout()) 包住 MCP 往返（mcpCallMs 真参与判定）',
+  'src-tauri/src/ai/mcp/wire.rs',
+  'tokio::time::timeout(net_policy::mcp_call_timeout(',
+)
+wired(
+  'net_policy.rs 的 mcp_call_timeout 真读单源 POLICY.timeouts.mcp_call_ms',
+  'src-tauri/src/net_policy.rs',
+  'POLICY.timeouts.mcp_call_ms',
 )
 wired('net_policy.rs 内嵌单源 JSON', 'src-tauri/src/net_policy.rs', 'include_str!("../../net-policy.json")')
 ok('net_policy.rs 在 lib.rs 里登记了模块', read('src-tauri/src/lib.rs').includes('mod net_policy;'))
