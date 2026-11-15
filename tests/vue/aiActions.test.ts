@@ -19,6 +19,7 @@ import {
   ACTION_NOTE_MAX,
   ACTION_RESULT_MARK,
   ACTION_TEXT_MAX,
+  ACTION_TITLE_MAX,
   isActionResult,
   parseActions,
   runActions,
@@ -828,5 +829,134 @@ describe('F4c-1：工具调用走与 @@act 同一道闸门', () => {
     ])
     // 与动作回喂同一套标记：界面据此渲染小条、回填时也认得出
     expect(isActionResult(t)).toBe(true)
+  })
+})
+
+describe('AI 动作 v1.9：按标题定点（title 折进 moduleId / instanceId）', () => {
+  const titleCtx = (over: Partial<ActionContext> = {}): ActionContext =>
+    ctx({
+      moduleIds: ['todo', 'sticky', 'ledger', 'clock', 'habit'],
+      instances: [
+        { id: 'todo', module: 'todo' },
+        { id: 'habit', module: 'habit' },
+        { id: 'habit:2', module: 'habit' },
+      ],
+      titles: [
+        { title: '待办', moduleId: 'todo' },
+        { title: '便签', moduleId: 'sticky' },
+        { title: '习惯（2）', moduleId: 'habit', instanceId: 'habit:2' },
+      ],
+      ...over,
+    })
+
+  it('单实例标题折进 moduleId：写类动作的输出与不写 title 逐字同形', () => {
+    expect(actionFromObject({ type: 'todo.add', text: '买牛奶', title: '待办' }, titleCtx())).toEqual({
+      type: 'todo.add',
+      text: '买牛奶',
+    })
+    expect(actionFromObject({ type: 'context.read', title: '待办' }, titleCtx())).toEqual({
+      type: 'context.read',
+      moduleId: 'todo',
+    })
+    expect(actionFromObject({ type: 'addCard', title: '便签' }, titleCtx())).toEqual({ type: 'addCard', moduleId: 'sticky' })
+  })
+
+  it('多实例标题折进 instanceId：habit.check 定点到第二实例', () => {
+    expect(actionFromObject({ type: 'habit.check', title: '习惯（2）' }, titleCtx())).toEqual({
+      type: 'habit.check',
+      instanceId: 'habit:2',
+    })
+    expect(actionFromObject({ type: 'context.read', title: '习惯（2）' }, titleCtx())).toEqual({
+      type: 'context.read',
+      instanceId: 'habit:2',
+    })
+  })
+
+  it('标题前后带空白也能折（trim 后精确匹配）', () => {
+    expect(actionFromObject({ type: 'todo.add', text: 'x', title: ' 待办 ' }, titleCtx())).toEqual({
+      type: 'todo.add',
+      text: 'x',
+    })
+  })
+
+  it('工具调用路与文字路共用同一道折叠闸门', () => {
+    expect(actionFromToolCall('habit_check', { title: '习惯（2）' }, titleCtx())).toEqual({
+      type: 'habit.check',
+      instanceId: 'habit:2',
+    })
+  })
+
+  it('坏行都要说人话：清单里没有的标题', () => {
+    const r = actionFromObject({ type: 'todo.add', text: 'x', title: '没有这张卡' }, titleCtx())
+    expect(r).toEqual({ bad: '没有叫「没有这张卡」的卡（标题要一字不差；先 context.read 看一眼版面清单拿标题）' })
+  })
+
+  it('坏行：同一标题对上多张卡（拒猜，要 id）', () => {
+    const c = titleCtx({
+      titles: [
+        { title: '待办', moduleId: 'todo' },
+        { title: '待办', moduleId: 'sticky' },
+      ],
+    })
+    const r = actionFromObject({ type: 'todo.add', text: 'x', title: '待办' }, c)
+    expect(r).toEqual({ bad: '「待办」对上了多张卡（用 id 定点更稳）' })
+  })
+
+  it('坏行：标题是空的 / 不是文字 / 太长', () => {
+    expect(actionFromObject({ type: 'todo.add', text: 'x', title: '  ' }, titleCtx())).toEqual({
+      bad: '它想按标题定点，但标题是空的（标题要一字不差，从 context.read 的清单里抄）',
+    })
+    expect(actionFromObject({ type: 'todo.add', text: 'x', title: 123 }, titleCtx())).toEqual({
+      bad: '它想按标题定点，但 title 不是文字（要写成 "title":"待办"）',
+    })
+    expect(actionFromObject({ type: 'todo.add', text: 'x', title: '待'.repeat(ACTION_TITLE_MAX + 1) }, titleCtx())).toEqual({
+      bad: `它想按标题定点，但标题太长（超过 ${ACTION_TITLE_MAX} 字）—— 用 id 定点更稳`,
+    })
+  })
+
+  it('坏行：title 与 id 类参数只能给一个（含 context.read 的 docId）', () => {
+    expect(actionFromObject({ type: 'todo.add', text: 'x', title: '待办', moduleId: 'todo' }, titleCtx())).toEqual({
+      bad: '它一会儿按标题、一会儿按 id 找（title 与 moduleId / instanceId / moduleIds 只能给一个）',
+    })
+    expect(actionFromObject({ type: 'context.read', title: '待办', docId: 'd1' }, titleCtx())).toEqual({
+      bad: '它一会儿按标题、一会儿按 id 找（title 与 moduleId / instanceId / moduleIds 只能给一个）',
+    })
+  })
+
+  it('坏行：memory.add 没有卡目标，title 一律拒收', () => {
+    expect(actionFromObject({ type: 'memory.add', text: 'x', title: '待办' }, titleCtx())).toEqual({
+      bad: '它想记住一件事，但这个动作没有能填标题的目标（title 只在卡类动作上接受）',
+    })
+  })
+
+  it('坏行：旧上下文没有标题清单（缺省逐字不变）', () => {
+    expect(actionFromObject({ type: 'todo.add', text: 'x', title: '待办' }, ctx())).toEqual({
+      bad: '它想按标题定点，但这份上下文没有标题清单（先 context.read 看一眼版面清单）',
+    })
+  })
+
+  it('未知动作类型带着 title 也照样走兜底拒收（折叠不改变这一层）', () => {
+    expect(actionFromObject({ type: 'nope', title: '待办' }, titleCtx())).toEqual({
+      bad: '它想做「nope」这件事 —— 这一版还不会',
+    })
+  })
+
+  it('toolSpecs：7 个卡目标型带 title 参数，memory.add 没有，required 全不变', () => {
+    const specs = toolSpecs()
+    expect(specs).toHaveLength(8)
+    const withTitle = specs.filter((s) => 'title' in (s.parameters.properties as Record<string, unknown>))
+    expect(withTitle.map((s) => s.name).sort()).toEqual(
+      ['add_card', 'context_read', 'countdown_set', 'habit_check', 'ledger_add', 'sticky_append', 'todo_add'].sort(),
+    )
+    expect(specs.find((s) => s.name === 'memory_add')?.parameters.properties).not.toHaveProperty('title')
+    expect(specs.find((s) => s.name === 'habit_check')?.parameters.required).toEqual([])
+    expect(specs.find((s) => s.name === 'todo_add')?.parameters.required).toEqual(['text'])
+  })
+
+  it('actionPrompt：教模型用 title（示例值与 E2E 夹具词错开）', () => {
+    const p = actionPrompt()
+    expect(p).toContain('"title":"习惯（2）"')
+    expect(p).toContain('一字不差')
+    for (const w of ['发版', '团建餐', '跑步']) expect(p).not.toContain(w)
   })
 })

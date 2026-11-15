@@ -1389,4 +1389,41 @@ describe.skipIf(skip)('聊天任脊柱（E1）', () => {
     expect(await page.evaluate(() => document.querySelectorAll('.cell').length)).toBe(2)
     expect(errs, `页面不该有报错：${errs.join(' | ')}`).toEqual([])
   }, 90_000)
+
+  it('AI 动手 v1.9（第二十四笔）：按标题定点 —— title 折进 moduleId（不改版面一行）', async () => {
+    const errs: string[] = []
+    const replies = [
+      '看一遍再按标题动手。\n@@act {"type":"context.read"}\n@@act {"type":"context.read","title":"待办"}\n@@act {"type":"todo.add","text":"按标题定点加一条","title":"待办"}',
+      '按标题做完了。',
+    ]
+    const page = await open({ replies }, errs)
+    await expand(page)
+    await ask(page, '看看版面，再按标题给待办加一条')
+    await page.waitForSelector('[data-ai-act-run]', { timeout: 15000 })
+    await click(page, '[data-ai-act-run]')
+    await page.waitForSelector('[data-chat-tool-note]', { timeout: 15000 })
+    await page.waitForFunction(
+      () => [...document.querySelectorAll('[data-role="assistant"]')].some((el) => el.textContent?.includes('按标题做完了')),
+      { timeout: 15000 },
+    )
+    const sent = (await calls(page)).filter((c) => c.cmd === 'ai_chat')
+    expect(sent, '读之后自动续了一轮 = 两次模型调用').toHaveLength(2)
+    const feed = (sent[1].args.messages as { role: string; content: string }[]).at(-1)?.content ?? ''
+    expect(feed).toContain('（工具结果）')
+    expect(feed).toContain('看一眼版面清单：')
+    expect(feed).toContain('看一眼「待办」卡：')
+    expect(feed).toContain('交周报')
+    expect(feed).toContain('加一条待办：按标题定点加一条：成功')
+    expect(await page.evaluate(() => document.querySelectorAll('.cell').length)).toBe(2)
+    // 真的写进去了：写入是 300ms 防抖合并窗口，等它落盘再读（同「买牛奶」用例的判法）
+    await page.waitForFunction(
+      () => (localStorage.getItem('modulo.__stubdoc.modulo.carddata.v1') ?? '').includes('按标题定点加一条'),
+      { timeout: 15000 },
+    )
+    const stored = (await page.evaluate(() =>
+      JSON.parse(localStorage.getItem('modulo.__stubdoc.modulo.carddata.v1') ?? '{}'),
+    )) as { todos?: { text: string }[] }
+    expect(stored.todos).toHaveLength(2)
+    expect(errs, `页面不该有报错：${errs.join(' | ')}`).toEqual([])
+  }, 90_000)
 })

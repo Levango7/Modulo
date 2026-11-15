@@ -704,6 +704,12 @@ function actionCtx(): ActionContext {
     instances: store.doc.value.items.map((it) => ({ id: it.id, module: it.module ?? it.id })),
     docIds: knowledge.docs.value.map((d) => d.id),
     skillIds: skills.skills.value.map((x) => x.id),
+    // v1.9：标题清单与 context.read 回喂同一份 cardChoices（标签串同源，模型抄标题不会抄错）
+    titles: cardChoices(store.doc.value.items, (m) => E.findModule(store.reg, m)?.title ?? m).map((c) => ({
+      title: c.label,
+      moduleId: c.module,
+      ...(c.id !== c.module ? { instanceId: c.id } : {}),
+    })),
   }
 }
 
