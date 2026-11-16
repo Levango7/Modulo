@@ -25,11 +25,21 @@
 - **未确认即拒，列工具也算**：确认记录按服务存在 Rust 状态里，**默认全空**；闸门在**起进程
   之前**，`mcp_list_tools` 与 `mcp_call` **都要过**（列工具的第一步同样是 spawn 子进程），
   没确认直接报「需要你点一次确认」，另给 `mcp_confirm` 记确认。不写「配置里有就能跑」。
-- **`mcpCallMs` 真参与判定**：一次往返由 `tokio::time::timeout(net_policy::mcp_call_timeout())`
-  包住，真读 `net-policy.json` 的 30s；原来「本键目前没有任何消费点」的 notes 同步销掉，
-  `net-policy-check.mjs` 补两条 `wired` 钉住这处判定。**超时即终止并重建**：`kill` 后 `wait`
-  收尸、phase 置 `Failed`，下次调用重起子进程；重建判据先看 phase 再看进程状态（`kill` 是
-  异步的，刚 kill 完 `try_wait` 可能仍为空），不让一次超时退化成「以后每次都等满 30 秒」。
+- **`mcpCallMs` 真参与判定**：一次往返由 `tokio::time::timeout(self.timeout, ...)` 包住；
+  超时值由 `spawn` 注入 `net_policy::mcp_call_timeout()`（真读 `net-policy.json` 的 30s），
+  测试走 `spawn_with_timeout` 注入短值。原来「本键目前没有任何消费点」的 notes 同步销掉，
+  `net-policy-check.mjs` 用三条 `wired` 分别钉注入点、判定点与 `net_policy.rs` 的读法。
+  **超时即终止并重建**：`kill` 后 `wait` 收尸、phase 置 `Failed`，下次调用重起子进程；
+  重建判据先看 phase 再看进程状态（`kill` 是异步的，刚 kill 完 `try_wait` 可能仍为空），
+  不让一次超时退化成「以后每次都等满 30 秒」。
+- **并发调用不会再各起一个进程**（补强）：第一版 `session_for` 是「取表 → 释放锁 → spawn →
+  再写回」，两个调用同时打同一个服务会各起一个、后写的覆盖前者 —— 对带单实例锁 / 全局状态
+  的 server 是语义错误。进程表改为 per-server 槽位（槽位内的 `AsyncMutex` 让「判活 → 重建 →
+  写回」串行），不同服务仍互不阻塞；锁顺序固定槽位锁 → 会话锁。
+- **超时与 IO 路径有真子进程用例**：新增 `tests/fixtures/fake-mcp-server.js`（node，五种模式）
+  与四条用例 —— 并发只起一个进程 / 服务退出报 EOF / 超时杀进程并判死 / 坏帧报不合法。
+  `Cargo.toml` 只在 `[dev-dependencies]` 给已有 tokio 加 `rt-multi-thread`（不加 crate、
+  不进打包产物）。**这四条本机没跑过**（`cargo check` 缺 `dlltool.exe`），执行结果待 CI。
 - **协议错误与工具失败分开**：JSON-RPC 的 `error` 上抛；`result.isError:true` 是正常响应，
   原样交给界面。
 
@@ -38,7 +48,7 @@
 `generate_handler!`** —— 前端 J1（工具清单合并 / 执行分流 / 确认弹窗）还没接，按 F-11②
 「注册面 == 调用点面」先注册会让 `verify` 当场变红，也给 webview 留了一个能起外部进程的
 高权限开关。第二笔接前端时回注册一行并补调用点。`env` / 钥匙串、清单翻页、服务主动请求、
-并发多请求同样留到后面。
+同一会话一次跑多条往返（并发）同样留到后面 —— 但同一服务的并发调用已经不会再各起一个进程。
 
 ### AI 动手 v1.9：按标题定点 —— 卡的目标可以用标题代替 id（2026-11-15）
 

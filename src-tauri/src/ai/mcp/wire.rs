@@ -10,6 +10,7 @@
 
 use std::io::{BufRead, BufReader, Write};
 use std::process::{Child, ChildStdin, Command, Stdio};
+use std::time::Duration;
 
 use serde_json::Value;
 use tokio::sync::mpsc::{unbounded_channel, UnboundedReceiver};
@@ -29,6 +30,9 @@ pub(super) struct Session {
     lines: LineReader,
     phase: Phase,
     next_id: i64,
+    /// 一次往返的墙钟上限。生产路径由 [`Self::spawn`] 从单源 `mcpCallMs` 取；测试用
+    /// [`Self::spawn_with_timeout`] 注入短值 —— 否则超时分支要真等 30 秒才测得到。
+    timeout: Duration,
 }
 
 impl Drop for Session {
@@ -43,7 +47,17 @@ impl Drop for Session {
 
 impl Session {
     /// 起进程 + 起读线程 + 把 `initialize` 写出去（同步）。等回话在 [`Self::ensure_ready`]。
+    /// 生产路径：超时取单源 `mcpCallMs`，`scripts/net-policy-check.mjs` 的 `wired` 断言钉着
+    /// 这一行的注入，另一条钉 [`Self::recv_matching`] 真用 `self.timeout` 计时。
     pub(super) fn spawn(cfg: &ServerCfg) -> Result<Session, String> {
+        Self::spawn_with_timeout(cfg, net_policy::mcp_call_timeout())
+    }
+
+    /// [`Self::spawn`] 的可注入版本：只给测试缩短超时用，其余逐字相同。
+    pub(super) fn spawn_with_timeout(
+        cfg: &ServerCfg,
+        timeout: Duration,
+    ) -> Result<Session, String> {
         let mut child = Command::new(&cfg.command)
             .args(&cfg.args)
             .stdin(Stdio::piped())
@@ -98,6 +112,7 @@ impl Session {
             lines: LineReader::new(),
             phase,
             next_id: 1,
+            timeout,
         };
         s.write_raw(&init)?;
         Ok(s)
@@ -135,25 +150,24 @@ impl Session {
     /// 通知一条接一条地来也照样在下一次等待上被 mcpCallMs 掐断，不会无限拖住。
     async fn recv_matching(&mut self, want: &Id) -> Result<Incoming, String> {
         loop {
-            let chunk =
-                match tokio::time::timeout(net_policy::mcp_call_timeout(), self.rx.recv()).await {
-                    Err(_) => {
-                        // 超时 = 这个会话已经废了。一次失败不能放大成「以后每次调用都要
-                        // 等满 30 秒」：kill 之后 wait 收尸（不留僵尸），再把 phase 置
-                        // Failed —— 重建判据靠 phase，不能靠 `try_wait` 的时序。
-                        let secs = net_policy::mcp_call_timeout().as_secs();
-                        let _ = self.child.kill();
-                        let _ = self.child.wait();
-                        self.phase =
-                            Phase::Failed(format!("上一次调用等了 {secs} 秒没回话，进程已终止"));
-                        return Err(format!(
-                            "MCP 服务 {secs} 秒没回话，已终止它；下次调用会重新拉起"
-                        ));
-                    }
-                    Ok(None) => return Err("MCP 服务关掉了 stdout（进程退出或崩了）".into()),
-                    Ok(Some(Err(e))) => return Err(e),
-                    Ok(Some(Ok(s))) => s,
-                };
+            let chunk = match tokio::time::timeout(self.timeout, self.rx.recv()).await {
+                Err(_) => {
+                    // 超时 = 这个会话已经废了。一次失败不能放大成「以后每次调用都要
+                    // 等满 30 秒」：kill 之后 wait 收尸（不留僵尸），再把 phase 置
+                    // Failed —— 重建判据靠 phase，不能靠 `try_wait` 的时序。
+                    let secs = self.timeout.as_secs().max(1);
+                    let _ = self.child.kill();
+                    let _ = self.child.wait();
+                    self.phase =
+                        Phase::Failed(format!("上一次调用等了 {secs} 秒没回话，进程已终止"));
+                    return Err(format!(
+                        "MCP 服务 {secs} 秒没回话，已终止它；下次调用会重新拉起"
+                    ));
+                }
+                Ok(None) => return Err("MCP 服务关掉了 stdout（进程退出或崩了）".into()),
+                Ok(Some(Err(e))) => return Err(e),
+                Ok(Some(Ok(s))) => s,
+            };
             // 空行是 server 把日志打到 stdout 的典型症状，这里如实报出来。
             let lines = self
                 .lines

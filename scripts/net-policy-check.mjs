@@ -102,18 +102,23 @@ for (const f of ['src/vue/useRemote.ts', 'src/vue/useWeather.ts', 'src/vue/useUp
 // 单源里躺着一个谁也不读的数，下一个人照着它改，改完没人受影响，漂移就这么开始了。
 // - limits.mcpMaxRounds 的消费点在前端（F4c-1 的 agent 循环，ChatDock.vue）;
 // - timeouts.mcpCallMs 的消费点：Rust 侧 net_policy.rs 的 mcp_call_timeout() 真读
-//   POLICY.timeouts.mcp_call_ms，wire.rs 的 Session::recv_matching 用 tokio::time::timeout
-//   包住一次 MCP 子进程往返（F4c-2 第一笔）。两条 wired 一起钉住「常量 → 被读 →
-//   真参与超时判定」这条完整链路，缺任何一环都不算 wired（不许只定义不参与就补断言）。
+//   POLICY.timeouts.mcp_call_ms；wire.rs 的 `spawn` 把它注入 `Session.timeout`，
+//   `recv_matching` 再用 `self.timeout` 包住一次往返（F4c-2 第一笔；超时改可注入后
+//   注入点与判定点分开，所以用两条断言分别钉住，缺任何一环都不算 wired）。
 wired(
   'ChatDock.vue 读单源的 MCP_MAX_ROUNDS',
   'src/vue/components/ChatDock.vue',
   'E.MCP_MAX_ROUNDS',
 )
 wired(
-  'wire.rs 用 tokio::time::timeout(mcp_call_timeout()) 包住 MCP 往返（mcpCallMs 真参与判定）',
+  'wire.rs 的 spawn 把单源 mcp_call_timeout() 注入 Session.timeout（mcpCallMs 真参与判定）',
   'src-tauri/src/ai/mcp/wire.rs',
-  'tokio::time::timeout(net_policy::mcp_call_timeout(',
+  'spawn_with_timeout(cfg, net_policy::mcp_call_timeout())',
+)
+wired(
+  'wire.rs 的 recv_matching 用注入的 self.timeout 计时（超时判定真用这个值）',
+  'src-tauri/src/ai/mcp/wire.rs',
+  'tokio::time::timeout(self.timeout, self.rx.recv())',
 )
 wired(
   'net_policy.rs 的 mcp_call_timeout 真读单源 POLICY.timeouts.mcp_call_ms',

@@ -59,6 +59,10 @@ strip = true
 # 不是另写一套自娱自乐 —— 判定口径逐行对应插件的 verify_signature()。
 minisign-verify = "0.2"
 base64 = "0.22"
+# `ai/mcp/client_tests.rs` 的用例要自己搭 runtime（主依赖只开了 sync / time / macros，
+# 没有 rt，`tokio::runtime::Builder` 用不了）。**只加在 dev-dependencies、只加 feature 不加
+# crate** —— 打包产物不含 dev-deps，二进制里也就没有 runtime（J3 的有限放宽，见 §12.86）。
+tokio = { version = "1.53.1", features = ["sync", "time", "macros", "rt-multi-thread"] }
 
 # 测试二进制不带完整调试信息。
 #
