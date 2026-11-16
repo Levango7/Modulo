@@ -251,6 +251,18 @@ pub async fn mcp_call(
     Ok(shape_call(r))
 }
 
+/// 记确认的纯状态部分：`HashSet::insert` 天然幂等，重复确认不堆积任何东西。
+/// 抽出来是为了让真子进程用例能直接测幂等性 —— `mcp_confirm` 本体要 `AppHandle`，
+/// 测试里没有（也不该为一个 HashSet 起整个 Tauri 应用）。
+fn confirm_in(state: &McpState, server_id: &str) -> Result<(), String> {
+    let mut set = state
+        .confirmed
+        .lock()
+        .map_err(|_| "确认记录锁坏了".to_string())?;
+    set.insert(server_id.to_string());
+    Ok(())
+}
+
 /// 记下「用户确认过这个服务」。第一次真正列工具 / 调工具之前必须先调它一次。
 /// 未知 id 如实报错 —— 不能「确认成功」但什么都没记。
 #[tauri::command]
@@ -259,12 +271,7 @@ pub fn mcp_confirm(app: AppHandle, server_id: String) -> Result<(), String> {
     let servers = load_servers(&app)?;
     pure::pick(&servers, &server_id)?;
     let state = app.state::<McpState>();
-    let mut set = state
-        .confirmed
-        .lock()
-        .map_err(|_| "确认记录锁坏了".to_string())?;
-    set.insert(server_id);
-    Ok(())
+    confirm_in(&state, &server_id)
 }
 
 /// 真子进程用例在单独文件里：本文件已贴着「≤300 行」的纪律，四条用例塞进来会越线。

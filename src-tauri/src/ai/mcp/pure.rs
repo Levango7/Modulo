@@ -180,3 +180,10 @@ mod tests {
         assert!(require_confirmed(true, "甲").is_ok());
     }
 }
+
+/// 安全 fuzz：11 条恶意输入用例，因为 182 行的 `pure.rs` 再加 160 行会越过「≤300」
+/// 纪律而拆出；`#[path]` 让它仍是 `pure::tests` 的同级测试模块，直接吃本文件的纯函数。
+/// 仓外对拍 crate 复制本文件时必须把这份一起复制，否则 `#[path]` 找不到文件。
+#[cfg(test)]
+#[path = "pure_fuzz_tests.rs"]
+mod fuzz_tests;
