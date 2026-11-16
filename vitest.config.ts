@@ -69,6 +69,9 @@ const GATED_VUE_MODULES = [
   // 分工理由，胶水（取数 + Blob 下载）留在组件，留给 E2E。
   'src/vue/meetingExport.ts',
   'src/vue/minutesLive.ts',
+  // MCP 工具消费（第二十七笔，2026-11-17）：工具清单合并 / 调用分流 / 结果回喂人话全是纯判定
+  // —— 真正 invoke `mcp_list_tools` / `mcp_call` / `mcp_confirm` 的胶水半（J1 执行半）留给接线笔。
+  'src/vue/mcpTools.ts',
   // 模块库搜索（F-09，2026-10-26）：判定层单独成文件就是为了能被断言 —— 本仓**没有组件测试
   // 设施**（无 @vue/test-utils / jsdom），判定留在组件里就只剩 E2E 一层兜底。
   'src/vue/moduleFilter.ts',

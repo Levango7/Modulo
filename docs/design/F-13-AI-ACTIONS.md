@@ -297,3 +297,30 @@ v1.8 把读侧补齐到三类来源，但「存东西」仍只有卡片（`addCa
 5. **不进撤销栈（如实记，与 F-13 首条硬边界有偏差）**：与 `memory.add` 同款 —— 它们走左栏清单的存储，**不是**内容历史。边界不变的部分：仍是提议 → 用户点「照做」；删除权仍在用户（左栏清单两步移除）；且 AI 与用户手点「导入资料 / 存技能」走**同一个** `useKnowledge.add` / `useSkills.add` —— AI 不是新能力，是同类操作。
 
 **人话**：「把这段存成一份资料」「存一条叫周报模板的技能」。
+
+## F4c 消费端契约与纯层（第二十七笔，2026-11-17）：MCP 工具进 agent 循环
+
+v1.10 把「写」补到资料 / 技能，agent 循环的工具面还差最后一格：**MCP 服务器的工具**。
+F4c 归属已裁（2026-11-16）：传输面（spawn / JSON-RPC / 进程表 / 三命令）在 Rust 侧
+`ai::mcp`（#309，§12.86），**动作语义面在本线** —— 模型怎么看见 MCP 工具、调用怎么分流、
+结果怎么回喂。本节是消费端的契约与纯层（合成夹具先行）；**注册与调用点（J1 执行半）不在
+这笔里** —— 裁决 C「注册面 == 调用点面」要求两者同笔落地，J1 执行半待其线认领或按条件接管。
+
+**契约（对齐 #309 已合的 Rust 面，逐字）**：
+
+| 命令 | 签名 | 语义 |
+|---|---|---|
+| `mcp_list_tools` | `(serverId) → { tools: [{ serverId, name, title?, description?, inputSchema }], notice? }` | 列某服务的工具；**未确认即拒**（列工具也要过闸门 —— 第一次列就会 spawn 子进程） |
+| `mcp_call` | `(serverId, tool, args?) → { text, isError, truncated, notice? }` | 调一次工具；`isError` 是工具自己报的执行失败，与协议错误分开 |
+| `mcp_confirm` | `(serverId) → ()` | 记确认；确认态在 Rust 内存、**无查询命令** ⇒ 前端自持 confirmed set（由 confirm 成功驱动，重启两端同清） |
+
+**消费语义（刻意保守的五点）**：
+1. **只有已确认服务的工具才进模型工具清单** —— 未确认的服务连列工具都过不了闸门，前端干脆不列（模型看不见就不会调，从根上不产生「调了再拒」的往返）；
+2. **合并不猜**：工具名必须过 `^[a-zA-Z0-9_-]{1,64}$`（OpenAI 约束）；与内置工具撞名、多个服务同名、`inputSchema` 不是对象、总数超 `MCP_TOOLS_MAX` = 20 —— 一律 skip 并说人话，宁可少列不硬塞；
+3. **分流三分**：`routeToolCall` = local（内置白名单封闭） / mcp（`serverId` 来自路由索引） / unknown（既有「未知名拒收」口径）；
+4. **回喂同族**：`mcpResultLine` 与 `actionResultLines` / `toolResultText` 同一「名：结果」形状 —— `isError` 写「失败」，`truncated` / `notice` 如实缀尾，正文按码点截 `MCP_RESULT_MAX` = 8000（回喂文本会进会话历史，与工具 args 截断同族口径）；
+5. **轮次上限不新增**：agent 循环的 `mcpMaxRounds` = 4 已是既有单源（`aiChat.ts` 的 `MCP_MAX_ROUNDS`），MCP 往返同受它限。
+
+**纯层落点**：`src/vue/mcpTools.ts`（`McpToolEntry` / `McpCallResult` 是 Rust `ToolOut` / `CallOut` 的 camelCase 镜像；`mergeToolLists` / `routeToolCall` / `mcpResultLine` 三件全零副作用）+ `tests/vue/mcpTools.test.ts`（合成夹具全分支覆盖，进 `GATED_VUE_MODULES` 锁 100%）。
+
+**没做的（如实记）**：① J1 执行半（命令注册进 `generate_handler!` + 前端调用点 + 确认 UI）不在这笔 —— 他线 #311 加固笔在途、其请勿动含 F-15 设计稿；若其线半天无动静，按用户 11-17 授权条件接管；② 确认 UI 的具体形态（设置页开关还是坞内弹窗）随 J1 执行半定；③ 工具清单翻页不做（`notice`「没拿全」如实透传）。
