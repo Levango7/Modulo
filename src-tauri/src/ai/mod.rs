@@ -10,10 +10,11 @@ pub mod keys;
 // 单独成文件是为了让「形状」有一处可指认的家：前端 `src/vue/aiChat.ts` 那份 TS
 // 类型与它逐字对应，改这里必须同时改那边。
 pub mod events;
-// MCP 协议编解码层（F4b，第十六笔）：纯函数，零 IO / 零时钟 / 零存储，也**没起子进程**。
-// 这一版只有「判定 + 解析 + 握手阶段机」，还没有 stdio 与命令面（F4c 才接）—— 所以
-// 整棵子树的公开面暂时没有调用点，死代码告警由 `src/lib.rs` 那行 `#[allow(dead_code)]`
-// 统一罩住（与 `ai` 下其余无调用点的命令面同一条处置，别在这里单独再写一遍）。
+// MCP：F4b 的编解码层（纯函数，零 IO / 零时钟 / 零存储）+ F4c-2 第一笔的 stdio
+// 客户端（`mcp::client`，会起子进程）。客户端的子树内部已有调用点，但三条命令
+// **还没注册进 `generate_handler!`**（规格 §11.8 裁决 C），公开面整体仍无外部调用点，
+// 死代码告警继续由 `src/lib.rs` 那行 `#[allow(dead_code)]` 统一罩住
+//（与 `ai` 下其余无调用点的命令面同一条处置，别在这里单独再写一遍）。
 pub mod mcp;
 pub mod openai_compat;
 pub mod protocol;

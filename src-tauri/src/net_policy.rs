@@ -58,6 +58,9 @@ pub struct Timeouts {
     pub ai_probe_ms: u64,
     /// AI 客户端连接超时
     pub ai_connect_ms: u64,
+    /// 单次 MCP stdio 工具调用往返的墙钟上限（F4c-2 第一笔接上真实消费点）。
+    /// 由 `mcp_call_timeout()` 读，`ai::mcp::wire` 用 `tokio::time::timeout` 包一次往返。
+    pub mcp_call_ms: u64,
 }
 
 #[derive(serde::Deserialize, Debug, Clone, Copy, PartialEq, Eq)]
@@ -113,6 +116,13 @@ pub fn ai_connect() -> Duration {
     Duration::from_millis(POLICY.timeouts.ai_connect_ms)
 }
 
+/// 单次 MCP stdio 工具调用往返的墙钟上限。真读单源 `timeouts.mcpCallMs`（30s）：
+/// `ai::mcp::wire` 的 `Session::recv_matching` 用 `tokio::time::timeout` 包住一次往返，
+/// 不是没人消费的常量。
+pub fn mcp_call_timeout() -> Duration {
+    Duration::from_millis(POLICY.timeouts.mcp_call_ms)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -127,6 +137,7 @@ mod tests {
         assert_eq!(p.timeouts.ai_summarize_ms, 120_000);
         assert_eq!(p.timeouts.ai_probe_ms, 3000);
         assert_eq!(p.timeouts.ai_connect_ms, 5000);
+        assert_eq!(p.timeouts.mcp_call_ms, 30_000);
         assert_eq!(p.limits.url_length, 300);
         assert_eq!(p.limits.http_body_bytes, 1024 * 1024);
         assert_eq!(p.limits.feed_body_bytes, 256 * 1024);
@@ -151,5 +162,6 @@ mod tests {
         assert_eq!(ai_probe_timeout(), Duration::from_secs(3));
         assert_eq!(ai_connect(), Duration::from_secs(5));
         assert_eq!(desktop_fetch_ms(), 10_000);
+        assert_eq!(mcp_call_timeout(), Duration::from_secs(30));
     }
 }

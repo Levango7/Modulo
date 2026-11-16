@@ -11,7 +11,9 @@
  * `https://push2.eastmoney.com`（`stock.ts` 的 `QUOTES_URL`），桌面壳里股票卡取数被实拦。
  *
  * 现在三侧同读 `net-policy.json`：引擎读本文件，Rust 读 `src-tauri/src/net_policy.rs`
- *（`include_str!` 同一份 JSON），CSP 的 `connect-src` 由同一份清单生成。
+ *（`include_str!` 同一份 JSON，`mcp_call_timeout()` 把 `timeouts.mcpCallMs` 递给
+ * `ai/mcp/wire.rs` 的 `tokio::time::timeout` 包住一次 MCP 子进程往返），
+ * CSP 的 `connect-src` 由同一份清单生成。
  * `scripts/net-policy-check.mjs` 断言三侧没有漂移。
  *
  * 改数字的**正确姿势**是改 `net-policy.json`，然后 `node scripts/gen-net-policy.mjs`。
