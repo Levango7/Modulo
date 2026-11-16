@@ -7,7 +7,7 @@
 //
 // 模式（argv 里的 `--mode=`）：
 //   counter=<file>  每收到一行 initialize 就往 <file> append 一行 init，然后正常回 result
-//   ok              正常回 initialize / tools/list（tools/list 给空清单）
+//   ok              正常回 initialize / tools/list（空清单）/ tools/call（固定的 text 结果）
 //   hang            读到行也不回，挂住等父进程杀
 //   eof             读到第一行（initialize）后立刻退出，制造 EOF
 //   garbage         对 initialize 回一行非 JSON 文本
@@ -58,5 +58,9 @@ rl.on('line', (line) => {
   }
   if (msg.method === 'tools/list') {
     reply(msg.id, { tools: [] })
+  }
+  // 固定结果：连续两次 tools/call 的稳定字段必须逐字相同（id 每次不同，不参与比较）。
+  if (msg.method === 'tools/call') {
+    reply(msg.id, { content: [{ type: 'text', text: 'ok' }], isError: false })
   }
 })

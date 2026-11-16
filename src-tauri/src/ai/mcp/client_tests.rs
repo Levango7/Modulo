@@ -15,8 +15,11 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 
-use super::{session_for, McpState};
-use crate::ai::mcp::pure::ServerCfg;
+use serde_json::json;
+
+use super::{confirm_in, is_confirmed, session_for, shape_call, McpState};
+use crate::ai::mcp::pure::{self, ServerCfg};
+use crate::ai::mcp::views::parse_call_tool_result;
 use crate::ai::mcp::wire::Session;
 
 const FIXTURE: &str = concat!(
@@ -120,5 +123,75 @@ fn 非_json_帧报数据不合法() {
             .await
             .expect_err("非 JSON 帧不可能握手成功");
         assert!(err.contains("不合法"), "错误里应当说明数据不合法：{err}");
+    })
+}
+
+/// 顺序复用：与上面的并发用例互补 —— 那条测「同一时刻抢同一槽位」，这条测「前后三次
+/// 调用拿到同一条会话、没有悄悄再起进程」。
+#[test]
+fn 顺序重复_session_for_只起一个子进程() {
+    block_on(async {
+        let counter = counter_path("seq");
+        let c = cfg(&format!("counter={}", counter.to_string_lossy()));
+        let state = McpState::default();
+        let a = session_for(&state, &c).await.expect("第一次取会话应当成功");
+        let b = session_for(&state, &c).await.expect("第二次取会话应当成功");
+        let d = session_for(&state, &c).await.expect("第三次取会话应当成功");
+        assert!(
+            Arc::ptr_eq(&a, &b) && Arc::ptr_eq(&b, &d),
+            "顺序三次调用应当拿到同一条会话"
+        );
+        let lines = std::fs::read_to_string(&counter).expect("假 server 应当写下 initialize 次数");
+        assert_eq!(
+            lines.lines().count(),
+            1,
+            "顺序复用时重复起了子进程（counter 文件多于一行）"
+        );
+        let _ = std::fs::remove_file(&counter);
+    })
+}
+
+/// 幂等来自 `HashSet::insert`：同一个 id 记三次和记一次的状态完全相同。这里测的是
+/// `mcp_confirm` 的状态部分（`confirm_in`，见 client.rs），不为一个 HashSet 起 Tauri 应用。
+#[test]
+fn mcp_confirm_重复调用幂等() {
+    let state = McpState::default();
+    assert!(!is_confirmed(&state, "s1"), "默认全部未确认");
+    for i in 1..=3 {
+        confirm_in(&state, "s1").unwrap_or_else(|e| panic!("第 {i} 次确认应当成功：{e}"));
+    }
+    assert!(is_confirmed(&state, "s1"), "三次确认之后必须是已确认");
+    assert!(
+        confirm_in(&state, "s1").is_ok(),
+        "第四次确认仍然 Ok —— HashSet insert 幂等"
+    );
+}
+
+/// 同参数连调两次，只比稳定字段（text / isError / truncated / notice）：JSON-RPC 的 id
+/// 每次都不同，拿它比就会把「两次真的各跑了一轮」误判成不一致。
+#[test]
+fn 同参数_mcp_call_连续两次结果一致() {
+    block_on(async {
+        let c = cfg("ok");
+        let state = McpState::default();
+        let slot = session_for(&state, &c).await.expect("取会话应当成功");
+        let mut s = slot.lock().await;
+        let params = pure::call_params("ping", Some(json!({ "x": 1 })));
+        let mut outs = Vec::new();
+        for i in 1..=2 {
+            let v = s
+                .request("tools/call", Some(params.clone()))
+                .await
+                .unwrap_or_else(|e| panic!("第 {i} 次 tools/call 应当成功：{e}"));
+            let r = parse_call_tool_result(&v)
+                .unwrap_or_else(|e| panic!("第 {i} 次结果形状应当合法：{e}"));
+            outs.push(shape_call(r));
+        }
+        assert_eq!(outs[0].text, "ok", "第一次的正文应当是假 server 的固定值");
+        assert_eq!(outs[1].text, "ok", "第二次的正文应当与第一次相同");
+        assert_eq!(outs[0].is_error, outs[1].is_error, "isError 两次应当一致");
+        assert!(!outs[0].is_error, "假 server 回的是正常结果，不是工具失败");
+        assert_eq!(outs[0].truncated, outs[1].truncated, "截断标记两次应当一致");
+        assert_eq!(outs[0].notice, outs[1].notice, "提示文案两次应当一致");
     })
 }
