@@ -351,6 +351,10 @@ const TOOL_LABELS: Record<string, string> = {
   'habit.check': '给习惯卡打卡',
   memory_add: '记住一件事',
   'memory.add': '记住一件事',
+  knowledge_add: '新建一份资料',
+  'knowledge.add': '新建一份资料',
+  skill_add: '存一条技能',
+  'skill.add': '存一条技能',
   context_read: '看一眼卡片',
   'context.read': '看一眼卡片',
 }
