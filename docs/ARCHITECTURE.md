@@ -5524,6 +5524,8 @@ crate 编（同一 target、同一 serde 版本），落盘时 7 个文件**逐�
 
 ### 12.86 MCP stdio 客户端：懒连接 + 进程表 + 未确认即拒（第二十五笔，2026-11-15）
 
+> **合流后的序数订正（2026-11-16 补记）**：本节标题、板行、PR #309 正文与 squash 提交正文都是「第二十五笔」，但 master 上那条 squash 提交的**标题**写成了「第二十四笔」。根因是 `gh pr merge --squash` 取 **PR 标题**作提交标题，而本笔在 #307（已占 §12.85「第二十四笔」）之后 rebase 让位时，只改了 commit message 与 PR 正文、**漏改 PR 标题**。master 不可 force push 改历史，故在此记账：**以本节标题与 `docs/AGENT-COORD.md` 板行为准**，提交标题里的「第二十四笔」是笔误，不动旧提交。同批订正：PR #309 正文首句「`Cargo.toml` / `Cargo.lock` 一行未动」写于补强之前，最终态是**只在 `[dev-dependencies]` 给已有 tokio 加 `rt-multi-thread`**，`[dependencies]` 与 `Cargo.lock` 仍零改动（见设计第 2 条）；正文里的行数与单测条数同样是中间态，最终以本节和 facts 行为准。
+
 **这一节解决的是哪个问题**：§12.77 把 MCP 的**编解码**做完了，但整棵 `ai::mcp` 没有一行会真正去连 server —— 盘上的 `modulo.mcp.v1` 没人读，`tools/list` 的响应没人接。这一笔补上 stdio 客户端，按职责拆三个文件：`ai::mcp::pure`（配置清洗 / 字段闸门 / 确认判定，纯函数）、`ai::mcp::wire`（一个子进程会话与一次 JSON-RPC 往返）、`ai::mcp::client`（进程表与三条命令）。同时把 `net-policy.json` 里那句「本键目前没有任何消费点」的 `timeouts.mcpCallMs` 接成真实判定。
 
 **设计（刻意保守）**：
