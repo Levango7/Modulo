@@ -28,7 +28,7 @@ import {
 } from '../mcp'
 
 const storage = inject<StorageAdapter>('storage')!
-const { servers, add, update, remove, toggle } = createMcp(storage)
+const { servers, gate, setGate, add, update, remove, toggle } = createMcp(storage)
 
 /** null = 表单收起；`{ id: null }` = 新增；`{ id: 's1' }` = 改那一条 */
 const form = ref<{ id: string | null; draft: McpDraft } | null>(null)
@@ -106,11 +106,32 @@ function toggleOne(id: string, enabled: boolean): void {
       这一版只把配置存下来。真正连上 server、让模型调用工具，要等桌面端的 MCP 通道接上（下一笔）。
     </p>
 
+    <!-- 功能总开关：本地灰度的唯一手段。关掉后配置仍留在盘上（列表不隐藏），
+         只是 Rust 侧三条命令一律拒，且**不会拉起任何已配置的服务**。 -->
+    <div class="row gate-row" data-mcp-gate-row>
+      <button
+        role="switch"
+        :aria-checked="gate"
+        :class="{ on: gate }"
+        data-mcp-gate
+        @click="setGate(!gate)"
+      >
+        MCP 功能：{{ gate ? '已开启' : '已关闭' }}
+      </button>
+      <span class="muted small">
+        关掉后已配置的服务不会被拉起；配置仍保留，随时可以再打开。
+      </span>
+    </div>
+
     <!-- 兜底：目前三条把 form 置 null 的路径（取消 / 保存成功 / 删除正在编辑的那条）
          都会顺手清 error，所以这段现在不可达。留着是为了将来新增的收起路径不用再想一遍 -->
     <p v-if="error && !form" class="err" role="alert" data-mcp-error>{{ error }}</p>
 
-    <ul v-if="servers.length" class="list">
+    <p v-if="!gate && servers.length" class="muted small" data-mcp-gate-off-note>
+      总开关已关闭：下面这些服务现在不会被执行。
+    </p>
+
+    <ul v-if="servers.length" class="list" :class="{ off: !gate }">
       <li v-for="s in servers" :key="s.id" :data-mcp="s.id">
         <div class="line">
           <span class="state" :data-mcp-state="s.enabled ? 'on' : 'off'">
@@ -225,6 +246,16 @@ button.danger {
   list-style: none;
   display: grid;
   gap: var(--space-2);
+}
+/* 总开关关掉时列表仍在（用户要能看见自己配过什么），只是置灰提示「现在不会跑」 */
+.list.off {
+  opacity: 0.55;
+}
+.gate-row {
+  align-items: center;
+}
+button[role='switch'].on {
+  border-color: var(--c-green);
 }
 .list li {
   padding: var(--space-2) var(--space-3);

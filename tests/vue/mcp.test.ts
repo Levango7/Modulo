@@ -17,6 +17,7 @@ import {
   MCP_DOC_KEY,
   MCP_MAX,
   nextId,
+  parseGate,
   parseServers,
   removeServer,
   serializeServers,
@@ -307,6 +308,42 @@ describe('parseServers：盘上的数据不可信', () => {
   it('serialize → parse 往返一致（含带空格的参数）', () => {
     const list = [server({ args: ['--root', 'C:\\My Docs'] }), server({ id: 's2', enabled: false })]
     expect(parseServers(serializeServers(list))).toEqual(list)
+  })
+})
+
+describe('parseGate：总开关的推导（与 Rust `parse_doc` 同一张表）', () => {
+  it('gate 缺失 + 有启用条目 ⇒ true（存量兼容，升级不能突然断）', () => {
+    const raw = JSON.stringify({ version: 1, servers: [server({ enabled: true })] })
+    expect(parseGate(raw)).toBe(true)
+  })
+
+  it('gate 缺失 + 全部停用 / 空 servers ⇒ false（新装默认关）', () => {
+    expect(parseGate(JSON.stringify({ version: 1, servers: [server({ enabled: false })] }))).toBe(false)
+    expect(parseGate(JSON.stringify({ version: 1, servers: [] }))).toBe(false)
+    expect(parseGate(null)).toBe(false)
+  })
+
+  it('gate: false + 有启用条目 ⇒ false（显式关优先于推导）', () => {
+    const raw = JSON.stringify({ version: 1, gate: false, servers: [server({ enabled: true })] })
+    expect(parseGate(raw)).toBe(false)
+  })
+
+  it('gate 非 bool（"true" / 1）⇒ 按缺失处理，走推导', () => {
+    const quoted = JSON.stringify({ version: 1, gate: 'true', servers: [server({ enabled: true })] })
+    const numeric = JSON.stringify({ version: 1, gate: 1, servers: [server({ enabled: true })] })
+    expect(parseGate(quoted)).toBe(true)
+    expect(parseGate(numeric)).toBe(true)
+  })
+
+  it('serializeServers 往返：写出的 JSON 含 gate，parseGate 读回同值', () => {
+    const list = [server({ enabled: true })]
+    for (const gate of [true, false]) {
+      const raw = serializeServers(list, gate)
+      expect(JSON.parse(raw).gate).toBe(gate)
+      expect(parseGate(raw)).toBe(gate)
+    }
+    // 向后兼容：老调用点不传 gate 时按「有启用条目 ⇒ true」推导
+    expect(parseGate(serializeServers(list))).toBe(true)
   })
 })
 

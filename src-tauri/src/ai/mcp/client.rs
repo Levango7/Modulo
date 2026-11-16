@@ -16,6 +16,9 @@
 //! 并发：同一服务的并发调用走 per-server 槽位串行（`Slot`），不会各起一个子进程；
 //! 一个会话仍是一次只跑一条往返。
 //!
+//! 功能总开关（§12.90）：三条命令都在 `pick` 之前先过 `pure::require_mcp_enabled` ——
+//! 关着时连「盘上配了哪些 server」都不泄露。它与下面 `gate()` 的 J4 **确认**闸门是两回事。
+//!
 //! 本笔不做：`env` / 钥匙串、清单翻页、服务主动请求、并发多请求、确认记录落盘。
 
 use std::collections::{HashMap, HashSet};
@@ -118,10 +121,11 @@ async fn session_for(
     Ok(arc)
 }
 
-fn load_servers(app: &AppHandle) -> Result<Vec<pure::ServerCfg>, String> {
-    // 文档不存在 = 没有服务（不是错误），与 `load_settings` 同一口径。
+/// 读盘上的整份文档：**总开关与服务清单在同一个键里**（`modulo.mcp.v1`），不新开
+/// `DATA_KEYS`。文档不存在 = 没有服务（不是错误），与 `load_settings` 同一口径。
+fn load_doc(app: &AppHandle) -> Result<pure::McpDoc, String> {
     let raw = crate::storage::read_doc_raw(app, MCP_DOC_KEY)?;
-    Ok(pure::parse_servers(raw.as_deref().unwrap_or("")))
+    Ok(pure::parse_doc(raw.as_deref().unwrap_or("")))
 }
 
 #[derive(Serialize)]
@@ -190,8 +194,11 @@ fn shape_call(r: CallToolResult) -> CallOut {
 #[tauri::command]
 #[allow(dead_code)]
 pub async fn mcp_list_tools(app: AppHandle, server_id: String) -> Result<ToolsOut, String> {
-    let servers = load_servers(&app)?;
-    let cfg = pure::pick(&servers, &server_id)?;
+    // 顺序固定：读盘 → 总开关 → pick → 确认闸门 → session_for。总开关关着时连
+    // 「盘上配了哪些 server」都不该泄露，所以它必须在 `pick` 之前。
+    let doc = load_doc(&app)?;
+    pure::require_mcp_enabled(doc.gate)?;
+    let cfg = pure::pick(&doc.servers, &server_id)?;
     let state = app.state::<McpState>();
     gate(&state, &server_id, &cfg.name)?;
     let slot = session_for(&state, cfg).await?;
@@ -226,8 +233,9 @@ pub async fn mcp_call(
     tool: String,
     args: Option<Value>,
 ) -> Result<CallOut, String> {
-    let servers = load_servers(&app)?;
-    let cfg = pure::pick(&servers, &server_id)?;
+    let doc = load_doc(&app)?;
+    pure::require_mcp_enabled(doc.gate)?;
+    let cfg = pure::pick(&doc.servers, &server_id)?;
     if name_too_long(&tool) {
         return Err("工具名太长，不像是这个服务会有的工具".to_string());
     }
@@ -268,8 +276,11 @@ fn confirm_in(state: &McpState, server_id: &str) -> Result<(), String> {
 #[tauri::command]
 #[allow(dead_code)]
 pub fn mcp_confirm(app: AppHandle, server_id: String) -> Result<(), String> {
-    let servers = load_servers(&app)?;
-    pure::pick(&servers, &server_id)?;
+    // 总开关关着时也不许「确认成功」—— 确认记录本身不是副作用，但放行会让人以为
+    // 功能已可用，下一次调用才被拒。拒绝口径与另两条命令保持一致。
+    let doc = load_doc(&app)?;
+    pure::require_mcp_enabled(doc.gate)?;
+    pure::pick(&doc.servers, &server_id)?;
     let state = app.state::<McpState>();
     confirm_in(&state, &server_id)
 }
