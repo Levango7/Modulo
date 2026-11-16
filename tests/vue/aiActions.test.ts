@@ -15,6 +15,9 @@ import {
   actionResultText,
   actStepStatuses,
   ACTION_CENTS_MAX,
+  ACTION_DOC_NAME_MAX,
+  ACTION_DOC_TEXT_MAX,
+  ACTION_SKILL_TEXT_MAX,
   ACTION_MAX_PER_REPLY,
   ACTION_NOTE_MAX,
   ACTION_RESULT_MARK,
@@ -785,7 +788,7 @@ describe('F4c-1：工具调用走与 @@act 同一道闸门', () => {
 
   it('toolSpecs：8 条、名字合法且不重复、描述非空、required 的键都在 properties 里', () => {
     const specs = toolSpecs()
-    expect(specs).toHaveLength(8)
+    expect(specs).toHaveLength(10)
     const names = specs.map((s) => s.name)
     for (const n of names) expect(n).toMatch(/^[a-zA-Z0-9_-]{1,64}$/)
     expect(new Set(names).size).toBe(names.length)
@@ -798,6 +801,8 @@ describe('F4c-1：工具调用走与 @@act 同一道闸门', () => {
         'countdown_set',
         'habit_check',
         'memory_add',
+        'knowledge_add',
+        'skill_add',
         'context_read',
       ]),
     )
@@ -941,14 +946,18 @@ describe('AI 动作 v1.9：按标题定点（title 折进 moduleId / instanceId�
     })
   })
 
-  it('toolSpecs：7 个卡目标型带 title 参数，memory.add 没有，required 全不变', () => {
+  it('toolSpecs：7 个卡目标型带 title 参数，memory.add / knowledge.add / skill.add 没有，required 全不变', () => {
     const specs = toolSpecs()
-    expect(specs).toHaveLength(8)
+    expect(specs).toHaveLength(10)
     const withTitle = specs.filter((s) => 'title' in (s.parameters.properties as Record<string, unknown>))
     expect(withTitle.map((s) => s.name).sort()).toEqual(
       ['add_card', 'context_read', 'countdown_set', 'habit_check', 'ledger_add', 'sticky_append', 'todo_add'].sort(),
     )
     expect(specs.find((s) => s.name === 'memory_add')?.parameters.properties).not.toHaveProperty('title')
+    expect(specs.find((s) => s.name === 'knowledge_add')?.parameters.properties).not.toHaveProperty('title')
+    expect(specs.find((s) => s.name === 'skill_add')?.parameters.properties).not.toHaveProperty('title')
+    expect(specs.find((s) => s.name === 'knowledge_add')?.parameters.required).toEqual(['name', 'text'])
+    expect(specs.find((s) => s.name === 'skill_add')?.parameters.required).toEqual(['name', 'text'])
     expect(specs.find((s) => s.name === 'habit_check')?.parameters.required).toEqual([])
     expect(specs.find((s) => s.name === 'todo_add')?.parameters.required).toEqual(['text'])
   })
@@ -958,5 +967,126 @@ describe('AI 动作 v1.9：按标题定点（title 折进 moduleId / instanceId�
     expect(p).toContain('"title":"习惯（2）"')
     expect(p).toContain('一字不差')
     for (const w of ['发版', '团建餐', '跑步']) expect(p).not.toContain(w)
+  })
+})
+
+describe('AI 动手 v1.10：资料 / 技能新建 —— 只增不改，名字与正文都有帽', () => {
+  it('knowledge.add：合法提议过闸门（两端空白去掉）', () => {
+    expect(actionFromObject({ type: 'knowledge.add', name: ' 体检说明 ', text: ' 挂号前空腹。 ' }, ctx())).toEqual({
+      type: 'knowledge.add',
+      name: '体检说明',
+      text: '挂号前空腹。',
+    })
+  })
+
+  it('skill.add：合法提议过闸门', () => {
+    expect(actionFromObject({ type: 'skill.add', name: '复盘模板', text: '本周做了什么；哪一步卡住。' }, ctx())).toEqual({
+      type: 'skill.add',
+      name: '复盘模板',
+      text: '本周做了什么；哪一步卡住。',
+    })
+  })
+
+  it('坏行都要说人话：空名 / 空文（两种动作各两句）', () => {
+    expect(actionFromObject({ type: 'knowledge.add', text: 'x' }, ctx())).toEqual({
+      bad: '它想新建一份资料，但没写名字（name）',
+    })
+    expect(actionFromObject({ type: 'knowledge.add', name: '  ', text: 'x' }, ctx())).toEqual({
+      bad: '它想新建一份资料，但没写名字（name）',
+    })
+    expect(actionFromObject({ type: 'knowledge.add', name: 'x' }, ctx())).toEqual({
+      bad: '它想新建一份资料，但没写内容（text）',
+    })
+    expect(actionFromObject({ type: 'knowledge.add', name: 'x', text: '   ' }, ctx())).toEqual({
+      bad: '它想新建一份资料，但没写内容（text）',
+    })
+    expect(actionFromObject({ type: 'skill.add', text: 'x' }, ctx())).toEqual({
+      bad: '它想存一条技能，但没写名字（name）',
+    })
+    expect(actionFromObject({ type: 'skill.add', name: 'x' }, ctx())).toEqual({
+      bad: '它想存一条技能，但没写正文（text）',
+    })
+  })
+
+  it('名字帽 40：40 字过、41 字拒（资料 / 技能同一顶帽子）', () => {
+    const forty = '名'.repeat(ACTION_DOC_NAME_MAX)
+    expect('bad' in actionFromObject({ type: 'knowledge.add', name: forty, text: 'x' }, ctx())).toBe(false)
+    expect('bad' in actionFromObject({ type: 'skill.add', name: forty, text: 'x' }, ctx())).toBe(false)
+    expect(actionFromObject({ type: 'knowledge.add', name: forty + '名', text: 'x' }, ctx())).toEqual({
+      bad: `资料名字太长（超过 ${ACTION_DOC_NAME_MAX} 字）—— 这一条没有执行`,
+    })
+    expect(actionFromObject({ type: 'skill.add', name: forty + '名', text: 'x' }, ctx())).toEqual({
+      bad: `技能名字太长（超过 ${ACTION_DOC_NAME_MAX} 字）—— 这一条没有执行`,
+    })
+  })
+
+  it('正文帽同源：资料 2000（过 / 拒各一）、技能 1200（过 / 拒各一）—— 拒收不截断', () => {
+    const docMax = 'x'.repeat(ACTION_DOC_TEXT_MAX)
+    expect(actionFromObject({ type: 'knowledge.add', name: 'n', text: docMax }, ctx())).toEqual({
+      type: 'knowledge.add',
+      name: 'n',
+      text: docMax,
+    })
+    expect(actionFromObject({ type: 'knowledge.add', name: 'n', text: docMax + 'x' }, ctx())).toEqual({
+      bad: `资料内容太长（超过 ${ACTION_DOC_TEXT_MAX} 字）—— 这一条没有执行（先精简再提议）`,
+    })
+    const skillMax = 'x'.repeat(ACTION_SKILL_TEXT_MAX)
+    expect(actionFromObject({ type: 'skill.add', name: 'n', text: skillMax }, ctx())).toEqual({
+      type: 'skill.add',
+      name: 'n',
+      text: skillMax,
+    })
+    expect(actionFromObject({ type: 'skill.add', name: 'n', text: skillMax + 'x' }, ctx())).toEqual({
+      bad: `技能正文太长（超过 ${ACTION_SKILL_TEXT_MAX} 字）—— 这一条没有执行（先精简再提议）`,
+    })
+  })
+
+  it('title 用不上：新建不是卡目标动作，给了 title 整行拒收', () => {
+    // 拒收发生在查标题清单之前 ⇒ 任何 ctx 都走同一句人话（连有清单的也拒）
+    expect(actionFromObject({ type: 'knowledge.add', name: 'n', text: 'x', title: '待办' }, ctx())).toEqual({
+      bad: '它想新建资料 / 技能，但这个动作没有能填标题的目标（title 只在卡类动作上接受）',
+    })
+    expect(actionFromObject({ type: 'skill.add', name: 'n', text: 'x', title: '待办' }, ctx())).toEqual({
+      bad: '它想新建资料 / 技能，但这个动作没有能填标题的目标（title 只在卡类动作上接受）',
+    })
+  })
+
+  it('工具路与文字路同一道闸门：坏行文案逐字一致', () => {
+    const viaTool = actionFromToolCall('knowledge_add', { name: '', text: 'x' }, ctx())
+    const viaText = parseActions(act({ type: 'knowledge.add', name: '', text: 'x' }), ctx())
+    expect(viaText.actions).toEqual([])
+    expect(viaTool).toEqual({ bad: viaText.bad[0] })
+    const viaTool2 = actionFromToolCall('skill_add', { name: 'n', text: '' }, ctx())
+    const viaText2 = parseActions(act({ type: 'skill.add', name: 'n', text: '' }), ctx())
+    expect(viaTool2).toEqual({ bad: viaText2.bad[0] })
+    // 工具调用的名字反查表也认这两个新工具
+    expect(toolNameOf('knowledge.add')).toBe('knowledge_add')
+    expect(toolNameOf('skill.add')).toBe('skill_add')
+  })
+
+  it('动作行剥掉：历史里只留人话正文', () => {
+    const text = [
+      '存好了。',
+      act({ type: 'knowledge.add', name: '读书清单', text: '待读：设计的觉醒。' }),
+      act({ type: 'skill.add', name: '三步总结', text: '先结论；再两行理由。' }),
+    ].join('\n')
+    const r = parseActions(text, ctx())
+    expect(r.clean).toBe('存好了。')
+    expect(r.actions).toHaveLength(2)
+    expect(r.bad).toEqual([])
+    expect(stripActionLines(text)).toBe('存好了。')
+  })
+
+  it('actionLabel 人话：新建资料 / 存技能', () => {
+    expect(actionLabel({ type: 'knowledge.add', name: '读书清单', text: 'x' })).toBe('新建一份资料「读书清单」')
+    expect(actionLabel({ type: 'skill.add', name: '三步总结', text: 'x' })).toBe('存一条技能「三步总结」')
+  })
+
+  it('actionPrompt：教模型新建资料 / 技能，且只增不改说在明处（示例值与 E2E 夹具词错开）', () => {
+    const p = actionPrompt()
+    expect(p).toContain('"type":"knowledge.add"')
+    expect(p).toContain('"type":"skill.add"')
+    expect(p).toContain('只增不改')
+    for (const w of ['发版', '团建餐', '跑步', '读书清单', '复查模板']) expect(p).not.toContain(w)
   })
 })

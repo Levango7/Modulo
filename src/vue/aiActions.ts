@@ -53,6 +53,12 @@ export const ACTION_SEARCH_MAX = 5
 export const ACTION_SEARCH_RADIUS = 40
 /** 标题上限（码点；v1.9：按标题定点 —— 标题要一字不差，太长就别用标题） */
 export const ACTION_TITLE_MAX = 40
+/** 资料 / 技能的名字上限（v1.10；与 `SKILL_NAME_MAX` 同值 —— 名字要进引用块标题，挤占正文预算） */
+export const ACTION_DOC_NAME_MAX = 40
+/** AI 新建资料的正文上限（v1.10；与读全文 `ACTION_READ_FULL_MAX` 同值 —— 写得进去的，读一次要能带回来） */
+export const ACTION_DOC_TEXT_MAX = 2000
+/** AI 新建技能的正文上限（v1.10；与入库闸门 `SKILL_TEXT_MAX` 同值 —— 超了这个数入库必拒） */
+export const ACTION_SKILL_TEXT_MAX = 1200
 
 export type AiAction =
   | { type: 'addCard'; moduleId: string; variant?: string }
@@ -62,6 +68,10 @@ export type AiAction =
   | { type: 'countdown.set'; label: string; date: string; instanceId?: string }
   | { type: 'habit.check'; instanceId?: string }
   | { type: 'memory.add'; text: string }
+  // v1.10（第二十六笔）：资料 / 技能的新建 —— **只增不改**（既有入口也只有 addDocs / addSkills，
+  // 没有覆盖与删除动作；id 由入库闸门生成，动作里不填）
+  | { type: 'knowledge.add'; name: string; text: string }
+  | { type: 'skill.add'; name: string; text: string }
   // 读类（第十六笔）：**不改任何东西** —— 看一眼版面清单，或某张卡里的内容
   // （第十八笔起可带 instanceId 定点读第二实例；moduleId 与 instanceId 必须指向同一张卡）
   // （第十九笔起可带 moduleIds 一次读一组、full 读全卡不截断）
@@ -177,6 +187,10 @@ function foldTitle(
   if (o.title === undefined) return { ok: o }
   if (type === 'memory.add') {
     return { bad: '它想记住一件事，但这个动作没有能填标题的目标（title 只在卡类动作上接受）' }
+  }
+  // v1.10：资料 / 技能的新建同样没有卡目标（id 由入库闸门生成，不是版面上的卡）
+  if (type === 'knowledge.add' || type === 'skill.add') {
+    return { bad: '它想新建资料 / 技能，但这个动作没有能填标题的目标（title 只在卡类动作上接受）' }
   }
   if (!TITLE_TYPES.has(type)) return { ok: o }
   const title = o.title
@@ -308,6 +322,34 @@ function actionFromFolded(o: Record<string, unknown>, ctx: ActionContext): AiAct
     }
     return instanceId ? { type: 'habit.check', instanceId } : { type: 'habit.check' }
   }
+  // v1.10：新建一份资料 —— 只增不改（同名会被既有入库闸门拒收），正文超长拒收不截断
+  if (type === 'knowledge.add') {
+    const name = str(o.name).trim()
+    if (!name) return { bad: '它想新建一份资料，但没写名字（name）' }
+    if (name.length > ACTION_DOC_NAME_MAX) {
+      return { bad: `资料名字太长（超过 ${ACTION_DOC_NAME_MAX} 字）—— 这一条没有执行` }
+    }
+    const text = str(o.text).trim()
+    if (!text) return { bad: '它想新建一份资料，但没写内容（text）' }
+    if (text.length > ACTION_DOC_TEXT_MAX) {
+      return { bad: `资料内容太长（超过 ${ACTION_DOC_TEXT_MAX} 字）—— 这一条没有执行（先精简再提议）` }
+    }
+    return { type: 'knowledge.add', name, text }
+  }
+  // v1.10：存一条技能 —— 正文帽与入库闸门同值（1200），超了入库必拒，纯层先说人话
+  if (type === 'skill.add') {
+    const name = str(o.name).trim()
+    if (!name) return { bad: '它想存一条技能，但没写名字（name）' }
+    if (name.length > ACTION_DOC_NAME_MAX) {
+      return { bad: `技能名字太长（超过 ${ACTION_DOC_NAME_MAX} 字）—— 这一条没有执行` }
+    }
+    const text = str(o.text).trim()
+    if (!text) return { bad: '它想存一条技能，但没写正文（text）' }
+    if (text.length > ACTION_SKILL_TEXT_MAX) {
+      return { bad: `技能正文太长（超过 ${ACTION_SKILL_TEXT_MAX} 字）—— 这一条没有执行（先精简再提议）` }
+    }
+    return { type: 'skill.add', name, text }
+  }
   if (type === 'memory.add') {
     const text = str(o.text).trim()
     if (!text) return { bad: '它想记住一件事，但没写要记什么' }
@@ -429,6 +471,8 @@ const TOOL_NAME_OF: Record<AiAction['type'], string> = {
   'habit.check': 'habit_check',
   'memory.add': 'memory_add',
   'context.read': 'context_read',
+  'knowledge.add': 'knowledge_add',
+  'skill.add': 'skill_add',
 }
 
 /** 反查表（工具名 → 动作类型）。`actionFromToolCall` 用它，不靠遍历猜 */
@@ -453,6 +497,8 @@ const TOOL_DESC_OF: Record<AiAction['type'], string> = {
   'countdown.set': '设一张倒数日；名字最多 20 字，日期必须写成 YYYY-MM-DD；多实例可用 instanceId 定点，也可以用 title 按标题定点。',
   'habit.check': '给习惯卡打上今天的卡；多实例用 instanceId 定点，不给就写第一张；也可以用 title 按标题定点。',
   'memory.add': '记住一件关于用户的事（跨对话有效，用户可在设置里删）；正文最多 200 字。',
+  'knowledge.add': '新建一份资料（只增不改；名字最多 40 字、正文最多 2000 字；资料库里已有同名会被拒收）。',
+  'skill.add': '存一条技能（可复用的提示词模板；只增不改；名字最多 40 字、正文最多 1200 字；已有同名会被拒收）。',
   'context.read': '只读地看一眼版面清单 / 某张卡 / 一份资料 / 一条技能（moduleId / instanceId / moduleIds / query / docId / skillId / full），不改任何东西；也可以用 title 按标题定点到一张卡。',
 }
 
@@ -528,6 +574,22 @@ export function toolSpecs(): ToolSpecLite[] {
     // 没有必填字段：打今天的卡不需要参数
     spec('habit.check', { instanceId: id, title }),
     spec('memory.add', { text: { type: 'string', description: '要记住的那件事' } }, ['text']),
+    spec(
+      'knowledge.add',
+      {
+        name: { type: 'string', description: '资料名，最多 40 字（与已有资料同名会被拒收）' },
+        text: { type: 'string', description: '资料正文，最多 2000 字' },
+      },
+      ['name', 'text'],
+    ),
+    spec(
+      'skill.add',
+      {
+        name: { type: 'string', description: '技能名，最多 40 字（与已有技能同名会被拒收）' },
+        text: { type: 'string', description: '技能正文（提示词模板），最多 1200 字' },
+      },
+      ['name', 'text'],
+    ),
     spec('context.read', {
       moduleId: { type: 'string', description: '看这张卡（可选）' },
       instanceId: id,
@@ -625,6 +687,10 @@ export function actionLabel(
       return `${fixed}给习惯卡打上今天的卡`
     case 'memory.add':
       return `记住：${a.text}`
+    case 'knowledge.add':
+      return `新建一份资料「${a.name}」`
+    case 'skill.add':
+      return `存一条技能「${a.name}」`
     case 'context.read': {
       if (a.query) return `找一找写有「${a.query}」的东西`
       if (a.docId) return `看一眼资料「${titleOf?.(a.docId) || a.docId}」`
@@ -851,6 +917,8 @@ export function actionPrompt(): string {
     `- \`${ACTION_PREFIX} {"type":"countdown.set","label":"纪念日","date":"2026-12-01"}\` —— 设一张倒数日（名字 + 日期）；`,
     `- \`${ACTION_PREFIX} {"type":"habit.check"}\` —— 给习惯卡打上今天的卡；`,
     `- \`${ACTION_PREFIX} {"type":"memory.add","text":"…"}\` —— 记住一件关于用户的事（跨对话有效，用户可在设置里删）；`,
+    `- \`${ACTION_PREFIX} {"type":"knowledge.add","name":"菜谱","text":"…"}\` —— 新建一份资料（只增不改、不改旧的；名字最多 ${ACTION_DOC_NAME_MAX} 字、正文最多 ${ACTION_DOC_TEXT_MAX} 字；资料库里已有同名会被拒收，拒收理由会回给你）；`,
+    `- \`${ACTION_PREFIX} {"type":"skill.add","name":"三步总结","text":"…"}\` —— 存一条技能（可复用的提示词模板；只增不改；名字最多 ${ACTION_DOC_NAME_MAX} 字、正文最多 ${ACTION_SKILL_TEXT_MAX} 字；已有同名会被拒收）；`,
     `- \`${ACTION_PREFIX} {"type":"context.read"}\` —— 看一眼版面清单（有哪些卡 / 资料 / 技能，各带 id）；\`${ACTION_PREFIX} {"type":"context.read","moduleId":"todo"}\` —— 看一眼某张卡里的内容（**只读**，不会改任何东西；看到的内容会随执行结果回给你）；`,
     `- \`${ACTION_PREFIX} {"type":"context.read","docId":"k…"}\` —— 看一眼某份资料的内容（**只读**，资料 id 从版面清单抄）；\`${ACTION_PREFIX} {"type":"context.read","skillId":"s…"}\` —— 看一眼某条技能的全文（**只读**）；`,
     `- \`${ACTION_PREFIX} {"type":"context.read","moduleIds":["todo","habit"]}\` —— 一次看一组卡（最多 ${ACTION_READ_MULTI_MAX} 张，看到的内容一条消息带回）；`,

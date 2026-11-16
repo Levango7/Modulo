@@ -390,7 +390,7 @@ describe.skipIf(skip)('F-12 二期：底部对话坞（桌面形态）', () => {
     expect(probe.round, '续跑用的是第 2 轮').toBe(2)
     // 工具清单必须真传下去 —— 不传的话模型根本不可能发 toolStart（P1a 在线上一直是这个状态）
     expect([...(probe.tools ?? [])].sort()).toEqual(
-      ['add_card', 'todo_add', 'ledger_add', 'sticky_append', 'countdown_set', 'habit_check', 'memory_add', 'context_read'].sort(),
+      ['add_card', 'todo_add', 'ledger_add', 'sticky_append', 'countdown_set', 'habit_check', 'memory_add', 'knowledge_add', 'skill_add', 'context_read'].sort(),
     )
     // ② 回灌：第 2 轮的消息里多了一条 user（那条带着标记的工具结果）
     expect((probe.roles ?? []).filter((r) => r === 'user')).toHaveLength(2)
@@ -1424,6 +1424,50 @@ describe.skipIf(skip)('聊天任脊柱（E1）', () => {
       JSON.parse(localStorage.getItem('modulo.__stubdoc.modulo.carddata.v1') ?? '{}'),
     )) as { todos?: { text: string }[] }
     expect(stored.todos).toHaveLength(2)
+    expect(errs, `页面不该有报错：${errs.join(' | ')}`).toEqual([])
+  }, 90_000)
+
+  it('AI 动手 v1.10（第二十六笔）：knowledge.add / skill.add —— AI 能新建资料与技能（只增不改，刷新还在）', async () => {
+    const errs: string[] = []
+    const replies = [
+      '我先把这两样存起来。\n@@act {"type":"knowledge.add","name":"读书清单","text":"待读：设计的觉醒；下周读完。"}\n@@act {"type":"skill.add","name":"复盘模板","text":"本周做了什么；哪一步卡住；下周先做什么。"}',
+      '存好了。',
+    ]
+    const page = await open({ replies }, errs)
+    await expand(page)
+    await ask(page, '帮我新建一份资料和一条技能')
+    await page.waitForSelector('[data-ai-act-run]', { timeout: 15000 })
+    await click(page, '[data-ai-act-run]')
+    await page.waitForSelector('[data-chat-tool-note]', { timeout: 15000 })
+    await page.waitForFunction(
+      () => [...document.querySelectorAll('[data-role="assistant"]')].some((el) => el.textContent?.includes('存好了')),
+      { timeout: 15000 },
+    )
+    const sent = (await calls(page)).filter((c) => c.cmd === 'ai_chat')
+    expect(sent, '照做后自动续一轮 = 两次模型调用').toHaveLength(2)
+    const feed = (sent[1].args.messages as { role: string; content: string }[]).at(-1)?.content ?? ''
+    expect(feed).toContain('（工具结果）')
+    expect(feed).toContain('新建一份资料「读书清单」：成功')
+    expect(feed).toContain('存一条技能「复盘模板」：成功')
+    // 只新增、不动版面：卡数没变
+    expect(await page.evaluate(() => document.querySelectorAll('.cell').length)).toBe(2)
+    // 真的进了各自的清单（资料 / 技能不走卡片数据，等各自的键落盘）
+    await page.waitForFunction(
+      () => {
+        const k = localStorage.getItem('modulo.__stubdoc.modulo.knowledge.v1') ?? ''
+        const s = localStorage.getItem('modulo.__stubdoc.modulo.skills.v1') ?? ''
+        return k.includes('读书清单') && s.includes('复盘模板')
+      },
+      { timeout: 15000 },
+    )
+    // 刷新还在：从盘上读回来并在左栏列出来（不是只在内存里）
+    await page.reload({ waitUntil: 'domcontentloaded' })
+    await page.waitForFunction(
+      () =>
+        [...document.querySelectorAll('[data-doc] .t')].some((el) => el.textContent === '读书清单') &&
+        [...document.querySelectorAll('[data-skill] .t')].some((el) => el.textContent === '复盘模板'),
+      { timeout: 15000 },
+    )
     expect(errs, `页面不该有报错：${errs.join(' | ')}`).toEqual([])
   }, 90_000)
 })

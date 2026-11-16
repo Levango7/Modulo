@@ -717,8 +717,10 @@ function actionCtx(): ActionContext {
  * 执行一条**已校验**的动作，返回它的产出（读类动作才有）。
  *
  * **唯一的写入口**：提议「照做」与工具调用两条路都走它。两条路各写一份，
- * 就会出现"照着做能撤销、工具做的撤不掉"这种最难查的分叉 —— 底下每一个 `write*`
- * 都进内容历史，撤销栈才认得。
+ * 就会出现"照着做能撤销、工具做的撤不掉"这种最难查的分叉 —— 底下的**卡片类**
+ * `write*` 都进内容历史，撤销栈才认得。记忆 / 资料 / 技能走各自清单的存储
+ * （v1.3 起 memory 如此，v1.10 起资料 / 技能同款：不进撤销栈，删除走清单里的两步）——
+ * 这是既有取舍，别在这里替它们另造一层，也别让两条路各写各的。
  *
  * 失败一律 `throw`（不返回错误值）：调用方是 `runActions` / `runOneAction`，
  * 它俩把异常转成 `ok:false` 并继续/中止，那是它们的事。
@@ -747,6 +749,15 @@ function applyAction(a: AiAction): string | undefined {
     })
   } else if (a.type === 'memory.add') {
     const rejected = memory.add(a.text)
+    if (rejected.length) throw new Error(rejected.join('；'))
+  } else if (a.type === 'knowledge.add') {
+    // v1.10：走资料自己的入库闸门（同名 / 份数 / 空 / 二进制都在 addDocs 里）——
+    // 拒收理由逐条回给回喂那条消息，不在这里另写第二套判据
+    const rejected = knowledge.add([{ name: a.name, text: a.text }])
+    if (rejected.length) throw new Error(rejected.join('；'))
+  } else if (a.type === 'skill.add') {
+    // v1.10：同款 —— 技能闸门（同名 / 名字帽 / 正文帽 / 二进制）在 addSkills 里
+    const rejected = skills.add([{ name: a.name, text: a.text }])
     if (rejected.length) throw new Error(rejected.join('；'))
   } else if (a.type === 'context.read') {
     return readContext(a)
