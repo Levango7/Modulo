@@ -79,6 +79,7 @@ pub async fn ai_providers(app: AppHandle) -> Result<Vec<ProviderView>, String> {
         out.push(ProviderView {
             ready: probe_ready(&c, key_configured).await,
             key_configured,
+            supports_tools: c.supports_tools,
             id: c.id,
             kind: c.kind,
             base_url: c.base_url,

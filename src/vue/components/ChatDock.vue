@@ -416,6 +416,7 @@ async function streamTurn(
 
   try {
     const messages = buildMessages(turns.value, usedChips, excerptOf, memory.entries.value)
+    const supportsTools = providers.value.find((x) => x.id === providerId.value)?.supportsTools ?? false
     const r = await invoke<{ conversationId: string }>('ai_chat', {
       providerId: providerId.value,
       conversationId: conversationId.value,
@@ -423,8 +424,9 @@ async function streamTurn(
       thinking: thinking.value,
       attachments: usedFiles.map((f) => ({ name: f.name, content: f.content })),
       // F4c-1：工具清单由前端从动作白名单生成（`toolSpecs`），与 `@@act` 文字约定同一份口径。
-      // 不传 = provider 不支持 tools，请求体里就不会有这个字段（`request::chat_body` 保证）。
-      tools: toolSpecs(),
+      // 契约 §2.3（P1b）：仅在 provider 的 supportsTools 为真时附带 —— 键整条不出现 = 退回 @@act 文字约定
+      // （`request::chat_body` 也把空清单当没传，两处口径一致）。
+      ...(supportsTools ? { tools: toolSpecs() } : {}),
       round,
       onChunk: ch,
     })

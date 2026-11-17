@@ -43,6 +43,8 @@ interface FormState {
   baseUrl: string
   model: string
   key: string
+  /** 契约 §2.3：这位为真，`ai_chat` 才带 `tools`（动作提议才可能出现在回复里） */
+  supportsTools: boolean
   error: string | null
 }
 
@@ -86,12 +88,12 @@ function persist(list: AiProvider[]): void {
 }
 
 function openAdd(): void {
-  form.value = { id: null, kind: 'openai-compatible', baseUrl: '', model: '', key: '', error: null }
+  form.value = { id: null, kind: 'openai-compatible', baseUrl: '', model: '', key: '', supportsTools: false, error: null }
   notice.value = null
 }
 
 function openEdit(p: AiProvider): void {
-  form.value = { id: p.id, kind: p.kind, baseUrl: p.baseUrl, model: p.model, key: '', error: null }
+  form.value = { id: p.id, kind: p.kind, baseUrl: p.baseUrl, model: p.model, key: '', supportsTools: p.supportsTools, error: null }
   notice.value = null
 }
 
@@ -103,7 +105,7 @@ async function saveForm(): Promise<void> {
     f.error = bad
     return
   }
-  const draft: ProviderDraft = { kind: f.kind, baseUrl: f.baseUrl, model: f.model }
+  const draft: ProviderDraft = { kind: f.kind, baseUrl: f.baseUrl, model: f.model, supportsTools: f.supportsTools }
   const id = f.id ?? makeProviderId(Date.now(), providers.value)
   persist(f.id ? updateProvider(providers.value, f.id, draft) : addProvider(providers.value, id, draft))
   form.value = null
@@ -277,6 +279,13 @@ const keyLines = computed(() =>
         <label class="field">
           <span>密钥（可空）</span>
           <input v-model="form.key" type="password" autocomplete="off" data-ai-key-input />
+        </label>
+      </div>
+      <div class="row">
+        <label class="field">
+          <span>工具调用（function calling）</span>
+          <input type="checkbox" v-model="form.supportsTools" data-ai-supports-tools />
+          <em>仅当这个模型服务支持时才开；动作提议仍要你在对话里点「照做」才落地</em>
         </label>
       </div>
       <p v-if="form.error" class="err" role="alert" data-ai-form-error>{{ form.error }}</p>
