@@ -13,6 +13,7 @@ import type { StorageAdapter } from './store'
 import {
   addServer,
   MCP_DOC_KEY,
+  parseGate,
   parseServers,
   removeServer,
   serializeServers,
@@ -24,6 +25,10 @@ import {
 
 export interface McpApi {
   servers: Ref<McpServer[]>
+  /** 功能总开关。与 servers 同一个键落盘；关掉后 Rust 侧三条命令一律拒。 */
+  gate: Ref<boolean>
+  /** 拨总开关；立即落盘。 */
+  setGate(enabled: boolean): void
   /** 新增；成功返回 null，失败返回**要念给用户听的那句话** */
   add(draft: McpDraft): string | null
   /** 改一个；同上 */
@@ -34,10 +39,18 @@ export interface McpApi {
 
 export function createMcp(storage: StorageAdapter): McpApi {
   // 盘上的数据不可信：解析与逐条清洗都在 parseServers 里（坏条目丢弃，不整份报废）
-  const servers = ref<McpServer[]>(parseServers(storage.get(MCP_DOC_KEY)))
-  const save = (): void => storage.set(MCP_DOC_KEY, serializeServers(servers.value))
+  const raw = storage.get(MCP_DOC_KEY)
+  const servers = ref<McpServer[]>(parseServers(raw))
+  // 总开关与 servers 同一份文档：显式 bool 优先，缺失时按「有启用条目」推导（存量兼容）
+  const gate = ref(parseGate(raw))
+  const save = (): void => storage.set(MCP_DOC_KEY, serializeServers(servers.value, gate.value))
   return {
     servers,
+    gate,
+    setGate(enabled) {
+      gate.value = enabled
+      save()
+    },
     add(draft) {
       const r = addServer(servers.value, draft)
       if (!r.ok) return r.error

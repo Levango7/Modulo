@@ -6,6 +6,7 @@ use serde_json::json;
 
 // 以下 11 条是加固笔的安全 fuzz：全部走真解析函数，断言「坏条目丢、好条目逐字留下」，
 // 不用 `!list.is_empty()` 这种糊法。恶意输入只喂字符串 / JSON，不碰进程。
+// 文件末尾另有 6 条总开关判定（§12.90），与前端 `tests/vue/mcp.test.ts` 逐条对应。
 
 #[test]
 fn 非法json一律空表() {
@@ -161,4 +162,83 @@ fn require_confirmed拒绝信息不含敏感信息() {
         assert!(!low.contains(leak), "错误信息不该带 {leak}：{err}");
     }
     assert!(require_confirmed(true, "甲服务").is_ok(), "确认过就放行");
+}
+
+// ── 总开关推导（§12.90，第二十九笔）────────────────────────────────────────
+// 6–10 与前端 `tests/vue/mcp.test.ts` 的 1–5 **逐条对应**，断言同一张表：
+// 这是「前后端判据不分叉」的唯一证明。第 11 条盯拒绝文案与放行。
+
+#[test]
+fn gate缺失_有启用条目则为真() {
+    let d = parse_doc(
+        r#"{"version":1,"servers":[
+            {"name":"甲","command":"node","args":[],"enabled":true}]}"#,
+    );
+    assert!(d.gate, "存量用户已经在用 ⇒ 升级不能突然断");
+    assert_eq!(d.servers.len(), 1, "推导总开关不能吞掉服务条目");
+}
+
+#[test]
+fn gate缺失_全停用或空表则为假() {
+    let off = parse_doc(
+        r#"{"version":1,"servers":[
+            {"name":"甲","command":"node","args":[],"enabled":false}]}"#,
+    );
+    assert!(!off.gate, "没有启用条目 ⇒ 新装默认关");
+    assert!(!parse_doc(r#"{"version":1,"servers":[]}"#).gate);
+    assert!(!parse_doc("").gate);
+    assert!(!parse_doc("null").gate);
+}
+
+#[test]
+fn gate显式false_有启用条目仍为假() {
+    let d = parse_doc(
+        r#"{"version":1,"gate":false,"servers":[
+            {"name":"甲","command":"node","args":[],"enabled":true}]}"#,
+    );
+    assert!(!d.gate, "显式 bool 优先于推导");
+    assert_eq!(d.servers.len(), 1, "关总开关不影响清单解析");
+}
+
+#[test]
+fn gate非布尔按缺失处理() {
+    for raw in [
+        r#"{"version":1,"gate":"true","servers":[
+            {"name":"甲","command":"node","args":[],"enabled":true}]}"#,
+        r#"{"version":1,"gate":1,"servers":[
+            {"name":"甲","command":"node","args":[],"enabled":true}]}"#,
+        r#"{"version":1,"gate":null,"servers":[
+            {"name":"甲","command":"node","args":[],"enabled":true}]}"#,
+    ] {
+        assert!(
+            parse_doc(raw).gate,
+            "非 bool 的 gate 必须当没写、回落到推导：{raw}"
+        );
+    }
+}
+
+#[test]
+fn gate往返_写出去再读回来同值() {
+    for gate in [true, false] {
+        let raw = json!({
+            "version": 1,
+            "gate": gate,
+            "servers": [
+                {"name": "甲", "command": "node", "args": [], "enabled": true}
+            ]
+        })
+        .to_string();
+        assert_eq!(parse_doc(&raw).gate, gate, "往返必须同值，不能被推导覆盖");
+    }
+}
+
+#[test]
+fn require_mcp_enabled_拒时文案指路实验室() {
+    let err = require_mcp_enabled(false).expect_err("总开关关着必须拒");
+    assert!(err.contains("实验室"), "要说清去哪里开：{err}");
+    assert!(err.contains("MCP"), "要指明是哪个功能：{err}");
+    assert!(
+        require_mcp_enabled(true).is_ok(),
+        "总开关开着就放行（后面还有 pick 与确认闸门）"
+    );
 }

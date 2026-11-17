@@ -96,32 +96,65 @@ fn parse_one(row: &Value, taken: &[ServerCfg]) -> Option<ServerCfg> {
     })
 }
 
-/// 逐条清洗、坏条目丢弃，最多留前 `MCP_MAX` 条。容忍空串 / 裸数组 / `{servers}` 三种形态。
-pub fn parse_servers(raw: &str) -> Vec<ServerCfg> {
+/// 盘上的一整份文档：**总开关 + 清洗后的服务清单**。总开关与 `servers` 同一个键落盘
+/// （`modulo.mcp.v1`），不另开 `DATA_KEYS`。
+#[derive(Debug, Clone, PartialEq)]
+pub struct McpDoc {
+    pub gate: bool,
+    pub servers: Vec<ServerCfg>,
+}
+
+/// 解析盘上文档并推导总开关。**两个方向都不能简单默认**，这一条写在这里防后来人
+/// 「顺手改成默认 false」：
+///
+/// - 一律默认 `false`：存量用户已经配了 server 并 enabled，升级后功能突然消失 —— 等于把
+///   他的配置变成死数据，是行为倒退；
+/// - 一律默认 `true`：那就没有灰度可言，新装用户直接暴露外部进程执行能力。
+///
+/// 所以按这张表：盘上的 `gate` 是**真 bool** 就用它（显式优先）；缺失 / 非 bool 时按
+/// 「有没有 `enabled: true` 的条目」推导 —— 有 ⇒ `true`（存量兼容），没有 ⇒ `false`
+/// （新装默认关）。与 `src/vue/mcp.ts` 的 `parseGate` 逐字同口径。
+pub fn parse_doc(raw: &str) -> McpDoc {
+    let empty = || McpDoc {
+        gate: false,
+        servers: Vec::new(),
+    };
     if raw.trim().is_empty() {
-        return Vec::new();
+        return empty();
     }
     let data: Value = match serde_json::from_str(raw) {
         Ok(v) => v,
-        Err(_) => return Vec::new(),
+        Err(_) => return empty(),
     };
     let rows: &[Value] = match &data {
         Value::Array(a) => a.as_slice(),
         _ => match data.get("servers").and_then(Value::as_array) {
             Some(a) => a.as_slice(),
-            None => return Vec::new(),
+            None => return empty(),
         },
     };
-    let mut out: Vec<ServerCfg> = Vec::new();
+    let mut servers: Vec<ServerCfg> = Vec::new();
     for row in rows {
-        if out.len() >= MCP_MAX {
+        if servers.len() >= MCP_MAX {
             break;
         }
-        if let Some(cfg) = parse_one(row, &out) {
-            out.push(cfg);
+        if let Some(cfg) = parse_one(row, &servers) {
+            servers.push(cfg);
         }
     }
-    out
+    let gate = match data.get("gate").and_then(Value::as_bool) {
+        Some(b) => b,
+        None => servers.iter().any(|s| s.enabled),
+    };
+    McpDoc { gate, servers }
+}
+
+/// 逐条清洗、坏条目丢弃，最多留前 `MCP_MAX` 条。容忍空串 / 裸数组 / `{servers}` 三种形态。
+///
+/// **薄壳**：行为与第一笔逐字不变，只是改成从 [`parse_doc`] 取 `servers` —— 解析逻辑
+/// 只留一处，免得「带 gate 的解析」与「不带 gate 的解析」日后各漂一边。
+pub fn parse_servers(raw: &str) -> Vec<ServerCfg> {
+    parse_doc(raw).servers
 }
 
 /// 按 id 取一条已启用的配置。找不到 / 停用各给独立理由，不共用一句话。
@@ -147,6 +180,19 @@ pub fn require_confirmed(confirmed: bool, name: &str) -> Result<(), String> {
     Err(format!(
         "「{name}」还没有确认过。第一次用它之前需要你点一次确认 —— 这一步不能被跳过。"
     ))
+}
+
+/// 功能总开关：**关了就一条命令都不许走**。这是比 J4 确认更早的一道闸门（调用顺序见
+/// `client.rs`：读盘 → 总开关 → `pick` → 确认闸门 → `session_for`），所以关闭时连
+/// 「盘上配了哪些 server」都不该泄露 —— 拒绝必须发生在 `pick` 之前。
+///
+/// **命名红线**：不许叫 `require_gate` / `gate` —— `client.rs` 里已有的 `gate()` 是 J4 的
+/// **确认**闸门（「用户点过确认」），两者语义完全不同，撞名会误导后来人。
+pub fn require_mcp_enabled(gate: bool) -> Result<(), String> {
+    if gate {
+        return Ok(());
+    }
+    Err("MCP 功能未开启：去「设置 → 实验室」打开总开关".to_string())
 }
 
 /// `tools/call` 的参数体。`arguments` 缺省是 `{}`（MCP 规定它是对象，不是 null）。
