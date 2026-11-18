@@ -5,8 +5,9 @@
 //! - [`super::wire`]：一个子进程会话与一次 JSON-RPC 往返（`std::process` + 读线程 + mpsc）；
 //! - 本文件：进程表、懒连接、三条 `#[tauri::command]`。
 //!
-//! 命令面**本笔不注册进 `generate_handler!`**（规格 §11.8 裁决 C：注册面必须等于调用点面，
-//! 前端 J1 留第二笔）；`lib.rs` 只 `.manage(McpState)`，命令表保持 50 条。
+//! 命令面**已注册**（J1 执行半那笔）：`lib.rs` 的 `generate_handler!` 里三条
+//! `ai::mcp::client::mcp_*`，调用点全在 `src/vue/useMcpExecution.ts`（字面 `invoke`）。
+//! F-11②「注册面 == 调用点面」由此成立 —— 此前写好不注册，是因为前端还没有调用点。
 //!
 //! `tools/call` 的往返由 `wire` 里 `tokio::time::timeout(self.timeout, ...)` 包住；
 //! `Session.timeout` 在生产路径由 `wire::Session::spawn` 注入单源 `mcp_call_timeout()`
@@ -49,7 +50,7 @@ struct Slot {
     inner: AsyncMutex<Option<Arc<AsyncMutex<Session>>>>,
 }
 
-/// 进程表 + 确认记录。由 `lib.rs` 的 `.manage()` 挂上；本笔命令没注册，它只是空状态。
+/// 进程表 + 确认记录。由 `lib.rs` 的 `.manage()` 挂上，三条命令由 `generate_handler!` 注册。
 #[derive(Default)]
 pub struct McpState {
     table: Mutex<HashMap<String, Arc<Slot>>>,
@@ -192,7 +193,6 @@ fn shape_call(r: CallToolResult) -> CallOut {
 
 /// 列一个服务的工具清单。**首次也会起子进程，所以要过 J4 闸门**（同 `mcp_call`）。
 #[tauri::command]
-#[allow(dead_code)]
 pub async fn mcp_list_tools(app: AppHandle, server_id: String) -> Result<ToolsOut, String> {
     // 顺序固定：读盘 → 总开关 → pick → 确认闸门 → session_for。总开关关着时连
     // 「盘上配了哪些 server」都不该泄露，所以它必须在 `pick` 之前。
@@ -226,7 +226,6 @@ pub async fn mcp_list_tools(app: AppHandle, server_id: String) -> Result<ToolsOu
 
 /// 调一个工具。**J4：没确认过的服务一律拒，且拒绝发生在起进程之前。**
 #[tauri::command]
-#[allow(dead_code)]
 pub async fn mcp_call(
     app: AppHandle,
     server_id: String,
@@ -274,7 +273,6 @@ fn confirm_in(state: &McpState, server_id: &str) -> Result<(), String> {
 /// 记下「用户确认过这个服务」。第一次真正列工具 / 调工具之前必须先调它一次。
 /// 未知 id 如实报错 —— 不能「确认成功」但什么都没记。
 #[tauri::command]
-#[allow(dead_code)]
 pub fn mcp_confirm(app: AppHandle, server_id: String) -> Result<(), String> {
     // 总开关关着时也不许「确认成功」—— 确认记录本身不是副作用，但放行会让人以为
     // 功能已可用，下一次调用才被拒。拒绝口径与另两条命令保持一致。

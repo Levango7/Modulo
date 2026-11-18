@@ -131,6 +131,8 @@
   const aiHistSave = (list) => localStorage.setItem(AI_HIST, JSON.stringify(list))
   /** convId → 推帧函数：挂着不结束的流，等 ai_chat_cancel 来收尾 */
   const aiPending = new Map()
+  /** MCP 确认记录：**只在内存**（Rust `McpState.confirmed` 同生命周期，刷新即清） */
+  const mcpConfirmed = new Set()
 
   /** 记账时把 Channel 换成占位串：Channel 带私有字段，跨 evaluate 序列化会直接抛 */
   const sanitizeArgs = (args) => {
@@ -416,6 +418,49 @@
       case 'ai_history_clear':
         aiHistSave([])
         return Promise.resolve(undefined)
+      // —— MCP 三条命令（J1 执行半）。形状照 Rust `ai::mcp::client` 的 serde camelCase
+      //    逐字段一致（`ToolOut` / `ToolsOut` / `CallOut`），**报错文案照 Rust 的两句**
+      //    （`列工具失败：…` / `调用「x」失败：…`）—— 测试据此断言的才是用户真会看到的那句话。
+      //    数据由测试经 `__STUB_MCP_TOOLS__`（serverId → { tools, notice }）与
+      //    `__STUB_MCP_CALL__`（工具名 → { text, isError, truncated, notice }）预置。
+      //    确认记录只在**内存**（`mcpConfirmed`）：与 Rust `McpState.confirmed` 同生命周期，
+      //    刷新页面即清 —— 这正是「前端自持、与后端同清」那条语义，桩里也要真这样。
+      case 'mcp_list_tools': {
+        const id = String(args?.serverId ?? '')
+        if (window.__STUB_MCP_LIST_FAIL__ === id) {
+          return Promise.reject(new Error('列工具失败：stub 按配置拒绝'))
+        }
+        const preset = (window.__STUB_MCP_TOOLS__ ?? {})[id] ?? {}
+        const tools = (preset.tools ?? []).map((t) => ({
+          serverId: id,
+          name: String(t?.name ?? ''),
+          // 线上 Option<String> 序列化成 null，不是缺键 —— 桩照抄，前端的「null 折成缺键」才被真测到
+          title: t?.title ?? null,
+          description: t?.description ?? null,
+          inputSchema: t?.inputSchema ?? { type: 'object', properties: {} },
+        }))
+        return Promise.resolve({ tools, notice: preset.notice ?? null })
+      }
+      case 'mcp_call': {
+        const tool = String(args?.tool ?? '')
+        const preset = (window.__STUB_MCP_CALL__ ?? {})[tool] ?? null
+        // 字符串 'reject' = RPC 层失败（进程起不来 / 超时），与 isError 那条「工具跑了但失败」分开
+        if (preset === 'reject') {
+          return Promise.reject(new Error(`调用「${tool}」失败：stub 按配置拒绝`))
+        }
+        return Promise.resolve({
+          text: String(preset?.text ?? `桩返回：${tool} 跑完了`),
+          isError: preset?.isError === true,
+          truncated: preset?.truncated === true,
+          notice: preset?.notice ?? null,
+        })
+      }
+      case 'mcp_confirm': {
+        const id = String(args?.serverId ?? '')
+        mcpConfirmed.add(id)
+        // Rust 是 `Result<(), String>` —— `()` 序列化成 null，桩要回同一个形状
+        return Promise.resolve(null)
+      }
       // —— WebDAV 同步命令（形状与 Rust webdav.rs 的 8 条命令一一对应）——
       case 'webdav_probe': {
         const deny = davDeny(String(args?.user ?? ''), args?.password ?? null)
@@ -534,4 +579,15 @@
   window.__STUB_AI_SUMMARY__ = '桩摘要：这三句是要点。'
   /** 历史原文（测试预置 / 复核"真的写进去了"都走它，绕开界面） */
   window.__STUB_AI_HISTORY__ = aiHist
+  /**
+   * MCP 工具清单（J1 执行半）：`{ [serverId]: { tools: [{ name, title?, description?, inputSchema? }], notice? } }`。
+   * 不预置 = 该服务连上了但没有工具（空清单），不是报错 —— 与 Rust 侧同形。
+   */
+  window.__STUB_MCP_TOOLS__ = {}
+  /** MCP 调用的返回：`{ [工具名]: { text, isError?, truncated?, notice? } }`；给字符串 'reject' = RPC 层失败 */
+  window.__STUB_MCP_CALL__ = {}
+  /** 只让某一个服务的 list_tools 失败（填 serverId）：用来测「单个服务挂了不拖垮整批」 */
+  window.__STUB_MCP_LIST_FAIL__ = null
+  /** 本页已确认的 server id（测试据此断言"真的记了确认"，**刷新即清**） */
+  window.__STUB_MCP_CONFIRMED__ = () => [...mcpConfirmed]
 })()

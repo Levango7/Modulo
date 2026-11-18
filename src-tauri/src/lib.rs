@@ -373,9 +373,10 @@ pub fn run() {
         .manage(HideOnClose::default())
         .manage(Shortcuts::default())
         .manage(floatwin::initial_state())
-        // MCP 进程表（F4c-2 第一笔）：**只挂状态，不注册命令**（规格 §11.8 裁决 C）。
-        // 三条 `mcp_*` 命令已写好但尚未进 `generate_handler!`，第二笔接前端时补一行注册；
-        // 先把状态挂上，是为了让那一步只改注册面一处，不必再动 builder。
+        // MCP 进程表（F4c-2 第一笔）：只挂状态；命令的注册面在 J1 执行半那笔补上
+        // （见 `generate_handler!` 里的三条 `ai::mcp::client::mcp_*`，调用点在
+        // `src/vue/useMcpExecution.ts`）。状态与注册分两处，是因为「注册面 == 调用点面」
+        // 这条门禁：命令写好了但前端还没调用点时不许注册，否则 `cmd-surface` 当场红。
         .manage(ai::mcp::client::McpState::default())
         .invoke_handler(tauri::generate_handler![
             set_hide_on_close,
@@ -402,6 +403,12 @@ pub fn run() {
             ai::history::ai_history_get,
             ai::history::ai_history_delete,
             ai::history::ai_history_clear,
+            // J1 执行半：注册与前端调用点同笔。三条 MCP 命令的调用点全在
+            // `src/vue/useMcpExecution.ts`（字面 invoke —— `scripts/cmd-surface.mjs` 只认字面），
+            // 由对话坞的 agent 循环经它列清单 / 调工具 / 记确认。
+            ai::mcp::client::mcp_list_tools,
+            ai::mcp::client::mcp_call,
+            ai::mcp::client::mcp_confirm,
             // 一次性摘要（F-12 三期，2026-10-30）：调用点是对话坞的「摘要」动作，
             // 传 style='plain'；会议速记走的是 Rust 内部直接调用同一条实现（不经 IPC）。
             ai::openai_compat::ai_summarize,
