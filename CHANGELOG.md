@@ -11,6 +11,32 @@
 
 ## 未发布
 
+### 门禁自修：假红的根因与计数口径（2026-11-18）
+
+两处门禁把「查不到」当成「变了」，见 §12.91。**这一笔不改产品行为** —— 成功的还是成功，
+真被改指的还是会红；改的是判定本身。
+
+- **`release-manifest.mjs` 的「tag 改指向」假红根治**。GitHub 上**所有** tag 的
+  `target_commitish` 都是字符串 `"master"` —— 它的语义是"这个 release 从哪个分支发的"，
+  不是 commit。旧写法拿它当判定初值，真 sha 靠再查 `git/ref/tags/<tag>` 解引用，而那一步
+  写成 `.catch(() => null)` 之后紧跟 `?? commit` ⇒ 一次 API 抖动就把 `"master"` 当 commit
+  去比台账，必然报「变了」。抽出 `scripts/release-tag-commit.mjs`：`commitOfRef` 拿不到
+  就是 `null`、**不设任何默认值**；`judgeCommit` 判 `ok` / `changed` / `unreadable` 三档
+  （并进 changed 是"抖一下报一次篡改"，并进 ok 是"真改指也看不见"）；`--update` 见到
+  `unreadable` 整批拒绝，不把 null 抄进台账（抄进去下次校验必然报变了）。
+- **Rust 单测计数口径放宽**。旧口径只认字面 `#[test]`，后果不是"少数了几条"，而是工具
+  口径反过来限制代码怎么写 —— 全仓只能一律 `#[test]` + 手搭 `block_on`。`countRustTests`
+  进 `docs-check-claims.mjs`（`^\s*#\[(?:tokio::)?test\]`，**仍只认行首**：`client_tests.rs`
+  文件头注释里那句「而不是 `#[tokio::test]`」不算），`docs-check.mjs` 改为 import 共用，
+  并加接线用例钉住"不许再自带一份正则"。重数后仍是 230 条 ⇒ 全仓确实一处没用过它。
+- 测试：新增 `tests/scripts/release-tag-commit.test.ts` 12 条、`docs-check-claims.test.ts`
+  32 → 36 条；三条定点变异（恢复 `"master"` 兜底 / 计数退回只认 `#[test]` / 去掉行首锚定）
+  各红在目标断言。
+
+前端单测 2504 → 2520 条 / 141 → 142 文件；Rust 单测 230 条不变；E2E 146 条不变；受测层
+分支覆盖不变（零受测文件改动）；JS **665.72** / CSS **175.33 kB** 不变（零前端改动，先
+`mv dist` 再构建复核）。
+
 ### MCP 功能总开关：本地灰度的诚实边界（2026-11-17）
 
 §12.89 留的「灰度 / feature flag」缺口在本笔补上，见 §12.90。本地优先产品没有服务端，
