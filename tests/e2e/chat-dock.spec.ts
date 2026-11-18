@@ -120,6 +120,11 @@ interface Seed {
    * 已提供的工具 Rust 不代跑，`ToolEnd` 要前端真跑完补。
    */
   toolLoop?: { id: string; name: string; args?: Record<string, unknown> }[]
+  /**
+   * 多轮工具循环（F4c-1 轮次上限）：第 n 条 = 第 n 次 `ai_chat` 推的工具循环；
+   * 给超过上限的条数，用来证明"停"是前端拦下的，不是桩自己用完。
+   */
+  toolLoopRounds?: { id: string; name: string; args?: Record<string, unknown> }[][]
 }
 
 /** 开一张桌面形态的页面。`ai: false` = 没配任何模型服务（空态那条路） */
@@ -133,7 +138,7 @@ async function open(seed: Seed = {}, errs?: string[]): Promise<Page> {
   const card = seed.longSticky ? { ...baseCard, sticky: LONG_STICKY } : baseCard
   const desktop = seed.desktop !== false
   await page.evaluateOnNewDocument(
-    (src: string, docJson: string, cardJson: string, aiJson: string | null, histJson: string | null, hang: boolean, reply: string | null, cronJson: string | null, installStub: boolean, workflowJson: string | null, repliesJson: string | null, docsJson: string | null, skillsJson: string | null, toolsJson: string | null, toolLoopJson: string | null) => {
+    (src: string, docJson: string, cardJson: string, aiJson: string | null, histJson: string | null, hang: boolean, reply: string | null, cronJson: string | null, installStub: boolean, workflowJson: string | null, repliesJson: string | null, docsJson: string | null, skillsJson: string | null, toolsJson: string | null, toolLoopJson: string | null, toolLoopRoundsJson: string | null) => {
       if (installStub) new Function(src)()
       localStorage.setItem('modulo.layout.v1', docJson)
       localStorage.setItem('modulo.__stubdoc.modulo.carddata.v1', cardJson)
@@ -165,6 +170,8 @@ async function open(seed: Seed = {}, errs?: string[]): Promise<Page> {
       if (toolsJson) (window as unknown as { __STUB_AI_TOOLS__: unknown[] }).__STUB_AI_TOOLS__ = JSON.parse(toolsJson)
       // 工具执行闭环（F4c-1）：同上，每次导航重置
       if (toolLoopJson) (window as unknown as { __STUB_AI_TOOL_LOOP__: unknown[] }).__STUB_AI_TOOL_LOOP__ = JSON.parse(toolLoopJson)
+      // 多轮工具循环（F4c-1 轮次上限）：同上，每次导航重置
+      if (toolLoopRoundsJson) (window as unknown as { __STUB_AI_TOOL_LOOP_ROUNDS__: unknown[] }).__STUB_AI_TOOL_LOOP_ROUNDS__ = JSON.parse(toolLoopRoundsJson)
     },
     STUB_SOURCE,
     JSON.stringify(doc),
@@ -185,6 +192,7 @@ async function open(seed: Seed = {}, errs?: string[]): Promise<Page> {
     seed.skills ? JSON.stringify({ schemaVersion: 1, skills: seed.skills }) : null,
     seed.tools ? JSON.stringify(seed.tools) : null,
     seed.toolLoop ? JSON.stringify(seed.toolLoop) : null,
+    seed.toolLoopRounds ? JSON.stringify(seed.toolLoopRounds) : null,
   )
   await gotoWorkbench(page, url)
   // web 形态没有坞（AI 后端不在）⇒ 等左栏出现即可
@@ -449,6 +457,100 @@ describe.skipIf(skip)('F-12 二期：底部对话坞（桌面形态）', () => {
     expect(bubbles.join('')).toContain('加好了。')
     // 工具结果渲染成小条，不是用户气泡 —— 用户没说过这句话
     expect(await exists(page, '[data-chat-tool-note]')).toBe(true)
+    expect(errs, `页面不该有报错：${errs.join(' | ')}`).toEqual([])
+  })
+
+  /**
+   * F4c-1 轮次上限：`net-policy.json` 的 `limits.mcpMaxRounds` = 4（单源，ChatDock 由生成物读）。
+   * 桩**给足 5 轮** —— 上限若失守，第 5 次 ai_chat 会发生、`__STUB_AI_CALL_N__` 会到 5；
+   * 所以"停在 4"必须是前端那行 `round >= MAX_TOOL_ROUNDS` 拦下的，不是桩自己用完。
+   */
+  it('工具轮次上限（F4c-1）：第 4 轮后停手、说明上限、不再发 ai_chat', async () => {
+    const errs: string[] = []
+    const oneRound = (n: number) => [{ id: `call-${n}`, name: 'todo_add', args: { text: `买牛奶${n}` } }]
+    const page = await open(
+      { reply: '好。', toolLoopRounds: [oneRound(1), oneRound(2), oneRound(3), oneRound(4), oneRound(5)] },
+      errs,
+    )
+    await expand(page)
+    await ask(page, '连着加几条待办')
+    // 跑满 4 次 ai_chat（首问 + 3 次续跑）
+    await page.waitForFunction(
+      () => Number((window as unknown as { __STUB_AI_CALL_N__?: number }).__STUB_AI_CALL_N__ ?? 0) >= 4,
+      { timeout: 30000 },
+    )
+    // 上限提示：说清"到上限了、做过的都留着" —— 静默停下会让用户以为模型自己决定不干了
+    await page.waitForSelector('[data-chat-notice]', { timeout: 30000 })
+    expect(await text(page, '[data-chat-notice]')).toContain('上限')
+    // 工具行全结了（没有永远转的）
+    await page.waitForFunction(
+      () => Array.from(document.querySelectorAll('[data-tool-step]')).every((el) => el.getAttribute('data-tool-step') !== 'running'),
+      { timeout: 30000 },
+    )
+    // 收尾（busy 清掉）之后再核：调用数停在 4 —— 桩第 5 条故意留着，专抓失守
+    await page.waitForFunction(() => !document.querySelector('[data-chat-stop]'), { timeout: 30000 })
+    expect(
+      await page.evaluate(() => Number((window as unknown as { __STUB_AI_CALL_N__?: number }).__STUB_AI_CALL_N__ ?? 0)),
+    ).toBe(4)
+    expect(errs, `页面不该有报错：${errs.join(' | ')}`).toEqual([])
+  })
+
+  /**
+   * F4c-1 失败续跑：`runToolPhase` 注释不变量 2 —— 失败不终止循环、失败结果照常回灌，
+   * 让模型自己决定下一步。一轮两步：一成功一失败；断言第二行**真被执行**（失败若掐断
+   * 循环，第二行会永远停在「执行中」）、失败原因进了回灌小条、第 2 轮照发。
+   */
+  it('工具失败不终止循环（F4c-1）：失败结果照常回灌、续轮收尾', async () => {
+    const errs: string[] = []
+    const page = await open(
+      {
+        reply: '换了个做法。',
+        toolLoop: [
+          { id: 'call-1', name: 'todo_add', args: { text: '买牛奶' } },
+          { id: 'call-2', name: '压根不存在的工具' },
+        ],
+      },
+      errs,
+    )
+    await expand(page)
+    await ask(page, '加待办；不行就换个法子')
+    await page.waitForSelector('[data-tool-steps]', { timeout: 15000 })
+    await page.waitForFunction(
+      () => {
+        const els = Array.from(document.querySelectorAll('[data-tool-step]'))
+        return els.length === 2 && els.every((el) => el.getAttribute('data-tool-step') !== 'running')
+      },
+      { timeout: 20000 },
+    )
+    const words = await page.$$eval('[data-tool-step] [data-tool-step-word]', (els) => els.map((e) => e.textContent ?? ''))
+    expect(words).toEqual(['成功', '失败'])
+    // 成功的真落盘（画一行「成功」而不落数据是这一层最容易犯的假）
+    await page.waitForFunction(
+      () => (localStorage.getItem('modulo.__stubdoc.modulo.carddata.v1') ?? '').includes('买牛奶'),
+      { timeout: 15000 },
+    )
+    // 回灌小条渲染出来了（它本身是固定标签「工具结果已回喂给模型」）
+    expect(await text(page, '[data-chat-tool-note]')).toContain('工具结果已回喂')
+    // 失败之后照常续第 2 轮
+    await page.waitForFunction(
+      () => Number((window as unknown as { __STUB_AI_CALL_N__?: number }).__STUB_AI_CALL_N__ ?? 0) >= 2,
+      { timeout: 15000 },
+    )
+    // 失败原因进了真回灌：第 2 次 ai_chat 的 user 消息里带着「失败（原因）」，成功那条也在
+    const fed = await page.evaluate(() =>
+      ((window as unknown as { __STUB_AI_LAST_MSGS__?: { role: string; content: string }[] | null }).__STUB_AI_LAST_MSGS__ ?? [])
+        .filter((m) => m.role === 'user')
+        .map((m) => m.content),
+    )
+    expect(fed.some((c) => c.includes('失败（'))).toBe(true)
+    expect(fed.some((c) => c.includes('成功'))).toBe(true)
+    expect(
+      await page.evaluate(() => (window as unknown as { __STUB_AI_LAST_ROUND__?: number }).__STUB_AI_LAST_ROUND__),
+    ).toBe(2)
+    await page.waitForFunction(
+      () => document.querySelector('[data-role="assistant"]')?.getAttribute('data-status') === 'done',
+      { timeout: 15000 },
+    )
     expect(errs, `页面不该有报错：${errs.join(' | ')}`).toEqual([])
   })
 

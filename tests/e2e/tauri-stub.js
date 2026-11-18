@@ -302,6 +302,7 @@
           ? args.tools.map((t) => String(t?.name ?? ''))
           : null
         window.__STUB_AI_LAST_ROLES__ = msgs.map((m) => String(m?.role ?? ''))
+        window.__STUB_AI_LAST_MSGS__ = msgs.map((m) => ({ role: String(m?.role ?? ''), content: String(m?.content ?? '') }))
         let idx = 0
         const push = (msg) => {
           const entry = callbacks.get(ch?.id)
@@ -329,6 +330,25 @@
           // 「一直不结束」的流：测试在此之上点「停止」，断言 ai_chat_cancel 真发了命令
           aiPending.set(convId, { push })
           setTimeout(() => push({ t: 'text', delta: '写到一半' }), 0)
+          return Promise.resolve({ conversationId: convId })
+        }
+        // 多轮工具循环（F4c-1 轮次上限）：第 n 条对应第 n 次 ai_chat 调用，用完后落回
+        // 下面的普通回复 —— 语义是"模型每轮都在调工具，看前端把上限拦在哪一轮"。
+        const loopRounds = Array.isArray(window.__STUB_AI_TOOL_LOOP_ROUNDS__) ? window.__STUB_AI_TOOL_LOOP_ROUNDS__ : null
+        if (loopRounds && callN < loopRounds.length) {
+          const steps = Array.isArray(loopRounds[callN]) ? loopRounds[callN] : []
+          setTimeout(() => {
+            push({ t: 'round', n: Number(args?.round ?? 1) })
+            for (const step of steps) {
+              push({
+                t: 'toolStart',
+                id: String(step?.id ?? ''),
+                name: String(step?.name ?? ''),
+                args: step?.args ?? {},
+              })
+            }
+            finish('tool')
+          }, 0)
           return Promise.resolve({ conversationId: convId })
         }
         // 工具执行闭环（F4c-1）：第 1 次只发 `toolStart`（**不发 toolEnd**）再 `done{tool}`，
@@ -569,12 +589,16 @@
    * 走这条（以 `done{reason:'tool'}` 收尾），第 2 次走普通回复。
    */
   window.__STUB_AI_TOOL_LOOP__ = null
+  /** 多轮版：第 n 条 = 第 n 次 `ai_chat` 推的工具循环（轮次上限用例） */
+  window.__STUB_AI_TOOL_LOOP_ROUNDS__ = null
   /** 最近一次 `ai_chat` 收到的 `round`（断言"续跑用的是第 2 轮"用） */
   window.__STUB_AI_LAST_ROUND__ = null
   /** 最近一次 `ai_chat` 收到的工具清单名字（断言"前端真的把 tools 传下去了"用） */
   window.__STUB_AI_LAST_TOOLS__ = null
   /** 每一次 `ai_chat` 收到的 messages 角色序列（断言工具结果真的以消息回灌了） */
   window.__STUB_AI_LAST_ROLES__ = null
+  /** 最近一次 `ai_chat` 收到的完整 messages（断言回灌正文用 —— 小条渲染的是固定标签） */
+  window.__STUB_AI_LAST_MSGS__ = null
   /** 一次性摘要的返回正文（三期）：它与对话回复分开，测试才能区分"走的是哪条命令" */
   window.__STUB_AI_SUMMARY__ = '桩摘要：这三句是要点。'
   /** 历史原文（测试预置 / 复核"真的写进去了"都走它，绕开界面） */
