@@ -6,9 +6,13 @@
 //! 就是 spawn / 管道 / EOF / 超时 kill 本身。假 server 的路径用 `CARGO_MANIFEST_DIR`
 //! 拼绝对路径，不依赖 cwd。
 //!
-//! 用 `#[test]` + 自建 runtime，而不是 `#[tokio::test]`：`docs-check.mjs` 数 Rust 单测
-//! 的口径是字面 `#[test]`（`scripts/docs-check.mjs:241`），`#[tokio::test]` 它看不见 ——
-//! 两边一错位，facts 行要么写假数、要么永远对不上。手搭 runtime 只多三行，计数口径一致。
+//! 用 `#[test]` + 自建 runtime，而不是 `#[tokio::test]`。
+//!
+//! **理由已经变了，记在这里免得后来人照抄一段过期解释**：2026-11-18 之前 `docs-check`
+//! 只认字面 `#[test]`，写 `#[tokio::test]` 就是「cargo 数得到、脚本数不到」，facts 行只能
+//! 写假数 —— 那时不用它**是被门禁口径逼的**。现在 `countRustTests` 两种写法都认，
+//! 这条约束已经解除；仍然按老写法写，纯粹因为这里的用例都是 `block_on(...)` 串行跑，
+//! 多一个 async 属性只会让「哪条用例占了多久」更难看清，而计数口径不再是理由了。
 
 use std::future::Future;
 use std::path::PathBuf;

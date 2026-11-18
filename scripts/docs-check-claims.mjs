@@ -74,6 +74,32 @@ export function e2eItCount(src) {
 }
 
 /**
+ * 数**一个** `.rs` 源文件里的 Rust 单测条数与 `#[ignore]` 条数。
+ *
+ * ## 口径：`#[test]` 与 `#[tokio::test]` 都算
+ *
+ * 2026-11-18 之前只认字面 `#[test]`。当时的后果不是"少数了几条"，而是**工具的口径反过来
+ * 限制了代码怎么写**：`#[tokio::test]` 一写就「cargo 数得到、`docs-check` 数不到」，
+ * facts 行只能写假数或永远对不上 —— 于是全仓被迫一律 `#[test]` + 手搭 runtime，
+ * `client_tests.rs` 的头注释还专门解释了这件事。让门禁的视野去约束语言特性是反的，
+ * 所以这里把两种写法都认下来。
+ *
+ * ## 仍然只认**行首**
+ *
+ * `client_tests.rs` 的文件头注释里就有一句「而不是 `#[tokio::test]`」—— 放宽到行内会把
+ * 230 数成 231。这与 `e2eItCount` 先剥注释是同一条理由：**注释不是代码**，
+ * 会误报的检查等于没有检查。
+ *
+ * 与 `docs-check.mjs` 共用本实现，不各写一套（同一件事不许两种口径）。
+ */
+export function countRustTests(src) {
+  return {
+    tests: (src.match(/^\s*#\[(?:tokio::)?test\]/gm) ?? []).length,
+    ignored: (src.match(/^\s*#\[ignore\b/gm) ?? []).length,
+  };
+}
+
+/**
  * 版本号散落的**九处**名录 + 「每一处都读得到吗、读到的是不是同一个号」。
  *
  * 为什么从 `docs-check.mjs` 抽到这里（本文件的既有职责就是"可测的纯判据"）：`docs-check.mjs`
@@ -197,6 +223,21 @@ function main(argv) {
       return 2;
     }
     console.log(e2eItCount(readFileSync(file, 'utf8')));
+    return 0;
+  }
+  // Rust 单测计数口：打印 `{tests, ignored, net}`，给测试断言用（同一理由：无法 import）。
+  if (argv.includes('--rust-count')) {
+    const file = get('--rust-count');
+    if (!file) {
+      console.error('用法：--rust-count <rs 文件路径>');
+      return 2;
+    }
+    if (!existsSync(file)) {
+      console.error(`读不到 ${file}`);
+      return 2;
+    }
+    const r = countRustTests(readFileSync(file, 'utf8'));
+    console.log(JSON.stringify({ ...r, net: r.tests - r.ignored }));
     return 0;
   }
   // 版本号九处读数口：打印 JSON（{dir, places, unreadable, distinct, ok}）。

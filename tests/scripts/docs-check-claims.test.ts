@@ -460,3 +460,61 @@ describe('版本号九处：读数、三份副本、读不到必须响', () => {
     expect(r.status).toBe(2)
   }, 20_000)
 })
+
+describe('Rust 单测计数：两种写法都认，注释不算', () => {
+  /** 打 `--rust-count` 口，返回 `{ tests, ignored, net }` */
+  const countRust = (src: string) => {
+    const dir = mkdtempSync(join(tmpdir(), 'rust-count-'))
+    const file = join(dir, 'x.rs')
+    writeFileSync(file, src)
+    const r = spawnSync(process.execPath, [SCRIPT, '--rust-count', file], { cwd: ROOT, encoding: 'utf8' })
+    expect(r.status, `子进程没跑起来：${r.error?.message ?? r.stderr}`).toBe(0)
+    return JSON.parse(r.stdout) as { tests: number; ignored: number; net: number }
+  }
+
+  it('`#[tokio::test]` 与 `#[test]` 都要数到（口径解除的那一条）', () => {
+    // 2026-11-18 之前只认字面 `#[test]`，后果是全仓被迫一律手搭 runtime ——
+    // 工具的口径反过来限制代码怎么写，是反的。这条用例就是那次解除的钉子。
+    const r = countRust(`
+#[test]
+fn a() {}
+
+#[tokio::test]
+async fn b() {}
+`)
+    expect(r.tests).toBe(2)
+    expect(r.net).toBe(2)
+  }, 20_000)
+
+  it('注释里出现的 `#[tokio::test]` 不算（`client_tests.rs` 文件头那句就是）', () => {
+    // 放宽到行内会把 230 数成 231 —— 注释不是代码，与 e2eItCount 剥注释同一条理由。
+    const r = countRust(`
+//! 用 \`#[test]\` + 自建 runtime，而不是 \`#[tokio::test]\`：口径原因
+// #[tokio::test]
+#[test]
+fn a() {}
+`)
+    expect(r.tests).toBe(1)
+  }, 20_000)
+
+  it('`#[ignore]` 要减掉（net 才是 facts 行认的数）', () => {
+    const r = countRust(`
+#[test]
+fn a() {}
+
+#[test]
+#[ignore]
+fn b() {}
+`)
+    expect(r.tests).toBe(2)
+    expect(r.ignored).toBe(1)
+    expect(r.net).toBe(1)
+  }, 20_000)
+
+  it('接线：docs-check 用共用实现，不许再自带一份正则（两份口径迟早各说各话）', () => {
+    const src = readFileSync(join(ROOT, 'scripts/docs-check.mjs'), 'utf8')
+    expect(src).toMatch(/^import \{[^}]*countRustTests[^}]*\} from '\.\/docs-check-claims\.mjs'/m)
+    // 旧写法的特征串：自己 match `#[test]`。留着它就等于有两套口径。
+    expect(src).not.toMatch(/\^\s*\\s\*#\\\[test\\\]/)
+  }, 20_000)
+})

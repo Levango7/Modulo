@@ -35,6 +35,7 @@
  */
 import { existsSync, readFileSync, writeFileSync } from 'node:fs'
 import { resolve } from 'node:path'
+import { canUpdateLedger, commitOfRef, judgeCommit } from './release-tag-commit.mjs'
 
 const REPO = process.env.GH_REPO ?? 'Levango7/Modulo'
 const MANIFEST = resolve(process.cwd(), 'release-manifest.json')
@@ -66,16 +67,18 @@ const collect = async () => {
   const out = {}
   for (const r of releases) {
     if (!TAG_RE.test(r.tag_name)) continue
-    // 解引用到 commit：annotated tag 的 object.sha 指向 tag 对象，不是 commit
-    let commit = r.target_commitish
+    // 解引用到 commit：annotated tag 的 object.sha 指向 tag 对象，不是 commit。
+    //
+    // **读不到就留 `null`，绝不回落到 `r.target_commitish`**：GitHub 上所有 tag 的这个字段
+    // 都是分支名字符串（`"master"`），拿它当 commit 去跟台账比必然不等、必然报「变了」。
+    // 2026-11-17 凌晨 PR #311 的假红就是这么来的（远端 tag 一个字都没动）。
+    // 判定逻辑在 `release-tag-commit.mjs`，那里有完整的现场复盘。
     const ref = await api(`/repos/${REPO}/git/ref/tags/${r.tag_name}`).catch(() => null)
-    if (ref?.object) {
-      if (ref.object.type === 'commit') commit = ref.object.sha
-      else if (ref.object.type === 'tag') {
-        const t = await api(`/repos/${REPO}/git/tags/${ref.object.sha}`).catch(() => null)
-        commit = t?.object?.sha ?? commit
-      }
-    }
+    const tagObj =
+      ref?.object?.type === 'tag'
+        ? await api(`/repos/${REPO}/git/tags/${ref.object.sha}`).catch(() => null)
+        : null
+    const commit = commitOfRef(ref, tagObj)
     const assets = {}
     for (const a of r.assets ?? []) {
       // digest 形如 "sha256:..."；没有它就说明 GitHub 侧没给，这本身就是一条要报的账
@@ -129,6 +132,15 @@ if (process.argv.includes('--update')) {
   const prev = existsSync(MANIFEST)
     ? JSON.parse(readFileSync(MANIFEST, 'utf8')).legacyUnsignedTags
     : undefined
+  // **读不到 commit 的条目一律不许进台账**：`--update` 抄的是"以后比对用的基线"，
+  // 抄进去一个 null，下一次校验就是「台账 null vs 现在 sha」，必然报变了 —— 自己造一条永久假红
+  // （与 `legacyUnsignedTags` 那次自己抹掉白名单同一类病）。
+  const unresolved = Object.entries(live).filter(([, r]) => !canUpdateLedger(r.commit)).map(([t]) => t)
+  if (unresolved.length) {
+    console.error(`✗ 这些 tag 的 commit 读不到，拒绝改写台账：${unresolved.join(' / ')}`)
+    console.error('  读不到 ≠ 没有。等 API 恢复后重跑 --update。')
+    process.exit(1)
+  }
   const out = { updatedAt: new Date().toISOString(), releases: live }
   if (prev) out.legacyUnsignedTags = prev
   writeFileSync(MANIFEST, JSON.stringify(out, null, 2) + '\n')
@@ -183,9 +195,10 @@ if (process.argv.includes('--update')) {
     const now = live[tag]
     if (!now) { note(`${tag}：台账里有，但远端没有这个 release`); continue }
 
-    if (now.commit !== rec.commit) {
-      note(`${tag}：**tag 指向的 commit 变了**\n    台账 ${rec.commit}\n    现在 ${now.commit}`)
-    }
+    // 三档判定（ok / changed / unreadable），「读不到」不许并进任何一档 ——
+    // 并进 changed 就是「API 抖一下报一次 tag 被篡改」，并进 ok 就是真改指也看不见。
+    const judged = judgeCommit(tag, rec.commit, now.commit)
+    if (judged.note) note(judged.note)
     if (rec.assets) {
       for (const [name, digest] of Object.entries(rec.assets)) {
         if (!digest) { note(`${tag} / ${name}：台账里 digest 是空的，这条资产从来没被记过字节`); continue }
