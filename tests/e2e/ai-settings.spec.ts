@@ -167,6 +167,29 @@ describe.skipIf(skip)('F-12 AI 模型服务（桌面形态）', () => {
     expect(errs, `页面不该有报错：${errs.join(' | ')}`).toEqual([])
   })
 
+  it('P1b：工具调用勾选框 —— 默认关、勾上后落盘 supportsTools:true、再次编辑回显', async () => {
+    const errs: string[] = []
+    const page = await openLab(errs)
+    await click(page, '[data-ai-add]')
+    await page.waitForSelector('[data-ai-form]', { timeout: 10000 })
+    // 默认关：大多数 OpenAI 兼容服务不带工具调用，静默默认开会在服务端 400
+    expect(await page.evaluate(() => (document.querySelector('[data-ai-supports-tools]') as HTMLInputElement).checked)).toBe(false)
+    await setValue(page, '[data-ai-url]', 'https://api.example.com/v1')
+    await setValue(page, '[data-ai-model]', 'gpt-4o-mini')
+    await click(page, '[data-ai-supports-tools]')
+    await click(page, '[data-ai-save]')
+    await page.waitForSelector('[data-provider]', { timeout: 10000 })
+    await page.waitForFunction(() => !!localStorage.getItem('modulo.__stubdoc.ai-settings.v1'), { timeout: 10000 })
+    const doc = JSON.parse((await savedDoc(page)) ?? '{}') as { providers?: { supportsTools?: boolean }[] }
+    expect(doc.providers?.[0]?.supportsTools).toBe(true)
+
+    // 再编辑：开关回显勾上（漏接 openEdit 的症状是"改一个字段把勾选静默关掉"）
+    await click(page, '[data-ai-edit]')
+    await page.waitForSelector('[data-ai-form]', { timeout: 10000 })
+    expect(await page.evaluate(() => (document.querySelector('[data-ai-supports-tools]') as HTMLInputElement).checked)).toBe(true)
+    expect(errs, `页面不该有报错：${errs.join(' | ')}`).toEqual([])
+  })
+
   it('点「测试连接」：探测通 → 可用；探测不通 → 连不上（状态不落盘，重启回未测试）', async () => {
     const errs: string[] = []
     const page = await openLab(errs)

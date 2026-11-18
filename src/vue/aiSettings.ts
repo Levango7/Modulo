@@ -29,6 +29,8 @@ export interface AiProvider {
   kind: ProviderKind
   baseUrl: string
   model: string
+  /** P1b（契约 §2.3）：这位为真，`ai_chat` 才带 `tools`；盘上缺键 = false（老条目零改动） */
+  supportsTools: boolean
 }
 
 /** `ai_providers` 的返回条目（Rust `ProviderView`，camelCase） */
@@ -39,6 +41,7 @@ export interface ProviderView {
   model: string
   keyConfigured: boolean
   ready: boolean
+  supportsTools: boolean
 }
 
 /** 编辑表单里正在敲的那份（保存前不落盘） */
@@ -46,6 +49,7 @@ export interface ProviderDraft {
   kind: ProviderKind
   baseUrl: string
   model: string
+  supportsTools: boolean
 }
 
 /** 本机三个写法：Ollama / LM Studio 就住这儿，明文 http 也放行（与 Rust 的 `is_local_host` 同集） */
@@ -135,18 +139,30 @@ export function parseAiDoc(raw: string | null): AiProvider[] {
     const id = asText(o.id)
     if (!id || seen.has(id)) continue
     seen.add(id)
-    out.push({ id, kind: asKind(o.kind), baseUrl: asText(o.baseUrl), model: asText(o.model) })
+    out.push({
+      id,
+      kind: asKind(o.kind),
+      baseUrl: asText(o.baseUrl),
+      model: asText(o.model),
+      supportsTools: o.supportsTools === true,
+    })
   }
   return out
 }
 
 /**
  * 写配置文档。字段逐个点名而不是展开对象：盘上多出来的键（将来的、手改的）不该被
- * 悄悄带回去 —— Rust 那边 `ProviderCfg` 只认这四个字段，多写就是对不上的第二套 schema。
+ * 悄悄带回去 —— Rust 那边 `ProviderCfg` 只认这五个字段，多写就是对不上的第二套 schema。
  */
 export function serializeAiDoc(list: readonly AiProvider[]): string {
   return JSON.stringify({
-    providers: list.map((p) => ({ id: p.id, kind: p.kind, baseUrl: p.baseUrl, model: p.model })),
+    providers: list.map((p) => ({
+      id: p.id,
+      kind: p.kind,
+      baseUrl: p.baseUrl,
+      model: p.model,
+      supportsTools: p.supportsTools,
+    })),
   })
 }
 
@@ -170,14 +186,16 @@ export function makeProviderId(nowMs: number, existing: readonly AiProvider[]): 
 export function addProvider(list: readonly AiProvider[], id: string, draft: ProviderDraft): AiProvider[] {
   return [
     ...list,
-    { id, kind: draft.kind, baseUrl: draft.baseUrl.trim(), model: draft.model.trim() },
+    { id, kind: draft.kind, baseUrl: draft.baseUrl.trim(), model: draft.model.trim(), supportsTools: draft.supportsTools },
   ]
 }
 
 /** 就地改一条（id 不变）。找不到就原样返回 —— 并发删掉后再保存不该凭空复活一条 */
 export function updateProvider(list: readonly AiProvider[], id: string, draft: ProviderDraft): AiProvider[] {
   return list.map((p) =>
-    p.id === id ? { id, kind: draft.kind, baseUrl: draft.baseUrl.trim(), model: draft.model.trim() } : p,
+    p.id === id
+      ? { id, kind: draft.kind, baseUrl: draft.baseUrl.trim(), model: draft.model.trim(), supportsTools: draft.supportsTools }
+      : p,
   )
 }
 

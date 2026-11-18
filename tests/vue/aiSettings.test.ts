@@ -31,6 +31,7 @@ const P = (over: Partial<AiProvider> = {}): AiProvider => ({
   kind: 'openai-compatible',
   baseUrl: 'https://api.example.com/v1',
   model: 'gpt-4o-mini',
+  supportsTools: false,
   ...over,
 })
 
@@ -86,7 +87,12 @@ describe('地址判据（与 Rust 同一张表）', () => {
   })
 
   it('表单校验：地址先过判据，模型名必填', () => {
-    const draft = { kind: 'openai-compatible' as const, baseUrl: 'https://api.example.com/v1', model: '' }
+    const draft = {
+      kind: 'openai-compatible' as const,
+      baseUrl: 'https://api.example.com/v1',
+      model: '',
+      supportsTools: false,
+    }
     expect(checkDraft({ ...draft, baseUrl: 'http://ai.example.com' })).toContain('明文 http')
     expect(checkDraft(draft)).toBe('模型名不能为空（例如 gpt-4o-mini 或 qwen2.5:7b）')
     expect(checkDraft({ ...draft, model: 'gpt-4o-mini' })).toBeNull()
@@ -100,9 +106,9 @@ describe('配置文档：不可信输入逐条清洗', () => {
     }
   })
 
-  it('缺字段兜底：kind → openai-compatible，地址/模型 → 空串', () => {
+  it('缺字段兜底：kind → openai-compatible，地址/模型 → 空串，supportsTools → false', () => {
     expect(parseAiDoc('{"providers":[{"id":"a"}]}')).toEqual([
-      { id: 'a', kind: 'openai-compatible', baseUrl: '', model: '' },
+      { id: 'a', kind: 'openai-compatible', baseUrl: '', model: '', supportsTools: false },
     ])
     // 不认识的 kind 也按同一个兜底（Rust 只把它当字符串转回去，不校验）
     expect(parseAiDoc('{"providers":[{"id":"a","kind":"anthropic","baseUrl":"x","model":"y"}]}')[0].kind).toBe(
@@ -122,21 +128,33 @@ describe('配置文档：不可信输入逐条清洗', () => {
       ],
     })
     expect(parseAiDoc(raw)).toEqual([
-      { id: 'dup', kind: 'openai-compatible', baseUrl: 'https://first.example.com', model: 'm1' },
-      { id: 'ok', kind: 'openai-compatible', baseUrl: 'https://ok.example.com', model: 'm3' },
+      { id: 'dup', kind: 'openai-compatible', baseUrl: 'https://first.example.com', model: 'm1', supportsTools: false },
+      { id: 'ok', kind: 'openai-compatible', baseUrl: 'https://ok.example.com', model: 'm3', supportsTools: false },
     ])
   })
 
-  it('序列化只写四个契约字段，往返一致', () => {
+  it('supportsTools 只认真 true：老文档缺键=false，坏值逐条清洗', () => {
+    expect(parseAiDoc('{"providers":[{"id":"a","supportsTools":true}]}')[0].supportsTools).toBe(true)
+    // 契约 §2.3：缺键 = false（老条目零改动）；非布尔值不猜
+    expect(parseAiDoc('{"providers":[{"id":"a"}]}')[0].supportsTools).toBe(false)
+    expect(parseAiDoc('{"providers":[{"id":"a","supportsTools":"true"}]}')[0].supportsTools).toBe(false)
+    expect(parseAiDoc('{"providers":[{"id":"a","supportsTools":1}]}')[0].supportsTools).toBe(false)
+    // 往返保留
+    const on = [P({ supportsTools: true })]
+    expect(parseAiDoc(serializeAiDoc(on))).toEqual(on)
+  })
+
+  it('序列化只写五个契约字段，往返一致', () => {
     const list = [P(), P({ id: 'p-2', kind: 'ollama', baseUrl: 'http://localhost:11434', model: 'qwen2.5:7b' })]
     expect(parseAiDoc(serializeAiDoc(list))).toEqual(list)
-    // 盘上多出来的键不该被带回去（Rust 的 ProviderCfg 只认这四个）
+    // 盘上多出来的键不该被带回去（Rust 的 ProviderCfg 只认这五个）
     const dirty = JSON.stringify({ providers: [{ id: 'a', kind: 'ollama', baseUrl: 'u', model: 'm', name: '旧版' }] })
     expect(JSON.parse(serializeAiDoc(parseAiDoc(dirty))).providers[0]).toEqual({
       id: 'a',
       kind: 'ollama',
       baseUrl: 'u',
       model: 'm',
+      supportsTools: false,
     })
   })
 })
@@ -152,24 +170,37 @@ describe('增删改与 id', () => {
     expect(makeProviderId(1.9, [])).toBe('p-1')
   })
 
-  it('增：地址与模型去首尾空格；不改原数组', () => {
+  it('增：地址与模型去首尾空格；不改原数组；supportsTools 跟着草稿走', () => {
     const before = [P()]
-    const after = addProvider(before, 'p-new', { kind: 'ollama', baseUrl: '  http://localhost:11434 ', model: ' qwen2.5:7b ' })
+    const after = addProvider(before, 'p-new', {
+      kind: 'ollama',
+      baseUrl: '  http://localhost:11434 ',
+      model: ' qwen2.5:7b ',
+      supportsTools: true,
+    })
     expect(before).toHaveLength(1)
     expect(after[1]).toEqual({
       id: 'p-new',
       kind: 'ollama',
       baseUrl: 'http://localhost:11434',
       model: 'qwen2.5:7b',
+      supportsTools: true,
     })
   })
 
   it('改：id 不变，找不到就原样返回', () => {
-    const after = updateProvider([P()], 'p-1', { kind: 'ollama', baseUrl: ' http://127.0.0.1:11434 ', model: ' llama3 ' })
+    const after = updateProvider([P()], 'p-1', {
+      kind: 'ollama',
+      baseUrl: ' http://127.0.0.1:11434 ',
+      model: ' llama3 ',
+      supportsTools: true,
+    })
     expect(after).toEqual([
-      { id: 'p-1', kind: 'ollama', baseUrl: 'http://127.0.0.1:11434', model: 'llama3' },
+      { id: 'p-1', kind: 'ollama', baseUrl: 'http://127.0.0.1:11434', model: 'llama3', supportsTools: true },
     ])
-    expect(updateProvider([P()], 'nope', { kind: 'ollama', baseUrl: 'x', model: 'y' })).toEqual([P()])
+    expect(
+      updateProvider([P()], 'nope', { kind: 'ollama', baseUrl: 'x', model: 'y', supportsTools: false }),
+    ).toEqual([P()])
   })
 
   it('删：删到空列表也不炸', () => {
@@ -191,8 +222,8 @@ describe('展示与探测结果', () => {
 
   it('ai_providers 的返回折成两张按 id 查的表', () => {
     const views: ProviderView[] = [
-      { id: 'a', kind: 'ollama', baseUrl: 'u', model: 'm', keyConfigured: false, ready: true },
-      { id: 'b', kind: 'openai-compatible', baseUrl: 'u', model: 'm', keyConfigured: true, ready: false },
+      { id: 'a', kind: 'ollama', baseUrl: 'u', model: 'm', keyConfigured: false, ready: true, supportsTools: false },
+      { id: 'b', kind: 'openai-compatible', baseUrl: 'u', model: 'm', keyConfigured: true, ready: false, supportsTools: true },
     ]
     expect(mergeProbe(views)).toEqual({ ready: { a: true, b: false }, keys: { a: false, b: true } })
     expect(mergeProbe([])).toEqual({ ready: {}, keys: {} })
@@ -217,6 +248,6 @@ describe('契约与纪律', () => {
   it('序列化里永远没有密钥 —— 它只经 ai_set_key 进凭据库', () => {
     const raw = serializeAiDoc([P()])
     expect(raw).not.toContain('key')
-    expect(Object.keys(JSON.parse(raw).providers[0]).sort()).toEqual(['baseUrl', 'id', 'kind', 'model'])
+    expect(Object.keys(JSON.parse(raw).providers[0]).sort()).toEqual(['baseUrl', 'id', 'kind', 'model', 'supportsTools'])
   })
 })

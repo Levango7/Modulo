@@ -21,6 +21,9 @@ pub(crate) struct ProviderCfg {
     pub kind: String,
     pub base_url: String,
     pub model: String,
+    /// P1b（契约 §2.3）：这位为真时前端才在 `ai_chat` 里带 `tools`；缺省 false（老条目零改动）
+    #[serde(default)]
+    pub supports_tools: bool,
 }
 
 #[derive(Deserialize, Default)]
@@ -40,6 +43,7 @@ pub(crate) struct ProviderView {
     pub model: String,
     pub key_configured: bool,
     pub ready: bool,
+    pub supports_tools: bool,
 }
 
 /// 读全部配置。文档不存在 = 空配置（AC-10 引导空状态由前端渲染），不是错误

@@ -256,6 +256,7 @@
             model: String(p.model ?? ''),
             keyConfigured: localStorage.getItem('modulo.__stubai.key.' + String(p.id)) !== null,
             ready,
+            supportsTools: p.supportsTools === true,
           })),
         )
       }

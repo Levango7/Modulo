@@ -85,6 +85,8 @@ afterAll(async () => {
 
 interface Seed {
   ai?: boolean
+  /** P1b：把预置 provider 的 `supportsTools` 显式打开（缺省 = 老文档形态，盘上没这个键） */
+  aiTools?: boolean
   history?: unknown[]
   hang?: boolean
   reply?: string
@@ -167,7 +169,11 @@ async function open(seed: Seed = {}, errs?: string[]): Promise<Page> {
     STUB_SOURCE,
     JSON.stringify(doc),
     JSON.stringify(card),
-    seed.ai === false ? null : JSON.stringify(AI),
+    seed.ai === false
+      ? null
+      : JSON.stringify(
+          seed.aiTools === true ? { providers: AI.providers.map((p) => ({ ...p, supportsTools: true })) } : AI,
+        ),
     seed.history ? JSON.stringify(seed.history) : null,
     seed.hang === true,
     seed.reply ?? null,
@@ -251,6 +257,40 @@ describe.skipIf(skip)('F-12 二期：底部对话坞（桌面形态）', () => {
     // 入口能点：点了要真的打开设置（不是一句单纯的文字提示）
     await click(page, '[data-chat-goto-settings]')
     await page.waitForSelector('.panel', { timeout: 10000 })
+    expect(errs, `页面不该有报错：${errs.join(' | ')}`).toEqual([])
+  })
+
+  it('P1b：supportsTools 缺省 ⇒ ai_chat **不带 tools 键**；开了 ⇒ 带上整张白名单', async () => {
+    const errs: string[] = []
+    // 老文档（provider 上没有这个键）：契约 §2.4 的降级形态 —— 词汇仍走 @@act 文字约定，
+    // 请求里连 `tools` 这个键都不出现（不是空数组，"不出现"才能与"带了空清单"分开）
+    const page = await open({}, errs)
+    await expand(page)
+    await ask(page, '你好')
+    await page.waitForSelector('[data-role="assistant"][data-status="done"]', { timeout: 15000 })
+    const off = (await calls(page)).filter((c) => c.cmd === 'ai_chat').at(-1)!
+    expect(Object.prototype.hasOwnProperty.call(off.args, 'tools'), '缺省不该带 tools 键').toBe(false)
+
+    // 开关打开的 provider：带 tools，且清单就是白名单那张表（主干 F4c-1 的 10 个工具名）
+    const page2 = await open({ aiTools: true }, errs)
+    await expand(page2)
+    await ask(page2, '你好')
+    await page2.waitForSelector('[data-role="assistant"][data-status="done"]', { timeout: 15000 })
+    const on = (await calls(page2)).filter((c) => c.cmd === 'ai_chat').at(-1)!
+    const tools = on.args.tools as { name: string; parameters: { type: string } }[]
+    expect(tools.map((t) => t.name).sort()).toEqual([
+      'add_card',
+      'context_read',
+      'countdown_set',
+      'habit_check',
+      'knowledge_add',
+      'ledger_add',
+      'memory_add',
+      'skill_add',
+      'sticky_append',
+      'todo_add',
+    ])
+    expect(tools.every((t) => t.parameters.type === 'object')).toBe(true)
     expect(errs, `页面不该有报错：${errs.join(' | ')}`).toEqual([])
   })
 
@@ -351,6 +391,8 @@ describe.skipIf(skip)('F-12 二期：底部对话坞（桌面形态）', () => {
     const page = await open(
       {
         reply: '加好了。',
+        // P1b 起 tools 按 provider 开关下发：这条用例断言「清单真传了」，provider 必须开着
+        aiTools: true,
         toolLoop: [{ id: 'call-1', name: 'todo_add', args: { text: '买牛奶' } }],
       },
       errs,
