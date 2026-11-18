@@ -30,7 +30,7 @@ import { execSync } from 'node:child_process';
 import { readFileSync, readdirSync, statSync, existsSync } from 'node:fs';
 import { join, resolve, relative } from 'node:path';
 import { checkArtifactLine, latestArtifact } from './release-artifact-facts.mjs';
-import { claimRe, e2eItCount, fileLineClaims, VERSION_PLACES, versionPlaces, versionVerdict } from './docs-check-claims.mjs';
+import { claimRe, countRustTests, e2eItCount, fileLineClaims, VERSION_PLACES, versionPlaces, versionVerdict } from './docs-check-claims.mjs';
 
 const root = resolve(process.cwd());
 const MARK = '<!-- facts -->';
@@ -237,9 +237,11 @@ function rustFacts() {
         if (e.name === 'target') continue; // 依赖源码副本，绝不能进去
         walk(join(dir, e.name));
       } else if (e.name.endsWith('.rs')) {
-        const src = readFileSync(join(dir, e.name), 'utf8');
-        tests += (src.match(/^\s*#\[test\]/gm) ?? []).length;
-        ignored += (src.match(/^\s*#\[ignore\b/gm) ?? []).length;
+        // 口径在 `countRustTests` 里（`#[test]` 与 `#[tokio::test]` 都认），
+        // 与测试共用同一实现 —— 同一件事不许两种口径。
+        const c = countRustTests(readFileSync(join(dir, e.name), 'utf8'));
+        tests += c.tests;
+        ignored += c.ignored;
       }
     }
   };
