@@ -63,6 +63,8 @@ import { createMemory } from './vue/useMemory'
 import { createCron } from './vue/useCron'
 import { createSkills } from './vue/useSkills'
 import { createWorkflow } from './vue/useWorkflow'
+import { createMcp } from './vue/useMcp'
+import { createMcpExecution } from './vue/useMcpExecution'
 import { AI_DOC_KEY, parseAiDoc } from './vue/aiSettings'
 import { canShowDock } from './vue/aiChat'
 
@@ -489,6 +491,19 @@ const workflow = createWorkflow({
   providers: () => parseAiDoc(storage.get(AI_DOC_KEY)),
 })
 provide('workflow', workflow)
+/**
+ * 「MCP」的共享状态（J1 执行半，2026-11-18）：配置在设置页改、工具清单在坞里用 ——
+ * 两处必须是**同一份**。此前 `createMcp` 只在 `McpSection` 里各 new 一份，设置里刚确认的
+ * 服务，坞那边根本看不见（各读各的 ref），所以提成 App 级单例。
+ *
+ * `mcpExecution` 是三条 `mcp_*` 命令的唯一前端调用点。确认态**只在内存**（Rust 侧
+ * `McpState.confirmed` 没有查询命令、重启即清），因此它也必须单例 —— 每个组件各持一份，
+ * 就会各自以为"已确认"而 Rust 那边只认其中一次的记录。
+ */
+const mcp = createMcp(storage)
+provide('mcp', mcp)
+const mcpExecution = createMcpExecution()
+provide('mcpExecution', mcpExecution)
 /**
  * 左栏显隐（PR-D）：**按窗口宽自适应**，阈值取「12 列舞台 + 栏宽」——
  * 栏常驻会把 1440 视口的舞台压到 8 列，破坏「1440 → 12 列」的响应式承诺

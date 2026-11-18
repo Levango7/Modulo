@@ -84,7 +84,12 @@ import {
   type ActionContext,
   type ActStep,
   type AiAction,
+  type ToolSpecLite,
 } from '../aiActions'
+import type { McpApi } from '../useMcp'
+import type { McpExecutionApi } from '../useMcpExecution'
+import { mcpResultLine, mergeToolLists, routeToolCall } from '../mcpTools'
+import { isDesktop } from '../useShell'
 import { localDay } from '../reminders'
 import { habitOf, stickyOf, writeCountdown, writeHabit, writeSticky } from '../instanceData'
 import ChatTimeline from './ChatTimeline.vue'
@@ -102,6 +107,14 @@ const sessions = inject<AiSessionsApi>('aiSessions')!
 const knowledge = inject<KnowledgeApi>('knowledge')!
 const memory = inject<MemoryApi>('memory')!
 const skills = inject<SkillsApi>('skills')!
+/**
+ * MCP 的两份应用级单例（J1 执行半）。**必须是 App 那一份**（`App.vue` 的
+ * `provide('mcp')` / `provide('mcpExecution')`）：设置页与坞各 new 一份的话，
+ * 用户在设置里刚「允许本会话使用」的服务，坞这边看不见（两份 ref），
+ * 而确认态更严重 —— Rust `McpState.confirmed` 只认那一次 `mcp_confirm`，两端会永久分叉。
+ */
+const mcp = inject<McpApi>('mcp')!
+const mcpExec = inject<McpExecutionApi>('mcpExecution')!
 
 /**
  * 一轮对话。比 `ChatTurn` 多一样东西：**逐条执行状态**。
@@ -138,6 +151,20 @@ let streamToken = 0
  * 每次用户主动发新消息时清掉（`runTurn`）。
  */
 let aborted = false
+/**
+ * **一轮对话**下发的工具清单与它的路由索引（J1 执行半）。
+ *
+ * 为什么必须按「一轮」缓存、而不是每次 `streamTurn` 现算：`runToolPhase` 执行完工具后
+ * 会带着同一轮继续 `streamTurn(…, round + 1)`。若第 0 轮与第 n 轮各算一次，模型看到的是
+ * **工具在消失**（哪怕只是 gather 里某个服务这次慢了一点）—— 它会以为自己没调好。
+ * 所以生命周期钉死在一轮上：`runTurn` 开头清空（用户又发了话 = 新的一轮），
+ * 这一轮的所有收尾路径（正常结束 / 出错 / 停止 / 轮次用尽）也清空。
+ *
+ * `turnIndex` 与 `turnTools` **同生同死**：一个是发给模型的清单，一个是"这个工具名归哪个
+ * 服务"的路由表。两者不同源的话，模型调一个刚被从清单里拿掉的工具，就会路由到不存在的服务。
+ */
+let turnTools: ToolSpecLite[] | null = null
+let turnIndex: ReadonlyMap<string, string> = new Map()
 /**
  * 一轮对话里最多几次工具往返。真源是单源 `net-policy.json` 的 `limits.mcpMaxRounds`
  * （生成产物 `packages/engine/src/netPolicy.generated.ts` 带过来），这里不另写数字。
@@ -344,7 +371,48 @@ async function runTurn(text: string, usedChips: CardChoice[], usedFiles: Mounted
   if (!text || busy.value) return
   // 用户又发了话：上一轮的「停止」不再作数（F4c-1 的工具循环读这个标志）
   aborted = false
+  // 新的**一轮**：工具清单与路由表重新算（用户可能刚在设置里允许了一个服务）——
+  // 生命周期见 `turnTools` 的注释。这里清、`prepareTurnTools` 里算，一线到底。
+  endTurnTools()
   await streamTurn(text, usedChips, usedFiles, 1)
+}
+
+/**
+ * 这一轮要下发给模型的工具清单（J1 执行半）：本地白名单在前（保序），已确认服务的
+ * MCP 工具随后（逐条过闸门的活全在 `mergeToolLists` 里）。
+ *
+ * 三种情况**逐字退回旧行为**：provider 没开 `supportsTools`（调用点压根不进这里）、
+ * 总开关关着、不是桌面壳。后两种连 `gather` 都不跑 —— **一个子进程都不许起**：
+ * 用户没允许的服务，拉起来这一步本身就是要防的事。
+ */
+async function prepareTurnTools(): Promise<ToolSpecLite[]> {
+  const local = toolSpecs()
+  if (!mcp.gate.value || !isDesktop) return local
+  const { entries, skipped } = await mcpExec.gather(mcp.servers.value)
+  const merged = mergeToolLists(local, entries)
+  // 路由表与清单同源（见 `turnIndex` 的注释）
+  turnIndex = merged.index
+  // gather 的（某个服务的清单没拉下来）与 merge 的（某条工具没进清单）都是"没拿全"，
+  // 同一种话一起说。未确认 / 已停用的服务**不在这里**：那是用户自己摆的状态，界面上写着。
+  const why = [...skipped, ...merged.skipped]
+  if (why.length) notice.value = skippedNote(why)
+  return merged.tools
+}
+
+/**
+ * 「没列全」的一行提示：**最多三条 + 一句总数**。
+ * `notice` 是给用户看的一行字（不是给模型的），一个服务挂掉就能带出好几条 ——
+ * 全糊上去等于什么都没说，还会把输入框顶走。
+ */
+function skippedNote(lines: readonly string[]): string {
+  const head = lines.slice(0, 3).join('；')
+  return lines.length > 3 ? `${head}；等 ${lines.length} 条` : head
+}
+
+/** 一轮对话收尾：清掉这一轮的清单缓存（下一轮由 `runTurn` 重新算，见 `turnTools`） */
+function endTurnTools(): void {
+  turnTools = null
+  turnIndex = new Map()
 }
 
 /**
@@ -409,6 +477,8 @@ async function streamTurn(
       if (t.status !== 'error') attachActions(idx)
       busy.value = false
       streamConv.value = null
+      // 这一轮到此为止：清掉本轮的工具清单缓存（下一轮由 `runTurn` 重算）
+      endTurnTools()
       void sessions.refresh()
     }
     scrollDown()
@@ -417,6 +487,15 @@ async function streamTurn(
   try {
     const messages = buildMessages(turns.value, usedChips, excerptOf, memory.entries.value)
     const supportsTools = providers.value.find((x) => x.id === providerId.value)?.supportsTools ?? false
+    /**
+     * 清单合并（J1 执行半）：**一轮只算一次**，续跑轮复用同一份（见 `turnTools` 的注释）。
+     * 不满足条件时 `turnTools` 保持 null，下面那个三元就落回 `toolSpecs()` —— 与这笔之前逐字一致。
+     */
+    if (supportsTools && !turnTools) {
+      turnTools = await prepareTurnTools()
+      // 等待期间世界可能已经变了（新对话 / 切会话 / 组件卸载）：这一趟请求作废，别再发出去
+      if (token !== streamToken) return
+    }
     const r = await invoke<{ conversationId: string }>('ai_chat', {
       providerId: providerId.value,
       conversationId: conversationId.value,
@@ -426,7 +505,8 @@ async function streamTurn(
       // F4c-1：工具清单由前端从动作白名单生成（`toolSpecs`），与 `@@act` 文字约定同一份口径。
       // 契约 §2.3（P1b）：仅在 provider 的 supportsTools 为真时附带 —— 键整条不出现 = 退回 @@act 文字约定
       // （`request::chat_body` 也把空清单当没传，两处口径一致）。
-      ...(supportsTools ? { tools: toolSpecs() } : {}),
+      // J1 起这张表多了已确认服务的 MCP 工具（`mergeToolLists` 合出来的那一张）。
+      ...(supportsTools ? { tools: turnTools ?? toolSpecs() } : {}),
       round,
       onChunk: ch,
     })
@@ -438,6 +518,8 @@ async function streamTurn(
     turns.value[idx] = { ...turns.value[idx], status: 'error', error: String(err) }
     busy.value = false
     streamConv.value = null
+    // 发都没发出去（多半是 gather / invoke 失败）：这一轮结束，清单缓存跟着清
+    endTurnTools()
   }
 }
 
@@ -468,7 +550,20 @@ async function runToolPhase(
     if (token !== streamToken || aborted) break
     if (executed.has(s.id)) continue
     executed.add(s.id)
-    const r = executeToolStep(s)
+    const r = await executeToolStep(s)
+    /**
+     * `executeToolStep` 现在会 `await`（MCP 调用是一次真 IPC，可能几秒）—— **回来之后
+     * 世界可能已经变了**，两种变化要分开处理，混成一条判据会各自错一半：
+     *
+     * ① **这一轮被顶掉了**（`token` 前移：新对话 / 切会话 / 卸载）：`turns` 已被整份换掉，
+     *    还按 `idx` 写回去就是写进别人的对话里（`turns.value[idx]` 甚至可能是 undefined，
+     *    spread 出一行没有 role 的幽灵气泡）。所以结果**丢弃**，一步都不再走。
+     * ② **用户按了停止**（`token` 没变、`aborted` 为真）：这一步**已经跑完了**，
+     *    副作用就在那儿（写进去的账、发出去的命令都收不回）。此时不记这一行，用户会看到
+     *    「这一步没拿到结果」—— 那是假的。所以如实记下来，然后立刻停手：
+     *    不再执行下一步、也不再回灌续跑（下面的 `if (aborted)` 收尾）。
+     */
+    if (token !== streamToken) break
     results.push(r)
     // 回写时间线：这一步的结论。仍走 `applyToolEvent`，不另造一条写状态的路
     const cur = turns.value[idx]
@@ -476,6 +571,7 @@ async function runToolPhase(
       ...cur,
       tools: applyToolEvent(cur.tools, { t: 'toolEnd', id: r.id, ok: r.ok, result: r.result, error: r.error }),
     }
+    if (aborted) break
   }
 
   // 被新对话顶掉：那一轮已经收过尾，这里什么都不许动
@@ -506,16 +602,23 @@ function finishToolPhase(idx: number): void {
   turns.value[idx] = { ...turns.value[idx], tools: settleToolSteps(turns.value[idx].tools) }
   busy.value = false
   streamConv.value = null
+  // 这一轮到此为止（三条收尾路径都不续跑）：清掉本轮的工具清单缓存
+  endTurnTools()
   void sessions.refresh()
 }
 
 /**
- * 执行一步工具调用。**不抛**（异常一律折成 `ok:false`，见不变量 2）。
+ * 执行一步工具调用 → 一步的结算。**不抛**（异常一律折成 `ok:false`，见不变量 2）。
  *
- * 校验走 `actionFromToolCall` —— 与 `@@act` 那几条**完全同一套闸门**：白名单、字段、
- * 上限、实例定点。模型换一条路进来，门槛不许跟着变低。
+ * 两条路（J1 执行半起），判定全在 `routeToolCall` 里：
+ * - **MCP**：工具名在这一轮的路由表里 ⇒ `mcpExec.callTool`（真 spawn 子进程说 JSON-RPC）。
+ * - **本地 / 未知名**：走 `actionFromToolCall` —— 与 `@@act` 那几条**完全同一套闸门**：
+ *   白名单、字段、上限、实例定点。模型换一条路进来，门槛不许跟着变低。
+ *   这一支**一个字节都没改**，本笔不碰本地工具的任何语义。
  */
-function executeToolStep(s: ToolStep): ToolResult {
+async function executeToolStep(s: ToolStep): Promise<ToolResult> {
+  const route = routeToolCall(s.name, toolSpecs().map((t) => t.name), turnIndex)
+  if (route.kind === 'mcp') return callMcpStep(s, route.serverId, route.tool)
   const one = actionFromToolCall(s.name, s.args, actionCtx())
   if ('bad' in one) {
     return { id: s.id, name: s.name, ok: false, result: null, error: one.bad, truncated: false }
@@ -526,6 +629,56 @@ function executeToolStep(s: ToolStep): ToolResult {
   }
   const cut = truncateResult(run.value ?? '')
   return { id: s.id, name: s.name, ok: true, result: cut.text || null, error: null, truncated: cut.truncated }
+}
+
+/**
+ * 一次 MCP 工具调用 → 时间线的一步结算。
+ *
+ * **两类失败必须分开**，这是本笔最容易混掉的一处：
+ * - **工具跑了但报错**（返回值 `isError` 为真）⇒ `ok:false`，人话行来自 `mcpResultLine`
+ *   （`名：失败（原因）`）。用户的下一步动作是去看自己那个 server。
+ * - **连都没连上**（`callTool` 抛出：RPC 层失败，或非桌面壳的 `MCP_OFFLINE`）⇒ `ok:false`，
+ *   `error` 是异常原文。用户的下一步动作是先把进程 / 桌面壳弄起来。
+ * 两句混成一句「失败」的话，用户根本不知道该修哪一头。
+ *
+ * 成功时**不再**用 `truncateResult` 二次截断：`mcpResultLine` 内部已按 8000 码点截过，
+ * 并如实缀了「原文共 N 字 / 服务端已截断 / notice」。两段式截断会让字数对不上，所以这里的
+ * `truncated` 恒为 false —— 那件事已经写在文案里了，不必再让回灌补一句。
+ */
+async function callMcpStep(s: ToolStep, serverId: string, tool: string): Promise<ToolResult> {
+  const args = snapshotArgs(s.args)
+  try {
+    const r = await mcpExec.callTool(serverId, tool, args)
+    const line = mcpResultLine(s.name, r)
+    if (r.isError) return { id: s.id, name: s.name, ok: false, result: null, error: line, truncated: false }
+    return { id: s.id, name: s.name, ok: true, result: line, error: null, truncated: false }
+  } catch (err) {
+    return { id: s.id, name: s.name, ok: false, result: null, error: String(err), truncated: false }
+  }
+}
+
+/**
+ * 模型给的参数 → **一份脱离响应式状态的纯 JSON 快照**。
+ *
+ * 两个理由，都不是洁癖：
+ * 1. `s.args` 是从 `turns`（深响应式）里取出来的，读到手就是一个 **Proxy**。跨 IPC 传 Proxy
+ *    是可复制性最差的东西 —— 结构化克隆会直接抛 `DataCloneError`，而桩里它会被安静地
+ *    序列化成 `{}`（更难发现）。参数本身是 Rust 侧 `toolStart` 解析出来的 JSON，一定 JSON 安全，
+ *    所以一次 JSON 往返既是最窄的深拷贝，也是最窄的清洗。
+ * 2. `callTool` 是**异步**的：发出去那一刻的入参就是它了。拿一份快照，才不会出现
+ *    "IPC 在路上，而这次对话的状态已经变了"这种中间态。
+ *
+ * 形状不对（不是对象 / 类型不可序列化）一律按「没给参数」处理 —— Rust 侧是 `Option<Value>`，
+ * 给 `{}` 与不给等价。
+ */
+function snapshotArgs(raw: unknown): Record<string, unknown> {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return {}
+  try {
+    const copy: unknown = JSON.parse(JSON.stringify(raw))
+    return copy && typeof copy === 'object' && !Array.isArray(copy) ? (copy as Record<string, unknown>) : {}
+  } catch {
+    return {}
+  }
 }
 
 async function send(): Promise<void> {
