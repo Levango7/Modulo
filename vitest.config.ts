@@ -133,6 +133,17 @@ const GATED_VUE_MODULES = [
   // 全是纯判定，而组件那半（拖拽 + 三个版面视图）只能靠 E2E。锁 100 的语义同 floatList：
   // 以后这里长出 if / 兜底而没测，当场红。
   'src/vue/artifactPanel.ts',
+  // MCP 配置三层（§12.89 拆分后的门面 / 核心 / 文档清洗）：条目清洗、推导、增删改、
+  // 坏档容错全是纯判定。第三十二笔（2026-11-19）随棘轮补账进受测层（backlog ②）。
+  'src/vue/mcp.ts',
+  'src/vue/mcpCore.ts',
+  'src/vue/mcpDoc.ts',
+  // 资料 / 技能 / 定时任务的判定层（§12.66 / §12.68 / F2）：文档清洗、引用块预算、
+  // 名称闸门、时间解析全是纯函数，测试早就写好且一直在跑，但清单一直没加 ——
+  // 长期只有聚合线兜着。第三十二笔（2026-11-19）补账（backlog ②）。
+  'src/vue/knowledge.ts',
+  'src/vue/skills.ts',
+  'src/vue/cron.ts',
 ]
 
 /** 仓库内按源码解析引擎包（与 vite.config.ts 同一条约定） */
@@ -255,6 +266,23 @@ export default defineConfig({
         // 右栏产物面板（F-15 P0）：分支数在写完用例后由 `coverage-summary.json` 实测回填，
         // 锁 100 —— 每一条都是"坏输入也必须给得出合法值"那一类，没有理由留余量。
         'src/vue/artifactPanel.ts': { branches: 100 },
+        // 资料判定层（文档清洗 / 引用块预算 / 摘录截断，§12.66）：全量套件实测 100%，下取整（只升不降）。
+        'src/vue/knowledge.ts': { branches: 100 },
+        // 技能判定层（文档清洗 / 名称闸门 / 摘录判定，§12.68）：全量套件实测 100%，下取整（只升不降）。
+        'src/vue/skills.ts': { branches: 100 },
+        // 定时任务判定层（文档清洗 / 时间解析 / 触发判定，F2）：全量套件实测 95%，下取整（只升不降）。
+        'src/vue/cron.ts': { branches: 95 },
+        // 门面层：全量套件实测 88.88%（16/18），未覆盖的第 69、83 行分别是 updateServer
+        // 与 toggleServer 的 map 里「其他条目原样透传」那条分支（用例里列表只有一条，
+        // 命中项永远是它自己）。属真实缺口，按实测下取整锁 88，不为覆盖率演戏。
+        'src/vue/mcp.ts': { branches: 88 },
+        // MCP 核心判定层（条目清洗 / 推导 / 增删改，§12.89）：全量套件实测 96%，下取整（只升不降）。
+        'src/vue/mcpCore.ts': { branches: 96 },
+        // MCP 文档清洗层（§12.89）：全量套件实测 97%，下取整（只升不降）。
+        'src/vue/mcpDoc.ts': { branches: 97 },
+        // mcpTools.ts 是**既有缺口**：第二十七笔（#314）把它加进了清单但没登记地板 ——
+        // 「新进受测层的文件必须同步登记地板」这条被自己漏了一个月，只有聚合线 ≥90 兜着。补上。
+        'src/vue/mcpTools.ts': { branches: 100 },
         // 设置分组 / 首启引导（F-10，2026-10-28）：两处都是显式清单 + 纯函数，分支在写完用例后
         // 由 `coverage-summary.json` 回填为 100 —— 以后长出没测的兜底，这里当场红。
         'src/vue/settingsNav.ts': { branches: 100 },
