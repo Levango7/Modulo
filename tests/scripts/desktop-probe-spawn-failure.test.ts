@@ -52,7 +52,7 @@ const expectCleanGiveUp = (r: { code: number; out: string; elapsed: number }) =>
 
 describe('探针起不来时：干净退出，不崩堆栈', () => {
   it('二进制不存在 → STALE-NOTE 之后直接退，不再 spawn', () => {
-    const r = runProbe({ MODULO_EXE: join(REPO, 'no-such-modulo.exe') })
+    const r = runProbe({ MODULO_EXE: join(REPO, 'no-such-modulo.exe'), ...FREE })
     expect(r.out).toContain('STALE-NOTE')
     expect(r.out).toContain('没有可探测的二进制')
     // 关键的反例：以前这里会跟着 spawn 一起崩
