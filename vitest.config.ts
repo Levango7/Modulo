@@ -144,6 +144,15 @@ const GATED_VUE_MODULES = [
   'src/vue/knowledge.ts',
   'src/vue/skills.ts',
   'src/vue/cron.ts',
+  // composable 层（第三十三笔，2026-11-20）：上面五个判定半已在第三十二笔进受测层，
+  // 但这五个「落盘 + 响应式」胶水半此前只有 E2E 兜底 —— 现在逐个补了内存存储驱动的
+  // 胶水单测（构造读档 / 拒收不空写 / gate 同源 / 会话状态机 / invoke mock），满足
+  // 「不开浏览器也能被断言」这条纳入判据。
+  'src/vue/useSkills.ts',
+  'src/vue/useKnowledge.ts',
+  'src/vue/useCron.ts',
+  'src/vue/useMcp.ts',
+  'src/vue/useAiSessions.ts',
 ]
 
 /** 仓库内按源码解析引擎包（与 vite.config.ts 同一条约定） */
@@ -283,6 +292,16 @@ export default defineConfig({
         // mcpTools.ts 是**既有缺口**：第二十七笔（#314）把它加进了清单但没登记地板 ——
         // 「新进受测层的文件必须同步登记地板」这条被自己漏了一个月，只有聚合线 ≥90 兜着。补上。
         'src/vue/mcpTools.ts': { branches: 100 },
+        // composable 层（第三十三笔，2026-11-20）：五个「落盘 + 响应式」胶水半逐个补测后
+        // 按全量套件实测回填（下取整，只升不降）。前四个是薄层（构造读档 / 拒收不空写 /
+        // gate 同源 / 会话状态机），实测分支全满，锁 100。
+        'src/vue/useSkills.ts': { branches: 100 },
+        'src/vue/useKnowledge.ts': { branches: 100 },
+        'src/vue/useMcp.ts': { branches: 100 },
+        'src/vue/useAiSessions.ts': { branches: 100 },
+        // useCron 是复杂胶水：定时器 / Channel 事件流 / 3 分钟超时取消等真实环境路径
+        // 未逐一穷举，实测 75.36%（52/69）⇒ 锁 75。真实缺口，不为覆盖率演戏。
+        'src/vue/useCron.ts': { branches: 75 },
         // 设置分组 / 首启引导（F-10，2026-10-28）：两处都是显式清单 + 纯函数，分支在写完用例后
         // 由 `coverage-summary.json` 回填为 100 —— 以后长出没测的兜底，这里当场红。
         'src/vue/settingsNav.ts': { branches: 100 },
