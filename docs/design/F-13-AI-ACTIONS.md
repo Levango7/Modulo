@@ -324,3 +324,54 @@ F4c 归属已裁（2026-11-16）：传输面（spawn / JSON-RPC / 进程表 / �
 **纯层落点**：`src/vue/mcpTools.ts`（`McpToolEntry` / `McpCallResult` 是 Rust `ToolOut` / `CallOut` 的 camelCase 镜像；`mergeToolLists` / `routeToolCall` / `mcpResultLine` 三件全零副作用）+ `tests/vue/mcpTools.test.ts`（合成夹具全分支覆盖，进 `GATED_VUE_MODULES` 锁 100%）。
 
 **没做的（如实记）**：① J1 执行半（命令注册进 `generate_handler!` + 前端调用点 + 确认 UI）不在这笔 —— 他线 #311 加固笔在途、其请勿动含 F-15 设计稿；若其线半天无动静，按用户 11-17 授权条件接管；② 确认 UI 的具体形态（设置页开关还是坞内弹窗）随 J1 执行半定；③ 工具清单翻页不做（`notice`「没拿全」如实透传）。
+
+## F4c 消费端契约：边界语义补遗（第三十五笔，2026-11-22）
+
+上一节钉住的是契约的**主干**，J1 执行半（§12.93）也已按它落地。但「主干严谨」不等于「边界可
+验收」：执行半实际遵守的一批边界语义当时只写在代码注释里、没进契约 —— 后来人照契约重写一层，
+完全可以在不违反任何一条字面约定的前提下写出另一个行为。本节把这些边界逐条补成契约。**每一条
+都已在 master 的实现与既有测试里成立，本笔只补写、不改行为**。
+
+1. **网页形态：三条命令一条都不发**。非桌面（vite dev / 网页构建 / E2E 的 Chrome）下 `confirm`
+   / `listTools` 回同一句人话 `MCP_OFFLINE`（「网页版没有桌面壳，连不上本机 MCP 服务」），
+   `callTool` 则**抛**而不是回 `isError` —— `isError` 是「工具跑了但失败」的专用通道，进程根本
+   没起时走那条通道，调用方就分不清「服务坏了」和「这个工具坏了」。错误三分（协议错误 / 工具
+   失败 / 连不上）在这一层就分开，不许合并成一句。
+2. **线上参数形状**：Tauri 2 默认 camelCase，参数名一律 `serverId`（传 `server_id` 会取到
+   `undefined`）；`args` 必须是**对象**（Rust 侧 `Option<Value>`，给 JSON 字符串会变成「参数是
+   一个字符串」），省略时前端显式补 `{}`；`mcp_confirm` 返回 `null`（`Result<(), String>` 的 `()`
+   序列化）；`ToolOut` 的可选字段序列化成 `null` 而非缺键，前端只在真值时才写进 entry（不写
+   `title: undefined`）。
+3. **确认态与清单缓存的生命周期**：
+   - `confirm` **失败绝不记入** confirmed —— 否则界面以为已放行、清单照列，而 Rust 那道 J4 闸门
+     其实还在拒，症状是「界面说能用，一调就报没确认」；
+   - confirmed **不落盘**（Rust 重启即清，前端若存 storage，重启后两端永久分叉）；重复确认幂等；
+   - **不做「撤销确认」**（Rust 没有这条命令，不伪造一个前端假象）；
+   - 清单**只缓存成功**那一份，失败不进缓存（缓存失败 = 把一次瞬时故障变成「点重试也永远好不了」）；
+     缓存键是 serverId，取值用 `Object.hasOwn`（手改坏的 id 万一是 `constructor`，`in` 会命中原型链）；
+   - 删服务 / 改命令 / 停用 ⇒ `forget` 同时清确认态与清单缓存，不留「删了又复活」的残留。
+4. **未确认与停用不重复念**：`gather` 只取「已确认且 enabled」的服务 —— 未确认时连列工具都会
+   spawn 子进程，那正是闸门要守的东西，所以干脆不发起。这两类**不进 `skipped`**：它们是用户在
+   界面上自己摆的状态、界面已写着「未确认 / 已停用」，而 `gather` 每轮请求都跑一遍，写进去等于
+   把同一句话重复念给用户听。单个服务失败折成**一条**人话进 `skipped`、不拖垮整批；`notice`
+   （没拿全）同样进 `skipped`，不静默丢。
+5. **超时形状**：`mcpCallMs` = 30s 是 `net-policy.json` 单源，语义**绑死单次 stdio 往返**；超时
+   即 kill + 收尸 + phase 置 `Failed`（重建判据看 phase，不看 `try_wait` 时序）。这把尺子不许直接
+   套到 Streamable HTTP 的连接 / 首字节 / 流三种时间尺度上（见 §12.96 的 F4d 条件规格）。
+6. **轮次与停止的收尾**：`mcpMaxRounds` = 4 单源不新增；**一轮只 `gather` 一次**，续跑轮复用同
+   一份清单（每轮重拉 = 每轮白起一轮子进程）；总开关关着或非桌面**连 `gather` 都不跑**，一个子
+   进程都不起；`executeToolStep` 改异步后 `await` 回来**重判 `token` / `aborted`** —— 被顶掉的轮次
+   丢弃结果、按了停止如实记账，不许把迟到的工具结果写进新一轮。
+7. **description 与 schema 的兼容口径**：下发给模型的 `description` = `title` 与 `description`
+   拼接（`：` 相连，空白项忽略），两者都没有时给「（该服务未提供工具说明）」—— 不留空串；
+   `inputSchema` 本层**只验「是对象」**，不实现 JSON Schema 子集校验（服务端与模型各自还有一道，
+   本层猜子集等于多造一套判据）；工具名正则与 OpenAI 同一条，非法名 / 撞名 / 超帽一律 skip 说人话。
+8. **结果回喂的形状**：`mcpResultLine` 空正文回「（工具没有返回文字内容）」、按码点截 8000、截断
+   缀「原文共 N 字」、服务端截断缀「服务端已截断」、`notice` 如实缀尾；`isError` 写「失败（…）」。
+   RPC 层失败（reject / 超时 / 连不上）**不走这条**，由调用方折人话 —— 绝不把协议错误降级成工具失败。
+
+**判据归属**：这些语义的机器钉子已在 `tests/vue/mcpTools.test.ts`（纯层）、
+`tests/vue/useMcpExecution.test.ts`（胶水半）、`tests/e2e/mcp-execution.spec.ts` 与
+`tests/e2e/settings-mcp.spec.ts`（坞与设置页整链）、Rust 侧真子进程用例（超时 / 并发 / 坏帧）里。
+本笔**不新增测试、不改任何一条断言**；若日后发现哪一条其实没测到，那一笔单独立项补测，不在契约
+笔里顺手改行为。
