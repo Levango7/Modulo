@@ -3,16 +3,9 @@ withDefaults(defineProps<{ size?: number }>(), { size: 18 })
 </script>
 
 <template>
-  <!-- 与 build/icon.svg 同一套网格：5 列 × 3 行的九块模块拼成字母 M -->
+  <!-- 与 build/icon.svg 同一笔 M：应用内单色描边，不带底色块 -->
   <svg class="mark" :width="size" :height="size" viewBox="0 0 1024 1024" aria-hidden="true">
-    <g class="mark-leg">
-      <rect x="160" y="190" width="120" height="196" rx="40" /><rect x="160" y="414" width="120" height="196" rx="40" /><rect x="160" y="638" width="120" height="196" rx="40" />
-      <rect x="744" y="190" width="120" height="196" rx="40" /><rect x="744" y="414" width="120" height="196" rx="40" /><rect x="744" y="638" width="120" height="196" rx="40" />
-    </g>
-    <g class="mark-v">
-      <rect x="306" y="190" width="120" height="196" rx="40" /><rect x="598" y="190" width="120" height="196" rx="40" />
-      <rect x="452" y="414" width="120" height="196" rx="40" />
-    </g>
+    <path class="mark-m" d="M296 732V292l216 268 216-268v440" stroke-width="116" stroke-linecap="round" stroke-linejoin="round" />
   </svg>
 </template>
 
@@ -21,10 +14,8 @@ withDefaults(defineProps<{ size?: number }>(), { size: 18 })
   display: block;
   flex: none;
 }
-.mark-leg {
-  fill: var(--text-1);
-}
-.mark-v {
-  fill: var(--accent);
+.mark-m {
+  fill: none;
+  stroke: var(--accent);
 }
 </style>

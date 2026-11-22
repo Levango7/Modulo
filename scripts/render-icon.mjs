@@ -36,9 +36,10 @@ const browser = await puppeteer.launch({ executablePath: EXE, headless: true, ar
 const page = await browser.newPage()
 await page.setViewport({ width: size, height: size, deviceScaleFactor: 1 })
 await page.setContent(
-  `<!doctype html><meta charset="utf-8"><style>html,body{margin:0;padding:0;background:#171512}svg{display:block}</style>${svg}`,
+  `<!doctype html><meta charset="utf-8"><style>html,body{margin:0;padding:0;background:transparent}svg{display:block}</style>${svg}`,
 )
-writeFileSync(resolve(PNG_OUT), await page.screenshot({ type: 'png' }))
+/** 圆角外的角落必须透明：铺底色会把圆角图标变成带方角的色块（2026-11-22 极简化起）。 */
+writeFileSync(resolve(PNG_OUT), await page.screenshot({ type: 'png', omitBackground: true }))
 await browser.close()
 console.log(`已生成 ${PNG_OUT}`)
 if (DESKTOP_ONLY) process.exit(0)
