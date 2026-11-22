@@ -17,6 +17,7 @@ import { ref, type Ref } from 'vue'
 import { Channel, invoke } from '@tauri-apps/api/core'
 import type { StorageAdapter } from './store'
 import { normalizeEvent } from './aiChat'
+import { cronSystemBlock } from './aiBrief'
 import {
   appendRun,
   addTask,
@@ -51,6 +52,11 @@ export interface CronOptions {
   providers?: () => { id: string }[]
   /** 桌面壳才有 ai_chat 通道；网页版 start() 不开定时器（界面也不渲染这一节） */
   canRun?: () => boolean
+  /**
+   * 「智囊笔」（第三十九笔）：定时任务请求的只读版面简报。给了才带 system 块，
+   * 不给 = 单条 user 逐字退回旧行为（测试缝与网页版）
+   */
+  brief?: () => string
 }
 
 /** Rust `ConversationRef`（camelCase） */
@@ -147,7 +153,7 @@ export function createCron(opts: CronOptions = {}): CronApi {
       persist()
     }
     // 事件流（F-15 P1a §2.2）：解析只走 `normalizeEvent`，收尾只认 `done`。
-    // 定时任务 / 工作流不需要工具与轮次 —— 它们只取「说了什么」与「成没成」。
+    // 定时任务不带 tools（工具面只在对话坞）；第三十九笔起注只读版面简报（system 块）。
     const ch = new Channel<unknown>()
     ch.onmessage = (raw) => {
       for (const ev of normalizeEvent(raw)) {
@@ -162,10 +168,23 @@ export function createCron(opts: CronOptions = {}): CronApi {
       if (conversationId) void invoke('ai_chat_cancel', { conversationId }).catch(() => undefined)
       settle()
     }, RUN_TIMEOUT_MS)
+    /** 简报生成失败不能把定时任务弄死：降级成一句话如实带进 system 块 */
+    const briefText = (): string => {
+      if (!opts.brief) return ''
+      try {
+        return opts.brief()
+      } catch {
+        return '（版面简报生成失败）'
+      }
+    }
     void invoke<ConversationRef>('ai_chat', {
       providerId: provider,
       conversationId: null,
-      messages: [{ role: 'user', content: task.prompt }],
+      // 「智囊笔」：注入了简报才有 system 块；没注入 = 数组里只有 user，逐字退回旧行为
+      messages: [
+        ...(opts.brief ? [{ role: 'system' as const, content: cronSystemBlock(briefText()) }] : []),
+        { role: 'user' as const, content: task.prompt },
+      ],
       onChunk: ch,
     })
       .then((r) => {

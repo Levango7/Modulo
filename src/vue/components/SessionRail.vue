@@ -498,6 +498,8 @@ onMounted(() => void sessions.refresh())
           <CalendarClock :size="14" />
         </button>
       </div>
+      <!-- 「智囊笔」（第三十九笔）：只读边界在界面上先说清 —— 到点跑的是「看一眼 + 写报告」，改卡留给用户在场时 -->
+      <p class="hint" data-cron-readonly>定时任务只读：能看到版面实况，改卡留给你在场时确认。</p>
       <p v-if="cronNotice" class="err" data-cron-notice>{{ cronNotice }}</p>
       <div v-if="cronAdding" class="cron-form">
         <input v-model="cronTime" type="time" class="cron-time" data-cron-time aria-label="每天几点跑" />

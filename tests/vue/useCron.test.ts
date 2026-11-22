@@ -34,6 +34,8 @@ interface MakeOpts {
   seed?: unknown
   providers?: () => { id: string }[]
   canRun?: () => boolean
+  /** 「智囊笔」（第三十九笔）：只读版面简报注入缝 */
+  brief?: () => string
 }
 
 function makeCron(opts: MakeOpts = {}) {
@@ -46,6 +48,7 @@ function makeCron(opts: MakeOpts = {}) {
     now: () => new Date(fake.getTime()),
     providers: opts.providers ?? (() => [{ id: 'p1' }]),
     ...(opts.canRun ? { canRun: opts.canRun } : {}),
+    ...(opts.brief ? { brief: opts.brief } : {}),
   })
   return { cron, storage }
 }
@@ -158,6 +161,46 @@ describe('useCron：错过与翻新（错过不补跑，是新的一天才重新
     vi.advanceTimersByTime(10 * 60_000)
     expect(invoke).not.toHaveBeenCalled()
     expect(cron.runs.value).toHaveLength(0)
+  })
+})
+
+describe('useCron：智囊笔 —— 只读版面简报（第三十九笔）', () => {
+  it('注入 brief：system 块在前（含只读边界与简报），user 仍是提示词原样', async () => {
+    const { cron } = makeCron({ seed: seedTask(), brief: () => '- 待办：把投影跑绿' })
+    cron.tick()
+    const args = invoke.mock.calls[0][1] as { messages: { role: string; content: string }[] }
+    expect(args.messages).toHaveLength(2)
+    expect(args.messages[0].role).toBe('system')
+    expect(args.messages[0].content).toContain('- 待办：把投影跑绿')
+    expect(args.messages[0].content).toContain('@@act')
+    expect(args.messages[1]).toEqual({ role: 'user', content: '早安整理' })
+    // 请求不带 tools —— 定时任务没有任何写通道
+    expect('tools' in (args as unknown as Record<string, unknown>)).toBe(false)
+    FakeChannel.last!.onmessage!({ delta: '报告', done: true })
+    expect(cron.runs.value[0]).toMatchObject({ status: 'ok', text: '报告' })
+  })
+
+  it('简报生成抛错不弄死任务：降级成一句话，照常记 ok', () => {
+    const { cron } = makeCron({
+      seed: seedTask(),
+      brief: () => {
+        throw new Error('boom')
+      },
+    })
+    cron.tick()
+    const args = invoke.mock.calls[0][1] as { messages: { role: string; content: string }[] }
+    expect(args.messages[0].content).toContain('（版面简报生成失败）')
+    FakeChannel.last!.onmessage!({ delta: '照常', done: true })
+    expect(cron.runs.value[0].status).toBe('ok')
+  })
+
+  it('不注入 brief：messages 只有一条 user（逐字退回旧行为）', () => {
+    const { cron } = makeCron({ seed: seedTask() })
+    cron.tick()
+    const args = invoke.mock.calls[0][1] as { messages: { role: string; content: string }[] }
+    expect(args.messages).toHaveLength(1)
+    expect(args.messages[0]).toEqual({ role: 'user', content: '早安整理' })
+    expect('tools' in (args as unknown as Record<string, unknown>)).toBe(false)
   })
 })
 

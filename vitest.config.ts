@@ -72,6 +72,9 @@ const GATED_VUE_MODULES = [
   // MCP 工具消费（第二十七笔，2026-11-17）：工具清单合并 / 调用分流 / 结果回喂人话全是纯判定
   // —— 真正 invoke `mcp_list_tools` / `mcp_call` / `mcp_confirm` 的胶水半（J1 执行半）留给接线笔。
   'src/vue/mcpTools.ts',
+  // 「智囊笔」（第三十九笔，2026-11-23）：定时任务的只读版面简报 —— 列表折叠 / 码点截断 /
+  // 预算封顶 / 只读边界文案全是纯函数；真正弹 ai_chat 与带不带 system 的路径留在 useCron 测试。
+  'src/vue/aiBrief.ts',
   // 模块库搜索（F-09，2026-10-26）：判定层单独成文件就是为了能被断言 —— 本仓**没有组件测试
   // 设施**（无 @vue/test-utils / jsdom），判定留在组件里就只剩 E2E 一层兜底。
   'src/vue/moduleFilter.ts',
@@ -292,6 +295,8 @@ export default defineConfig({
         // mcpTools.ts 是**既有缺口**：第二十七笔（#314）把它加进了清单但没登记地板 ——
         // 「新进受测层的文件必须同步登记地板」这条被自己漏了一个月，只有聚合线 ≥90 兜着。补上。
         'src/vue/mcpTools.ts': { branches: 100 },
+        // 智囊笔简报层（第三十九笔）：全量套件实测 100%，下取整（只升不降）。
+        'src/vue/aiBrief.ts': { branches: 100 },
         // composable 层（第三十三笔，2026-11-20）：五个「落盘 + 响应式」胶水半逐个补测后
         // 按全量套件实测回填（下取整，只升不降）。前四个是薄层（构造读档 / 拒收不空写 /
         // gate 同源 / 会话状态机），实测分支全满，锁 100。
