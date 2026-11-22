@@ -912,8 +912,18 @@ describe.skipIf(skip)('聊天任脊柱（E1）', () => {
       { timeout: 110_000, polling: 2000 },
     )
     const chat = (await calls(page)).filter((c) => c.cmd === 'ai_chat')
-    const sent = chat.find((c) => (c.args.messages as { content: string }[] | undefined)?.[0]?.content === '把今天的要点写成一句话')
+    // 「智囊笔」（第三十九笔）：messages = [system 只读简报, user 提示词] —— user 那条才是任务；
+    // system 块必须带只读边界（定时任务无人值守，不写盘）。
+    const msgOf = (c: (typeof chat)[number]) => c.args.messages as { role?: string; content: string }[]
+    const sent = chat.find((c) => msgOf(c).some((m) => m.role === 'user' && m.content === '把今天的要点写成一句话'))
     expect(sent, '到点真的按任务的提示词发了 ai_chat').toBeTruthy()
+    const sys = msgOf(sent!).find((m) => m.role === 'system')
+    expect(sys, 'system 块随带版面简报').toBeTruthy()
+    expect(sys!.content, '简报钉住只读边界').toContain('@@act')
+    expect(
+      msgOf(sent!).filter((m) => m.role === 'user'),
+      '任务提示词只有一条 user',
+    ).toHaveLength(1)
 
     // 展开行看到的是那次对话的结果原文（不是另一种全文的样子）
     await click(page, '[data-cron-task="c1"]')
