@@ -1,13 +1,19 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
   <!--
-    Modulo 图标（2026-11-22 极简化，第三十六笔）：朱砂圆角方底 + 一笔白色 M。
-      · 三色 → 两色：只留品牌朱砂 #E4572E 与白，去掉暖墨底与骨白，不要渐变、阴影、水印。
-      · 九块模块 → 一笔：M 由一条 path 连出两腿与中缝，圆头圆角；14/16px 也读得清。
-      · 坐标：腿 x=296/728、顶 y=292、底 y=732，中缝落在 (512,560)，笔画宽 116。
-    与 src/vue/components/BrandMark.vue 同一笔 M（应用内单色、不带底色块）；
+    Modulo 图标（2026-11-23 换色 + 三色一笔，第三十七笔）：墨绿圆角方底 + 三色拼一笔 M。
+      · 底 #2E8F79：出厂皮肤「素纸」强调色 #3a7062 的展示档 —— 图标与默认界面同色族
+        （第一版朱砂底是 ink 皮肤族、与出厂界面脱节，且橙色域撞小米，2026-11-23 换色）。
+      · M 保持一笔几何（第三十六笔的形），分三段上色：左腿白、中缝 V 朱砂 #E4572E
+        （动感位 —— 用户点名借优酷箭头的块面节奏）、右腿浅绿 #8FCDBB；三段在顶部
+        圆头相融，V 骑在两腿上，读 M 不读 H（中缝是真斜线连接）。
+      · 多色是用户 2026-11-23 反馈「M 不要这么简单，用多种颜色拼一下」的迭代；
+        九块色带版实渲对比后落选（竖块中缝掉了动势，0.8.9 旧稿同款教训）。
+      · 与 src/vue/components/BrandMark.vue 的关系：应用内标识仍是单色 --accent 描边
+        （随皮肤变色是设计内）；三色是图标位的展示档。
     public/favicon.svg 是本文件的逐字节副本（tests/assets/favicon.test.ts 钉住）。
-    旧稿（九块模块 / 暖墨底 / 骨白）的取舍记在 docs/ARCHITECTURE.md §10.11。
   -->
-  <rect width="1024" height="1024" rx="224" fill="#E4572E"/>
-  <path d="M296 732V292l216 268 216-268v440" fill="none" stroke="#FFFFFF" stroke-width="116" stroke-linecap="round" stroke-linejoin="round"/>
+  <rect width="1024" height="1024" rx="224" fill="#2E8F79"/>
+  <rect x="268" y="292" width="116" height="440" rx="58" fill="#FFFFFF"/>
+  <rect x="640" y="292" width="116" height="440" rx="58" fill="#8FCDBB"/>
+  <path d="M326 292L512 560L698 292" fill="none" stroke="#E4572E" stroke-width="116" stroke-linecap="round" stroke-linejoin="round"/>
 </svg>
