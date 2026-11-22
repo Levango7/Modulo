@@ -9,10 +9,16 @@
    ③ 强调色只用一个（深林绿），不与「蓝紫渐变」那代 AI 产品撞脸。 */
 :root {
   --accent: #3a7062;
-  --bg-page: #faf9f7;
+  /* 2026-11-23 第三十八笔（用户反馈「界面亮度太高、各区域和底布区别不明显」）：
+     表面梯度重排 —— 页面底加深一档与卡面拉开、次级表面居中、发丝线可见化、阴影微强。
+     原值（2026-11-05 起）：--bg-page #faf9f7 / --bg-card-soft #f3f1ed /
+     --border-soft #e8e5df / --border-strong 0.14 —— 页面底与卡面明度差 <2%，
+     「发丝线分层」实际不可见。真机 CDP 令牌覆盖原型验证（before/after 截图）后定案。
+     暗色档本来就分层清晰，不动。 */
+  --bg-page: #eeece7;
   --bg-card: #ffffff;
   --bg-card-solid: #ffffff;
-  --bg-card-soft: #f3f1ed;
+  --bg-card-soft: #f7f5f1;
   --input-bg: #ffffff;
   --frost-surface: #ffffff;
   --frost-edge: 0 0 0 0 rgba(0, 0, 0, 0);
@@ -20,8 +26,8 @@
   --text-2: #55524c;
   --text-3: #8b867d;
   --text-4: #6f6a63;
-  --border-soft: #e8e5df;
-  --border-strong: rgba(28, 27, 25, 0.14);
+  --border-soft: #ddd9d1;
+  --border-strong: rgba(28, 27, 25, 0.2);
   --scrim: rgba(28, 27, 25, 0.4);
   --brand-500: var(--accent);
   --brand-600: color-mix(in oklab, var(--accent) 82%, #000);
@@ -46,8 +52,8 @@
   --space-5: 20px;
   --space-6: 24px;
 
-  --shadow-card: 0 1px 2px rgba(28, 27, 25, 0.04), 0 2px 10px rgba(28, 27, 25, 0.05);
-  --shadow-hover: 0 2px 6px rgba(28, 27, 25, 0.06), 0 8px 24px rgba(28, 27, 25, 0.08);
+  --shadow-card: 0 1px 2px rgba(28, 27, 25, 0.05), 0 2px 12px rgba(28, 27, 25, 0.07);
+  --shadow-hover: 0 2px 6px rgba(28, 27, 25, 0.07), 0 8px 24px rgba(28, 27, 25, 0.11);
   --shadow-focus: 0 0 0 2px var(--bg-page), 0 0 0 4px var(--brand-glow);
 
   --z-base: 0;
