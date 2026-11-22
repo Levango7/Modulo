@@ -60,16 +60,22 @@ const PAIRS: Record<string, [string, string]> = {
  *  **aurora 两套为 2026-11-05 重测**（PR-B 换默认皮：中性纸面 / 实色卡 / 发丝线，
  * 深色文字档整体下移是刻意的——旧 10.82 的半金属黑底被暖中性黑替掉，新值全部
  * AAA 起步：text-2 = 7.40 / 7.96、text-3 = 3.44 / 4.36、accent 5.43 AA）。
+ *  **aurora 亮色档 2026-11-23 再重测**（第三十八笔，素纸表面梯度重排）：用户反馈
+ * 「界面亮度太高、各区域和底布区别不明显」⇒ `--bg-page` 从 #faf9f7 加深到 #eeece7、
+ * 发丝线 #ddd9d1 可见化、阴影微强。这是**产品裁决**：用约 11% 的文字对比度换
+ * 「底布 → 嵌入面板 → 浮起卡片」三层分层的可辨识度。重录后 text-1 = 14.58，仍远超
+ * WCAG AAA 正文要求 7:1；text-3 = 3.06 是三级弱化档（原本就不承担正文，见上文的说明），
+ * 仅用于次要标注。取数工具同基线：`node tests/e2e/visual-kit/probe.mjs`，2026-11-23 实测。）
  * ink / candy 两套未动，基线维持 2026-10-14/17 实测值。 */
 const BASELINE: Record<string, Record<string, Record<string, number>>> = {
   aurora: {
     light: {
-      'text-1/bg-page': 16.36,
-      'text-2/bg-page': 7.4,
-      'text-3/bg-page': 3.44,
+      'text-1/bg-page': 14.58,
+      'text-2/bg-page': 6.59,
+      'text-3/bg-page': 3.06,
       'text-1/bg-card-solid': 17.21,
-      'accent/bg-page': 5.43,
-      'c-red/bg-page': 3.58,
+      'accent/bg-page': 4.84,
+      'c-red/bg-page': 3.19,
       'text-1/brand-50': 14.49,
     },
     dark: {
