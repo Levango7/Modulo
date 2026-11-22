@@ -66,7 +66,8 @@ import { createWorkflow } from './vue/useWorkflow'
 import { createMcp } from './vue/useMcp'
 import { createMcpExecution } from './vue/useMcpExecution'
 import { AI_DOC_KEY, parseAiDoc } from './vue/aiSettings'
-import { canShowDock } from './vue/aiChat'
+import { canShowDock, cardChoices, excerptFor } from './vue/aiChat'
+import { briefFromCards } from './vue/aiBrief'
 
 const storage = inject<PersistentStorage>('storage')!
 const store = inject<LayoutStore>('store')!
@@ -479,6 +480,18 @@ const cron = createCron({
   storage,
   providers: () => parseAiDoc(storage.get(AI_DOC_KEY)),
   canRun: () => isDesktop,
+  /**
+   * 「智囊笔」（第三十九笔）：把版面折成只读简报给定时任务 ——
+   * 标签串与坞里 chip 同源（`cardChoices` 的 label），摘要与 `@卡片` 同源（`excerptFor`），
+   * 模型抄标题 / 引用内容不会抄错。写动作不在这个通道里（cron 请求不带 tools）。
+   */
+  brief: () =>
+    briefFromCards(
+      cardChoices(store.doc.value.items, (m) => E.findModule(store.reg, m)?.title ?? m).map((c) => ({
+        title: c.label,
+        excerpt: excerptFor(c, cardDataApi.state),
+      })),
+    ),
 })
 provide('cron', cron)
 /**
