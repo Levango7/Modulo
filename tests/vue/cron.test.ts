@@ -14,6 +14,7 @@ import {
   removeTask,
   serializeCronDoc,
   setTaskEnabled,
+  weekdayLabel,
   type CronRun,
   type CronTask,
 } from '../../src/vue/cron'
@@ -179,5 +180,68 @@ describe('定时任务：运行记录', () => {
     expect(lastRun(runs, 'c2')?.status).toBe('error')
     expect(lastRun(runs, 'c1')?.taskId).toBe('c1')
     expect(lastRun(runs, 'nope')).toBeUndefined()
+  })
+})
+
+describe('cron：每周几（周报场景，第四十笔）', () => {
+  it('parse：weekday 合法数组去重升序；坏形态回落「每天」（字段不出现）', () => {
+    const doc = parseCronDoc(
+      JSON.stringify({
+        tasks: [
+          { id: 'c1', prompt: '周报', time: '17:30', weekday: [5, 1, 5], providerId: 'p1', enabled: true },
+          { id: 'c2', prompt: '坏形态', time: '08:00', weekday: ['x', 9, null], providerId: 'p1', enabled: true },
+          { id: 'c3', prompt: '不是数组', time: '08:00', weekday: 3, providerId: 'p1', enabled: true },
+        ],
+        runs: [],
+      }),
+    )
+    expect(doc.tasks[0].weekday).toEqual([1, 5])
+    expect('weekday' in doc.tasks[1]).toBe(false)
+    expect('weekday' in doc.tasks[2]).toBe(false)
+  })
+
+  it('旧档没有 weekday：每天照跑（逐字兼容，一天不少）', () => {
+    const legacy = parseCronDoc(JSON.stringify({
+      tasks: [{ id: 'c1', prompt: '旧任务', time: '09:00', providerId: 'p1', enabled: true }],
+      runs: [],
+    }))
+    expect('weekday' in legacy.tasks[0]).toBe(false)
+    for (const day of [0, 3, 6]) {
+      const r = dueTasks(legacy.tasks, [], new Date(2026, 10, 8 + day, 9, 0))
+      expect(r.due).toHaveLength(1)
+    }
+  })
+
+  it('周五的任务：周三不跑也不记错过；周五才 due；周六出现算错过', () => {
+    const { tasks } = parseCronDoc(
+      JSON.stringify({
+        tasks: [{ id: 'c1', prompt: '周报', time: '17:30', weekday: [5], providerId: 'p1', enabled: true }],
+        runs: [],
+      }),
+    )
+    // 2026-11-18 是周三
+    const wed = dueTasks(tasks, [], new Date(2026, 10, 18, 17, 30))
+    expect(wed.due).toHaveLength(0)
+    expect(wed.missed).toHaveLength(0)
+    // 2026-11-20 是周五
+    const fri = dueTasks(tasks, [], new Date(2026, 10, 20, 17, 30))
+    expect(fri.due.map((t) => t.id)).toEqual(['c1'])
+    // 2026-11-21 是周六：过了 17:30 但今天不该跑 ⇒ 不记错过
+    const sat = dueTasks(tasks, [], new Date(2026, 10, 21, 18, 0))
+    expect(sat.due).toHaveLength(0)
+    expect(sat.missed).toHaveLength(0)
+  })
+
+  it('addTask：weekday 持久化；空 = 不写字段（与旧档同形）', () => {
+    const { tasks } = addTask([], { prompt: '周报', time: '17:30', weekday: [5] }, 0)
+    expect(tasks[0].weekday).toEqual([5])
+    const plain = addTask([], { prompt: '每天', time: '09:00' }, 0)
+    expect('weekday' in plain.tasks[0]).toBe(false)
+  })
+
+  it('weekdayLabel：升序拼接；空 / 未给 = 空串（调用方显示「每天」）', () => {
+    expect(weekdayLabel([5, 1])).toBe('一五')
+    expect(weekdayLabel([])).toBe('')
+    expect(weekdayLabel(undefined)).toBe('')
   })
 })
