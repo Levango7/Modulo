@@ -365,6 +365,10 @@
                 args: step?.args ?? {},
               })
             }
+            if (window.__STUB_AI_TOOL_LOOP_HANG__ === true) {
+              aiPending.set(convId, { push })
+              return
+            }
             finish('tool')
           }, 0)
           return Promise.resolve({ conversationId: convId })
@@ -589,6 +593,8 @@
    * 走这条（以 `done{reason:'tool'}` 收尾），第 2 次走普通回复。
    */
   window.__STUB_AI_TOOL_LOOP__ = null
+  /** 发完 toolStart 后挂住，供“工具执行前停止”用例点击停止 */
+  window.__STUB_AI_TOOL_LOOP_HANG__ = false
   /** 多轮版：第 n 条 = 第 n 次 `ai_chat` 推的工具循环（轮次上限用例） */
   window.__STUB_AI_TOOL_LOOP_ROUNDS__ = null
   /** 最近一次 `ai_chat` 收到的 `round`（断言"续跑用的是第 2 轮"用） */
