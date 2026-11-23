@@ -19,7 +19,7 @@ import type { CronApi } from '../useCron'
 import type { SkillsApi } from '../useSkills'
 import type { WorkflowApi } from '../useWorkflow'
 import { AI_DOC_KEY, parseAiDoc } from '../aiSettings'
-import { lastRun, type CronRun, type CronTask } from '../cron'
+import { lastRun, weekdayLabel, WEEKDAY_LABELS, WEEKLY_REPORT_PROMPT, type CronRun, type CronTask } from '../cron'
 import {
   lastRun as lastWorkflowRun,
   WORKFLOW_MAX_STEPS,
@@ -59,6 +59,8 @@ const cronAdding = ref(false)
 const cronTime = ref('09:00')
 const cronPrompt = ref('')
 const cronProvider = ref('')
+/** 每周几（0=周日…6=周六）：**空 = 每天**（旧行为）；点选后只在那些天跑 */
+const cronWeekday = ref<number[]>([])
 const cronNotice = ref<string | null>(null)
 const cronConfirm = ref<string | null>(null)
 const cronOpen = ref<string | null>(null)
@@ -69,12 +71,32 @@ function startCronAdd(): void {
 }
 
 function submitCron(): void {
-  const rejected = cron.add({ prompt: cronPrompt.value, time: cronTime.value, providerId: cronProvider.value })
+  const rejected = cron.add({
+    prompt: cronPrompt.value,
+    time: cronTime.value,
+    weekday: cronWeekday.value,
+    providerId: cronProvider.value,
+  })
   cronNotice.value = rejected.length ? rejected.join('；') : null
   if (!rejected.length) {
     cronPrompt.value = ''
+    cronWeekday.value = []
     cronAdding.value = false
   }
+}
+
+/** 周报一键模板：填骨架 prompt + 预选周五 + 17:30（用户可再改任意一项） */
+function fillWeeklyTemplate(): void {
+  cronPrompt.value = WEEKLY_REPORT_PROMPT
+  cronWeekday.value = [5]
+  cronTime.value = '17:30'
+}
+
+/** 周几多选：再点一次取消；全取消 = 回落每天（与判定层「空=每天」同一语义） */
+function toggleWeekday(d: number): void {
+  cronWeekday.value = cronWeekday.value.includes(d)
+    ? cronWeekday.value.filter((x) => x !== d)
+    : [...cronWeekday.value, d].sort((a, b) => a - b)
 }
 
 function statusLine(t: CronTask): string {
@@ -516,6 +538,24 @@ onMounted(() => void sessions.refresh())
         </select>
         <p v-else-if="providers.length === 1" class="preview-hint">用模型服务：{{ providers[0].model || providers[0].id }}</p>
         <p v-else class="preview-hint">还没有模型服务 —— 先去「设置 → 实验室」配一个再建任务。</p>
+        <!-- 重复（第四十笔）：周几多选；空 = 每天（旧行为逐字不变） -->
+        <div class="cron-repeat" role="group" aria-label="每周几跑，不选就是每天">
+          <span class="rep-label">重复</span>
+          <button
+            v-for="(lb, d) in WEEKDAY_LABELS"
+            :key="d"
+            class="rep-day"
+            :class="{ on: cronWeekday.includes(d) }"
+            :data-cron-repeat="d"
+            :aria-label="`周${lb}`"
+            :aria-pressed="cronWeekday.includes(d)"
+            @click="toggleWeekday(d)"
+          >
+            {{ lb }}
+          </button>
+          <span class="rep-note">{{ cronWeekday.length ? `每周${weekdayLabel(cronWeekday)}` : '每天' }}</span>
+        </div>
+        <button class="cron-template" data-cron-template @click="fillWeeklyTemplate">用「周报」模板（周五 17:30，可改）</button>
         <div class="cron-actions">
           <button class="cron-submit" data-cron-submit :disabled="!cronPrompt.trim()" @click="submitCron">建任务</button>
           <button class="cron-cancel" data-cron-cancel @click="cronAdding = false">取消</button>
@@ -534,7 +574,7 @@ onMounted(() => void sessions.refresh())
               :title="`${t.time} · ${t.prompt}（点开看最近一次）`"
               @click="toggleCronOpen(t.id)"
             >
-              <span class="t">{{ t.time }} · {{ t.prompt }}</span>
+              <span class="t">{{ t.time }}{{ t.weekday?.length ? ` · 每周${weekdayLabel(t.weekday)}` : '' }} · {{ t.prompt }}</span>
               <span class="m" :data-cron-status="t.id">{{ statusLine(t) }}</span>
             </button>
             <button
@@ -916,6 +956,51 @@ onMounted(() => void sessions.refresh())
 .cron-actions {
   display: flex;
   gap: 6px;
+}
+/* 重复（周几多选，第四十笔）：七枚小 pill，选中用强调色描边 */
+.cron-repeat {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-wrap: wrap;
+}
+.cron-repeat .rep-label {
+  font-size: 12px;
+  color: var(--text-2);
+  margin-right: 2px;
+}
+.cron-repeat .rep-day {
+  min-width: 22px;
+  padding: 3px 0;
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-pill);
+  background: var(--input-bg);
+  color: var(--text-2);
+  font-size: 12px;
+  cursor: pointer;
+}
+.cron-repeat .rep-day.on {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+.cron-repeat .rep-note {
+  font-size: 12px;
+  color: var(--text-3);
+  margin-left: 4px;
+}
+.cron-template {
+  align-self: flex-start;
+  padding: 4px var(--space-2);
+  border: 1px dashed var(--border-soft);
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-2);
+  font-size: 12px;
+  cursor: pointer;
+}
+.cron-template:hover {
+  color: var(--accent);
+  border-color: var(--accent);
 }
 .cron-submit {
   padding: 5px var(--space-3);
