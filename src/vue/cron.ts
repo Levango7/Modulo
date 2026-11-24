@@ -9,7 +9,8 @@
  *    应用当时没开着，就记一条「错过」，不静默追赶（追赶等于替用户做"这笔钱该花"的决定）。
  * 2. **结果不自动写进版面**：跑完的结果存进运行记录（每条截 2000 字），全文落在那次
  *    ai_chat 自己的会话历史里 —— 会话列表看得见、点得进去。替用户改卡片是另一层决定，不在这笔里。
- * 3. **不做 cron 表达式**：v1 只有「每天 HH:MM」+ 可选的「每周几」多选（周报场景）；
+ * 3. **不做 cron 表达式**：v1 只有「每天 HH:MM」+ 可选的「每周几」多选（周报场景，第四十笔）
+ *    + 可选的「每月几日」（月报场景，第四十二笔）；两者可同时设（**AND**，都要满足才跑）；
  *    表达式那套语法对普通人是一座山，先把「每天一次」和「每周一次」做对，语法面等真有需求再加。
  * 4. **粒度是分钟**：判定按 `HH:MM` 精确匹配（胶水层每分钟对一次表），错过与否在同一天内判定。
  */
@@ -50,6 +51,25 @@ export const WEEKLY_REPORT_PROMPT =
   '⑤速记 / 资料：本周新增了什么。' +
   '这是定时任务，只输出报告，不要修改任何卡片。'
 
+/**
+ * 「月报」预设模板（第四十二笔）：一键填入表单的提示词骨架。
+ * 与周报同源同立场：只读口径写死在文案里，无人值守不改卡。
+ */
+export const MONTHLY_REPORT_PROMPT =
+  '写一份本月小结，先结论后细节，不编造摘要里没有的数据：' +
+  '①待办：本月勾选了几条、新增几条、月末还剩几条没做完（逐条列标题）；' +
+  '②习惯：每个打卡步骤本月完成天数与达标情况；' +
+  '③倒数日：本月到期或下月三天内将到期的；' +
+  '④记账：本月收入与支出合计，与上月比是多是少；' +
+  '⑤速记 / 资料：本月新增了什么。' +
+  '这是定时任务，只输出报告，不要修改任何卡片。'
+
+/** 每月几日的人话（如 1 → 「每月 1 号」）；undefined = 每天（调用方不显示这一段） */
+export function monthdayLabel(day: number | undefined): string {
+  if (day === undefined) return ''
+  return `每月 ${day} 号`
+}
+
 export interface CronTask {
   id: string
   prompt: string
@@ -60,6 +80,13 @@ export interface CronTask {
    * 个字段，行为必须一天不少；周报类任务填具体几天，如 `[5]` = 只在周五跑）。
    */
   weekday?: number[]
+  /**
+   * 每月几日跑（**1–31，单选**；第四十二笔）。缺省 = 每天（旧档逐字兼容）；月报类
+   * 任务填具体哪天，如 1 = 只在每月 1 号跑。**该月没有这一天**（2 月的 31 号）⇒
+   * 当天 `getDate()` 永远不等于它，天然安静跳过，不报错也不记错过。
+   * 与 `weekday` 同设 = **AND**（周几与月几都要满足）。
+   */
+  monthday?: number
   /** 用哪个模型服务跑；胶水层在执行时解析，解析不到回落第一个可用的 */
   providerId: string
   enabled: boolean
@@ -92,11 +119,13 @@ function cleanTask(it: Partial<CronTask> | null | undefined, taken: Set<string>)
   if (!isStr(it.time) || !HM_RE.test(it.time.trim())) return null
   taken.add(it.id)
   const wd = cleanWeekday(it.weekday)
+  const md = cleanMonthday(it.monthday)
   return {
     id: it.id,
     prompt: it.prompt.trim(),
     time: it.time.trim(),
     ...(wd.length ? { weekday: wd } : {}),
+    ...(md !== undefined ? { monthday: md } : {}),
     providerId: isStr(it.providerId) ? it.providerId : '',
     enabled: it.enabled !== false,
     createdAt: typeof it.createdAt === 'number' && Number.isFinite(it.createdAt) ? it.createdAt : 0,
@@ -111,6 +140,12 @@ function cleanWeekday(raw: unknown): number[] {
     if (typeof d === 'number' && Number.isInteger(d) && d >= 0 && d <= 6) seen.add(d)
   }
   return [...seen].sort((a, b) => a - b)
+}
+
+/** 每月几日的清洗：**整数 1–31 单选**；坏形态回落「每天」（与「缺省=每天」同一语义） */
+function cleanMonthday(raw: unknown): number | undefined {
+  if (typeof raw === 'number' && Number.isInteger(raw) && raw >= 1 && raw <= 31) return raw
+  return undefined
 }
 
 function cleanRun(it: Partial<CronRun> | null | undefined, i: number): CronRun | null {
@@ -182,6 +217,8 @@ export interface PickedTask {
   time: string
   /** 每周几（0=周日…6=周六）；不给 / 空 = 每天 */
   weekday?: number[]
+  /** 每月几日（1–31 单选）；不给 = 每天 */
+  monthday?: number
   providerId?: string
 }
 
@@ -206,6 +243,7 @@ export function addTask(
   if (!HM_RE.test(time)) rejected.push('时间要是 HH:MM（比如 09:00）')
   if (rejected.length) return { tasks: out, rejected }
   const weekday = cleanWeekday(picked.weekday)
+  const monthday = cleanMonthday(picked.monthday)
   if (out.some((t) => t.time === time && t.prompt === prompt)) {
     rejected.push('这个时间已经有一条一样的任务了')
     return { tasks: out, rejected }
@@ -219,6 +257,7 @@ export function addTask(
     prompt,
     time,
     ...(weekday.length ? { weekday } : {}),
+    ...(monthday !== undefined ? { monthday } : {}),
     providerId: picked.providerId ?? '',
     enabled: true,
     createdAt: Math.floor(nowMs / 1000),
@@ -261,6 +300,9 @@ export function dueTasks(
     // 周几过滤：不该跑的日子**直接跳过** —— 既不 due 也不 missed（周三扫一个周五才该跑的
     // 任务并记「错过」，等于每周都在提醒用户一个不存在的错过）。
     if (t.weekday?.length && !t.weekday.includes(today)) continue
+    // 月几过滤（第四十二笔，与周几**同级**）：不该跑的日子直接跳过，既不 due 也不 missed。
+    // 该月没有这一天（2 月 31）时 getDate() 永远不等于它 ⇒ 天然安静跳过。
+    if (t.monthday !== undefined && t.monthday !== now.getDate()) continue
     if (t.time === hm) due.push(t)
     else if (t.time < hm) missed.push(t)
   }

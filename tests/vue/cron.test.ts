@@ -9,6 +9,8 @@ import {
   dueTasks,
   lastRun,
   localHM,
+  MONTHLY_REPORT_PROMPT,
+  monthdayLabel,
   newTaskId,
   parseCronDoc,
   removeTask,
@@ -243,5 +245,111 @@ describe('cron：每周几（周报场景，第四十笔）', () => {
     expect(weekdayLabel([5, 1])).toBe('一五')
     expect(weekdayLabel([])).toBe('')
     expect(weekdayLabel(undefined)).toBe('')
+  })
+})
+
+describe('cron：每月几日（月报场景，第四十二笔）', () => {
+  it('parse：monthday 只认真整数 1–31；坏形态回落「每天」（字段不出现）', () => {
+    const doc = parseCronDoc(
+      JSON.stringify({
+        tasks: [
+          { id: 'c1', prompt: '月报', time: '09:00', monthday: 1, providerId: 'p1', enabled: true },
+          { id: 'c2', prompt: '月末', time: '09:00', monthday: 31, providerId: 'p1', enabled: true },
+          { id: 'c3', prompt: '零', time: '09:00', monthday: 0, providerId: 'p1', enabled: true },
+          { id: 'c4', prompt: '三十二', time: '09:00', monthday: 32, providerId: 'p1', enabled: true },
+          { id: 'c5', prompt: '小数', time: '09:00', monthday: 1.5, providerId: 'p1', enabled: true },
+          { id: 'c6', prompt: '字符串', time: '09:00', monthday: '5', providerId: 'p1', enabled: true },
+        ],
+        runs: [],
+      }),
+    )
+    expect(doc.tasks[0].monthday).toBe(1)
+    expect(doc.tasks[1].monthday).toBe(31)
+    expect('monthday' in doc.tasks[2]).toBe(false)
+    expect('monthday' in doc.tasks[3]).toBe(false)
+    expect('monthday' in doc.tasks[4]).toBe(false)
+    expect('monthday' in doc.tasks[5]).toBe(false)
+  })
+
+  // 2026 年 11 月：1 号是周日、8 号是周日、18 号是周三；2 月只有 28 天
+  it('旧档没有 monthday：每天照跑（逐字兼容）', () => {
+    const legacy = parseCronDoc(
+      JSON.stringify({
+        tasks: [{ id: 'c1', prompt: '旧任务', time: '09:00', providerId: 'p1', enabled: true }],
+        runs: [],
+      }),
+    )
+    expect('monthday' in legacy.tasks[0]).toBe(false)
+    for (const day of [1, 8, 18]) {
+      const r = dueTasks(legacy.tasks, [], new Date(2026, 10, day, 9, 0))
+      expect(r.due).toHaveLength(1)
+    }
+  })
+
+  it('每月 1 号的任务：1 号才 due；8 号 / 18 号不跑也不记错过', () => {
+    const { tasks } = parseCronDoc(
+      JSON.stringify({
+        tasks: [{ id: 'c1', prompt: '月报', time: '09:00', monthday: 1, providerId: 'p1', enabled: true }],
+        runs: [],
+      }),
+    )
+    const d1 = dueTasks(tasks, [], new Date(2026, 10, 1, 9, 0))
+    expect(d1.due.map((t) => t.id)).toEqual(['c1'])
+    for (const day of [8, 18]) {
+      const r = dueTasks(tasks, [], new Date(2026, 10, day, 9, 0))
+      expect(r.due).toHaveLength(0)
+      expect(r.missed).toHaveLength(0)
+    }
+  })
+
+  it('该月没有这一天（2 月 31 号）：安静跳过，不报错也不记错过', () => {
+    const { tasks } = parseCronDoc(
+      JSON.stringify({
+        tasks: [{ id: 'c1', prompt: '月报', time: '09:00', monthday: 31, providerId: 'p1', enabled: true }],
+        runs: [],
+      }),
+    )
+    // 2026 年 2 月只有 28 天：扫到 28 号都不该跑
+    for (const day of [20, 28]) {
+      const r = dueTasks(tasks, [], new Date(2026, 1, day, 9, 0))
+      expect(r.due).toHaveLength(0)
+      expect(r.missed).toHaveLength(0)
+    }
+    // 12 月 31 号照跑
+    const dec = dueTasks(tasks, [], new Date(2026, 11, 31, 9, 0))
+    expect(dec.due.map((t) => t.id)).toEqual(['c1'])
+  })
+
+  it('weekday 与 monthday 同设 = AND：周几与月几都要满足', () => {
+    const { tasks } = parseCronDoc(
+      JSON.stringify({
+        tasks: [{ id: 'c1', prompt: '周五的月报', time: '09:00', weekday: [5], monthday: 20, providerId: 'p1', enabled: true }],
+        runs: [],
+      }),
+    )
+    // 2026-11-20 是周五、又是 20 号 ⇒ 跑
+    const both = dueTasks(tasks, [], new Date(2026, 10, 20, 9, 0))
+    expect(both.due.map((t) => t.id)).toEqual(['c1'])
+    // 2026-11-13 是周五但不是 20 号 ⇒ 不跑
+    const friOnly = dueTasks(tasks, [], new Date(2026, 10, 13, 9, 0))
+    expect(friOnly.due).toHaveLength(0)
+    // 2026-12-20 是 20 号但不是周五 ⇒ 不跑
+    const dayOnly = dueTasks(tasks, [], new Date(2026, 11, 20, 9, 0))
+    expect(dayOnly.due).toHaveLength(0)
+  })
+
+  it('addTask：monthday 持久化；不给 = 不写字段', () => {
+    const { tasks } = addTask([], { prompt: '月报', time: '09:00', monthday: 1 }, 0)
+    expect(tasks[0].monthday).toBe(1)
+    const plain = addTask([], { prompt: '每天', time: '09:00' }, 0)
+    expect('monthday' in plain.tasks[0]).toBe(false)
+  })
+
+  it('monthdayLabel 与 MONTHLY_REPORT_PROMPT：人话 + 只读边界写死在文案里', () => {
+    expect(monthdayLabel(1)).toBe('每月 1 号')
+    expect(monthdayLabel(31)).toBe('每月 31 号')
+    expect(monthdayLabel(undefined)).toBe('')
+    expect(MONTHLY_REPORT_PROMPT).toContain('本月')
+    expect(MONTHLY_REPORT_PROMPT).toContain('不要修改任何卡片')
   })
 })
