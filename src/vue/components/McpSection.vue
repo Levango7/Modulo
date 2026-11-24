@@ -16,6 +16,7 @@
  *    各 new 一份 ref，设置里刚确认的服务，对话坞那边根本看不见。
  */
 import { inject, ref } from 'vue'
+import LoomSection from './LoomSection.vue'
 import type { McpApi } from '../useMcp'
 import type { McpExecutionApi } from '../useMcpExecution'
 import type { McpToolEntry } from '../mcpTools'
@@ -243,11 +244,15 @@ async function showTools(s: McpServer): Promise<void> {
       <b>本机 server 的命令与参数</b>，本会话里允许之后，模型就能用它的工具。
       <b>Modulo 不自带任何 server，也不替你安装它需要的运行环境</b>（Node、Python 之类都得你自己装好）；
       命令与参数原样交给系统执行，不经过 shell。
+      <b>唯一的例外是下面的织布机运行时</b>：那是 Modulo 自己维护的包，带 sha256 校验、按需下载。
     </p>
     <p class="muted small" data-mcp-stage>
       允许是<b>这一次会话</b>的事：重启 Modulo 之后要重新允许。允许之后可以先在这里看它有哪些工具，
       真正在对话里调用工具的入口在对话坞。
     </p>
+
+    <!-- β1 可选组件：织布机运行时的安装 / 回退 / 卸载与 MCP 配置片段（用户 2026-11-24 裁决） -->
+    <LoomSection />
 
     <!-- 功能总开关：本地灰度的唯一手段。关掉后配置仍留在盘上（列表不隐藏），
          只是 Rust 侧三条命令一律拒，且**不会拉起任何已配置的服务**。 -->
