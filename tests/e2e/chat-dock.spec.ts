@@ -283,12 +283,15 @@ describe.skipIf(skip)('F-12 二期：底部对话坞（桌面形态）', () => {
       'context_read',
       'countdown_set',
       'habit_check',
+      'habit_check_many',
       'knowledge_add',
       'ledger_add',
       'memory_add',
       'skill_add',
       'sticky_append',
       'todo_add',
+      'todo_done',
+      'todo_done_many',
     ])
     expect(tools.every((t) => t.parameters.type === 'object')).toBe(true)
     expect(errs, `页面不该有报错：${errs.join(' | ')}`).toEqual([])
@@ -432,7 +435,7 @@ describe.skipIf(skip)('F-12 二期：底部对话坞（桌面形态）', () => {
     expect(probe.round, '续跑用的是第 2 轮').toBe(2)
     // 工具清单必须真传下去 —— 不传的话模型根本不可能发 toolStart（P1a 在线上一直是这个状态）
     expect([...(probe.tools ?? [])].sort()).toEqual(
-      ['add_card', 'todo_add', 'ledger_add', 'sticky_append', 'countdown_set', 'habit_check', 'memory_add', 'knowledge_add', 'skill_add', 'context_read'].sort(),
+      ['add_card', 'todo_add', 'ledger_add', 'sticky_append', 'countdown_set', 'habit_check', 'memory_add', 'knowledge_add', 'skill_add', 'context_read', 'todo_done', 'todo_done_many', 'habit_check_many'].sort(),
     )
     // ② 回灌：第 2 轮的消息里多了一条 user（那条带着标记的工具结果）
     expect((probe.roles ?? []).filter((r) => r === 'user')).toHaveLength(2)
