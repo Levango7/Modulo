@@ -349,6 +349,13 @@ const TOOL_LABELS: Record<string, string> = {
   'countdown.set': '设一张倒数日',
   habit_check: '给习惯卡打卡',
   'habit.check': '给习惯卡打卡',
+  // 第四十一笔「跨卡批处理」
+  todo_done: '勾掉一条待办',
+  'todo.done': '勾掉一条待办',
+  todo_done_many: '一次勾掉多条待办',
+  'todo.done_many': '一次勾掉多条待办',
+  habit_check_many: '一次给多个习惯打卡',
+  'habit.check_many': '一次给多个习惯打卡',
   memory_add: '记住一件事',
   'memory.add': '记住一件事',
   knowledge_add: '新建一份资料',

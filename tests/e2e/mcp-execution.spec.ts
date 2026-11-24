@@ -77,7 +77,7 @@ const mcpDoc = (gate: boolean): string =>
     ],
   })
 
-/** 这个 MCP 工具名：合法（`^[a-zA-Z0-9_-]{1,64}$`）且不与本地十条撞名 */
+/** 这个 MCP 工具名：合法（`^[a-zA-Z0-9_-]{1,64}$`）且不与本地十三条撞名 */
 const TOOL = 'echo_tool'
 
 /** 桩里那个服务的清单：一条工具，`inputSchema` 是对象（不是对象的话合并不进去） */
@@ -95,7 +95,7 @@ const MCP_TOOLS = {
 }
 
 /**
- * 本地白名单那十条（`toolSpecs()`，主干 F4c-1 的表）—— 断言"合并只加不减"用。
+ * 本地白名单那十三条（`toolSpecs()`，主干 F4c-1 的表 + 第四十一笔的 `todo_done` 与两个批量）—— 断言"合并只加不减"用。
  * **顺序照 `toolSpecs()` 的原序**：合并的契约是"本地原样在前（保序），MCP 随后"，
  * 排过序的期望值会把这条契约测掉。
  */
@@ -110,6 +110,9 @@ const LOCAL_TOOLS = [
   'knowledge_add',
   'skill_add',
   'context_read',
+  'todo_done',
+  'todo_done_many',
+  'habit_check_many',
 ]
 
 let browser: Browser
@@ -290,7 +293,7 @@ describe.skipIf(skip)('对话坞消费 MCP 工具（J1 执行半）', () => {
     const chats = await chatCalls(page)
     expect(chats, '两轮 = 两次模型调用').toHaveLength(2)
 
-    // ★ 清单：本地十条**原样在前**（保序）+ 这个 MCP 工具随后（只加不减、不重排）
+    // ★ 清单：本地十三条**原样在前**（保序）+ 这个 MCP 工具随后（只加不减、不重排）
     const round1 = toolNamesOf(chats[0])
     expect(round1).toEqual([...LOCAL_TOOLS, TOOL])
 
@@ -392,12 +395,12 @@ describe.skipIf(skip)('对话坞消费 MCP 工具（J1 执行半）', () => {
     const chats = seen.filter((c) => c.cmd === 'ai_chat')
     expect(chats).toHaveLength(1)
     const names = toolNamesOf(chats[0])
-    expect(names, '清单里只有本地十条').toEqual(LOCAL_TOOLS)
+    expect(names, '清单里只有本地十三条').toEqual(LOCAL_TOOLS)
     expect(names).not.toContain(TOOL)
     expect(errs, `页面不该有报错：${errs.join(' | ')}`).toEqual([])
   })
 
-  it('总开关关着：即使已允许，也不 gather、不列工具（清单退回本地十条）', async () => {
+  it('总开关关着：即使已允许，也不 gather、不列工具（清单退回本地十三条）', async () => {
     const errs: string[] = []
     // 注意：这条**不能**在设置页点允许（总开关关着时那个按钮是死的），所以用 gate:false
     const page = await open({ gate: false, confirm: false }, errs)
@@ -428,7 +431,7 @@ describe.skipIf(skip)('对话坞消费 MCP 工具（J1 执行半）', () => {
     expect(note, '服务的失败要折成一句人话').toContain('「files」的工具没有列出来')
     expect(note).toContain('列工具失败：stub 按配置拒绝')
 
-    // 一个服务挂了不拖垮整批：请求照发，清单就是本地十条（这个服务的工具一条都没有）
+    // 一个服务挂了不拖垮整批：请求照发，清单就是本地十三条（这个服务的工具一条都没有）
     const chats = await chatCalls(page)
     expect(chats).toHaveLength(1)
     expect(toolNamesOf(chats[0])).toEqual(LOCAL_TOOLS)

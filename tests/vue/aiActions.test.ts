@@ -14,6 +14,7 @@ import {
   actionResultLines,
   actionResultText,
   actStepStatuses,
+  ACTION_BATCH_MAX,
   ACTION_CENTS_MAX,
   ACTION_DOC_NAME_MAX,
   ACTION_DOC_TEXT_MAX,
@@ -788,7 +789,7 @@ describe('F4c-1：工具调用走与 @@act 同一道闸门', () => {
 
   it('toolSpecs：8 条、名字合法且不重复、描述非空、required 的键都在 properties 里', () => {
     const specs = toolSpecs()
-    expect(specs).toHaveLength(10)
+    expect(specs).toHaveLength(13)
     const names = specs.map((s) => s.name)
     for (const n of names) expect(n).toMatch(/^[a-zA-Z0-9_-]{1,64}$/)
     expect(new Set(names).size).toBe(names.length)
@@ -946,12 +947,12 @@ describe('AI 动作 v1.9：按标题定点（title 折进 moduleId / instanceId�
     })
   })
 
-  it('toolSpecs：7 个卡目标型带 title 参数，memory.add / knowledge.add / skill.add 没有，required 全不变', () => {
+  it('toolSpecs：8 个卡目标型带 title 参数，memory.add / knowledge.add / skill.add 没有，required 全不变', () => {
     const specs = toolSpecs()
-    expect(specs).toHaveLength(10)
+    expect(specs).toHaveLength(13)
     const withTitle = specs.filter((s) => 'title' in (s.parameters.properties as Record<string, unknown>))
     expect(withTitle.map((s) => s.name).sort()).toEqual(
-      ['add_card', 'context_read', 'countdown_set', 'habit_check', 'ledger_add', 'sticky_append', 'todo_add'].sort(),
+      ['add_card', 'context_read', 'countdown_set', 'habit_check', 'ledger_add', 'sticky_append', 'todo_add', 'todo_done'].sort(),
     )
     expect(specs.find((s) => s.name === 'memory_add')?.parameters.properties).not.toHaveProperty('title')
     expect(specs.find((s) => s.name === 'knowledge_add')?.parameters.properties).not.toHaveProperty('title')
@@ -1088,5 +1089,113 @@ describe('AI 动手 v1.10：资料 / 技能新建 —— 只增不改，名字�
     expect(p).toContain('"type":"skill.add"')
     expect(p).toContain('只增不改')
     for (const w of ['发版', '团建餐', '跑步', '读书清单', '复查模板']) expect(p).not.toContain(w)
+  })
+})
+
+describe('第四十一笔：跨卡批处理 —— 单条补齐 todo.done + 批量（拒绝猜）', () => {
+  const titleCtx = (over: Partial<ActionContext> = {}): ActionContext =>
+    ctx({
+      moduleIds: ['todo', 'sticky', 'ledger', 'clock', 'habit'],
+      instances: [
+        { id: 'todo', module: 'todo' },
+        { id: 'habit', module: 'habit' },
+        { id: 'habit:2', module: 'habit' },
+      ],
+      titles: [
+        { title: '待办', moduleId: 'todo' },
+        { title: '便签', moduleId: 'sticky' },
+        { title: '习惯（2）', moduleId: 'habit', instanceId: 'habit:2' },
+      ],
+      ...over,
+    })
+
+  it('批量 titles 折成 instanceIds：多张一次勾（含多实例折出 instanceId）', () => {
+    expect(actionFromObject({ type: 'todo.done_many', titles: ['待办', '便签'] }, titleCtx())).toEqual({
+      type: 'todo.done_many',
+      instanceIds: ['todo', 'sticky'],
+    })
+    expect(actionFromObject({ type: 'habit.check_many', titles: ['习惯（2）'] }, titleCtx())).toEqual({
+      type: 'habit.check_many',
+      instanceIds: ['habit:2'],
+    })
+  })
+
+  it('单条 todo.done 与 habit.check 同形（title 折掉 / instanceId 直给）', () => {
+    expect(actionFromObject({ type: 'todo.done', title: '待办' }, titleCtx())).toEqual({ type: 'todo.done' })
+    expect(actionFromObject({ type: 'todo.done' }, titleCtx())).toEqual({ type: 'todo.done' })
+    expect(actionFromObject({ type: 'todo.done', instanceId: 'todo' }, titleCtx())).toEqual({
+      type: 'todo.done',
+      instanceId: 'todo',
+    })
+  })
+
+  it('工具调用路与文字路共用折叠闸门', () => {
+    expect(actionFromToolCall('todo_done_many', { titles: ['待办', '便签'] }, titleCtx())).toEqual({
+      type: 'todo.done_many',
+      instanceIds: ['todo', 'sticky'],
+    })
+  })
+
+  it('坏行：空数组 / 非数组 / 超上限（一次最多 ACTION_BATCH_MAX 张）', () => {
+    expect(actionFromObject({ type: 'todo.done_many', titles: [] }, titleCtx())).toEqual({
+      bad: '它想批量点几张卡，但一组标题是空的（至少给一个标题）',
+    })
+    expect(actionFromObject({ type: 'todo.done_many', titles: '待办' }, titleCtx())).toEqual({
+      bad: '它想批量点几张卡，但 titles 不是一组标题（要写成 "titles":["待办","习惯"]）',
+    })
+    const many = Array.from({ length: ACTION_BATCH_MAX + 1 }, (_, i) => 't' + (i + 1))
+    const r = actionFromObject({ type: 'todo.done_many', titles: many }, titleCtx())
+    expect(r).toEqual({
+      bad: `一次最多点 ${ACTION_BATCH_MAX} 张卡（它给了 ${ACTION_BATCH_MAX + 1} 个标题）—— 分批做更稳`,
+    })
+  })
+
+  it('坏行：批量里有一个标题对不上 ⇒ 整条不执行（批量 ≠ 猜）', () => {
+    const r = actionFromObject({ type: 'todo.done_many', titles: ['待办', '没有这张卡'] }, titleCtx())
+    expect(r).toEqual({
+      bad: '没有叫「没有这张卡」的卡（批量里有一个标题对不上，整条不执行；先 context.read 看一眼版面清单拿标题）',
+    })
+  })
+
+  it('坏行：批量里有一个标题对上多张卡 ⇒ 整条拒收', () => {
+    const c = titleCtx({
+      titles: [
+        { title: '待办', moduleId: 'todo' },
+        { title: '便签', moduleId: 'sticky' },
+        { title: '便签', moduleId: 'ledger' },
+      ],
+    })
+    expect(actionFromObject({ type: 'todo.done_many', titles: ['待办', '便签'] }, c)).toEqual({
+      bad: '「便签」对上了多张卡（批量里去掉这个歧义标题，或用 id 定点）',
+    })
+  })
+
+  it('坏行：同一张卡勾两次没有意义（折出的实例 id 重复）', () => {
+    expect(actionFromObject({ type: 'todo.done_many', titles: ['待办', '待办'] }, titleCtx())).toEqual({
+      bad: '它想批量点待办，但一组标题里有重复的（同一张卡勾两次没有意义）',
+    })
+  })
+
+  it('工具面：toolSpecs 13 条含三条新（含 titles 数组参数）', () => {
+    const specs = toolSpecs()
+    expect(specs).toHaveLength(13)
+    const byName = Object.fromEntries(specs.map((s) => [s.name, s]))
+    expect(byName.todo_done_many.parameters.required).toEqual(['titles'])
+    expect(byName.habit_check_many.parameters.required).toEqual(['titles'])
+    expect((byName.todo_done_many.parameters.properties as Record<string, { type: string }>).titles.type).toBe('array')
+    expect(byName.todo_done).toBeTruthy()
+  })
+
+  it('人话：actionLabel 三条新文案', () => {
+    expect(actionLabel({ type: 'todo.done' })).toBe('勾掉一条待办')
+    expect(actionLabel({ type: 'todo.done_many', instanceIds: ['todo', 'sticky'] })).toBe('一次勾掉 2 条待办')
+    expect(actionLabel({ type: 'habit.check_many', instanceIds: ['habit:2'] })).toBe('一次给 1 个习惯打上今天的卡')
+  })
+
+  it('指令文案带批量句式（含「一个对不上，整条不执行」）', () => {
+    const p = actionPrompt()
+    expect(p).toContain('todo.done_many')
+    expect(p).toContain('habit.check_many')
+    expect(p).toContain('有一个对不上就整条不执行')
   })
 })

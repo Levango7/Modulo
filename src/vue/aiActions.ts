@@ -53,6 +53,9 @@ export const ACTION_SEARCH_MAX = 5
 export const ACTION_SEARCH_RADIUS = 40
 /** 标题上限（码点；v1.9：按标题定点 —— 标题要一字不差，太长就别用标题） */
 export const ACTION_TITLE_MAX = 40
+/** 批量动作一次最多点几张卡（第四十一笔）：一次勾一串待办 / 打一串习惯 —— 比读类的 5 宽一档，
+ *  但绝不做成无界（一屏能摆的卡本来就有限，超了大概率是模型在猜） */
+export const ACTION_BATCH_MAX = 8
 /** 资料 / 技能的名字上限（v1.10；与 `SKILL_NAME_MAX` 同值 —— 名字要进引用块标题，挤占正文预算） */
 export const ACTION_DOC_NAME_MAX = 40
 /** AI 新建资料的正文上限（v1.10；与读全文 `ACTION_READ_FULL_MAX` 同值 —— 写得进去的，读一次要能带回来） */
@@ -67,6 +70,13 @@ export type AiAction =
   | { type: 'sticky.append'; text: string; instanceId?: string }
   | { type: 'countdown.set'; label: string; date: string; instanceId?: string }
   | { type: 'habit.check'; instanceId?: string }
+  // 第四十一笔「跨卡批处理」：勾待办（单条 + 批量）与批量打卡。
+  //  单条与批量严格对称 —— 没有单条的批量 = 猜测面，所以先把 todo.done 这个缺口补上。
+  | { type: 'todo.done'; instanceId?: string; title?: string }
+  // 批量（第四十一笔）：**模型面给 titles，纯层折成 instanceIds** —— 折叠逻辑与 v1.9 的
+  // foldTitle 同源（0 命中 / 多命中整行坏行说人话，拒绝猜），折完 union 只认实例 id。
+  | { type: 'todo.done_many'; instanceIds: string[] }
+  | { type: 'habit.check_many'; instanceIds: string[] }
   | { type: 'memory.add'; text: string }
   // v1.10（第二十六笔）：资料 / 技能的新建 —— **只增不改**（既有入口也只有 addDocs / addSkills，
   // 没有覆盖与删除动作；id 由入库闸门生成，动作里不填）
@@ -171,6 +181,7 @@ const TITLE_TYPES: ReadonlySet<string> = new Set([
   'sticky.append',
   'countdown.set',
   'habit.check',
+  'todo.done',
   'context.read',
 ])
 
@@ -179,18 +190,46 @@ const TITLE_TYPES: ReadonlySet<string> = new Set([
  * 路径零改动。标题要一字不差（从 context.read 的清单里抄），0 个 / 多个 / 空 / 非文字 /
  * 太长 / 与 id 类参数共存，都退回一条说人话的坏行。
  */
+/** 第四十一笔「跨卡批处理」：走批量 titles 折叠的类型（titles 复数 ⇒ 不能用 title 早返放过） */
+const BATCH_TYPES: ReadonlySet<string> = new Set(['todo.done_many', 'habit.check_many'])
+
 function foldTitle(
   o: Record<string, unknown>,
   ctx: ActionContext,
   type: string,
 ): { bad: string } | { ok: Record<string, unknown> } {
-  if (o.title === undefined) return { ok: o }
+  if (o.title === undefined && !BATCH_TYPES.has(type)) return { ok: o }
   if (type === 'memory.add') {
     return { bad: '它想记住一件事，但这个动作没有能填标题的目标（title 只在卡类动作上接受）' }
   }
   // v1.10：资料 / 技能的新建同样没有卡目标（id 由入库闸门生成，不是版面上的卡）
   if (type === 'knowledge.add' || type === 'skill.add') {
     return { bad: '它想新建资料 / 技能，但这个动作没有能填标题的目标（title 只在卡类动作上接受）' }
+  }
+  // 第四十一笔「跨卡批处理」：批量 titles 折叠（先于单条 title 分支 —— 两类互斥）。
+  // 每条独立精确匹配，**任一条 0 命中 / 多命中 ⇒ 整行坏行**（批量 ≠ 猜）。
+  if (BATCH_TYPES.has(type)) {
+    const titles = o.titles
+    if (!Array.isArray(titles)) return { bad: '它想批量点几张卡，但 titles 不是一组标题（要写成 "titles":["待办","习惯"]）' }
+    if (!titles.length) return { bad: '它想批量点几张卡，但一组标题是空的（至少给一个标题）' }
+    if (titles.length > ACTION_BATCH_MAX) return { bad: `一次最多点 ${ACTION_BATCH_MAX} 张卡（它给了 ${titles.length} 个标题）—— 分批做更稳` }
+    if (!ctx.titles?.length) return { bad: '它想按标题批量定点，但这份上下文没有标题清单（先 context.read 看一眼版面清单）' }
+    const ids: string[] = []
+    for (const raw of titles) {
+      if (typeof raw !== 'string') return { bad: '它想按标题批量定点，但有标题不是文字' }
+      const t = raw.trim()
+      if (!t) return { bad: '它想按标题批量定点，但有标题是空的（标题要一字不差，从 context.read 的清单里抄）' }
+      if (t.length > ACTION_TITLE_MAX) return { bad: `批量定点有标题太长（超过 ${ACTION_TITLE_MAX} 字）—— 用 id 定点更稳` }
+      const hits = ctx.titles.filter((x) => x.title === t)
+      if (!hits.length) return { bad: `没有叫「${clip(t, 24)}」的卡（批量里有一个标题对不上，整条不执行；先 context.read 看一眼版面清单拿标题）` }
+      if (hits.length > 1) return { bad: `「${clip(t, 24)}」对上了多张卡（批量里去掉这个歧义标题，或用 id 定点）` }
+      const hit = hits[0]
+      ids.push(hit.instanceId ?? hit.moduleId)
+    }
+    const rest: Record<string, unknown> = {}
+    for (const [k, v] of Object.entries(o)) if (k !== 'titles') rest[k] = v
+    rest.instanceIds = ids
+    return { ok: rest }
   }
   if (!TITLE_TYPES.has(type)) return { ok: o }
   const title = o.title
@@ -321,6 +360,33 @@ function actionFromFolded(o: Record<string, unknown>, ctx: ActionContext): AiAct
       return { bad: `它想定点到「${clip(instanceId, 24)}」，但实例清单里没有这张卡（先 context.read 看一眼版面清单拿 id）` }
     }
     return instanceId ? { type: 'habit.check', instanceId } : { type: 'habit.check' }
+  }
+  // 第四十一笔「跨卡批处理」：勾待办（单条补缺口 + 批量）与批量打卡。
+  //  单条与 habit.check 同形；批量 titles 已在 foldTitles 折成 instanceIds（0/多命中
+  //  已在折叠层整行拒收），这里只校验数组本身的形状（空 / 超帽 / 重复）。
+  if (type === 'todo.done') {
+    const instanceId = str(o.instanceId).trim()
+    if (instanceId && !findInstance(instanceId, ctx)) {
+      return { bad: `它想勾「${clip(instanceId, 24)}」上的待办，但实例清单里没有这张卡（先 context.read 看一眼版面清单拿 id）` }
+    }
+    return instanceId ? { type: 'todo.done', instanceId } : { type: 'todo.done' }
+  }
+  if (type === 'todo.done_many' || type === 'habit.check_many') {
+    const what = type === 'todo.done_many' ? '待办' : '习惯'
+    const raw = o.instanceIds
+    if (!Array.isArray(raw) || raw.some((x) => typeof x !== 'string' || !x.trim())) {
+      return { bad: `它想批量点${what}，但拿到的不是一组实例 id（这是内部折叠的产物 —— 说明标题没折上）` }
+    }
+    const ids = raw.map((x) => x.trim())
+    if (new Set(ids).size !== ids.length) {
+      return { bad: `它想批量点${what}，但一组标题里有重复的（同一张卡勾两次没有意义）` }
+    }
+    if (ids.length > ACTION_BATCH_MAX) {
+      return { bad: `它想批量点${what}，但一次最多 ${ACTION_BATCH_MAX} 张（它给了 ${ids.length} 个）` }
+    }
+    return type === 'todo.done_many'
+      ? { type: 'todo.done_many', instanceIds: ids }
+      : { type: 'habit.check_many', instanceIds: ids }
   }
   // v1.10：新建一份资料 —— 只增不改（同名会被既有入库闸门拒收），正文超长拒收不截断
   if (type === 'knowledge.add') {
@@ -473,6 +539,9 @@ const TOOL_NAME_OF: Record<AiAction['type'], string> = {
   'context.read': 'context_read',
   'knowledge.add': 'knowledge_add',
   'skill.add': 'skill_add',
+  'todo.done': 'todo_done',
+  'todo.done_many': 'todo_done_many',
+  'habit.check_many': 'habit_check_many',
 }
 
 /** 反查表（工具名 → 动作类型）。`actionFromToolCall` 用它，不靠遍历猜 */
@@ -500,6 +569,9 @@ const TOOL_DESC_OF: Record<AiAction['type'], string> = {
   'knowledge.add': '新建一份资料（只增不改；名字最多 40 字、正文最多 2000 字；资料库里已有同名会被拒收）。',
   'skill.add': '存一条技能（可复用的提示词模板；只增不改；名字最多 40 字、正文最多 1200 字；已有同名会被拒收）。',
   'context.read': '只读地看一眼版面清单 / 某张卡 / 一份资料 / 一条技能（moduleId / instanceId / moduleIds / query / docId / skillId / full），不改任何东西；也可以用 title 按标题定点到一张卡。',
+  'todo.done': '勾掉一条待办；不给 id 就勾第一张上的；也可以用 title 按标题定点（要与 id 二选一）。',
+  'todo.done_many': '一次勾掉多条待办：给一组标题（titles，每个一字不差、≤ 8 个）—— 有一个对不上就整条不执行，不猜。',
+  'habit.check_many': '一次给多个习惯打上今天的卡：给一组标题（titles，每个一字不差、≤ 8 个）—— 有一个对不上就整条不执行，不猜。',
 }
 
 /** 这次提供给模型的工具清单（OpenAI `tools[].function` 的本地形状） */
@@ -600,6 +672,30 @@ export function toolSpecs(): ToolSpecLite[] {
       full: { type: 'boolean', description: '读全卡不截断（要配 moduleId / moduleIds / instanceId / docId / skillId）' },
       title,
     }),
+    // 第四十一笔「跨卡批处理」：批量只收 titles（不收 id/title，避免半标题半 id 的歧义面）
+    spec('todo.done', { instanceId: id, title }),
+    spec(
+      'todo.done_many',
+      {
+        titles: {
+          type: 'array',
+          items: { type: 'string' },
+          description: '要勾掉的待办标题（每张一字不差，≤ 8 个；有一个对不上整条不执行，不猜）',
+        },
+      },
+      ['titles'],
+    ),
+    spec(
+      'habit.check_many',
+      {
+        titles: {
+          type: 'array',
+          items: { type: 'string' },
+          description: '要打卡的习惯标题（每张一字不差，≤ 8 个；有一个对不上整条不执行，不猜）',
+        },
+      },
+      ['titles'],
+    ),
   ]
 }
 
@@ -691,6 +787,13 @@ export function actionLabel(
       return `新建一份资料「${a.name}」`
     case 'skill.add':
       return `存一条技能「${a.name}」`
+    // 第四十一笔「跨卡批处理」
+    case 'todo.done':
+      return `${fixed}勾掉一条待办`
+    case 'todo.done_many':
+      return `一次勾掉 ${a.instanceIds.length} 条待办`
+    case 'habit.check_many':
+      return `一次给 ${a.instanceIds.length} 个习惯打上今天的卡`
     case 'context.read': {
       if (a.query) return `找一找写有「${a.query}」的东西`
       if (a.docId) return `看一眼资料「${titleOf?.(a.docId) || a.docId}」`
@@ -919,6 +1022,10 @@ export function actionPrompt(): string {
     `- \`${ACTION_PREFIX} {"type":"memory.add","text":"…"}\` —— 记住一件关于用户的事（跨对话有效，用户可在设置里删）；`,
     `- \`${ACTION_PREFIX} {"type":"knowledge.add","name":"菜谱","text":"…"}\` —— 新建一份资料（只增不改、不改旧的；名字最多 ${ACTION_DOC_NAME_MAX} 字、正文最多 ${ACTION_DOC_TEXT_MAX} 字；资料库里已有同名会被拒收，拒收理由会回给你）；`,
     `- \`${ACTION_PREFIX} {"type":"skill.add","name":"三步总结","text":"…"}\` —— 存一条技能（可复用的提示词模板；只增不改；名字最多 ${ACTION_DOC_NAME_MAX} 字、正文最多 ${ACTION_SKILL_TEXT_MAX} 字；已有同名会被拒收）；`,
+    // 第四十一笔「跨卡批处理」（示例词条错开 E2E 夹具：发版 / 团建餐 / 跑步）
+    `- \`${ACTION_PREFIX} {"type":"todo.done","title":"待办"}\` —— 勾掉一条待办（做完一条就勾掉它；不给就第一张，也可以 instanceId 定点）；`,
+    `- \`${ACTION_PREFIX} {"type":"todo.done_many","titles":["待办","阅读"]}\` —— 一次勾掉多条待办（最多 ${ACTION_BATCH_MAX} 个标题，每个一字不差；**有一个对不上就整条不执行**，不猜）；`,
+    `- \`${ACTION_PREFIX} {"type":"habit.check_many","titles":["早起","阅读"]}\` —— 一次给多个习惯打上今天的卡（规则同上：一个对不上，整条不执行）。`,
     `- \`${ACTION_PREFIX} {"type":"context.read"}\` —— 看一眼版面清单（有哪些卡 / 资料 / 技能，各带 id）；\`${ACTION_PREFIX} {"type":"context.read","moduleId":"todo"}\` —— 看一眼某张卡里的内容（**只读**，不会改任何东西；看到的内容会随执行结果回给你）；`,
     `- \`${ACTION_PREFIX} {"type":"context.read","docId":"k…"}\` —— 看一眼某份资料的内容（**只读**，资料 id 从版面清单抄）；\`${ACTION_PREFIX} {"type":"context.read","skillId":"s…"}\` —— 看一眼某条技能的全文（**只读**）；`,
     `- \`${ACTION_PREFIX} {"type":"context.read","moduleIds":["todo","habit"]}\` —— 一次看一组卡（最多 ${ACTION_READ_MULTI_MAX} 张，看到的内容一条消息带回）；`,

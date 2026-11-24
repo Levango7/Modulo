@@ -91,7 +91,7 @@ import type { McpExecutionApi } from '../useMcpExecution'
 import { mcpResultLine, mergeToolLists, routeToolCall } from '../mcpTools'
 import { isDesktop } from '../useShell'
 import { localDay } from '../reminders'
-import { habitOf, stickyOf, writeCountdown, writeHabit, writeSticky } from '../instanceData'
+import { habitOf, stickyOf, todosOf, writeCountdown, writeHabit, writeSticky } from '../instanceData'
 import ChatTimeline from './ChatTimeline.vue'
 import ChatComposer from './ChatComposer.vue'
 import ChatEmpty from './ChatEmpty.vue'
@@ -902,6 +902,32 @@ function applyAction(a: AiAction): string | undefined {
       name: h.name,
       days: [...new Set([...h.days, localDay(new Date())])].sort(),
     })
+  } else if (a.type === 'todo.done') {
+    // 第四十一笔「跨卡批处理」：勾掉这张卡**第一条没做完**的待办。
+    // 幂等语义：全都做完了 = 用户的目标已经达成，安静成功（不报「没有待办」的错）
+    const open = todosOf(cardDataApi.state, mId, instId).find((t) => !t.done)
+    if (open) cardDataApi.toggleTodo(open.id, mId, instId)
+  } else if (a.type === 'todo.done_many' || a.type === 'habit.check_many') {
+    // 批量：titles 已在纯层折成 instanceIds（标题对不上的整条都被拒了，到这里每条都有效）。
+    // id 可能是实例 id 也可能是模块 id（单实例折叠的产物）—— 逐条解，与 applyAction 头部同口径。
+    const today = localDay(new Date())
+    for (const cardId of a.instanceIds) {
+      const it = store.doc.value.items.find((x) => x.id === cardId)
+      const oneId = it?.id
+      const oneM = it ? it.module ?? it.id : cardId
+      if (a.type === 'todo.done_many') {
+        const open = todosOf(cardDataApi.state, oneM, oneId).find((t) => !t.done)
+        if (open) cardDataApi.toggleTodo(open.id, oneM, oneId)
+      } else {
+        const h = habitOf(cardDataApi.state, oneM, oneId)
+        if (!h.days.includes(today)) {
+          writeHabit(cardDataApi.state, oneM, oneId, {
+            name: h.name,
+            days: [...h.days, today].sort(),
+          })
+        }
+      }
+    }
   } else if (a.type === 'memory.add') {
     const rejected = memory.add(a.text)
     if (rejected.length) throw new Error(rejected.join('；'))
