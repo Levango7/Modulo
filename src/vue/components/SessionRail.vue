@@ -353,6 +353,12 @@ function dropSkill(id: string): void {
 /** 两步删除：第一次点只标记，第二次点同一行才真删（与坞原历史面板同一手法） */
 const confirmId = ref<string | null>(null)
 
+/** 运行记录 → 那次对话（第四十三笔）：收起预览并让坞载入 —— 与点会话行同一条路，不另开通道 */
+function openRun(convId: string): void {
+  cronOpen.value = null
+  void sessions.load(convId)
+}
+
 function pick(id: string): void {
   if (confirmId.value) confirmId.value = null
   void sessions.load(id)
@@ -639,6 +645,15 @@ onMounted(() => void sessions.refresh())
           </div>
           <div v-if="cronOpen === t.id && lastOf(t)" class="preview-wrap">
             <p class="preview-hint" data-cron-run-meta>{{ runMeta(lastOf(t)!) }}</p>
+            <!-- 第四十三笔：运行记录只截 2000 字，全文在那次对话里 —— 一键切过去，不再让人自己翻列表 -->
+            <button
+              v-if="lastOf(t)!.convId"
+              class="cron-template"
+              :data-cron-run-open="t.id"
+              @click="openRun(lastOf(t)!.convId!)"
+            >
+              看全文（切到那次对话）
+            </button>
             <pre v-if="lastOf(t)!.text" class="preview" data-cron-run-preview>{{ lastOf(t)!.text }}</pre>
             <pre v-else class="preview" data-cron-run-error>{{ lastOf(t)!.error }}</pre>
           </div>

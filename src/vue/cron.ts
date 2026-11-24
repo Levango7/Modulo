@@ -103,6 +103,12 @@ export interface CronRun {
   text?: string
   /** `error` / `missed` 时的人话原因 */
   error?: string
+  /**
+   * 那次对话的会话 id（第四十三笔）。运行记录只截 2000 字，全文在会话历史里 ——
+   * 从前界面只能写「全文在那次对话里」，用户还得自己去列表里翻；带上 id 就能
+   * 一键切过去。**旧档没有它也能读**（缺省 = 不显示那个按钮，其余逐字不变）。
+   */
+  convId?: string
 }
 
 export interface CronDoc {
@@ -161,6 +167,7 @@ function cleanRun(it: Partial<CronRun> | null | undefined, i: number): CronRun |
     status,
     text: isStr(it.text) ? it.text : undefined,
     error: isStr(it.error) ? it.error : undefined,
+    convId: isStr(it.convId) && it.convId ? it.convId : undefined,
   }
 }
 

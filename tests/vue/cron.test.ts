@@ -171,6 +171,35 @@ describe('定时任务：运行记录', () => {
     expect(clipRunText(long).length).toBeLessThan(3000)
   })
 
+  it('convId：合法字符串保留；空串 / 数字 / 缺字段都不认（旧档照样读）', () => {
+    const doc = parseCronDoc(
+      JSON.stringify({
+        tasks: [],
+        runs: [
+          { id: 'r1', taskId: 'c1', at: 1, status: 'ok', text: '摘要', convId: 'conv-1' },
+          { id: 'r2', taskId: 'c1', at: 2, status: 'missed', error: '错过了', convId: '' },
+          { id: 'r3', taskId: 'c1', at: 3, status: 'ok', text: '旧档', convId: 42 },
+          { id: 'r4', taskId: 'c.dir', at: 4, status: 'ok', text: '没有这个字段' },
+        ],
+      }),
+    )
+    expect(doc.runs[0].convId).toBe('conv-1')
+    expect(doc.runs[1].convId).toBeUndefined()
+    expect(doc.runs[2].convId).toBeUndefined()
+    expect(doc.runs[3].convId).toBeUndefined()
+  })
+
+  it('序列化往返：convId 原样回来，undefined 不写成 null', () => {
+    const runs: CronRun[] = [
+      { id: 'r1', taskId: 'c1', status: 'ok', at: 1, text: 'a', convId: 'conv-1' },
+      { id: 'r2', taskId: 'c1', status: 'ok', at: 2, text: 'b' },
+    ]
+    const raw = serializeCronDoc({ tasks: [], runs })
+    const back = parseCronDoc(raw)
+    expect(back.runs[0].convId).toBe('conv-1')
+    expect(back.runs[1].convId).toBeUndefined()
+    expect(raw).not.toContain('"convId":null')
+  })
   it('头插 + 环形丢弃最旧的；lastRun 取该任务最近一条', () => {
     let runs: CronRun[] = []
     for (let i = 0; i < CRON_RUNS_MAX + 3; i++) {

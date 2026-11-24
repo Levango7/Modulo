@@ -83,7 +83,13 @@ describe('useCron：执行（跑完的判据是 done 帧，不是 await）', () 
     FakeChannel.last!.onmessage!({ delta: '你好', done: false })
     FakeChannel.last!.onmessage!({ delta: '，整理好了', done: true })
     expect(cron.runs.value).toHaveLength(1)
-    expect(cron.runs.value[0]).toMatchObject({ taskId: 'c1', status: 'ok', text: '你好，整理好了' })
+    expect(cron.runs.value[0]).toMatchObject({
+      taskId: 'c1',
+      status: 'ok',
+      text: '你好，整理好了',
+      // 第四十三笔：运行记录带上那次对话的会话 id —— 「看全文」据此直达
+      convId: 'conv-1',
+    })
     // 落盘的是整份文档（任务 + 记录 + 当天调度状态）
     const round = JSON.parse(storage.get(CRON_DOC_KEY) ?? '{}')
     expect(round.tasks).toHaveLength(1)

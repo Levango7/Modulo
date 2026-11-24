@@ -110,7 +110,13 @@ export function createCron(opts: CronOptions = {}): CronApi {
     }
   }
 
-  function record(taskId: string, status: CronRun['status'], text: string | undefined, error: string | undefined): void {
+  function record(
+    taskId: string,
+    status: CronRun['status'],
+    text: string | undefined,
+    error: string | undefined,
+    convId?: string | null,
+  ): void {
     runs.value = appendRun(runs.value, {
       id: `r${Date.now().toString(36)}${Math.floor(Math.random() * 1e4)}`,
       taskId,
@@ -118,6 +124,7 @@ export function createCron(opts: CronOptions = {}): CronApi {
       status,
       ...(text !== undefined ? { text: clipRunText(text) } : {}),
       ...(error !== undefined ? { error } : {}),
+      ...(convId ? { convId } : {}),
     })
   }
 
@@ -148,8 +155,8 @@ export function createCron(opts: CronOptions = {}): CronApi {
       if (settled) return
       settled = true
       if (guard !== null) clearTimeout(guard)
-      if (failed !== null) record(task.id, 'error', full || undefined, failed)
-      else record(task.id, 'ok', full, undefined)
+      if (failed !== null) record(task.id, 'error', full || undefined, failed, conversationId)
+      else record(task.id, 'ok', full, undefined, conversationId)
       persist()
     }
     // 事件流（F-15 P1a §2.2）：解析只走 `normalizeEvent`，收尾只认 `done`。
