@@ -19,7 +19,7 @@ that will apply once signing is active, and are marked where that is the case.
 
 ## What is signed
 
-- **Nothing is Authenticode-signed today** (baseline: v0.8.14, 2026-11-23; see Current status).
+- **Nothing is Authenticode-signed today** (baseline: v0.8.15, 2026-11-24; see Current status).
 - Once the SignPath program is active, the artifact to be signed will be the Windows installer
   published on GitHub Releases: `Modulo_<version>_x64-setup.exe` (an NSIS installer containing
   the application binary `modulo.exe`).
@@ -89,10 +89,22 @@ on the GitHub account and on the SignPath account used for review and approval.
 
 ## Current status
 
-As of **2026-11-23** (baseline release: **v0.8.14**), releases are **not yet Authenticode-signed**.
-Evidence (2026-11-23 / 2026-11-11 / 2026-11-07 / 2026-11-02 / 2026-10-31 / 2026-10-29 / 2026-10-27 / 2026-10-25 / 2026-10-22 / 2026-10-18, maintainer machine):
+As of **2026-11-24** (baseline release: **v0.8.15**), releases are **not yet Authenticode-signed**.
+Evidence (2026-11-24 / 2026-11-23 / 2026-11-11 / 2026-11-07 / 2026-11-02 / 2026-10-31 / 2026-10-29 / 2026-10-27 / 2026-10-25 / 2026-10-22 / 2026-10-18, maintainer machine):
 
-- The v0.8.14 installer was downloaded from its GitHub Release (published) in full: **10,181,019 bytes**,
+- The v0.8.15 installer was downloaded from its GitHub Release (published) in full: **10,190,599 bytes**,
+  sha256 **`d1d135619c9f6057a7e0a9db09cc6e512ee93ee30d2e7a1c041cbbe4d789aedc`** — matching the GitHub release
+  asset digest, `release-manifest.json` and a local `sha256sum` of the downloaded file (three independent
+  sources, all read 2026-11-24).
+  `Get-AuthenticodeSignature` on it reports **NotSigned**; control: the same command on
+  `C:\Windows\System32\cmd.exe` reports **Valid** on the same machine. Checked 2026-11-24 after the
+  release went out (hard step 5 of the release process). The installed `modulo.exe` (silent upgrade to
+  `D:\Program Files (x86)\Modulo`, exit 0, four sherpa/onnxruntime DLLs present) reads `FileVersion`
+  **0.8.15** and is **16,109,056 bytes** / sha256 `69809f2a6660bd92c72b9af8a81ff1c0c036feb74c0703710ad63482ccb4f069`.
+  The official desktop probe ran against that installed binary: **56/56** (`PROBE_NET=1`).
+  User data was restored byte-exactly (16/16 files, identical sha256 list, `HKCU\Software\Modulo` intact).
+- The v0.8.14 installer (previous baseline evidence, kept for history) was downloaded from its GitHub Release
+  (published) in full: **10,181,019 bytes**,
   sha256 **`a48e83559a68ac1f15ba1382e1d5f9188c59bbbfccd53b1476aeecb2bfd5e58e`** — matching the GitHub release
   asset digest and `release-manifest.json` (three independent sources, all read 2026-11-23).
   `Get-AuthenticodeSignature` on it reports **NotSigned**; control: the same command on

@@ -1,6 +1,16 @@
 {
-  "updatedAt": "2026-11-22T16:14:09.000Z",
+  "updatedAt": "2026-11-24T07:59:12.340Z",
   "releases": {
+    "v0.8.15": {
+      "commit": "b2e895abcb96880547e0f1275c6f55de62655879",
+      "immutable": true,
+      "draft": false,
+      "assets": {
+        "latest.json": "sha256:7203572b8494164bb91eb0d2394d69a79e7416b80723fccd86d7331c66f10720",
+        "Modulo_0.8.15_x64-setup.exe": "sha256:d1d135619c9f6057a7e0a9db09cc6e512ee93ee30d2e7a1c041cbbe4d789aedc",
+        "Modulo_0.8.15_x64-setup.exe.sig": "sha256:db86e72be403c049e97357178a07ef3de1e9b833d869444669d82ee644d4dc46"
+      }
+    },
     "v0.8.14": {
       "commit": "94b02b4ca486f6a72fcf54427b576a164f21a475",
       "immutable": true,
