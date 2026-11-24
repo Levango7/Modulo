@@ -1102,6 +1102,56 @@ describe.skipIf(skip)('聊天任脊柱（E1）', () => {
     expect(errs, `页面不该有报错：${errs.join(' | ')}`).toEqual([])
   }, 90_000)
 
+  it('AI 动手 v1.11（第四十一笔）：跨卡批处理 —— 一次勾掉一串待办；没有待办的那张安静跳过', async () => {
+    const errs: string[] = []
+    // titles 逐条精确匹配、纯层折成 instanceIds（判定层已穷举 0/多命中/重复/超上限，这里只证端到端）
+    const reply = ['好，这批都勾掉。', '@@act {"type":"todo.done_many","titles":["待办","便签"]}'].join('\n')
+    // 同前几笔：照做后的自动续轮要有单独的收尾句
+    const page = await open({ replies: [reply, '勾完了，没别的了。'] }, errs)
+    await expand(page)
+    await ask(page, '把待办和便签上的事都处理掉')
+    await page.waitForSelector('[data-ai-act-run]', { timeout: 15000 })
+    expect(await text(page, '[data-ai-acts] ul li:nth-child(1)')).toBe('一次勾掉 2 条待办')
+
+    await click(page, '[data-ai-act-run]')
+    await page.waitForSelector('[data-ai-acts-note]', { timeout: 10000 })
+    // 写入走防抖（cardData-write）：等盘上那条真的翻了再读，别读中间帧
+    await page.waitForFunction(
+      () => {
+        const raw = localStorage.getItem('modulo.__stubdoc.modulo.carddata.v1') ?? '{}'
+        const d = JSON.parse(raw) as { todos?: { id: string; done: boolean }[] }
+        return (d.todos ?? []).some((x) => x.id === 't1' && x.done)
+      },
+      { timeout: 10000 },
+    )
+    const stored = (await page.evaluate(() =>
+      JSON.parse(localStorage.getItem('modulo.__stubdoc.modulo.carddata.v1') ?? '{}'),
+    )) as { todos?: { id: string; done: boolean }[]; sticky?: string }
+    // 待办卡上那条真被勾掉了
+    expect(stored.todos?.find((x) => x.id === 't1')?.done, '那张待办被勾掉了').toBe(true)
+    // 便签上没有待办 —— 批量不报错、也不碰便签的原文
+    expect(stored.sticky, '便签是用户原文，批量不碰它').toBe('周五前把周报发给老板')
+    expect(errs, `页面不该有报错：${errs.join(' | ')}`).toEqual([])
+  }, 90_000)
+
+  it('AI 动手 v1.11 补（第四十一笔）：批量里有一个标题对不上 ⇒ 整条坏行，一条都不执行', async () => {
+    const errs: string[] = []
+    const reply = ['试试这批。', '@@act {"type":"todo.done_many","titles":["待办","没有这张卡"]}'].join('\n')
+    const page = await open({ replies: [reply, '那先算了。'] }, errs)
+    await expand(page)
+    await ask(page, '把待办和不存在的那张都勾掉')
+    await page.waitForSelector('[data-ai-act-bad]', { timeout: 15000 })
+    expect(await text(page, '[data-ai-act-bad]')).toContain('整条不执行')
+    // 整条不执行 ⇒ 没有任何可运行的行，「照做」按钮根本不该出现
+    expect(await exists(page, '[data-ai-act-run]'), '坏行没有照做按钮').toBe(false)
+    const stored = (await page.evaluate(() =>
+      JSON.parse(localStorage.getItem('modulo.__stubdoc.modulo.carddata.v1') ?? '{}'),
+    )) as { todos?: { id: string; done: boolean }[] }
+    // 连那条**对得上**的待办也没被勾 —— 批量 ≠ 猜，猜一半不如整条不执行
+    expect(stored.todos?.find((x) => x.id === 't1')?.done, '整条不执行，一条都没动').toBe(false)
+    expect(errs, `页面不该有报错：${errs.join(' | ')}`).toEqual([])
+  }, 90_000)
+
   it('AI 动手 v1.2（第十四笔）：agent 循环 —— 照做后结果自动回喂、模型接着收尾（全线可见，无第二个人工动作）', async () => {
     const errs: string[] = []
     const replies = [
