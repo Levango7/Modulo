@@ -142,6 +142,8 @@ const conversationId = sessions.activeId
 /** 正在流式输出的那个会话 id —— 「停止」按的就是它 */
 const streamConv = ref<string | null>(null)
 const busy = ref(false)
+/** 模型轮次（含工具执行）可停止；摘要也置 busy，但不置这里 */
+const stoppable = ref(false)
 const notice = ref<string | null>(null)
 /** 每次发送/新对话自增：上一轮的迟到帧按 token 丢弃，不会写进新会话 */
 let streamToken = 0
@@ -246,6 +248,7 @@ watch(sessions.lastLoaded, (v) => {
   streamToken++
   busy.value = false
   streamConv.value = null
+  stoppable.value = false
   expand()
   scrollDown()
 })
@@ -438,6 +441,7 @@ async function streamTurn(
   ]
   busy.value = true
   const token = ++streamToken
+  let streamEnded = false // 流事件可能早于 ai_chat 的响应 Promise
   const idx = turns.value.length - 1
   scrollDown()
 
@@ -460,6 +464,7 @@ async function streamTurn(
       }
       turns.value[idx] = applyEvent(cur, ev)
       if (ev.t !== 'done') continue
+      streamEnded = true
       const t = turns.value[idx]
       if (ev.reason === 'tool' && t.status !== 'error') {
         // 流结束了，活没干完：工具还在排队（契约 §2.2 的 `done{tool}`）。
@@ -467,6 +472,7 @@ async function streamTurn(
         // 的那种情况，而这一轮恰恰有人执行（`runToolPhase` 接棒）。
         attachActions(idx)
         streamConv.value = null
+        stoppable.value = true
         void runToolPhase(idx, usedChips, round, token)
         scrollDown()
         continue
@@ -477,6 +483,7 @@ async function streamTurn(
       if (t.status !== 'error') attachActions(idx)
       busy.value = false
       streamConv.value = null
+      stoppable.value = false
       // 这一轮到此为止：清掉本轮的工具清单缓存（下一轮由 `runTurn` 重算）
       endTurnTools()
       void sessions.refresh()
@@ -512,12 +519,16 @@ async function streamTurn(
     })
     if (token !== streamToken) return
     conversationId.value = r.conversationId
-    streamConv.value = r.conversationId
+    if (!streamEnded) {
+      streamConv.value = r.conversationId
+      stoppable.value = true
+    }
   } catch (err) {
     if (token !== streamToken) return
     turns.value[idx] = { ...turns.value[idx], status: 'error', error: String(err) }
     busy.value = false
     streamConv.value = null
+    stoppable.value = false
     // 发都没发出去（多半是 gather / invoke 失败）：这一轮结束，清单缓存跟着清
     endTurnTools()
   }
@@ -602,6 +613,7 @@ function finishToolPhase(idx: number): void {
   turns.value[idx] = { ...turns.value[idx], tools: settleToolSteps(turns.value[idx].tools) }
   busy.value = false
   streamConv.value = null
+  stoppable.value = false
   // 这一轮到此为止（三条收尾路径都不续跑）：清掉本轮的工具清单缓存
   endTurnTools()
   void sessions.refresh()
@@ -1041,6 +1053,7 @@ function newConversation(): void {
   conversationId.value = null
   streamConv.value = null
   busy.value = false
+  stoppable.value = false
   notice.value = ''
   void nextTick(() => composerRef.value?.focus())
 }
@@ -1139,7 +1152,7 @@ onBeforeUnmount(() => {
         :picker="picker"
         :picker-index="pickerIndex"
         :busy="busy"
-        :streaming="streamConv"
+        :stoppable="stoppable"
         :thinking="thinking"
         :provider-model="providerModel"
         :usage="usage"
