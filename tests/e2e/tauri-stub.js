@@ -326,6 +326,10 @@
           // 契约 §2.2：每条流有且只有一条 `done`，错误路径也是 —— 前端只认它收尾
           push({ t: 'done', reason })
         }
+        const holdResponse = () =>
+          new Promise((resolve) => {
+            window.__STUB_AI_CHAT_RESOLVE__ = () => resolve({ conversationId: convId })
+          })
         if (window.__STUB_AI_HANG__ === true) {
           // 「一直不结束」的流：测试在此之上点「停止」，断言 ai_chat_cancel 真发了命令
           aiPending.set(convId, { push })
@@ -355,7 +359,7 @@
         // 第 2 次落回下面的普通回复。真实形状就是这样：已提供的工具 Rust 不代跑。
         const loop = Array.isArray(window.__STUB_AI_TOOL_LOOP__) ? window.__STUB_AI_TOOL_LOOP__ : null
         if (loop && callN === 0) {
-          setTimeout(() => {
+          const emitLoop = () => {
             push({ t: 'round', n: Number(args?.round ?? 1) })
             for (const step of loop) {
               push({
@@ -370,7 +374,12 @@
               return
             }
             finish('tool')
-          }, 0)
+          }
+          if (window.__STUB_AI_DONE_BEFORE_RESOLVE__ === true) {
+            emitLoop()
+            return holdResponse()
+          }
+          setTimeout(emitLoop, 0)
           return Promise.resolve({ conversationId: convId })
         }
         // 结构化工具事件（P1a）：`__STUB_AI_TOOLS__` 摆一条「它自己动手」的流。
@@ -398,12 +407,17 @@
           return Promise.resolve({ conversationId: convId })
         }
         // 一帧轮次 + 两帧增量 + 一条 done：前端必须把两段拼成一句，而不是只留最后一帧
-        setTimeout(() => {
+        const emitReply = () => {
           push({ t: 'round', n: Number(args?.round ?? 1) })
           push({ t: 'text', delta: reply.slice(0, 2) })
           push({ t: 'text', delta: reply.slice(2) })
           finish()
-        }, 0)
+        }
+        if (window.__STUB_AI_DONE_BEFORE_RESOLVE__ === true) {
+          emitReply()
+          return holdResponse()
+        }
+        setTimeout(emitReply, 0)
         return Promise.resolve({ conversationId: convId })
       }
       case 'ai_chat_cancel': {
@@ -421,6 +435,11 @@
       //    **不落历史**（只有 ai_chat 会 upsert）—— 测试据此断言"摘要之后历史没变"。
       case 'ai_summarize': {
         const summary = String(window.__STUB_AI_SUMMARY__ ?? '桩摘要：这三句是要点。')
+        if (window.__STUB_AI_SUMMARY_HANG__ === true) {
+          return new Promise((resolve) => {
+            window.__STUB_AI_SUMMARY_RELEASE__ = () => resolve({ summary })
+          })
+        }
         return Promise.resolve({ summary })
       }
       case 'ai_history_list':
@@ -472,12 +491,18 @@
         if (preset === 'reject') {
           return Promise.reject(new Error(`调用「${tool}」失败：stub 按配置拒绝`))
         }
-        return Promise.resolve({
+        const result = {
           text: String(preset?.text ?? `桩返回：${tool} 跑完了`),
           isError: preset?.isError === true,
           truncated: preset?.truncated === true,
           notice: preset?.notice ?? null,
-        })
+        }
+        if (window.__STUB_MCP_CALL_HANG__ === true) {
+          return new Promise((resolve) => {
+            window.__STUB_MCP_RELEASE__ = () => resolve(result)
+          })
+        }
+        return Promise.resolve(result)
       }
       case 'mcp_confirm': {
         const id = String(args?.serverId ?? '')
@@ -585,6 +610,9 @@
   /** 本页 ai_chat 已调用次数（序列取值的游标；测试可读） */
   window.__STUB_AI_CALL_N__ = 0
   window.__STUB_AI_HANG__ = false
+  /** 先同步推完流事件，再挂住 ai_chat 响应；用例调 `__STUB_AI_CHAT_RESOLVE__` 放行 */
+  window.__STUB_AI_DONE_BEFORE_RESOLVE__ = false
+  window.__STUB_AI_CHAT_RESOLVE__ = null
   /**
    * 工具执行闭环（F4c-1）：`[{ id, name, args? }]`。
    *
@@ -607,6 +635,8 @@
   window.__STUB_AI_LAST_MSGS__ = null
   /** 一次性摘要的返回正文（三期）：它与对话回复分开，测试才能区分"走的是哪条命令" */
   window.__STUB_AI_SUMMARY__ = '桩摘要：这三句是要点。'
+  window.__STUB_AI_SUMMARY_HANG__ = false
+  window.__STUB_AI_SUMMARY_RELEASE__ = null
   /** 历史原文（测试预置 / 复核"真的写进去了"都走它，绕开界面） */
   window.__STUB_AI_HISTORY__ = aiHist
   /**
@@ -616,6 +646,9 @@
   window.__STUB_MCP_TOOLS__ = {}
   /** MCP 调用的返回：`{ [工具名]: { text, isError?, truncated?, notice? } }`；给字符串 'reject' = RPC 层失败 */
   window.__STUB_MCP_CALL__ = {}
+  /** 让 MCP 调用停在途；用例点停止后调 `__STUB_MCP_RELEASE__` 放行结果 */
+  window.__STUB_MCP_CALL_HANG__ = false
+  window.__STUB_MCP_RELEASE__ = null
   /** 只让某一个服务的 list_tools 失败（填 serverId）：用来测「单个服务挂了不拖垮整批」 */
   window.__STUB_MCP_LIST_FAIL__ = null
   /** 本页已确认的 server id（测试据此断言"真的记了确认"，**刷新即清**） */

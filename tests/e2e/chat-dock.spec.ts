@@ -125,6 +125,8 @@ interface Seed {
    * 给超过上限的条数，用来证明"停"是前端拦下的，不是桩自己用完。
    */
   toolLoopRounds?: { id: string; name: string; args?: Record<string, unknown> }[][]
+  /** 先同步推完 done，再挂住 ai_chat 的返回 Promise，覆盖流事件早于 IPC 响应 */
+  chatDoneBeforeResolve?: boolean
 }
 
 /** 开一张桌面形态的页面。`ai: false` = 没配任何模型服务（空态那条路） */
@@ -138,7 +140,7 @@ async function open(seed: Seed = {}, errs?: string[]): Promise<Page> {
   const card = seed.longSticky ? { ...baseCard, sticky: LONG_STICKY } : baseCard
   const desktop = seed.desktop !== false
   await page.evaluateOnNewDocument(
-    (src: string, docJson: string, cardJson: string, aiJson: string | null, histJson: string | null, hang: boolean, reply: string | null, cronJson: string | null, installStub: boolean, workflowJson: string | null, repliesJson: string | null, docsJson: string | null, skillsJson: string | null, toolsJson: string | null, toolLoopJson: string | null, toolLoopRoundsJson: string | null) => {
+    (src: string, docJson: string, cardJson: string, aiJson: string | null, histJson: string | null, hang: boolean, reply: string | null, cronJson: string | null, installStub: boolean, workflowJson: string | null, repliesJson: string | null, docsJson: string | null, skillsJson: string | null, toolsJson: string | null, toolLoopJson: string | null, toolLoopRoundsJson: string | null, chatDoneBeforeResolve: boolean) => {
       if (installStub) new Function(src)()
       localStorage.setItem('modulo.layout.v1', docJson)
       localStorage.setItem('modulo.__stubdoc.modulo.carddata.v1', cardJson)
@@ -172,6 +174,7 @@ async function open(seed: Seed = {}, errs?: string[]): Promise<Page> {
       if (toolLoopJson) (window as unknown as { __STUB_AI_TOOL_LOOP__: unknown[] }).__STUB_AI_TOOL_LOOP__ = JSON.parse(toolLoopJson)
       // 多轮工具循环（F4c-1 轮次上限）：同上，每次导航重置
       if (toolLoopRoundsJson) (window as unknown as { __STUB_AI_TOOL_LOOP_ROUNDS__: unknown[] }).__STUB_AI_TOOL_LOOP_ROUNDS__ = JSON.parse(toolLoopRoundsJson)
+      ;(window as unknown as { __STUB_AI_DONE_BEFORE_RESOLVE__: boolean }).__STUB_AI_DONE_BEFORE_RESOLVE__ = chatDoneBeforeResolve
     },
     STUB_SOURCE,
     JSON.stringify(doc),
@@ -193,6 +196,7 @@ async function open(seed: Seed = {}, errs?: string[]): Promise<Page> {
     seed.tools ? JSON.stringify(seed.tools) : null,
     seed.toolLoop ? JSON.stringify(seed.toolLoop) : null,
     seed.toolLoopRounds ? JSON.stringify(seed.toolLoopRounds) : null,
+    seed.chatDoneBeforeResolve === true,
   )
   await gotoWorkbench(page, url)
   // web 形态没有坞（AI 后端不在）⇒ 等左栏出现即可
@@ -680,6 +684,74 @@ describe.skipIf(skip)('F-12 二期：底部对话坞（桌面形态）', () => {
     })
     await page.waitForFunction(() => document.querySelector('[data-chat-bar]') === null, { timeout: 10000 })
     expect(await exists(page, '[data-chat-panel]')).toBe(false)
+    expect(errs, `页面不该有报错：${errs.join(' | ')}`).toEqual([])
+  })
+
+  it('迟到的 ai_chat 响应不重新点亮停止：终态后的摘要仍不显示停止', async () => {
+    const errs: string[] = []
+    const page = await open({ chatDoneBeforeResolve: true }, errs)
+    await expand(page)
+    await ask(page, '这句会先结束')
+    await page.waitForSelector('[data-role="assistant"][data-status="done"]', { timeout: 15000 })
+    expect(await exists(page, '[data-chat-stop]')).toBe(false)
+
+    await page.evaluate(async () => {
+      const w = window as unknown as { __STUB_AI_CHAT_RESOLVE__?: (() => void) | null }
+      if (typeof w.__STUB_AI_CHAT_RESOLVE__ !== 'function') throw new Error('ai_chat 响应没有释放口')
+      w.__STUB_AI_CHAT_RESOLVE__()
+      await new Promise((resolve) => setTimeout(resolve, 0))
+    })
+
+    await page.type('[data-chat-input]', '下周交周报，周五前发老板')
+    await page.evaluate(() => {
+      ;(window as unknown as { __STUB_AI_SUMMARY_HANG__: boolean }).__STUB_AI_SUMMARY_HANG__ = true
+    })
+    await click(page, '[data-chat-summarize]')
+    await page.waitForFunction(
+      () =>
+        document.querySelector('[data-chat-stop]') !== null ||
+        document.querySelector('[data-chat-summarize]')?.textContent?.includes('摘要中') === true,
+      { timeout: 10000 },
+    )
+    expect(await exists(page, '[data-chat-stop]'), '已结束模型轮的迟到响应不能把停止带进摘要忙碌态').toBe(false)
+
+    await page.evaluate(() => {
+      const w = window as unknown as { __STUB_AI_SUMMARY_RELEASE__?: (() => void) | null }
+      if (typeof w.__STUB_AI_SUMMARY_RELEASE__ !== 'function') throw new Error('摘要没有释放口')
+      w.__STUB_AI_SUMMARY_RELEASE__()
+    })
+    await page.waitForSelector('[data-kind="summary"][data-status="done"]', { timeout: 15000 })
+    expect(errs, `页面不该有报错：${errs.join(' | ')}`).toEqual([])
+  })
+
+  it('摘要忙碌态不冒充可停止的模型轮次：摘要中只禁用摘要按钮，不显示停止', async () => {
+    const errs: string[] = []
+    const page = await open({}, errs)
+    await expand(page)
+    await page.type('[data-chat-input]', '下周交周报，周五前发老板')
+    await page.evaluate(() => {
+      ;(window as unknown as { __STUB_AI_SUMMARY_HANG__: boolean }).__STUB_AI_SUMMARY_HANG__ = true
+    })
+
+    await click(page, '[data-chat-summarize]')
+    await page.waitForFunction(
+      () =>
+        document.querySelector('[data-chat-stop]') !== null ||
+        document.querySelector('[data-chat-summarize]')?.textContent?.includes('摘要中') === true,
+      { timeout: 10000 },
+    )
+    expect(await exists(page, '[data-chat-stop]'), '摘要没有可取消的模型流，不能显示停止').toBe(false)
+    expect(
+      await page.evaluate(() => (document.querySelector('[data-chat-summarize]') as HTMLButtonElement).disabled),
+    ).toBe(true)
+
+    await page.evaluate(() => {
+      const w = window as unknown as { __STUB_AI_SUMMARY_RELEASE__?: (() => void) | null }
+      if (typeof w.__STUB_AI_SUMMARY_RELEASE__ !== 'function') throw new Error('摘要没有释放口')
+      w.__STUB_AI_SUMMARY_RELEASE__()
+    })
+    await page.waitForSelector('[data-kind="summary"][data-status="done"]', { timeout: 15000 })
+    expect(await exists(page, '[data-chat-stop]')).toBe(false)
     expect(errs, `页面不该有报错：${errs.join(' | ')}`).toEqual([])
   })
 
