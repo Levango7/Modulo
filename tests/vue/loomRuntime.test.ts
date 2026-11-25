@@ -74,6 +74,10 @@ describe('织布机运行时：路径规划与校验', () => {
     })
     const q = planPaths('C:/loom', 'v0.1.0')
     expect(q?.dest).toBe('C:/loom/v0.1.0')
+    // Windows 风格根（没有 `/`）：分隔符回落 `\\` —— 这是唯一一个没被默认形态覆盖的分支
+    const win = planPaths('C:\\loom', 'v0.1.0')
+    expect(win?.dest).toBe('C:\\loom\\v0.1.0')
+    expect(win?.meta).toBe('C:\\loom\\loom.json')
     // 版本名越界 ⇒ null（与 parseLoomManifest 同一条守卫）
     for (const v of ['..', 'a/b', 'a\\b', '']) expect(planPaths('C:/loom', v)).toBeNull()
     expect(planPaths('', 'v0.1.0')).toBeNull()

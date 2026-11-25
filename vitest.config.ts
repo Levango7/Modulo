@@ -75,6 +75,9 @@ const GATED_VUE_MODULES = [
   // 「智囊笔」（第三十九笔，2026-11-23）：定时任务的只读版面简报 —— 列表折叠 / 码点截断 /
   // 预算封顶 / 只读边界文案全是纯函数；真正弹 ai_chat 与带不带 system 的路径留在 useCron 测试。
   'src/vue/aiBrief.ts',
+  // β1 织布机运行时（可选组件）：清单清洗 / 路径守卫 / 校验人话 / 可删列表 / MCP 配置片段
+  // 全是纯判定 —— 真正 invoke 的下载 / 解压 / 切版本在 Rust（loom.rs），组件那半留给真机冒烟。
+  'src/vue/loomRuntime.ts',
   // 模块库搜索（F-09，2026-10-26）：判定层单独成文件就是为了能被断言 —— 本仓**没有组件测试
   // 设施**（无 @vue/test-utils / jsdom），判定留在组件里就只剩 E2E 一层兜底。
   'src/vue/moduleFilter.ts',
@@ -297,6 +300,9 @@ export default defineConfig({
         'src/vue/mcpTools.ts': { branches: 100 },
         // 智囊笔简报层（第三十九笔）：全量套件实测 100%，下取整（只升不降）。
         'src/vue/aiBrief.ts': { branches: 100 },
+        // β1 织布机运行时（可选组件）：全量套件实测 53/53 分支 100%（补一条 Windows
+        // 分隔符回落分支后才锁满）—— 棘轮只升不降。
+        'src/vue/loomRuntime.ts': { branches: 100 },
         // composable 层（第三十三笔，2026-11-20）：五个「落盘 + 响应式」胶水半逐个补测后
         // 按全量套件实测回填（下取整，只升不降）。前四个是薄层（构造读档 / 拒收不空写 /
         // gate 同源 / 会话状态机），实测分支全满，锁 100。
