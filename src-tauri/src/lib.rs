@@ -18,6 +18,9 @@ mod feeds;
 mod fetchjson;
 mod floatwin;
 mod launcher;
+/// 织布机（nexusloom）运行时的安装 / 状态 / 卸载（β1 可选组件）：下载 → sha256 校验 →
+/// tar.bz2 解压 → 原子改名，复用 ASR 的模型下载口径。
+mod loom;
 pub mod meeting;
 pub mod monitor;
 pub mod net;
@@ -416,6 +419,10 @@ pub fn run() {
             capture::winlist::win_list,
             capture::preview::win_preview_start,
             capture::preview::win_preview_stop,
+            loom::loom_runtime_state,
+            loom::loom_runtime_download,
+            loom::loom_runtime_use,
+            loom::loom_runtime_remove,
             meeting::asr::asr_model_status,
             meeting::asr::asr_model_download,
             meeting::audio::audio_devices,
