@@ -138,6 +138,9 @@ describe.skipIf(skip)('F-10 设置分组（桌面形态）', () => {
     await clickGroup(page, 'lab')
     expect(await groupText(page)).toContain('AI 模型服务')
     expect(await has(page, '.panel [data-ai-empty], .panel [data-provider]')).toBe(true)
+    // β1 运行时也必须真的挂到这一组；只有 LoomSection.vue 文件存在不算用户可达
+    expect(await has(page, '.panel [data-loom-section]')).toBe(true)
+    expect(await has(page, '.panel [data-loom-url]')).toBe(true)
 
     // 关于：版本 + 重播引导
     await clickGroup(page, 'about')

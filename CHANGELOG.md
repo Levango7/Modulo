@@ -11,6 +11,12 @@
 
 ## 未发布
 
+### β1 可达性防回归：运行时区必须真实挂载（2026-11-25）
+
+`settings-ia.spec.ts` 增补两条桌面形态断言：实验室组必须出现 `data-loom-section` 与
+`data-loom-url`。仅存在 `LoomSection.vue` 文件不算用户可达；独立生产构建已实证
+`McpSection.vue` 的既有挂载有效，未改任何产品行为或运行时逻辑。
+
 ### 织布机运行时：登记受测层并锁分支 100（2026-11-25）
 
 `loomRuntime.ts` 进 `GATED_VUE_MODULES`，棘轮锁分支 **100**（53/53）。首测 52/53（98.11）——
