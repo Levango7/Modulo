@@ -4,6 +4,7 @@ import {
   mcpConfigSnippet,
   parseLoomManifest,
   planPaths,
+  safeLoomDashboardUrl,
   verifyDigest,
   versionChoices,
 } from '../../src/vue/loomRuntime'
@@ -119,5 +120,30 @@ describe('织布机运行时：版本回退与展示', () => {
     expect(humanBytes(70 * 1024 * 1024)).toBe('70.0 MiB')
     expect(humanBytes(-1)).toBe('?')
     expect(humanBytes(Number.NaN)).toBe('?')
+  })
+})
+
+describe('织布机交付面板：iframe URL 边界（β2）', () => {
+  it('只接受显式端口的本机回环 HTTP 根地址；其他协议、主机、路径与凭据一律拒', () => {
+    expect(safeLoomDashboardUrl('http://127.0.0.1:8910/')).toBe('http://127.0.0.1:8910/')
+    expect(safeLoomDashboardUrl('http://127.0.0.1:8910')).toBe('http://127.0.0.1:8910/')
+    for (const bad of [
+      null,
+      undefined,
+      '',
+      'https://127.0.0.1:8910/',
+      'http://localhost:8910/',
+      'http://127.0.0.2:8910/',
+      'http://user:pass@127.0.0.1:8910/',
+      'http://127.0.0.1/',
+      'http://127.0.0.1:0/',
+      'http://127.0.0.1:65536/',
+      'http://127.0.0.1:8910/tasks',
+      'http://127.0.0.1:8910/?x=1',
+      'http://127.0.0.1:8910/#x',
+      'javascript:alert(1)',
+    ]) {
+      expect(safeLoomDashboardUrl(bad), String(bad)).toBeNull()
+    }
   })
 })

@@ -110,6 +110,34 @@ export function mcpConfigSnippet(pythonExe: string, launcher: string): string {
   return JSON.stringify({ command: pythonExe, args: [launcher] }, null, 2)
 }
 
+/** 内嵌交付面板只加载本机回环的根地址；IPC 返回值再验一次，不把其他本机服务误当 dashboard。 */
+export function safeLoomDashboardUrl(raw: unknown): string | null {
+  if (typeof raw !== 'string' || !raw) return null
+  let url: URL
+  try {
+    url = new URL(raw)
+  } catch {
+    return null
+  }
+  const port = Number(url.port)
+  if (
+    url.protocol !== 'http:' ||
+    url.hostname !== '127.0.0.1' ||
+    !url.port ||
+    !Number.isInteger(port) ||
+    port < 1 ||
+    port > 65535 ||
+    url.username ||
+    url.password ||
+    url.pathname !== '/' ||
+    url.search ||
+    url.hash
+  ) {
+    return null
+  }
+  return url.toString()
+}
+
 /** 体积的人话（设置行展示用）：B / KiB / MiB 三档，最多一位小数 */
 export function humanBytes(n: number): string {
   if (!Number.isFinite(n) || n < 0) return '?'

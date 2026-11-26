@@ -110,4 +110,14 @@ describe('tauri.conf.json 的 CSP', () => {
       expect(directive(csp, 'connect-src').length, `${which} 缺 connect-src`).toBeGreaterThan(0)
     }
   })
+
+  it('β2 交付面板只给 frame-src 加回环源，connect-src 不跟着放宽', () => {
+    for (const [which, csp] of [
+      ['csp', conf.app.security.csp],
+      ['devCsp', conf.app.security.devCsp],
+    ] as const) {
+      expect(directive(csp, 'frame-src'), `${which} 的 iframe 回环源缺失`).toContain('http://127.0.0.1:*')
+      expect(directive(csp, 'connect-src'), `${which} 把回环放进了通用取数面`).not.toContain('http://127.0.0.1:*')
+    }
+  })
 })

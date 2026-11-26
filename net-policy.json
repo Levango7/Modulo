@@ -1,5 +1,5 @@
 {
-  "$comment": "网络与超时策略的唯一真源。三侧同读这一份：引擎 TS 走 packages/engine/src/netPolicy.generated.ts（由 scripts/gen-net-policy.mjs 生成并入库），桌面壳 Rust 走 src-tauri/src/net_policy.rs（include_str! 本文件），CSP 的 connect-src 走 src-tauri/tauri.conf.json 的 app.security.csp / devCsp。改本文件后必须跑 node scripts/gen-net-policy.mjs 重新生成，再跑 node scripts/net-policy-check.mjs（CI 里也是同一条顺序）。",
+  "$comment": "网络与超时策略的唯一真源。三侧同读这一份：引擎 TS 走 packages/engine/src/netPolicy.generated.ts（由 scripts/gen-net-policy.mjs 生成并入库），桌面壳 Rust 走 src-tauri/src/net_policy.rs（include_str! 本文件），CSP 的 connect-src / frame-src 走 src-tauri/tauri.conf.json 的 app.security.csp / devCsp。改本文件后必须跑 node scripts/gen-net-policy.mjs 重新生成，再跑 node scripts/net-policy-check.mjs（CI 里也是同一条顺序）。",
   "version": 1,
   "timeouts": {
     "fetchMs": 8000,
@@ -14,6 +14,10 @@
     "httpBodyBytes": 1048576,
     "feedBodyBytes": 262144,
     "mcpMaxRounds": 4
+  },
+  "loomDashboard": {
+    "host": "127.0.0.1",
+    "startupMs": 10000
   },
   "connectOrigins": {
     "base": [
@@ -30,6 +34,10 @@
     "dev": ["ws://localhost:1430", "http://localhost:1430"],
     "devInsertAfter": "http://ipc.localhost"
   },
+  "frameOrigins": {
+    "base": ["'self'", "blob:", "data:", "http://127.0.0.1:*"],
+    "dev": []
+  },
   "notes": {
     "fetchMs": "网页端 fetch 的超时：src/vue/useRemote.ts、src/vue/useWeather.ts、src/vue/useUpdateCheck.ts 共用这一档。此前三处各手抄 8000。",
     "desktopFetchMs": "桌面壳 WinHTTP 取数超时（src-tauri/src/net.rs）。packages/engine/src/http.ts 的旧注释写的是 5s，那是错的 —— 真源以此为准。",
@@ -42,6 +50,8 @@
     "httpBodyBytes": "1 MiB：通用网页/JSON 取数的响应体上限（src-tauri/src/net.rs 的 MAX_BODY）。够任何正常接口塞下片段，又能挡住「指向一个无限流的大文件」把内存吃光。",
     "feedBodyBytes": "256 KiB：RSS/Atom 正文上限（src-tauri/src/feeds.rs 的 MAX_FEED_BYTES）。**刻意低于 httpBodyBytes，这是有意差异、不要统一**：feed 是用户订阅的第三方全文，走独立解析路径且一次解析多份（名单可能几十条），单个源体量小、数量多；而网页取数是单条、一次一目的地。统一成同一个数会让「一次刷新 40 个订阅」的峰值内存涨四倍。",
     "mcpMaxRounds": "一轮对话里最多几次工具往返，4 次。实测两三次就足够收敛；放开了就会「模型自己跟自己聊」，把上下文和账单撑爆。注意这是次数不是毫秒，所以归 limits 而不是 timeouts。消费点：前端 agent 循环（src/vue/aiChat.ts 的 MCP_MAX_ROUNDS，由生成产物带过来）。",
-    "connectOrigins": "允许外连的源清单，供 CSP 的 connect-src 生成。push2.eastmoney.com 是 packages/engine/src/stock.ts 的 QUOTES_URL —— 它此前**漏在两条 CSP 之外**，桌面壳里股票卡取数被实拦而网页版没有 CSP 所以一直没暴露。dev 那两条是 vite dev server 的 HMR 与自身端口，只进 devCsp。"
+    "connectOrigins": "允许外连的源清单，供 CSP 的 connect-src 生成。push2.eastmoney.com 是 packages/engine/src/stock.ts 的 QUOTES_URL —— 它此前**漏在两条 CSP 之外**，桌面壳里股票卡取数被实拦而网页版没有 CSP 所以一直没暴露。dev 那两条是 vite dev server 的 HMR 与自身端口，只进 devCsp。",
+    "loomDashboard": "β2 交付面板专用进程通道：只绑 127.0.0.1，startupMs 是有界启动等待。它不是通用 HTTP 取数白名单，绝不放宽 net.rs 的 https / 私网拒绝边界。",
+    "frameOrigins": "只供 iframe 的 CSP frame-src 生成。127.0.0.1:* 对应 dashboard 的随机回环端口；connectOrigins 刻意不含它，避免把通用 fetch 也放到本机服务上。"
   }
 }

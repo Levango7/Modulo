@@ -21,6 +21,8 @@ mod launcher;
 /// 织布机（nexusloom）运行时的安装 / 状态 / 卸载（β1 可选组件）：下载 → sha256 校验 →
 /// tar.bz2 解压 → 原子改名，复用 ASR 的模型下载口径。
 mod loom;
+/// β2 交付面板：专用子进程、随机回环端口与显式生命周期。
+mod loom_dashboard;
 pub mod meeting;
 pub mod monitor;
 pub mod net;
@@ -381,6 +383,7 @@ pub fn run() {
         // `src/vue/useMcpExecution.ts`）。状态与注册分两处，是因为「注册面 == 调用点面」
         // 这条门禁：命令写好了但前端还没调用点时不许注册，否则 `cmd-surface` 当场红。
         .manage(ai::mcp::client::McpState::default())
+        .manage(loom_dashboard::LoomDashboardState::default())
         .invoke_handler(tauri::generate_handler![
             set_hide_on_close,
             global_shortcuts,
@@ -423,6 +426,9 @@ pub fn run() {
             loom::loom_runtime_download,
             loom::loom_runtime_use,
             loom::loom_runtime_remove,
+            loom_dashboard::loom_dashboard_start,
+            loom_dashboard::loom_dashboard_status,
+            loom_dashboard::loom_dashboard_stop,
             meeting::asr::asr_model_status,
             meeting::asr::asr_model_download,
             meeting::audio::audio_devices,

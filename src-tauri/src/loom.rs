@@ -112,6 +112,25 @@ fn state_at(root: &Path) -> LoomState {
     }
 }
 
+/// β2 共用当前运行时解析：dashboard 与 MCP 一样只认 β1 已安装且仍存在的版本目录。
+pub(crate) fn current_runtime(app: &AppHandle) -> Result<(PathBuf, String), String> {
+    let root = loom_root(app)?;
+    let version = read_current(&root).ok_or_else(|| {
+        "还没装织布机运行时：先在设置里安装，再打开交付面板".to_string()
+    })?;
+    if !is_valid_version(&version) {
+        return Err("运行时状态里的版本名不合法：请重新安装后再试".into());
+    }
+    let dest = root.join(&version);
+    if !dest.is_dir() {
+        return Err(format!(
+            "当前运行时 {version} 不在盘上（{}）：请重新安装",
+            dest.display()
+        ));
+    }
+    Ok((dest, version))
+}
+
 /// 契约 `loom_runtime_state`：没装过也能答（`current: null, versions: []`），不抛错。
 #[tauri::command]
 pub fn loom_runtime_state(app: AppHandle) -> Result<LoomState, String> {

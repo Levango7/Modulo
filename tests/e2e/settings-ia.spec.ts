@@ -150,6 +150,34 @@ describe.skipIf(skip)('F-10 设置分组（桌面形态）', () => {
     expect(errs, `页面不该有报错：${errs.join(' | ')}`).toEqual([])
   })
 
+  it('β2 交付面板：启动 / 外部打开 / 关闭重开 / 停止，重复打开不重复起进程', async () => {
+    const errs: string[] = []
+    const page = await open({}, errs)
+    await openSettings(page)
+    await clickGroup(page, 'lab')
+    await page.waitForSelector('.panel [data-loom-open-dashboard]', { timeout: 10000 })
+    await page.click('.panel [data-loom-open-dashboard]')
+    await page.waitForSelector('[data-loom-dashboard] [data-loom-frame]', { timeout: 10000 })
+    expect(await page.$eval('[data-loom-frame]', (el) => (el as HTMLIFrameElement).src)).toBe('http://127.0.0.1:18910/')
+
+    await page.click('[data-loom-open-external]')
+    await page.waitForFunction(() => ((window as any).__STUB_CALLS__ ?? []).some((c: any) => c.cmd === 'launch_target'), { timeout: 10000 })
+    await page.click('[data-loom-close-dashboard]')
+    await page.waitForFunction(() => !document.querySelector('[data-loom-dashboard]'), { timeout: 10000 })
+    await page.click('.panel [data-loom-open-dashboard]')
+    await page.waitForSelector('[data-loom-dashboard] [data-loom-frame]', { timeout: 10000 })
+    await page.click('[data-loom-stop-dashboard]')
+    await page.waitForFunction(() => !document.querySelector('[data-loom-dashboard]'), { timeout: 10000 })
+
+    const result = await page.evaluate(() => ({
+      calls: ((window as any).__STUB_CALLS__ ?? []).filter((c: any) => c.cmd === 'loom_dashboard_start').length,
+      stops: ((window as any).__STUB_CALLS__ ?? []).filter((c: any) => c.cmd === 'loom_dashboard_stop').length,
+      starts: Number((window as any).__STUB_LOOM_STARTS__ ?? 0),
+    }))
+    expect(result).toEqual({ calls: 1, stops: 1, starts: 1 })
+    expect(errs, `页面不该有报错：${errs.join(' | ')}`).toEqual([])
+  })
+
   it('Esc 关面板；「挑一种排法」先关设置再开模板选择器（两个遮罩不叠）', async () => {
     const errs: string[] = []
     const page = await open({}, errs)

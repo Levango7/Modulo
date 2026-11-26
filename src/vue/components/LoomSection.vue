@@ -19,6 +19,7 @@ import {
   humanBytes,
   mcpConfigSnippet,
   parseLoomManifest,
+  safeLoomDashboardUrl,
   type LoomManifest,
   type LoomVersionChoice,
 } from '../loomRuntime'
@@ -33,6 +34,12 @@ interface LoomProgress {
   received: number
   total: number
 }
+interface LoomDashboardInfo {
+  running: boolean
+  url: string | null
+  version: string | null
+  pid: number | null
+}
 
 /** 清单的默认地址（与运行时包同一个 Release；私有镜像 / 离线盘可以改这一格） */
 const DEFAULT_MANIFEST_URL =
@@ -46,6 +53,10 @@ const state = ref<LoomState | null>(null)
 const busy = ref(false)
 const progress = ref<LoomProgress | null>(null)
 const copied = ref(false)
+const dashboard = ref<LoomDashboardInfo | null>(null)
+const dashboardOpen = ref(false)
+const dashboardBusy = ref(false)
+const dashboardUrl = computed(() => safeLoomDashboardUrl(dashboard.value?.url))
 
 const versions = computed<LoomVersionChoice[]>(() => {
   const current = state.value?.current ?? null
@@ -144,7 +155,61 @@ async function copyConfig(): Promise<void> {
   }, 2000)
 }
 
-onMounted(() => void refresh())
+async function refreshDashboard(): Promise<void> {
+  try {
+    dashboard.value = await invoke<LoomDashboardInfo>('loom_dashboard_status')
+  } catch (e) {
+    error.value = String(e)
+  }
+}
+
+async function openDashboard(): Promise<void> {
+  if (dashboardBusy.value) return
+  dashboardBusy.value = true
+  error.value = null
+  try {
+    const current = dashboard.value?.running
+      ? dashboard.value
+      : await invoke<LoomDashboardInfo>('loom_dashboard_start')
+    dashboard.value = current
+    if (!current.running || !safeLoomDashboardUrl(current.url)) {
+      throw new Error('交付面板返回了非法地址：只接受 127.0.0.1 的回环根地址')
+    }
+    dashboardOpen.value = true
+  } catch (e) {
+    error.value = String(e)
+  } finally {
+    dashboardBusy.value = false
+  }
+}
+
+async function openExternal(): Promise<void> {
+  const target = dashboardUrl.value
+  if (!target) return
+  error.value = null
+  const failure = await invoke<string | null>('launch_target', { target })
+  if (failure) error.value = failure
+}
+
+async function stopDashboard(): Promise<void> {
+  if (dashboardBusy.value) return
+  dashboardBusy.value = true
+  error.value = null
+  try {
+    dashboard.value = await invoke<LoomDashboardInfo>('loom_dashboard_stop')
+    dashboardOpen.value = false
+    notice.value = '交付面板服务已停止'
+  } catch (e) {
+    error.value = String(e)
+  } finally {
+    dashboardBusy.value = false
+  }
+}
+
+onMounted(() => {
+  void refresh()
+  void refreshDashboard()
+})
 </script>
 
 <template>
@@ -193,8 +258,52 @@ onMounted(() => void refresh())
     </button>
     <p v-if="copied" class="hint">把这段 JSON 填进下面某条服务的「命令 + 参数」即可（不会替你改配置）。</p>
 
+    <div class="row">
+      <button
+        v-if="state?.current || dashboard?.running"
+        data-loom-open-dashboard
+        :disabled="dashboardBusy"
+        @click="openDashboard"
+      >
+        {{ dashboardBusy ? '处理中…' : dashboard?.running ? '打开交付面板' : '启动交付面板' }}
+      </button>
+      <span class="hint" data-loom-dashboard-status>
+        {{ dashboard?.running ? `服务运行中 · ${dashboard.url}` : '交付面板未启动' }}
+      </span>
+    </div>
+
     <p v-if="notice" class="hint" data-loom-notice>{{ notice }}</p>
     <p v-if="error" class="err" role="alert" data-loom-error>{{ error }}</p>
+
+    <div
+      v-if="dashboardOpen && dashboardUrl"
+      class="dashboard-scrim"
+      data-loom-dashboard
+      role="dialog"
+      aria-modal="true"
+      aria-label="织布机交付面板"
+    >
+      <div class="dashboard-dialog">
+        <div class="dashboard-head">
+          <div>
+            <h4>织布机交付面板</h4>
+            <p class="hint">{{ dashboardUrl }} · 关闭页面不停止服务</p>
+          </div>
+          <div class="row">
+            <button data-loom-open-external @click="openExternal">系统浏览器</button>
+            <button data-loom-stop-dashboard :disabled="dashboardBusy" @click="stopDashboard">停止服务</button>
+            <button data-loom-close-dashboard @click="dashboardOpen = false">关闭</button>
+          </div>
+        </div>
+        <iframe
+          data-loom-frame
+          :src="dashboardUrl"
+          title="织布机任务、交付账本与审批面板"
+          sandbox="allow-scripts allow-same-origin allow-forms allow-downloads"
+          referrerpolicy="no-referrer"
+        />
+      </div>
+    </div>
   </div>
 </template>
 
@@ -244,5 +353,54 @@ onMounted(() => void refresh())
 .err {
   font-size: 12px;
   color: var(--c-red, #c0392b);
+}
+.dashboard-scrim {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  display: flex;
+  padding: var(--space-4);
+  background: rgb(20 24 22 / 52%);
+}
+.dashboard-dialog {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  width: min(1440px, 100%);
+  height: min(900px, 100%);
+  margin: auto;
+  overflow: hidden;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-lg);
+  background: var(--bg-card);
+  box-shadow: var(--shadow-lg, 0 18px 60px rgb(0 0 0 / 28%));
+}
+.dashboard-head {
+  display: flex;
+  gap: var(--space-3);
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  padding: var(--space-3);
+  border-bottom: 1px solid var(--border-soft);
+}
+.dashboard-head h4,
+.dashboard-head p {
+  margin: 0;
+}
+.dashboard-dialog iframe {
+  flex: 1;
+  width: 100%;
+  min-height: 0;
+  border: 0;
+  background: #fff;
+}
+@media (max-width: 640px) {
+  .dashboard-scrim {
+    padding: 0;
+  }
+  .dashboard-dialog {
+    border-radius: 0;
+  }
 }
 </style>

@@ -57,6 +57,16 @@ for (const k of ['fetchMs', 'desktopFetchMs', 'aiSummarizeMs', 'aiProbeMs', 'aiC
 for (const k of ['urlLength', 'httpBodyBytes', 'feedBodyBytes', 'mcpMaxRounds']) {
   ok(`单源 limits.${k} 是正数`, Number.isInteger(policy.limits?.[k]) && policy.limits[k] > 0)
 }
+ok('β2 dashboard 只绑 127.0.0.1', policy.loomDashboard?.host === '127.0.0.1')
+ok(
+  'β2 dashboard 启动等待是正数',
+  Number.isInteger(policy.loomDashboard?.startupMs) && policy.loomDashboard.startupMs > 0,
+)
+ok(
+  'β2 iframe 回环源不进入通用 connect-src',
+  policy.frameOrigins?.base?.includes('http://127.0.0.1:*') &&
+    !policy.connectOrigins.base.includes('http://127.0.0.1:*'),
+)
 ok(
   '两个响应体上限是有意差异（feed < 网页）',
   policy.limits.feedBodyBytes < policy.limits.httpBodyBytes,
@@ -81,6 +91,7 @@ const expectNumbers = {
   MAX_FEED_BODY_BYTES: policy.limits.feedBodyBytes,
   MCP_CALL_TIMEOUT_MS: policy.timeouts.mcpCallMs,
   MCP_MAX_ROUNDS: policy.limits.mcpMaxRounds,
+  LOOM_DASHBOARD_STARTUP_MS: policy.loomDashboard.startupMs,
 }
 for (const [name, value] of Object.entries(expectNumbers)) {
   const m = new RegExp(`export const ${name} = (\\d+)`).exec(generated)
@@ -126,6 +137,16 @@ wired(
   'POLICY.timeouts.mcp_call_ms',
 )
 wired('net_policy.rs 内嵌单源 JSON', 'src-tauri/src/net_policy.rs', 'include_str!("../../net-policy.json")')
+wired(
+  'dashboard 专用进程通道读取单源 host',
+  'src-tauri/src/loom_dashboard.rs',
+  'net_policy::loom_dashboard_host()',
+)
+wired(
+  'dashboard 专用进程通道读取单源启动超时',
+  'src-tauri/src/loom_dashboard.rs',
+  'net_policy::loom_dashboard_startup_timeout()',
+)
 ok('net_policy.rs 在 lib.rs 里登记了模块', read('src-tauri/src/lib.rs').includes('mod net_policy;'))
 for (const f of [
   'src-tauri/src/net.rs',
@@ -147,6 +168,7 @@ const conf = JSON.parse(read('src-tauri/tauri.conf.json'))
 const csp = conf.app?.security?.csp ?? ''
 const devCsp = conf.app?.security?.devCsp ?? ''
 const connectOf = (s) => /connect-src ([^;]*)/.exec(s)?.[1] ?? ''
+const frameOf = (s) => /frame-src ([^;]*)/.exec(s)?.[1] ?? ''
 const base = policy.connectOrigins.base
 const dev = policy.connectOrigins.dev ?? []
 const at = base.indexOf(policy.connectOrigins.devInsertAfter)
@@ -162,6 +184,16 @@ ok(
   connectOf(devCsp) === devBase.join(' '),
   `实际「${connectOf(devCsp)}」／期望「${devBase.join(' ')}」`,
 )
+ok(
+  'tauri.conf.json 的 csp / frame-src 与单源逐字一致',
+  frameOf(csp) === policy.frameOrigins.base.join(' '),
+  `实际「${frameOf(csp)}」／期望「${policy.frameOrigins.base.join(' ')}」`,
+)
+ok(
+  'tauri.conf.json 的 devCsp / frame-src 与单源逐字一致',
+  frameOf(devCsp) === [...policy.frameOrigins.base, ...(policy.frameOrigins.dev ?? [])].join(' '),
+)
+ok('通用 connect-src 不含 dashboard 回环通配端口', !connectOf(csp).includes('http://127.0.0.1:*'))
 ok('生产 CSP 的 connect-src 含股票行情域', connectOf(csp).includes('https://push2.eastmoney.com'))
 ok('dev CSP 的 connect-src 含股票行情域', connectOf(devCsp).includes('https://push2.eastmoney.com'))
 ok('生成脚本挂在 tauri 的 beforeDevCommand 上', (conf.build?.beforeDevCommand ?? '').includes('gen-net-policy.mjs'))

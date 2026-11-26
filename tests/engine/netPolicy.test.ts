@@ -7,8 +7,13 @@ import {
   AI_SUMMARIZE_TIMEOUT_MS,
   CONNECT_ORIGINS,
   CSP_CONNECT_SRC,
+  CSP_FRAME_SRC,
   DESKTOP_FETCH_TIMEOUT_MS,
   DEV_CSP_CONNECT_SRC,
+  DEV_CSP_FRAME_SRC,
+  FRAME_ORIGINS,
+  LOOM_DASHBOARD_HOST,
+  LOOM_DASHBOARD_STARTUP_MS,
   FETCH_TIMEOUT_MS,
   MAX_FEED_BODY_BYTES,
   MAX_HTTP_BODY_BYTES,
@@ -83,5 +88,15 @@ describe('网络策略单源 → 生成产物', () => {
 
   it('生成的 connect-src 与单源清单逐字一致（顺序也算）', () => {
     expect(CSP_CONNECT_SRC).toBe(policy.connectOrigins.base.join(' '))
+  })
+
+  it('β2 交付面板：frame-src 与专用启动策略同源，通用 connect-src 不放回环', () => {
+    expect(LOOM_DASHBOARD_HOST).toBe('127.0.0.1')
+    expect(LOOM_DASHBOARD_STARTUP_MS).toBe(policy.loomDashboard.startupMs)
+    expect(FRAME_ORIGINS).toEqual(policy.frameOrigins.base)
+    expect(CSP_FRAME_SRC).toBe(policy.frameOrigins.base.join(' '))
+    expect(DEV_CSP_FRAME_SRC).toContain('http://127.0.0.1:*')
+    expect(CSP_CONNECT_SRC).not.toContain('127.0.0.1')
+    expect(DEV_CSP_CONNECT_SRC).not.toContain('127.0.0.1')
   })
 })

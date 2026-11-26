@@ -62,6 +62,7 @@ const numbers = {
   MAX_FEED_BODY_BYTES: need(raw, 'limits.feedBodyBytes'),
   MCP_CALL_TIMEOUT_MS: need(raw, 'timeouts.mcpCallMs'),
   MCP_MAX_ROUNDS: need(raw, 'limits.mcpMaxRounds'),
+  LOOM_DASHBOARD_STARTUP_MS: need(raw, 'loomDashboard.startupMs'),
 }
 
 // ── connect-src ────────────────────────────────────────────────────────────
@@ -82,6 +83,20 @@ const devBase = at < 0 ? [...base, ...dev] : [...base.slice(0, at + 1), ...dev, 
 
 const CSP_CONNECT_SRC = base.join(' ')
 const DEV_CSP_CONNECT_SRC = devBase.join(' ')
+
+// frame-src 只给 dashboard iframe 开回环；绝不并入上面的通用 connect-src。
+const frameOrigins = raw.frameOrigins ?? {}
+const frameBase = frameOrigins.base
+if (!Array.isArray(frameBase) || frameBase.length === 0) {
+  throw new Error('net-policy.json 的 frameOrigins.base 必须是非空数组')
+}
+const frameDev = Array.isArray(frameOrigins.dev) ? frameOrigins.dev : []
+const loomHost = raw.loomDashboard?.host
+if (loomHost !== '127.0.0.1' || !frameBase.includes(`http://${loomHost}:*`)) {
+  throw new Error('loomDashboard.host 只认 127.0.0.1，且 frameOrigins.base 必须含对应通配端口源')
+}
+const CSP_FRAME_SRC = frameBase.join(' ')
+const DEV_CSP_FRAME_SRC = [...frameBase, ...frameDev].join(' ')
 
 // ── 产物 1：引擎常量 ───────────────────────────────────────────────────────
 const lines = []
@@ -130,6 +145,17 @@ lines.push('')
 lines.push('/** dev CSP 的 `connect-src` 段（生成 `tauri.conf.json` 的 `app.security.devCsp` 用） */')
 lines.push(`export const DEV_CSP_CONNECT_SRC = ${JSON.stringify(DEV_CSP_CONNECT_SRC)}`)
 lines.push('')
+lines.push('/** β2 交付面板只绑这个回环地址；由 Rust 专用进程通道读取 */')
+lines.push(`export const LOOM_DASHBOARD_HOST = ${JSON.stringify(loomHost)}`)
+lines.push('')
+lines.push(`export const FRAME_ORIGINS: readonly string[] = [${frameBase.map((s) => JSON.stringify(s)).join(', ')}]`)
+lines.push('')
+lines.push(`export const DEV_FRAME_ORIGINS: readonly string[] = [${frameDev.map((s) => JSON.stringify(s)).join(', ')}]`)
+lines.push('')
+lines.push(`export const CSP_FRAME_SRC = ${JSON.stringify(CSP_FRAME_SRC)}`)
+lines.push('')
+lines.push(`export const DEV_CSP_FRAME_SRC = ${JSON.stringify(DEV_CSP_FRAME_SRC)}`)
+lines.push('')
 
 const generated = lines.join('\n')
 const prevGenerated = safeRead(GENERATED)
@@ -145,8 +171,10 @@ if (prevGenerated !== generated) {
 // pubkey 等一大堆别的东西，整份 stringify 会产生噪音 diff。
 const confText = readFileSync(TAURI_CONF, 'utf8')
 const next = confText
-  .replace(/("csp":\s*"[^"]*?connect-src )[^"]*"/, (_m, head) => `${head}${CSP_CONNECT_SRC}"`)
-  .replace(/("devCsp":\s*"[^"]*?connect-src )[^"]*"/, (_m, head) => `${head}${DEV_CSP_CONNECT_SRC}"`)
+  .replace(/("csp":\s*"[^"]*?connect-src )[^";]*([^"]*")/, (_m, head, tail) => `${head}${CSP_CONNECT_SRC}${tail}`)
+  .replace(/("devCsp":\s*"[^"]*?connect-src )[^";]*([^"]*")/, (_m, head, tail) => `${head}${DEV_CSP_CONNECT_SRC}${tail}`)
+  .replace(/("csp":\s*"[^"]*?frame-src )[^";]*([^"]*")/, (_m, head, tail) => `${head}${CSP_FRAME_SRC}${tail}`)
+  .replace(/("devCsp":\s*"[^"]*?frame-src )[^";]*([^"]*")/, (_m, head, tail) => `${head}${DEV_CSP_FRAME_SRC}${tail}`)
 
 // 替换没命中 = 正则与文件结构脱节。此时**必须红**：否则脚本会假装"生成成功"，
 // 而 CSP 里那个漏掉的域名会一直漏下去（这正是②号 bug 躺了那么久的形状）。
@@ -155,6 +183,12 @@ if (!next.includes(`connect-src ${CSP_CONNECT_SRC}"`)) {
 }
 if (!next.includes(`connect-src ${DEV_CSP_CONNECT_SRC}"`)) {
   throw new Error('tauri.conf.json 里没找到可替换的 devCsp / connect-src —— 要么键名变了，要么格式变了')
+}
+if (!next.includes(`frame-src ${CSP_FRAME_SRC};`)) {
+  throw new Error('tauri.conf.json 里没找到可替换的 csp / frame-src —— 要么键名变了，要么格式变了')
+}
+if (!next.includes(`frame-src ${DEV_CSP_FRAME_SRC};`)) {
+  throw new Error('tauri.conf.json 里没找到可替换的 devCsp / frame-src —— 要么键名变了，要么格式变了')
 }
 if (next !== confText) {
   writeFileSync(TAURI_CONF, next, 'utf8')

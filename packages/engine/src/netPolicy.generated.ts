@@ -32,6 +32,7 @@ export const MAX_HTTP_BODY_BYTES = 1048576
 export const MAX_FEED_BODY_BYTES = 262144
 export const MCP_CALL_TIMEOUT_MS = 30000
 export const MCP_MAX_ROUNDS = 4
+export const LOOM_DASHBOARD_STARTUP_MS = 10000
 
 /**
  * 允许外连的源清单（生产 CSP 的 `connect-src`）。
@@ -49,3 +50,14 @@ export const CSP_CONNECT_SRC = "'self' ipc: http://ipc.localhost https://api.git
 
 /** dev CSP 的 `connect-src` 段（生成 `tauri.conf.json` 的 `app.security.devCsp` 用） */
 export const DEV_CSP_CONNECT_SRC = "'self' ipc: http://ipc.localhost ws://localhost:1430 http://localhost:1430 https://api.github.com https://api.open-meteo.com https://air-quality-api.open-meteo.com https://open.er-api.com https://hacker-news.firebaseio.com https://push2.eastmoney.com"
+
+/** β2 交付面板只绑这个回环地址；由 Rust 专用进程通道读取 */
+export const LOOM_DASHBOARD_HOST = "127.0.0.1"
+
+export const FRAME_ORIGINS: readonly string[] = ["'self'", "blob:", "data:", "http://127.0.0.1:*"]
+
+export const DEV_FRAME_ORIGINS: readonly string[] = []
+
+export const CSP_FRAME_SRC = "'self' blob: data: http://127.0.0.1:*"
+
+export const DEV_CSP_FRAME_SRC = "'self' blob: data: http://127.0.0.1:*"

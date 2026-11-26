@@ -33,11 +33,20 @@ pub static POLICY: LazyLock<Policy> = LazyLock::new(|| {
         .unwrap_or_else(|e| panic!("net-policy.json 解析失败（{e}）—— 单源坏了，不回落旧数字"))
 });
 
-#[derive(serde::Deserialize, Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(serde::Deserialize, Debug, Clone, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct Policy {
     pub timeouts: Timeouts,
     pub limits: Limits,
+    pub loom_dashboard: LoomDashboardPolicy,
+}
+
+/// β2 交付面板专用进程通道。它不是通用 HTTP 白名单：`net.rs` 的公网边界不变。
+#[derive(serde::Deserialize, Debug, Clone, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct LoomDashboardPolicy {
+    pub host: String,
+    pub startup_ms: u64,
 }
 
 #[derive(serde::Deserialize, Debug, Clone, Copy, PartialEq, Eq)]
@@ -123,6 +132,16 @@ pub fn mcp_call_timeout() -> Duration {
     Duration::from_millis(POLICY.timeouts.mcp_call_ms)
 }
 
+/// 交付面板只绑单源指定的回环地址；调用侧仍需拒绝其他 host。
+pub fn loom_dashboard_host() -> &'static str {
+    &POLICY.loom_dashboard.host
+}
+
+/// dashboard 子进程的有界启动等待，避免服务没起来时 UI 永远转圈。
+pub fn loom_dashboard_startup_timeout() -> Duration {
+    Duration::from_millis(POLICY.loom_dashboard.startup_ms)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -131,7 +150,7 @@ mod tests {
     /// CI 上 `cargo test` 会跑到这里，于是"JSON 解析不过"在 CI 就红，不会等到用户机器上。
     #[test]
     fn policy_parses() {
-        let p = *POLICY;
+        let p = &*POLICY;
         assert_eq!(p.timeouts.fetch_ms, 8000);
         assert_eq!(p.timeouts.desktop_fetch_ms, 10_000);
         assert_eq!(p.timeouts.ai_summarize_ms, 120_000);
@@ -141,6 +160,8 @@ mod tests {
         assert_eq!(p.limits.url_length, 300);
         assert_eq!(p.limits.http_body_bytes, 1024 * 1024);
         assert_eq!(p.limits.feed_body_bytes, 256 * 1024);
+        assert_eq!(p.loom_dashboard.host, "127.0.0.1");
+        assert_eq!(p.loom_dashboard.startup_ms, 10_000);
     }
 
     /// 两个响应体上限是**有意差异**（理由见 `Limits::feed_body_bytes` 的文档）。
@@ -163,5 +184,7 @@ mod tests {
         assert_eq!(ai_connect(), Duration::from_secs(5));
         assert_eq!(desktop_fetch_ms(), 10_000);
         assert_eq!(mcp_call_timeout(), Duration::from_secs(30));
+        assert_eq!(loom_dashboard_host(), "127.0.0.1");
+        assert_eq!(loom_dashboard_startup_timeout(), Duration::from_secs(10));
     }
 }

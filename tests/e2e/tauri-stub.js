@@ -134,6 +134,9 @@
   /** MCP 确认记录：**只在内存**（Rust `McpState.confirmed` 同生命周期，刷新即清） */
   const mcpConfirmed = new Set()
 
+  /** β2 交付面板：只在内存里模拟一个活着的回环服务，重复 start 必须复用同一 PID。 */
+  let loomDashboard = { running: false, url: null, version: null, pid: null }
+
   /** 记账时把 Channel 换成占位串：Channel 带私有字段，跨 evaluate 序列化会直接抛 */
   const sanitizeArgs = (args) => {
     if (!args || typeof args !== 'object') return args
@@ -510,6 +513,26 @@
         // Rust 是 `Result<(), String>` —— `()` 序列化成 null，桩要回同一个形状
         return Promise.resolve(null)
       }
+      case 'loom_runtime_state':
+        return Promise.resolve({ current: 'v0.1.0', root: 'C:/loom', versions: ['v0.1.0'] })
+      case 'loom_dashboard_start':
+        if (!loomDashboard.running) {
+          loomDashboard = {
+            running: true,
+            url: 'http://127.0.0.1:18910/',
+            version: 'v0.1.0',
+            pid: 18910,
+          }
+          window.__STUB_LOOM_STARTS__ = Number(window.__STUB_LOOM_STARTS__ ?? 0) + 1
+        }
+        return Promise.resolve({ ...loomDashboard })
+      case 'loom_dashboard_status':
+        return Promise.resolve({ ...loomDashboard })
+      case 'loom_dashboard_stop':
+        loomDashboard = { running: false, url: null, version: null, pid: null }
+        return Promise.resolve({ ...loomDashboard })
+      case 'launch_target':
+        return Promise.resolve(null)
       // —— WebDAV 同步命令（形状与 Rust webdav.rs 的 8 条命令一一对应）——
       case 'webdav_probe': {
         const deny = davDeny(String(args?.user ?? ''), args?.password ?? null)
