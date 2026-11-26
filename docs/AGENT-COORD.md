@@ -141,7 +141,7 @@ git merge-base --is-ancestor origin/<分支> origin/master && echo 已并入
 git merge-base --is-ancestor <tag>^{commit} origin/master && echo 可达 || echo 只靠锚点
 ```
 
-#### 一、只靠锚点存活 —— 删了就真没了（29 个）
+#### 一、只靠锚点存活 —— 删了就真没了（30 个）
 
 squash 合并的产物：内容进了 master，但**原始提交在 master 上没有任何 ref**。
 
@@ -176,6 +176,7 @@ squash 合并的产物：内容进了 master，但**原始提交在 master 上�
 | `anchor/feat-loom-runtime-r44` | `7500f68` | PR #353（β1 · 织布机运行时：可选组件，按需下载）分支 tip —— 内容已随 #353 squash `a08cdfb` 进 master，原始提交在 master 上无 ref |
 | `anchor/feat-loom-gated-r45` | `c711f33` | PR #355（§12.106 补记 · 织布机运行时登记受测层并锁分支 100）分支 tip —— 内容已随 #355 squash `5b54c1f` 进 master，原始提交在 master 上无 ref |
 | `anchor/fix-loom-section-wiring` | `24ccbc6` | PR #358（β1 运行时设置入口可达性防回归）分支 tip —— 内容已随 #358 squash `adb823f` 进 master，原始提交在 master 上无 ref |
+| `anchor/feat-loom-smoke-r46` | `05475b1` | PR #357（β3 · 织布机运行时 Windows 冒烟进 CI）分支 tip —— 内容已随 #357 squash `853aa78` 进 master，原始提交在 master 上无 ref |
 
 另有一份同内容备份在 **`stash@{0}`**（"wip(appearance): aurora 行高抬升收尾（未验完）"）——
 板上另有一条明确写了「请勿删」，它与 `f722a9c` 内容相同，是双保险。
@@ -293,7 +294,7 @@ Release / npm / tag。这一张表管那一半，`scripts/coord-gate.mjs` **判�
 
 | 时间 | Agent | 在做什么 | 会改的文件 | 请勿动 | 状态 |
 |------|-------|----------|-----------|--------|------|
-| 11-26 13:30 | ZCode 本会话（改天换地计划 · AI 能力线 · 织布机运行时 β3 笔 · worktree `F:/Nexus/modulo-ai-v17`，分支 `feat/loom-smoke-r46`） | **织布机运行时：Windows 冒烟进 CI（β3，§12.108；开工时是 §12.107，rebase 到 #352 后顺延）**（β1 的包只在本机冒烟过一轮，nexusloom 自己的 CI 只跑 Linux —— Windows 回归面每次构建都证一遍）。新增 `scripts/loom-smoke.mjs`（起运行时 MCP：`initialize` 要回 protocolVersion + serverInfo loom、`tools/list` 要含 `generate_document`；错误帧 / 45 秒超时 / **子进程提前退出**即红，不空跑装绿）+ 桌面壳 job 在 upload-artifact 前加「织布机运行时冒烟」step（curl 下载**已发布的同一资产** Release `loom-runtime-v0.1.0` + sha256 核对 → python tarfile 解压 → 冒烟）。**刻意不跑真生成**（要 LLM key，CI 不该有）。两轮 CI 红实录：首版零输出挂到 job 35 分钟上限被 cancel ⇒ 加 8 分钟上限与每环标记；第二轮标记指认 **System32 bsdtar 解压零输出挂满 8 分钟**（本机秒过，环境怪癖不追）⇒ 改 python tarfile（与 sherpa 同路）。第三轮 CI 真跑通过（run `45779160586`，step 约 5 秒）；本机预演同命令全绿；各维数字不变（不碰 `src/`） | `scripts/loom-smoke.mjs`（新）、`.github/workflows/ci.yml`（桌面壳 job 一个 step）、`docs/ARCHITECTURE.md`（§12.108）、`CHANGELOG.md`（未发布段）、`docs/design/NEXUSLOOM-SIDECAR.md`（β3 状态）、`docs/AGENT-COORD.md`（本行） | 交付面板（β2）、render / ingest extras、私有镜像实测、run_workflow 的 UI 入口、release job 与其余 job、`src/**`、`src-tauri/**`、版本号九处 / tag / Release / npm、他人板行 | 🟡 进行中 |
+| 11-26 13:30 | ZCode 本会话（改天换地计划 · AI 能力线 · 织布机运行时 β3 笔 · worktree `F:/Nexus/modulo-ai-v17`，分支 `feat/loom-smoke-r46`） | **织布机运行时：Windows 冒烟进 CI（β3，§12.108；开工时是 §12.107，rebase 到 #352 后顺延）**（β1 的包只在本机冒烟过一轮，nexusloom 自己的 CI 只跑 Linux —— Windows 回归面每次构建都证一遍）。新增 `scripts/loom-smoke.mjs`（起运行时 MCP：`initialize` 要回 protocolVersion + serverInfo loom、`tools/list` 要含 `generate_document`；错误帧 / 45 秒超时 / **子进程提前退出**即红，不空跑装绿）+ 桌面壳 job 在 upload-artifact 前加「织布机运行时冒烟」step（curl 下载**已发布的同一资产** Release `loom-runtime-v0.1.0` + sha256 核对 → python tarfile 解压 → 冒烟）。**刻意不跑真生成**（要 LLM key，CI 不该有）。两轮 CI 红实录：首版零输出挂到 job 35 分钟上限被 cancel ⇒ 加 8 分钟上限与每环标记；第二轮标记指认 **System32 bsdtar 解压零输出挂满 8 分钟**（本机秒过，环境怪癖不追）⇒ 改 python tarfile（与 sherpa 同路）。第三轮 CI 真跑通过（run `45779160586`，step 约 5 秒）；本机预演同命令全绿；各维数字不变（不碰 `src/`） | `scripts/loom-smoke.mjs`（新）、`.github/workflows/ci.yml`（桌面壳 job 一个 step）、`docs/ARCHITECTURE.md`（§12.108）、`CHANGELOG.md`（未发布段）、`docs/design/NEXUSLOOM-SIDECAR.md`（β3 状态）、`docs/AGENT-COORD.md`（本行） | 交付面板（β2）、render / ingest extras、私有镜像实测、run_workflow 的 UI 入口、release job 与其余 job、`src/**`、`src-tauri/**`、版本号九处 / tag / Release / npm、他人板行 | ✅ done（**PR #357** → squash `853aa78`；分支头 `05475b1`；锚 tag `anchor/feat-loom-smoke-r46` → `05475b1` 远端已钉并登记「一」表 29→30，本地 / 远端分支已双删；**master 首跑 `45802675148` success**（verify + 桌面壳，含新冒烟 step 真跑）。合并前两轮 rebase：#352 占用 §12.107 ⇒ 本笔顺延 §12.108（章节与板行并集保留）；#358 再顶一次 ⇒ 同样并集解，diff 核对剩项全是他线 #359 收口的板编辑，本笔内容零丢失。末轮 PR / push 两组 run 全绿后按「全绿且 head 未变」条件执行 squash。本行由 docs-only 收口 PR 补记） |
 | 11-25 19:53 | ZCode 本会话（β1 可达性补线 · worktree `F:/Nexus/modulo-loom-wiring`，分支 `fix/loom-section-wiring`） | **修 `LoomSection.vue` 存在但未挂进 `SettingsPanel.vue` 的真实断链**：import＋实验室模板挂载，新增「运行时区必须出现」E2E 判据；不改下载/解压/状态机。实测旧安装版与 origin/master 均无 `data-loom-url` ⇒ 运行时不可达，不能只看组件文件就报β1可用 | `src/vue/components/SettingsPanel.vue`、`tests/e2e/settings-ia.spec.ts`、`CHANGELOG.md`、`docs/AGENT-COORD.md`（本行） | β1 下载器与运行时包、他人板行、其他产品面 | ✅ 已由下一行更正，无产品改动 |
 | 11-25 20:50 | ZCode 本会话（β1 可达性补线 · 证据更正） | **更正上一行**：`McpSection.vue:19` 已 import、`:255` 已挂载 `LoomSection`，SettingsPanel 无需直接引用；本工作树独立生产构建的 E2E 也实证 `data-loom-section` 与 `data-loom-url` 均存在 ⇒ **master 无断链，不修产品代码**。初始超时仅因已安装 0.8.15 早于 β1。保留新增防回归断言，后续用 master CI 产物验收真实下载 | `tests/e2e/settings-ia.spec.ts`（保留断言）、`docs/AGENT-COORD.md`（本行） | 无（不新增产品改动） | ✅ 证据已更正 |
 | 11-26 00:20 | ZCode 本会话（β1 可达性补线 · 推送声明 R10） | **即将 push `fix/loom-section-wiring` 并开 PR**：仅 `tests/e2e/settings-ia.spec.ts` 两条挂载断言 + CHANGELOG + 行数台账 + 板面更正；零产品改动。验证：独立生产构建 E2E 8/8、typecheck、cover:engine 95.87%（4856/5065）、docs-check、coord-gate 3 项他线历史警告不阻塞、cmd-surface 57/57/37。Mimosa 1 条命中在既有打包脚本，非本批文件；不宣称安全。本行即 R10，生而 RELEASED | `tests/e2e/settings-ia.spec.ts`、`CHANGELOG.md`、`docs/ARCHITECTURE.md`、`docs/AGENT-COORD.md`（本行） | 无 | ✅ R10 |
