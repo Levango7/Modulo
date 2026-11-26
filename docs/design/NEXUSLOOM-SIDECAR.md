@@ -87,6 +87,9 @@ sha256 `b8e7a5b11f1b7a9cd8e98a7844a3cb92bfb8e2643c1a3fc27151730142d235ec` ——
 - **β3 CI 冒烟 + Windows 真机**：把「Modulo 起 sidecar → initialize → tools/list → 一次
   `generate_document`」塞进 Modulo 构建（nexusloom 自己的 CI **只跑 Linux**，Windows 回归
   今天只靠作者本机，这是 β 最大的隐性成本）。
+  **2026-11-26 已落地（握手段）**：桌面壳 job 每构建下载已发布的同一资产 → 解压 →
+  `scripts/loom-smoke.mjs` 真起 MCP，断言 `initialize` + `tools/list`（含 `generate_document`），
+  错误帧 / 45 秒超时即红；**真生成那半刻意不做**（要 LLM key，CI 不该有）。详见 §12.108。
 
 ## 五条风险与对策（按严重度）
 

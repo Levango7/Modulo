@@ -334,6 +334,42 @@ jobs:
       # 命令行带参数且端口可达。于是探针每次都停在"连 CDP"这一步，与产品好坏无关，
       # 留着的价值只是一个不会拦任何东西的红叉。
       # 它的定位是**发布前的本机门禁**：跑在要发出去的那颗二进制上（§11.4），CI 管构建与单测。
+      # 织布机运行时（β1 起作为可选组件按需下载）在 Windows 上必须每构建冒烟一次：
+      # nexusloom 自己的 CI 只跑 Linux，α 已踩过两条 Windows 专属坑（管道 cp936 坏 MCP 帧、
+      # mcp_server.py 无 __main__ 入口）。这里下载**已经发布的同一个资产**，tar 解压后真起
+      # MCP：initialize 要回 protocolVersion + serverInfo{name:"loom"}，tools/list 要含
+      # generate_document；不真跑 generate_document（那需要 LLM key，CI 不该有）。
+      # 2026-11-26 首轮实跑教训：这一版 step 曾在两条 run 上零输出挂到 job 的 35 分钟上限被
+      # cancel（取消不是断言红）。所以这里**每条命令都有标记、每一环都有上界**：step 8 分钟、
+      # curl 240 秒、驱动自身 45 秒 —— 再挂也会指出挂在哪一环，而不是吃掉整个 job 的预算。
+      - name: 织布机运行时冒烟（下载 → 解压 → initialize + tools/list）
+        shell: pwsh
+        timeout-minutes: 8
+        run: |
+          $dst = Join-Path $env:TEMP 'loom-smoke'
+          if (Test-Path $dst) { Remove-Item -Recurse -Force $dst }
+          New-Item -ItemType Directory -Path $dst | Out-Null
+          $pkg = Join-Path $dst 'loom-runtime-v0.1.0.tar.bz2'
+          $url = 'https://github.com/Levango7/Modulo/releases/download/loom-runtime-v0.1.0/loom-runtime-v0.1.0.tar.bz2'
+          Write-Host "[loom-smoke] 下载开始 $url"
+          curl.exe -sS -L --fail --show-error --connect-timeout 30 --max-time 240 --retry 2 -o $pkg $url
+          if ($LASTEXITCODE -ne 0) { Write-Error "运行时包下载失败（curl 退出码 $LASTEXITCODE）"; exit 1 }
+          Write-Host "[loom-smoke] 下载完成 $((Get-Item $pkg).Length) 字节，核对 sha256"
+          # 与 Release loom-runtime-v0.1.0 的清单同源（升版要同步改 URL 与这一行）
+          $got = (Get-FileHash -Algorithm SHA256 $pkg).Hash.ToLower()
+          if ($got -ne 'b8e7a5b11f1b7a9cd8e98a7844a3cb92bfb8e2643c1a3fc27151730142d235ec') {
+            Write-Error "运行时包 sha256 不匹配（实际 $got）—— 不验 digest 的冒烟等于验了别的东西"; exit 1
+          }
+          Write-Host '[loom-smoke] sha256 一致，解压（python tarfile，与 sherpa 那步同一条路）'
+          # 为什么不用 tar.exe：① MSYS/Git 的 tar 把 `-C C:\...` 当远程主机（本机踩过）；
+          # ② 钉死 System32 bsdtar 后，CI 上同一份归档**零输出挂满 8 分钟**（第二轮实测，
+          #    下载 0.75s + sha256 一致的标记之后没有任何下文），本机同一颗 bsdtar 秒过。
+          #    不追这个环境怪癖 —— sherpa 那步从第一天起就用 python tarfile 解 tar.bz2，走同一条。
+          python -I -c "import tarfile,sys; tarfile.open(sys.argv[1]).extractall(sys.argv[2])" $pkg $dst
+          if ($LASTEXITCODE -ne 0) { Write-Error 'tarfile 解压失败'; exit $LASTEXITCODE }
+          Write-Host '[loom-smoke] 解压完成，起 MCP 冒烟'
+          node scripts/loom-smoke.mjs --runtime $dst
+          if ($LASTEXITCODE -ne 0) { Write-Error '织布机运行时冒烟没通过'; exit $LASTEXITCODE }
       - uses: actions/upload-artifact@v4
         with:
           name: modulo-windows-x64-exe

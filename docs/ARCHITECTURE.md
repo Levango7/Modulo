@@ -6307,3 +6307,49 @@ carve-out）；② Windows 冒烟进 CI（β3，nexusloom 自己的 CI 只跑 Li
 用例把 `ai_summarize` 挂在途，断言忙碌态不出现停止，并用 `v-if="busy"` 做可逆变异确认
 该断言会红。另一条竞态回归先推完普通 `done`、再放行迟到的 `ai_chat` 响应，随后进入摘要
 忙碌态，证明已结束模型轮不会把停止带回来。
+### 12.108 织布机运行时：Windows 冒烟进 CI（β3，2026-11-26）
+
+> 节序说明：本笔开工时是 §12.107，rebase 到 #352（F4c-1 停止入口）之上后顺延为 §12.108；
+> 分支名 / PR 标题里的 r46 与最初的 §12.107 指的都是这一笔。
+
+**这一节解决的是哪个问题**：β1 的运行时包只在本机冒烟过一轮，而 nexusloom 自己的 CI
+**只跑 Linux** —— Windows 回归面此前全押在作者本机。α 那轮已经踩过两条 Windows 专属的坑
+（管道默认 cp936 会坏 MCP 帧、`mcp_server.py` 没有 `__main__` 入口），这类回退必须每次构建
+都证一遍，不能等下次发版才发现。
+
+**本笔做什么**（一个驱动 + 一个 CI step，不碰 `src/`）：
+
+- **驱动 `scripts/loom-smoke.mjs`**：起 `<运行时>/python/python.exe run-mcp.py`，写
+  `initialize` / `notifications/initialized` / `tools/list` 三帧，然后轮询 stdout ——
+  必须见到 `protocolVersion 2024-11-05` + `serverInfo{name:"loom"}`，且 `tools/list` 含
+  `generate_document`，三样齐了才退出 0；**MCP 回错误帧立即红**，45 秒（`LOOM_SMOKE_TIMEOUT_MS`
+  可调）等不到也红，不静默挂住。解释器或启动 shim 不在直接拒跑（先下载解压再跑，不空跑装绿）。
+  **子进程提前退出也算红**（带 code 与 stderr 人话）—— 否则 python 一崩，unref 的定时器与轮询
+  保不住事件循环，node 会以退出码 0 静默「通过」（本笔负向实测：`SystemExit(3)` 的 shim
+  必须 exit 1，不许假绿）。
+- **CI step「织布机运行时冒烟（下载 → 解压 → initialize + tools/list）」**：挂在桌面壳 job
+  的 upload-artifact 之前 —— 每次 push / PR 都跑，不是只有发布才跑。下载的是**已经发布的
+  同一个资产**（Release `loom-runtime-v0.1.0`，immutable），不是重新出包：用户装到的是什么，
+  CI 验的就是什么；curl 带 `--connect-timeout 30 --max-time 240 --retry 2`，下载后
+  **sha256 与清单核对**（不验 digest 的冒烟等于验了别的东西）。解压用 **python tarfile**
+  （`python -I -c`，与 sherpa 那步同一条路；为什么不走 tar.exe 见下面的两轮 CI 实录）。
+
+**首轮 CI 红与修法（如实记）**：首版 step 在两条 run 上**零输出挂到桌面壳 job 的 35 分钟上限
+被 cancel**（取消不是断言红，verify 两腿是绿的）。修法是把「看不见的挂死」改成「指出挂在哪一环」：
+step 自身 `timeout-minutes: 8`、下载从 gh 换成带上界的 curl、每条命令打 `[loom-smoke]` 标记，
+外加驱动的子进程提前退出判红（见上）。**第二轮标记指认了挂点**：下载 0.75 秒完成、sha256 一致，
+之后 **System32 bsdtar 解压零输出挂满 8 分钟**（首轮的 29 分钟也是它）—— 本机同一颗 bsdtar
+秒过，属 CI 环境怪癖，不追；解压改走 **python tarfile**（sherpa 那步从第一天起就用它解 tar.bz2，
+同形态归档、久经考验），MSYS tar 的 `-C C:\...` 远程主机坑也一并绕开。
+
+**刻意不跑的**：`generate_document` 真生成 —— 那要 LLM key，CI 不该有；这条链证的是
+「Windows 上起得来、握手对、工具在」，生成质量由 nexusloom 自己的测试与本机真 key 验收负责。
+
+**实测**：本机按 CI 的同一条命令原样预演（curl 下载 → sha256 一致 → tarfile 解压 →
+`node scripts/loom-smoke.mjs`）通过：`initialize` 回 protocolVersion 2024-11-05 +
+serverInfo loom；`tools/list` 六个工具全出（loom / generate_document / run_workflow /
+get_task / list_tasks / list_pipelines / get_pipeline_info）。**第三轮 CI 真跑通过**
+（run `45779160586`，桌面壳 5m24s）：step 全程约 5 秒 —— 下载 0.5s、tarfile 解压 2.3s、
+MCP 握手 + 六工具 1.6s，✓ 行与本机逐字一致。
+**数字**：单测 / 文件数 / Rust / E2E / JS / CSS 各维不变 —— 本笔只新增一个 scripts 驱动
+与 CI 的一个 step，`src/` 一行没碰。
