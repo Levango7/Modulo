@@ -510,6 +510,9 @@
         // Rust 是 `Result<(), String>` —— `()` 序列化成 null，桩要回同一个形状
         return Promise.resolve(null)
       }
+      // 织布机运行时（β1/r47）：`__STUB_LOOM_STATE__` 给安装状态；默认 null = 还没装
+      case 'loom_runtime_state':
+        return Promise.resolve(window.__STUB_LOOM_STATE__ ?? null)
       // —— WebDAV 同步命令（形状与 Rust webdav.rs 的 8 条命令一一对应）——
       case 'webdav_probe': {
         const deny = davDeny(String(args?.user ?? ''), args?.password ?? null)
@@ -653,4 +656,6 @@
   window.__STUB_MCP_LIST_FAIL__ = null
   /** 本页已确认的 server id（测试据此断言"真的记了确认"，**刷新即清**） */
   window.__STUB_MCP_CONFIRMED__ = () => [...mcpConfirmed]
+  /** 织布机运行时状态（r47）：`{ current, root, versions }`；默认 null = 还没装运行时 */
+  window.__STUB_LOOM_STATE__ = null
 })()

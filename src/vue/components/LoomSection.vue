@@ -13,15 +13,17 @@
  * 3. **不静默改 MCP 配置**：装好只给一段 JSON（`mcpConfigSnippet`），粘不粘由用户决定。
  * 4. **不静默删当前版**：`loom_runtime_remove` 拒删当前在用的那一版（按钮也不给）。
  */
-import { computed, onMounted, ref } from 'vue'
+import { computed, inject, onMounted, ref } from 'vue'
 import { Channel, invoke } from '@tauri-apps/api/core'
 import {
   humanBytes,
   mcpConfigSnippet,
   parseLoomManifest,
+  planLoomMcpServer,
   type LoomManifest,
   type LoomVersionChoice,
 } from '../loomRuntime'
+import type { McpApi } from '../useMcp'
 
 interface LoomState {
   current: string | null
@@ -46,6 +48,8 @@ const state = ref<LoomState | null>(null)
 const busy = ref(false)
 const progress = ref<LoomProgress | null>(null)
 const copied = ref(false)
+// 与 McpSection 同一份（App provide）：点「添加」写的是用户看得到的那个清单，不是另一份镜像
+const mcp = inject<McpApi>('mcp')!
 
 const versions = computed<LoomVersionChoice[]>(() => {
   const current = state.value?.current ?? null
@@ -144,6 +148,29 @@ async function copyConfig(): Promise<void> {
   }, 2000)
 }
 
+/**
+ * 一键添加到 MCP 服务（β1 收尾 r47）：**只有点这一下才写配置**（不是静默改）。
+ * 写入只动织布机自己那一条（`run-mcp.py` 签名）；MCP 总开关与「允许本会话」两道闸门
+ * 不替用户开 —— 提示里说清楚还差哪一步。
+ */
+function enableLoom(): void {
+  const dir = destDir.value
+  if (!dir) return
+  error.value = null
+  const plan = planLoomMcpServer(mcp.servers.value, `${dir}/python/python.exe`, `${dir}/run-mcp.py`)
+  const tail = `${mcp.gate.value ? '' : '；MCP 总开关还关着，到下面的 MCP 服务里打开'}。首次使用前，到该条目点「允许本会话」`
+  if (plan.action === 'same') {
+    notice.value = `已经在下面的 MCP 服务清单里（loom 条目），无需改动${tail}`
+    return
+  }
+  const err = plan.action === 'add' ? mcp.add(plan.draft) : mcp.update(plan.id!, plan.draft)
+  if (err) {
+    error.value = err
+    return
+  }
+  notice.value = `${plan.action === 'add' ? '已添加到下面的 MCP 服务清单（loom 条目）' : '已把 loom 条目指向当前版本'}${tail}`
+}
+
 onMounted(() => void refresh())
 </script>
 
@@ -154,7 +181,7 @@ onMounted(() => void refresh())
       织布机（nexusloom）是文档生成流水线。这里只装它的<b>运行环境</b>（CPython + 织布机源码），
       装到 <code>%APPDATA%/app.modulo/loom/&lt;版本&gt;/</code>，版本目录并列、可回退。
       <b>不装进安装包</b>：要用了才下载，校验和不过就删。
-      装好后把那段 MCP 配置粘到下面任意一条服务里即可。
+      装好后点「添加到 MCP 服务」即可（或复制配置手动粘）；首次使用还要在该条目「允许本会话」。
     </p>
 
     <div class="row">
@@ -188,9 +215,12 @@ onMounted(() => void refresh())
       </li>
     </ul>
 
-    <button v-if="state?.current" data-loom-copy @click="copyConfig">
-      {{ copied ? '已复制 ✓' : '复制 MCP 配置' }}
-    </button>
+    <div v-if="state?.current" class="row">
+      <button data-loom-enable @click="enableLoom">添加到 MCP 服务</button>
+      <button data-loom-copy @click="copyConfig">
+        {{ copied ? '已复制 ✓' : '复制 MCP 配置' }}
+      </button>
+    </div>
     <p v-if="copied" class="hint">把这段 JSON 填进下面某条服务的「命令 + 参数」即可（不会替你改配置）。</p>
 
     <p v-if="notice" class="hint" data-loom-notice>{{ notice }}</p>

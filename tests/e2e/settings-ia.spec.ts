@@ -150,6 +150,43 @@ describe.skipIf(skip)('F-10 设置分组（桌面形态）', () => {
     expect(errs, `页面不该有报错：${errs.join(' | ')}`).toEqual([])
   })
 
+  it('织布机：一键添加到 MCP 服务（添加 → 落盘 → 再点无需改动，总开关不替你开）', async () => {
+    const errs: string[] = []
+    const page = await open({}, errs)
+    // 装好了运行时的那台机器：LoomSection 在开实验室组时才挂载读状态，所以先种再开组
+    await page.evaluate(() => {
+      ;(window as unknown as { __STUB_LOOM_STATE__: unknown }).__STUB_LOOM_STATE__ = {
+        current: 'v0.1.0',
+        root: 'C:/loom-test',
+        versions: ['v0.1.0'],
+      }
+    })
+    await openSettings(page)
+    await clickGroup(page, 'lab')
+    await page.waitForSelector('[data-loom-enable]', { timeout: 10000 })
+
+    await page.click('[data-loom-enable]')
+    await page.waitForFunction(
+      () => document.querySelector('[data-loom-notice]')?.textContent?.includes('已添加'),
+      { timeout: 10000 },
+    )
+    const doc = await disk(page, 'modulo.mcp.v1')
+    expect(doc).toContain('C:/loom-test/v0.1.0/python/python.exe')
+    expect(doc).toContain('C:/loom-test/v0.1.0/run-mcp.py')
+    // 总开关不替你开（用户自己拨）；提示里也说清还差「允许本会话」这道既有闸门
+    expect(doc).toContain('"gate":false')
+    expect(await groupText(page)).toContain('允许本会话')
+
+    // 再点一次 = 无需改动（幂等：不重复加、不重写盘）
+    await page.click('[data-loom-enable]')
+    await page.waitForFunction(
+      () => document.querySelector('[data-loom-notice]')?.textContent?.includes('无需改动'),
+      { timeout: 10000 },
+    )
+    expect(await disk(page, 'modulo.mcp.v1')).toBe(doc)
+    expect(errs, `页面不该有报错：${errs.join(' | ')}`).toEqual([])
+  })
+
   it('Esc 关面板；「挑一种排法」先关设置再开模板选择器（两个遮罩不叠）', async () => {
     const errs: string[] = []
     const page = await open({}, errs)
