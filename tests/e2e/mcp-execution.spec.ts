@@ -8,13 +8,16 @@
  * 结果真的回喂进第 2 轮」这三件事**只有真页面 + 真 invoke 记账能证** ——
  * 本仓没有组件测试设施（无 @vue/test-utils / jsdom），所以归 E2E。
  *
- * 三条用例对应三条**各自会独立坏掉**的链路：
+ * 四条核心链路对应四种**各自会独立坏掉**的语义：
  * 1. 合规路径：种一份盘上配置 → 设置页点「允许本会话使用」→ 回坞发消息 →
  *    请求里带着这个 MCP 工具、时间线出现结果行、第 2 轮带着工具结果回灌续跑。
  *    **同轮两次请求的 `tools` 必须逐字相同**（`turnTools` 那个缓存的唯一理由）。
  * 2. 两类失败**文案必须不同**：`mcp_call` 的 RPC 层失败（进程起不来 / 超时）与
  *    工具自己报的 `isError`（跑了但失败）是两件事，用户该修的东西也不一样。
- * 3. 未确认的服务**一条命令都不发**：`gather` 只取「已确认且 enabled」的服务，
+ * 3. 停止：`toolStart` 已显示、`done{reason:'tool'}` 尚未到达时点停止，
+ *    已宣布步骤不执行、不落盘、不再续跑；`done{tool}` 之后进入工具执行也仍可停止，
+ *    在途结果如实记账，后续步骤不执行、不落盘、不再续跑。
+ * 4. 未确认的服务**一条命令都不发**：`gather` 只取「已确认且 enabled」的服务，
  *    未确认时连 `mcp_list_tools` 都不许出现（Rust 那道 J4 闸门守的就是这一下）。
  *
  * 桩的形状照 Rust：三条命令的入参/出错文案与 `ai::mcp::client` 逐字一致，
@@ -138,6 +141,12 @@ interface Seed {
   call?: Record<string, unknown>
   /** `__STUB_AI_TOOL_LOOP__`：第 1 轮只发 toolStart、`done{tool}` 收尾 */
   loop?: { id: string; name: string; args?: Record<string, unknown> }[]
+  /** 发完 toolStart 后挂住，让用例在工具执行前点停止 */
+  toolLoopHang?: boolean
+  /** MCP 调用发出去后挂在途，等用例点停止再放行结果 */
+  mcpCallHang?: boolean
+  /** 先同步推完 done{tool}，再挂住 ai_chat 响应，覆盖工具接棒早于 IPC 返回 */
+  chatDoneBeforeResolve?: boolean
   /** 第 2 轮（收尾）的回复正文 */
   reply?: string
 }
@@ -163,7 +172,10 @@ async function open(seed: Seed = {}, errs: string[] = []): Promise<Page> {
       toolsJson: string,
       callJson: string | null,
       loopJson: string | null,
+      toolLoopHang: boolean,
+      mcpCallHang: boolean,
       reply: string,
+      chatDoneBeforeResolve: boolean,
     ) => {
       new Function(src)()
       // 桌面适配器读的是桩的「盘」（`read_doc` 落在 `__stubdoc.` 前缀下）
@@ -175,6 +187,9 @@ async function open(seed: Seed = {}, errs: string[] = []): Promise<Page> {
       w.__STUB_MCP_TOOLS__ = JSON.parse(toolsJson)
       if (callJson) w.__STUB_MCP_CALL__ = JSON.parse(callJson)
       if (loopJson) w.__STUB_AI_TOOL_LOOP__ = JSON.parse(loopJson)
+      w.__STUB_AI_TOOL_LOOP_HANG__ = toolLoopHang
+      w.__STUB_MCP_CALL_HANG__ = mcpCallHang
+      w.__STUB_AI_DONE_BEFORE_RESOLVE__ = chatDoneBeforeResolve
       w.__STUB_AI_REPLY__ = reply
     },
     STUB_SOURCE,
@@ -184,7 +199,10 @@ async function open(seed: Seed = {}, errs: string[] = []): Promise<Page> {
     JSON.stringify(MCP_TOOLS),
     seed.call ? JSON.stringify(seed.call) : null,
     seed.loop ? JSON.stringify(seed.loop) : null,
+    seed.toolLoopHang === true,
+    seed.mcpCallHang === true,
     seed.reply ?? '用完了。',
+    seed.chatDoneBeforeResolve === true,
   )
   await gotoWorkbench(page, url)
   await page.waitForSelector('button.wide[title="外观设置"]', { timeout: 15000 })
@@ -374,6 +392,114 @@ describe.skipIf(skip)('对话坞消费 MCP 工具（J1 执行半）', () => {
     )
     // `mcpResultLine` 的失败形状：工具名 + 「失败（原因）」
     expect(await text(page, '[data-tool-step] .detail')).toBe(`${TOOL}：失败（boom）`)
+    expect(errs, `页面不该有报错：${errs.join(' | ')}`).toEqual([])
+  })
+
+  it('工具执行前按停止：已宣布的步骤不执行、不落盘、不再续跑', async () => {
+    const errs: string[] = []
+    const page = await open(
+      {
+        loop: [
+          { id: 'call-1', name: TOOL, args: { text: '停止后不该调' } },
+          { id: 'call-2', name: 'todo_add', args: { text: '停止后不该写' } },
+        ],
+        toolLoopHang: true,
+      },
+      errs,
+    )
+    await expand(page)
+    await ask(page, '先调回声工具，再加一条待办')
+
+    await page.waitForSelector('[data-tool-step="running"]', { timeout: 15000 })
+    await page.waitForSelector('[data-chat-stop]', { timeout: 10000 })
+    await page.click('[data-chat-stop]')
+    await page.waitForSelector('[data-role="assistant"][data-status="error"]', { timeout: 15000 })
+
+    const steps = await page.$$eval('[data-tool-step]', (els) =>
+      els.map((e) => e.getAttribute('data-tool-step')),
+    )
+    expect(steps).toEqual(['fail', 'fail'])
+
+    const seen = await calls(page)
+    expect(seen.filter((c) => c.cmd === 'mcp_call'), '停止后 MCP 工具不许再执行').toEqual([])
+    expect(seen.filter((c) => c.cmd === 'ai_chat_cancel')).toHaveLength(1)
+    expect(seen.filter((c) => c.cmd === 'ai_chat'), '停止后不再回灌续跑').toHaveLength(1)
+    expect(
+      await page.evaluate(() =>
+        (localStorage.getItem('modulo.__stubdoc.modulo.carddata.v1') ?? '').includes('停止后不该写'),
+      ),
+      '停止后的本地工具不许落盘',
+    ).toBe(false)
+    expect(errs, `页面不该有报错：${errs.join(' | ')}`).toEqual([])
+  })
+
+  it('工具执行中按停止：在途 MCP 结果如实记账，后续步骤不执行、不续跑', async () => {
+    const errs: string[] = []
+    const page = await open(
+      {
+        loop: [
+          { id: 'call-1', name: TOOL, args: { text: '在途调用' } },
+          { id: 'call-2', name: 'todo_add', args: { text: '停止后不该写' } },
+        ],
+        call: { [TOOL]: { text: '在途结果' } },
+        mcpCallHang: true,
+        chatDoneBeforeResolve: true,
+      },
+      errs,
+    )
+    await expand(page)
+    await ask(page, '先调回声工具，再加一条待办')
+
+    await page.waitForFunction(
+      () => {
+        const w = window as unknown as {
+          __STUB_CALLS__?: { cmd: string }[]
+          __STUB_MCP_RELEASE__?: (() => void) | null
+        }
+        return w.__STUB_CALLS__?.some((c) => c.cmd === 'mcp_call') === true && typeof w.__STUB_MCP_RELEASE__ === 'function'
+      },
+      { timeout: 15000 },
+    )
+    await page.waitForSelector('[data-chat-stop]', { timeout: 10000 })
+    await page.click('[data-chat-stop]')
+    expect(
+      (await calls(page)).filter((c) => c.cmd === 'ai_chat_cancel'),
+      '工具阶段没有模型流可取消，不该多发一条 cancel',
+    ).toEqual([])
+
+    await page.evaluate(() => {
+      const w = window as unknown as { __STUB_MCP_RELEASE__?: (() => void) | null }
+      if (typeof w.__STUB_MCP_RELEASE__ !== 'function') throw new Error('在途 MCP 调用没有释放口')
+      w.__STUB_MCP_RELEASE__()
+    })
+    await page.waitForFunction(
+      () => Array.from(document.querySelectorAll('[data-tool-step]')).every((el) => el.getAttribute('data-tool-step') !== 'running'),
+      { timeout: 15000 },
+    )
+    await page.waitForFunction(() => !document.querySelector('[data-chat-stop]'), { timeout: 15000 })
+    await page.evaluate(async () => {
+      const w = window as unknown as { __STUB_AI_CHAT_RESOLVE__?: (() => void) | null }
+      if (typeof w.__STUB_AI_CHAT_RESOLVE__ !== 'function') throw new Error('ai_chat 响应没有释放口')
+      w.__STUB_AI_CHAT_RESOLVE__()
+      await new Promise((resolve) => setTimeout(resolve, 0))
+    })
+    expect(await exists(page, '[data-chat-stop]'), '工具收尾后迟到的 ai_chat 响应不能重新显示停止').toBe(false)
+
+    const steps = await page.$$eval('[data-tool-step]', (els) => els.map((e) => e.getAttribute('data-tool-step')))
+    expect(steps, '在途那一步保留真实结果，未执行的后续步骤落失败终态').toEqual(['ok', 'fail'])
+    const details = await page.$$eval('[data-tool-step] .detail', (els) => els.map((e) => e.textContent ?? ''))
+    expect(details[0]).toContain('在途结果')
+    expect(details[1]).toContain('这一轮结束了')
+
+    const seen = await calls(page)
+    expect(seen.filter((c) => c.cmd === 'mcp_call')).toHaveLength(1)
+    expect(seen.filter((c) => c.cmd === 'ai_chat'), '停止后不再回灌续跑').toHaveLength(1)
+    expect(
+      await page.evaluate(() =>
+        (localStorage.getItem('modulo.__stubdoc.modulo.carddata.v1') ?? '').includes('停止后不该写'),
+      ),
+      '停止后的本地工具不许落盘',
+    ).toBe(false)
     expect(errs, `页面不该有报错：${errs.join(' | ')}`).toEqual([])
   })
 

@@ -17,8 +17,8 @@ const props = defineProps<{
   picker: CardChoice[]
   pickerIndex: number
   busy: boolean
-  /** 正在流式的会话 id（有值时「停止」才出现） */
-  streaming: string | null
+  /** 当前模型轮次（含工具执行）是否可停止；摘要忙碌态不在此列 */
+  stoppable: boolean
   thinking: string
   providerModel: string
   usage: { cards: number; used: number; max: number; over: boolean }
@@ -135,7 +135,7 @@ defineExpose({
         @input="emit('update:draft', ($event.target as HTMLTextAreaElement).value); emit('input', $event)"
         @keydown="emit('keydown', $event)"
       />
-      <button v-if="busy && streaming" class="send stop" data-chat-stop @click="emit('stop')">停止</button>
+      <button v-if="busy && stoppable" class="send stop" data-chat-stop @click="emit('stop')">停止</button>
       <template v-else>
         <button
           class="send secondary"
