@@ -11,6 +11,22 @@
 
 ## 未发布
 
+### 织布机运行时：Windows 冒烟进 CI（2026-11-26）
+
+β1 的运行时包此前只在本机冒烟过一轮，而 nexusloom 自己的 CI **只跑 Linux** —— Windows
+回归面（α 踩过的 cp936 坏 MCP 帧、无 `__main__` 入口两条专属坑）现在每次构建都证一遍：
+
+- 桌面壳 job 新增「织布机运行时冒烟」step（upload-artifact 之前，push / PR 都跑）：
+  下载**已发布的同一个资产**（Release `loom-runtime-v0.1.0`，immutable；curl 带上界 +
+  sha256 核对清单）→ 解压 → 真起 MCP，断言 `initialize` 回 protocolVersion + serverInfo loom、
+  `tools/list` 含 `generate_document`；错误帧、45 秒超时、**子进程提前退出**都即红，不空跑装绿
+  （python 一崩就静默通过 0 的假绿面已用负向用例钉死）。
+- step 自身 8 分钟上限 + 每环 `[loom-smoke]` 标记：首版曾零输出挂到 job 35 分钟上限被 cancel，
+  第二轮标记指认挂点 = **System32 bsdtar 解压**（下载 0.75 秒、sha256 一致后零输出挂满 8 分钟，
+  本机同一颗 bsdtar 秒过，CI 环境怪癖）；解压改走 **python tarfile**（与 sherpa 那步同一条路），
+  MSYS tar 把 `-C C:\...` 当远程主机的坑也一并绕开。
+- **刻意不跑 `generate_document` 真生成**（要 LLM key，CI 不该有）；各维数字不变（不碰 `src/`）。
+
 ### β1 可达性防回归：运行时区必须真实挂载（2026-11-25）
 
 `settings-ia.spec.ts` 增补两条桌面形态断言：实验室组必须出现 `data-loom-section` 与
