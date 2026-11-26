@@ -14,8 +14,13 @@
  *    （与协调板「删之前先有别的 ref 能到」同一条哲学）。
  * 3. **不静默重试**：下载失败一律人话，可重试由用户决定（与「错过不补跑」同一条纪律）。
  * 4. **不静默改 MCP 配置**：装好只给一段**可复制的配置 JSON**，用户自己决定要不要粘进去
- *    （改配置 = 改用户的工具面，同「AI 永不直接写」）。
+ *    （改配置 = 改用户的工具面，同「AI 永不直接写」）。β1 收尾（r47）加的「一键添加到 MCP 服务」
+ *    不违反这条：那是用户**点了按钮**才发生的写入，且只动织布机自己那一条
+ *    （`planLoomMcpServer` 按 `run-mcp.py` 签名认条目，不劫持同名的别人的服务）；
+ *    总开关与「允许本会话」两道既有闸门依旧由用户自己开。
  */
+
+import { joinArgs, type McpServer } from './mcpCore'
 
 /** 版本目录名：首字符字母或数字，其余字母数字与 `._-`，≤32 字符 —— 路径分隔符与 `..` 天然进不来 */
 export const LOOM_VERSION_RE = /^[0-9A-Za-z][0-9A-Za-z._-]{0,31}$/
@@ -116,4 +121,33 @@ export function humanBytes(n: number): string {
   if (n < 1024) return `${n} B`
   if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KiB`
   return `${(n / (1024 * 1024)).toFixed(1)} MiB`
+}
+
+/** 「一键添加」的计划：新增 / 更新既有条目（换版本后指过去）/ 一模一样就什么都不做 */
+export interface LoomMcpPlan {
+  action: 'add' | 'update' | 'same'
+  /** update / same 时既有条目的 id；add 时没有 */
+  id?: string
+  /** 直接喂给 `mcp.add` / `mcp.update` 的表单（args 是一行文本，走 `validateDraft` 同一道闸门） */
+  draft: { name: string; command: string; args: string }
+}
+
+/**
+ * 一键添加到 MCP 服务的**纯判定**（β1 收尾 r47）：只认「参数里有 `run-mcp.py`」这一条签名 ——
+ * 那是我们出包脚本写下的启动 shim 名，用户改名条目也认得出；**只看名字会把用户自己
+ * 叫 loom 的别的服务劫持掉**，所以名字永远不参与匹配。
+ * 多条签名命中取第一条（重复添加不会越点越多：第二条起就是 same / update）。
+ */
+export function planLoomMcpServer(
+  list: readonly McpServer[],
+  pythonExe: string,
+  launcher: string,
+): LoomMcpPlan {
+  const draft = { name: 'loom', command: pythonExe, args: joinArgs([launcher]) }
+  const hit = list.find((s) => s.args.some((a) => a.endsWith('run-mcp.py')))
+  if (!hit) return { action: 'add', draft }
+  if (hit.command === pythonExe && joinArgs(hit.args) === draft.args) {
+    return { action: 'same', id: hit.id, draft }
+  }
+  return { action: 'update', id: hit.id, draft }
 }

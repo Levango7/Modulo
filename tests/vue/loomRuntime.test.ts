@@ -3,10 +3,12 @@ import {
   humanBytes,
   mcpConfigSnippet,
   parseLoomManifest,
+  planLoomMcpServer,
   planPaths,
   verifyDigest,
   versionChoices,
 } from '../../src/vue/loomRuntime'
+import { validateDraft, type McpServer } from '../../src/vue/mcp'
 
 /** 一条合法的清单（字段全齐） */
 const good = (over: Record<string, unknown> = {}): string =>
@@ -119,5 +121,79 @@ describe('织布机运行时：版本回退与展示', () => {
     expect(humanBytes(70 * 1024 * 1024)).toBe('70.0 MiB')
     expect(humanBytes(-1)).toBe('?')
     expect(humanBytes(Number.NaN)).toBe('?')
+  })
+})
+
+describe('织布机运行时：一键添加到 MCP 服务（r47）', () => {
+  const PY = 'C:/loom/v0.1.0/python/python.exe'
+  const SHIM = 'C:/loom/v0.1.0/run-mcp.py'
+  const srv = (over: Partial<McpServer> = {}): McpServer => ({
+    id: 's1',
+    enabled: true,
+    name: 'loom',
+    command: PY,
+    args: [SHIM],
+    ...over,
+  })
+
+  it('空清单 ⇒ add：名字 loom、命令原样；draft 过得了 validateDraft 同一道闸门', () => {
+    const plan = planLoomMcpServer([], PY, SHIM)
+    expect(plan.action).toBe('add')
+    expect(plan.id).toBeUndefined()
+    expect(plan.draft).toEqual({ name: 'loom', command: PY, args: SHIM })
+    const checked = validateDraft(plan.draft)
+    expect(checked.ok).toBe(true)
+  })
+
+  it('路径含空格 ⇒ args 行加引号，且切回来逐项相等（不会静默拆成多段）', () => {
+    const dir = 'D:/Program Files (x86)/loom/v0.1.0'
+    const plan = planLoomMcpServer([], `${dir}/python/python.exe`, `${dir}/run-mcp.py`)
+    expect(plan.draft.args).toBe(`"${dir}/run-mcp.py"`)
+    const checked = validateDraft(plan.draft)
+    expect(checked.ok).toBe(true)
+    if (checked.ok) expect(checked.value.args).toEqual([`${dir}/run-mcp.py`])
+  })
+
+  it('已有同形条目 ⇒ same（给 id），重复点不会越点越多', () => {
+    const plan = planLoomMcpServer([srv()], PY, SHIM)
+    expect(plan.action).toBe('same')
+    expect(plan.id).toBe('s1')
+  })
+
+  it('命令相同、参数指向旧版本 ⇒ update（id 保留，不换条）', () => {
+    const old = srv({ args: ['C:/loom/v0.0.9/run-mcp.py'] })
+    const plan = planLoomMcpServer([old], PY, SHIM)
+    expect(plan.action).toBe('update')
+    expect(plan.id).toBe('s1')
+    expect(plan.draft.args).toBe(SHIM)
+  })
+
+  it('参数相同、命令不同（换了运行时根）⇒ update', () => {
+    const other = srv({ command: 'D:/elsewhere/python/python.exe' })
+    const plan = planLoomMcpServer([other], PY, SHIM)
+    expect(plan.action).toBe('update')
+    expect(plan.id).toBe('s1')
+  })
+
+  it('条目被用户改名也认得出：匹配只看 run-mcp.py 签名，不看名字', () => {
+    const renamed = srv({ name: '织布机（我改的名）' })
+    const plan = planLoomMcpServer([renamed], PY, SHIM)
+    expect(plan.action).toBe('same')
+    expect(plan.id).toBe('s1')
+  })
+
+  it('别人的服务恰好叫 loom（参数无签名）⇒ add 新条，不劫持别人的条目', () => {
+    const theirs = srv({ name: 'loom', command: 'npx', args: ['-y', 'some-other-server'] })
+    const plan = planLoomMcpServer([theirs], PY, SHIM)
+    expect(plan.action).toBe('add')
+    expect(plan.id).toBeUndefined()
+  })
+
+  it('多条签名命中 ⇒ 只取第一条（update 不会把整排都改掉）', () => {
+    const a = srv({ id: 's3', args: ['C:/loom/v0.0.9/run-mcp.py'] })
+    const b = srv({ id: 's7', args: ['C:/loom/v0.0.8/run-mcp.py'] })
+    const plan = planLoomMcpServer([a, b], PY, SHIM)
+    expect(plan.action).toBe('update')
+    expect(plan.id).toBe('s3')
   })
 })
