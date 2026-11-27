@@ -1,8 +1,10 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, onUpdated, ref } from 'vue'
-import { ExternalLink } from 'lucide-vue-next'
+import { computed, nextTick, onBeforeUnmount, onMounted, onUpdated, provide, ref, watch } from 'vue'
+import { ExternalLink, X } from 'lucide-vue-next'
 import { cardComponentOf } from '../cardComponents'
 import { attachCardFx } from '../cardFx'
+import { flipFrames } from '../expandFlip'
+import type { CardExpandFn, FlipRect } from '../expandFlip'
 import type { PhysicalRect } from '@levango7/engine/projection'
 
 const props = defineProps<{
@@ -65,6 +67,88 @@ onBeforeUnmount(() => {
   for (const unbind of fxTargets.values()) unbind()
   fxTargets.clear()
 })
+
+/**
+ * 卡片原位展开 overlay（视觉刀 1·四，2026-11-28）：provide `cardExpand` 给卡组件
+ * （TodoCard 的「展开」钮）。内容 = 与网格里**同一张卡组件、完全相同的 props**
+ * （variant / module id / instance id 都照抄，保数据一致 —— 卡内容走 inject('cardData')，
+ * 展开体与网格卡读的就是同一份数据）；不是搬运同一个 DOM 节点，而是复刻一份再 FLIP。
+ *
+ * 动画：WAAPI 两帧（from = 源 rect，to = flipFrames 的居中目标），关闭反向回放到源 rect
+ * 再卸载；`prefers-reduced-motion` 命中则完全不播、直接显隐（tokens.css 的全局钳只压 CSS
+ * 过渡，压不住 WAAPI，得自己查）。三种关闭：Esc（捕获阶段拦，别让 App 全局键再处理一遍）、
+ * scrim 点击、右上角关闭钮。z-index 用 --z-modal 档，与仓内各弹层同层。
+ */
+const FLIP_MS = 200
+const FLIP_EASING = 'cubic-bezier(0.16, 1, 0.3, 1)'
+
+interface ExpandedCard {
+  moduleId: string
+  placementId: string
+  variant: string
+}
+const expanded = ref<ExpandedCard | null>(null)
+/** 关闭动画进行中——防止 Esc/点 scrim 连按期间再起一条反向动画打架 */
+const expandClosing = ref(false)
+const expandSrc = ref<FlipRect>({ left: 0, top: 0, width: 0, height: 0 })
+const expandEl = ref<HTMLElement | null>(null)
+
+function prefersReducedMotion(): boolean {
+  return window.matchMedia('(prefers-reduced-motion: reduce)').matches
+}
+
+const openCardExpand: CardExpandFn = (moduleId, placementId, sourceEl) => {
+  if (expanded.value) return
+  const r = sourceEl.getBoundingClientRect()
+  expandSrc.value = { left: r.left, top: r.top, width: r.width, height: r.height }
+  // 形态照抄网格投影里这张卡实际生效的那个（overlay 与网格同形态，卡内 cqw/cqh 缩放口径一致）
+  const rect = props.rects.find((x) => x.id === placementId)
+  expanded.value = { moduleId, placementId, variant: rect?.variant ?? 'default' }
+}
+provide('cardExpand', openCardExpand)
+
+watch(expanded, async (v, prev) => {
+  if (!v || prev) return
+  await nextTick()
+  const el = expandEl.value
+  if (!el) return
+  const { from, to, target } = flipFrames(expandSrc.value, window.innerWidth, window.innerHeight)
+  // 目标位写进行内样式：动画只负责"从源 rect 飞过来"，落定后与样式一致、无跳帧
+  el.style.left = `${target.left}px`
+  el.style.top = `${target.top}px`
+  el.style.width = `${target.width}px`
+  el.style.height = `${target.height}px`
+  if (prefersReducedMotion()) return
+  el.animate([from, to], { duration: FLIP_MS, easing: FLIP_EASING })
+})
+
+function closeCardExpand(): void {
+  if (!expanded.value || expandClosing.value) return
+  const el = expandEl.value
+  if (!el || prefersReducedMotion()) {
+    expanded.value = null
+    return
+  }
+  expandClosing.value = true
+  const { from, to } = flipFrames(expandSrc.value, window.innerWidth, window.innerHeight)
+  const anim = el.animate([to, from], { duration: FLIP_MS, easing: FLIP_EASING })
+  const finish = (): void => {
+    expanded.value = null
+    expandClosing.value = false
+  }
+  anim.onfinish = finish
+  anim.oncancel = finish
+}
+
+/** Esc 关闭：捕获阶段拦下（与 OnboardingWizard 同一做法），App 的全局按键不再处理一遍 */
+function onDocKeydown(e: KeyboardEvent): void {
+  if (e.key !== 'Escape' || !expanded.value) return
+  e.preventDefault()
+  e.stopPropagation()
+  closeCardExpand()
+}
+onMounted(() => document.addEventListener('keydown', onDocKeydown, true))
+onBeforeUnmount(() => document.removeEventListener('keydown', onDocKeydown, true))
 </script>
 
 <template>
@@ -108,6 +192,24 @@ onBeforeUnmount(() => {
       </button>
     </div>
   </TransitionGroup>
+
+  <!-- 卡片原位展开 overlay（视觉刀 1·四）：Teleport 到 body，z-index 走 --z-modal 档。
+       卡组件与网格里完全同款同 props（见 openCardExpand 注释），scrim 点击 / Esc / 关闭钮三种关闭。 -->
+  <Teleport to="body">
+    <div v-if="expanded" class="expand-scrim" @click.self="closeCardExpand">
+      <div ref="expandEl" class="expand-card" role="dialog" aria-modal="true" aria-label="卡片详情">
+        <button class="expand-close" title="关闭 (Esc)" aria-label="关闭详情" @click="closeCardExpand">
+          <X :size="16" />
+        </button>
+        <component
+          :is="cardComponentOf(expanded.moduleId)"
+          :variant="expanded.variant"
+          :module-id="expanded.moduleId"
+          :instance-id="expanded.placementId"
+        />
+      </div>
+    </div>
+  </Teleport>
 </template>
 
 <style scoped>
@@ -255,5 +357,45 @@ onBeforeUnmount(() => {
     box-shadow: var(--shadow-hover);
     transform: none;
   }
+}
+/* 卡片原位展开 overlay（视觉刀 1·四）。scrim = 背景纱 + blur（blur(12px) 沿仓内弹层惯例）；
+   展开体由 JS 把 flipFrames 的目标位写进行内样式，WAAPI 两帧驱动，落定即样式位、无跳帧。 */
+.expand-scrim {
+  position: fixed;
+  inset: 0;
+  z-index: var(--z-modal);
+  background: var(--scrim);
+  backdrop-filter: blur(12px);
+}
+.expand-card {
+  position: fixed;
+  overflow: hidden;
+  border-radius: var(--radius-lg);
+  background: var(--bg-card-solid);
+  box-shadow: var(--shadow-hover);
+}
+/* 展开体里就是与网格同款的卡组件：让它铺满动画驱动的外壳 */
+.expand-card > * {
+  width: 100%;
+  height: 100%;
+}
+.expand-close {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  z-index: 2;
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-sm);
+  background: var(--bg-card-solid);
+  color: var(--text-3);
+  cursor: pointer;
+}
+.expand-close:hover {
+  color: var(--text-1);
 }
 </style>
