@@ -54,7 +54,11 @@ function syncCardFx(): void {
 
 const onGridPointerMove = (e: PointerEvent): void => {
   const cell = e.target instanceof Element ? e.target.closest('.cell') : null
-  bindCardFx(cell?.firstElementChild)
+  // 事件委托只认网格的**直接子级** .cell（2026-11-28 reviewer 顺手修 A）：
+  // DutyCard / HeatmapCard 卡内也有 .cell 类元素，closest 会命中它们 ——
+  // 把卡内格子误挂成卡面效果（聚光/倾斜挂错了层）。父节点是网格根（.grid）才算数。
+  if (!cell || cell.parentElement !== gridEl.value?.$el) return
+  bindCardFx(cell.firstElementChild)
 }
 
 onMounted(() => {
@@ -92,6 +96,8 @@ const expanded = ref<ExpandedCard | null>(null)
 const expandClosing = ref(false)
 const expandSrc = ref<FlipRect>({ left: 0, top: 0, width: 0, height: 0 })
 const expandEl = ref<HTMLElement | null>(null)
+/** 触发卡里那枚「展开」钮：关闭 overlay 时把焦点还给它的落点（reviewer 顺手修 C） */
+const expandTrigger = ref<HTMLElement | null>(null)
 
 function prefersReducedMotion(): boolean {
   return window.matchMedia('(prefers-reduced-motion: reduce)').matches
@@ -101,6 +107,8 @@ const openCardExpand: CardExpandFn = (moduleId, placementId, sourceEl) => {
   if (expanded.value) return
   const r = sourceEl.getBoundingClientRect()
   expandSrc.value = { left: r.left, top: r.top, width: r.width, height: r.height }
+  // 焦点管理（顺手修 C，最小可用）：记下触发卡里的「展开」钮，关闭时把焦点还给它的落点
+  expandTrigger.value = sourceEl.querySelector<HTMLElement>('[data-card-expand]')
   // 形态照抄网格投影里这张卡实际生效的那个（overlay 与网格同形态，卡内 cqw/cqh 缩放口径一致）
   const rect = props.rects.find((x) => x.id === placementId)
   expanded.value = { moduleId, placementId, variant: rect?.variant ?? 'default' }
@@ -108,7 +116,13 @@ const openCardExpand: CardExpandFn = (moduleId, placementId, sourceEl) => {
 provide('cardExpand', openCardExpand)
 
 watch(expanded, async (v, prev) => {
-  if (!v || prev) return
+  // 关闭（含反向动画结束的卸载那一刻）：焦点还给网格里那枚「展开」钮；
+  // 卡已离树（删卡/换实例）就不还，不做完整 focus trap。
+  if (!v) {
+    if (prev && expandTrigger.value?.isConnected) expandTrigger.value.focus()
+    return
+  }
+  if (prev) return
   await nextTick()
   const el = expandEl.value
   if (!el) return
@@ -118,6 +132,8 @@ watch(expanded, async (v, prev) => {
   el.style.top = `${target.top}px`
   el.style.width = `${target.width}px`
   el.style.height = `${target.height}px`
+  // 打开即把焦点交给关闭钮（顺手修 C）：键盘用户 Esc / Tab 都有明确落点
+  el.querySelector<HTMLElement>('.expand-close')?.focus()
   if (prefersReducedMotion()) return
   el.animate([from, to], { duration: FLIP_MS, easing: FLIP_EASING })
 })
@@ -355,6 +371,13 @@ onBeforeUnmount(() => document.removeEventListener('keydown', onDocKeydown, true
   }
   .cell:active > * {
     box-shadow: var(--shadow-hover);
+    transform: none;
+  }
+  /* 按压反馈的第一子级补一条同特异规则（2026-11-28 reviewer 顺手修 B）：
+     `.cell:active > *` 是 0,2,0，压不过上面 hover 倾斜的 `.cell:hover > :first-child`
+     0,3,0 —— 触屏按压时按住倾斜不归零。触屏上 tap 会带 sticky hover，:active 与
+     :hover 同时命中，这里同特异且靠后，保证按压瞬间 transform 真正归零。 */
+  .cell:active > :first-child {
     transform: none;
   }
 }

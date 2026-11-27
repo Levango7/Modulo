@@ -45,10 +45,17 @@ function submit(e: KeyboardEvent) {
 <template>
   <div ref="rootEl" class="card">
     <div v-if="!chromeless" class="card-head">
-      <ListChecks :size="14" /><span>待办</span><span class="muted count">{{ open.length }} 项</span>
-      <button v-if="expand" class="expand" data-card-expand title="展开详情" aria-label="展开待办详情" @click="requestExpand">
-        <Maximize2 :size="12" />
-      </button>
+      <ListChecks :size="14" /><span>待办</span>
+      <!-- 展开钮与计数打成一组靠右，展开钮在计数左侧（2026-11-28 reviewer 必须修 #3）：
+           卡头最右是 GridLayout 的 .detach 热区（26×26，opacity:0 也吃点击），展开钮必须
+           完全离开它 —— 按钮最右缘距卡右缘 = 卡头右 padding 12 + 计数宽 + 组内间距 12 ≥ 44px，
+           距卡顶 = 卡头上 padding 12 + 行内居中 ≈ 16px，两个方向都出了热区。 -->
+      <span class="head-right">
+        <button v-if="expand" class="expand" data-card-expand title="展开详情" aria-label="展开待办详情" @click="requestExpand">
+          <Maximize2 :size="12" />
+        </button>
+        <span class="muted count">{{ open.length }} 项</span>
+      </span>
     </div>
     <div class="card-body">
       <ul class="list">
@@ -74,12 +81,21 @@ function submit(e: KeyboardEvent) {
 </template>
 
 <style scoped>
-.card-head .count {
+/* 展开钮 + 计数一组靠右：margin-left:auto 从计数挪到组上 —— 浮窗里没有展开钮
+   （FloatShell 不 provide cardExpand），计数还得独自靠右。组内间距 12px（≥10px，
+   展开钮的热区 ::after 外扩 6px 也吃不满这个缝，不会盖到计数上）。 */
+.head-right {
   margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+}
+.card-head .count {
   font-size: 12px;
 }
-/* 「展开」钮：卡头最右的一枚小图标钮（视觉刀 1·四）。视觉 12×12，热区外扩与 .del 同一
-   做法 —— 行高 23px，各向扩 6px 后恰好铺满行头、不越界。 */
+/* 「展开」钮：计数左侧的一枚小图标钮（视觉刀 1·四，2026-11-28 reviewer 必须修 #3
+   从卡头最右挪过来躲 detach 热区）。视觉 12×12，热区外扩与 .del 同一做法 ——
+   行高 23px，各向扩 6px 后恰好铺满行头、不越界。 */
 .expand {
   position: relative;
   display: grid;
