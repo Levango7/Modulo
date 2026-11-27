@@ -66,16 +66,21 @@ const PAIRS: Record<string, [string, string]> = {
  * 「底布 → 嵌入面板 → 浮起卡片」三层分层的可辨识度。重录后 text-1 = 14.58，仍远超
  * WCAG AAA 正文要求 7:1；text-3 = 3.06 是三级弱化档（原本就不承担正文，见上文的说明），
  * 仅用于次要标注。取数工具同基线：`node tests/e2e/visual-kit/probe.mjs`，2026-11-23 实测。）
+ *  **aurora 亮色档 2026-11-28 再重测**（视觉刀 1·一）：`--bg-page` 再深一档
+ * #eeece7 → #edeae4（用户评审通过的原型定稿）。页面底变深 ⇒ 深色前景对页底的对比度
+ * 整体微降，五对 bg-page 配对按实测重录：text-1 = 14.33 / text-2 = 6.48 / text-3 = 3.01 /
+ * accent = 4.76 / c-red = 3.13（全部高于重录前各自的下限，无一破地板）；text-1/bg-card-solid
+ * 与 text-1/brand-50 不随 --bg-page 变，维持 2026-11-23 实测值。2026-11-28 实测。）
  * ink / candy 两套未动，基线维持 2026-10-14/17 实测值。 */
 const BASELINE: Record<string, Record<string, Record<string, number>>> = {
   aurora: {
     light: {
-      'text-1/bg-page': 14.58,
-      'text-2/bg-page': 6.59,
-      'text-3/bg-page': 3.06,
+      'text-1/bg-page': 14.33,
+      'text-2/bg-page': 6.48,
+      'text-3/bg-page': 3.01,
       'text-1/bg-card-solid': 17.21,
-      'accent/bg-page': 4.84,
-      'c-red/bg-page': 3.19,
+      'accent/bg-page': 4.76,
+      'c-red/bg-page': 3.13,
       'text-1/brand-50': 14.49,
     },
     dark: {

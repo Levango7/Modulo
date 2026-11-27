@@ -4,7 +4,9 @@
    判断依据：暖米绿 + 环境光渐变 + 半透明卡面的第一印象是"小部件面板"，
    与 agent 工作台的专业冷静不匹配；主流 agent 工具（Claude desktop / codex）的共通语言是
    暖白纸面、近黑文字、发丝线分层、单一强调色、克制圆角与投影。三条硬规则：
-   ① 卡片一律实色（--bg-card 不再带 alpha）—— 分层靠 --border-soft 发丝线，不靠半透明叠加；
+   ① 卡片实色打底（--bg-card / --bg-card-solid 不带 alpha）—— 分层靠 --border-soft 发丝线；
+     玻璃感走**新增的叠加层变量**（--bg-glass / --glass-blur，2026-11-28 视觉刀 1 有意修订
+     原句「不靠半透明叠加」），--bg-card-solid 仍是对比度门禁量测的实色语义；
    ② 页面底色不再铺环境光渐变（--app-bg 取 --bg-page）—— 干净、可预期、截图可复现；
    ③ 强调色只用一个（深林绿），不与「蓝紫渐变」那代 AI 产品撞脸。 */
 :root {
@@ -15,13 +17,20 @@
      --border-soft #e8e5df / --border-strong 0.14 —— 页面底与卡面明度差 <2%，
      「发丝线分层」实际不可见。真机 CDP 令牌覆盖原型验证（before/after 截图）后定案。
      暗色档本来就分层清晰，不动。 */
-  --bg-page: #eeece7;
+  /* 2026-11-28 视觉刀 1·一（视觉重构）：页面底再深一档 #eeece7 → #edeae4 ——
+     理由 = 用户评审通过的原型定稿（青瓷暖纸底）。accent 与暗色档等其余令牌不动。 */
+  --bg-page: #edeae4;
   --bg-card: #ffffff;
   --bg-card-solid: #ffffff;
   --bg-card-soft: #f7f5f1;
   --input-bg: #ffffff;
   --frost-surface: #ffffff;
   --frost-edge: 0 0 0 0 rgba(0, 0, 0, 0);
+  /* 玻璃面叠加层（2026-11-28 视觉刀 1 新增，亮色档）：玻璃感不再动 --bg-card 的实色语义
+     （铁律①），卡面在上面叠这层半透明纸雾 + backdrop-filter: blur(var(--glass-blur))。
+     暗色档留给刀 2，不在此定义。 */
+  --bg-glass: rgba(252, 251, 248, 0.66);
+  --glass-blur: 18px;
   --text-1: #1c1b19;
   --text-2: #55524c;
   --text-3: #8b867d;
