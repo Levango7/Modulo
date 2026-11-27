@@ -8,12 +8,22 @@
         圆头相融，V 骑在两腿上，读 M 不读 H（中缝是真斜线连接）。
       · 多色是用户 2026-11-23 反馈「M 不要这么简单，用多种颜色拼一下」的迭代；
         九块色带版实渲对比后落选（竖块中缝掉了动势，0.8.9 旧稿同款教训）。
-      · 与 src/vue/components/BrandMark.vue 的关系：应用内标识仍是单色 --accent 描边
-        （随皮肤变色是设计内）；三色是图标位的展示档。
+    2026-11-28 视觉刀 1（视觉重构第一刀·二）：四段分笔加缝 —— 上面的「三色一笔」几何
+      就此作废，M 重画为左腿白 / 左斜 #F6B39B / 右斜 #bfeadb / 右腿白四段独立描边，
+      段与段端点不共点、笔间留缝，缝宽 ≈ 两段端点间距 25-30 单位（×42.67 后即 30/60 的
+      端点错位），寓意「模块拼合成整体」。几何沿用评审通过的原型：24 格等比 ×42.67
+      映射到 1024，stroke-width 115 ≈ 2.7×42.67，stroke-linecap round、不 fill；
+      底 rect 与 rx 224 不动。
+      与页面 BrandMark 同形：BrandMark.vue 同步改成同一套四段（viewBox 24），并改用
+      固定品牌色 —— 上面「应用内标识随皮肤变 --accent」的旧关系就此作废（2026-11-28
+      刀 1 裁决，见该文件头注释）。
     public/favicon.svg 是本文件的逐字节副本（tests/assets/favicon.test.ts 钉住）。
   -->
   <rect width="1024" height="1024" rx="224" fill="#2E8F79"/>
-  <rect x="268" y="292" width="116" height="440" rx="58" fill="#FFFFFF"/>
-  <rect x="640" y="292" width="116" height="440" rx="58" fill="#8FCDBB"/>
-  <path d="M326 292L512 560L698 292" fill="none" stroke="#E4572E" stroke-width="116" stroke-linecap="round" stroke-linejoin="round"/>
+  <g fill="none" stroke-width="115" stroke-linecap="round">
+    <path d="M238 801V273" stroke="#FFFFFF"/>
+    <path d="M268 307 481 554" stroke="#F6B39B"/>
+    <path d="M541 554 754 307" stroke="#bfeadb"/>
+    <path d="M785 801V273" stroke="#FFFFFF"/>
+  </g>
 </svg>
